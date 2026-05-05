@@ -1,0 +1,244 @@
+/* ============================================================
+   PoseidonX — Wabi-Sabi ⇄ OpenBridge Theme Bridge
+   Maps WS page-level CSS variables to respond to
+   data-obc-theme changes (day | dusk | night | bright)
+   ============================================================ */
+
+/* ── Dusk (default — current WS Rubber palette) ───────────── */
+[data-obc-theme='dusk'], :root {
+  --shironeri: oklch(0.96 0.003 110);
+  --ishi: oklch(0.91 0.004 110);
+  --kabe: oklch(0.85 0.005 110);
+  --hai: oklch(0.78 0.005 110);
+  --nezumi: oklch(0.68 0.006 110);
+  --rubber: oklch(0.72 0.006 110);
+  --rubber-hover: oklch(0.68 0.007 110);
+  --rubber-press: oklch(0.64 0.007 110);
+  --sumi: oklch(0.18 0.008 110);
+  --sumi-2: oklch(0.38 0.006 110);
+  --sumi-3: oklch(0.55 0.005 110);
+  --koke: oklch(0.52 0.04 160);
+  --shu: oklch(0.48 0.07 22);
+  --kitsune: oklch(0.56 0.05 70);
+  --text: oklch(0.18 0.008 110);
+  --text-2: oklch(0.42 0.006 110);
+  --text-3: oklch(0.60 0.005 110);
+  --groove: oklch(0.82 0.004 110);
+  --ridge: oklch(1.00 0 0 / 0.6);
+  --muted: oklch(0.55 0.005 110);
+}
+
+/* ── Day (standard daylight) ──────────────────────────────── */
+[data-obc-theme='day'] {
+  --shironeri: #ffffff;
+  --ishi: #f0f0f0;
+  --kabe: #e0e0e0;
+  --hai: #c8c8c8;
+  --nezumi: #8e8e8e;
+  --rubber: #c8c8c8;
+  --rubber-hover: #b0b0b0;
+  --rubber-press: #a0a0a0;
+  --sumi: #3d3d3d;
+  --sumi-2: #535353;
+  --sumi-3: #707070;
+  --koke: #335483;
+  --shu: #c5003a;
+  --kitsune: #956b26;
+  --text: #3d3d3d;
+  --text-2: #535353;
+  --text-3: #707070;
+  --groove: #dddddd;
+  --ridge: rgba(255,255,255,0.6);
+  --muted: #707070;
+}
+
+/* ── Night (IMO night-vision — amber/green on black) ──────── */
+[data-obc-theme='night'] {
+  --shironeri: rgb(0,0,0);
+  --ishi: rgb(5,5,0);
+  --kabe: rgba(71,71,0,0.2);
+  --hai: rgba(71,71,0,0.25);
+  --nezumi: rgba(71,71,0,0.45);
+  --rubber: rgb(10,10,0);
+  --rubber-hover: rgb(15,15,0);
+  --rubber-press: rgb(20,20,0);
+  --sumi: rgb(71,71,0);
+  --sumi-2: rgba(71,71,0,0.65);
+  --sumi-3: rgba(71,71,0,0.45);
+  --koke: rgb(0,51,21);
+  --shu: rgb(77,0,5);
+  --kitsune: rgb(92,44,0);
+  --text: rgb(71,71,0);
+  --text-2: rgba(71,71,0,0.65);
+  --text-3: rgba(71,71,0,0.45);
+  --groove: rgba(71,71,0,0.2);
+  --ridge: rgba(71,71,0,0.1);
+  --muted: rgba(71,71,0,0.45);
+}
+
+/* ── Bright (high contrast, full sunlight) ────────────────── */
+[data-obc-theme='bright'] {
+  --shironeri: #ffffff;
+  --ishi: #ffffff;
+  --kabe: #8e8e8e;
+  --hai: #8e8e8e;
+  --nezumi: #535353;
+  --rubber: #e9e9e9;
+  --rubber-hover: #d0d0d0;
+  --rubber-press: #b0b0b0;
+  --sumi: #1a1a1a;
+  --sumi-2: #3d3d3d;
+  --sumi-3: #535353;
+  --koke: #223c61;
+  --shu: #eb0014;
+  --kitsune: #956b26;
+  --text: #1a1a1a;
+  --text-2: #3d3d3d;
+  --text-3: #535353;
+  --groove: #8e8e8e;
+  --ridge: rgba(0,0,0,0.08);
+  --muted: #535353;
+}
+
+/* ── Night mode body overrides ────────────────────────────── */
+[data-obc-theme='night'] body {
+  background: rgb(0,0,0) !important;
+  color: rgb(71,71,0) !important;
+}
+[data-obc-theme='night'] body::before {
+  background-image: none !important;
+}
+
+/* ── Bright mode body overrides ───────────────────────────── */
+[data-obc-theme='bright'] body {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UI Helper Variables — used by agent-team-config and pages
+   ═══════════════════════════════════════════════════════════ */
+
+/* Dusk (default) */
+[data-obc-theme='dusk'], :root {
+  --ws-sidebar-bg: rgba(232,240,250,0.95);
+  --ws-hover-bg: rgba(26,95,180,0.08);
+  --ws-active-bg: rgba(224,64,160,0.12);
+  --ws-border: rgba(30,60,110,0.18);
+  --ws-border-light: rgba(30,60,110,0.10);
+  --ws-border-subtle: rgba(30,60,110,0.06);
+  --ws-panel-bg: oklch(0.96 0.003 110);
+  --ws-panel2-bg: oklch(0.91 0.004 110);
+  --ws-input-bg: oklch(0.96 0.003 110);
+  --ws-soul-bg: rgba(240,244,252,0.95);
+  --ws-memory-bg: rgba(232,240,250,0.6);
+  --ws-focus-bg: rgba(232,240,250,0.5);
+  --ws-hover-row: rgba(26,95,180,0.04);
+  --ws-zebra: rgba(26,95,180,0.02);
+  --ws-btn-hover: rgba(26,95,180,0.08);
+  --ws-danger-bg: rgba(224,27,36,0.08);
+  --ws-danger-border: rgba(224,27,36,0.18);
+  --ws-toast-bg: oklch(0.96 0.003 110);
+  --ws-toast-border: rgba(30,60,110,0.12);
+  --ws-toast-error-bg: oklch(0.97 0.01 22);
+  --ws-toast-success-bg: oklch(0.97 0.01 160);
+  --ws-toast-warn-bg: oklch(0.97 0.01 70);
+  --ws-scrollbar: oklch(0.82 0.004 110);
+  --ws-scrollbar-hover: oklch(0.68 0.006 110);
+  --ws-shadow: oklch(0 0 0 / 0.04);
+  --ws-shadow-md: oklch(0 0 0 / 0.08);
+  --ws-shadow-lg: oklch(0 0 0 / 0.1);
+}
+
+/* Day */
+[data-obc-theme='day'] {
+  --ws-sidebar-bg: #f5f7fa;
+  --ws-hover-bg: rgba(0,80,180,0.06);
+  --ws-active-bg: rgba(197,0,58,0.10);
+  --ws-border: #d0d0d0;
+  --ws-border-light: #e0e0e0;
+  --ws-border-subtle: #f0f0f0;
+  --ws-panel-bg: #ffffff;
+  --ws-panel2-bg: #f0f0f0;
+  --ws-input-bg: #ffffff;
+  --ws-soul-bg: #f5f7fa;
+  --ws-memory-bg: #f0f2f5;
+  --ws-focus-bg: #f0f2f5;
+  --ws-hover-row: rgba(0,80,180,0.03);
+  --ws-zebra: rgba(0,80,180,0.02);
+  --ws-btn-hover: rgba(0,80,180,0.06);
+  --ws-danger-bg: rgba(197,0,58,0.06);
+  --ws-danger-border: rgba(197,0,58,0.2);
+  --ws-toast-bg: #ffffff;
+  --ws-toast-border: #e0e0e0;
+  --ws-toast-error-bg: #fff5f5;
+  --ws-toast-success-bg: #f0fff4;
+  --ws-toast-warn-bg: #fffbf0;
+  --ws-scrollbar: #d0d0d0;
+  --ws-scrollbar-hover: #a0a0a0;
+  --ws-shadow: rgba(0,0,0,0.04);
+  --ws-shadow-md: rgba(0,0,0,0.08);
+  --ws-shadow-lg: rgba(0,0,0,0.12);
+}
+
+/* Night (IMO NV) */
+[data-obc-theme='night'] {
+  --ws-sidebar-bg: rgb(3,3,0);
+  --ws-hover-bg: rgba(71,71,0,0.12);
+  --ws-active-bg: rgba(77,0,5,0.2);
+  --ws-border: rgba(71,71,0,0.25);
+  --ws-border-light: rgba(71,71,0,0.15);
+  --ws-border-subtle: rgba(71,71,0,0.08);
+  --ws-panel-bg: rgb(0,0,0);
+  --ws-panel2-bg: rgb(5,5,0);
+  --ws-input-bg: rgb(3,3,0);
+  --ws-soul-bg: rgb(5,5,0);
+  --ws-memory-bg: rgb(5,5,0);
+  --ws-focus-bg: rgb(5,5,0);
+  --ws-hover-row: rgba(71,71,0,0.06);
+  --ws-zebra: rgba(71,71,0,0.04);
+  --ws-btn-hover: rgba(71,71,0,0.12);
+  --ws-danger-bg: rgba(77,0,5,0.15);
+  --ws-danger-border: rgba(77,0,5,0.3);
+  --ws-toast-bg: rgb(5,5,0);
+  --ws-toast-border: rgba(71,71,0,0.2);
+  --ws-toast-error-bg: rgb(10,0,0);
+  --ws-toast-success-bg: rgb(0,5,0);
+  --ws-toast-warn-bg: rgb(8,5,0);
+  --ws-scrollbar: rgba(71,71,0,0.3);
+  --ws-scrollbar-hover: rgba(71,71,0,0.5);
+  --ws-shadow: none;
+  --ws-shadow-md: none;
+  --ws-shadow-lg: none;
+}
+
+/* Bright */
+[data-obc-theme='bright'] {
+  --ws-sidebar-bg: #f8f8f8;
+  --ws-hover-bg: rgba(34,60,97,0.06);
+  --ws-active-bg: rgba(235,0,20,0.10);
+  --ws-border: #8e8e8e;
+  --ws-border-light: #c0c0c0;
+  --ws-border-subtle: #e0e0e0;
+  --ws-panel-bg: #ffffff;
+  --ws-panel2-bg: #ffffff;
+  --ws-input-bg: #ffffff;
+  --ws-soul-bg: #f8f8f8;
+  --ws-memory-bg: #f5f5f5;
+  --ws-focus-bg: #f5f5f5;
+  --ws-hover-row: rgba(34,60,97,0.03);
+  --ws-zebra: rgba(34,60,97,0.02);
+  --ws-btn-hover: rgba(34,60,97,0.06);
+  --ws-danger-bg: rgba(235,0,20,0.06);
+  --ws-danger-border: rgba(235,0,20,0.2);
+  --ws-toast-bg: #ffffff;
+  --ws-toast-border: #c0c0c0;
+  --ws-toast-error-bg: #fff0f0;
+  --ws-toast-success-bg: #f0fff0;
+  --ws-toast-warn-bg: #fffff0;
+  --ws-scrollbar: #c0c0c0;
+  --ws-scrollbar-hover: #8e8e8e;
+  --ws-shadow: rgba(0,0,0,0.06);
+  --ws-shadow-md: rgba(0,0,0,0.10);
+  --ws-shadow-lg: rgba(0,0,0,0.15);
+}

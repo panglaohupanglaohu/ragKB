@@ -1,0 +1,22 @@
+# config/settings.json 新增配置
+{
+  "ab_testing": {
+    "enabled": true,
+    "traffic_percentage": 5,
+    "ewma_alpha": 0.3,
+    "lamport_window_ms": 100,
+    "cooling_period_seconds": 300,
+    "rollback_conditions": {
+      "false_upgrade_rate": 0.05,
+      "resource_increase_pct": 20
+    }
+  },
+  "monitoring_probes": {
+    "behavior_fingerprint": true,
+    "anomaly_propagation_depth": true,
+    "prediction_error_rate": true,
+    "energy_consumption": true,
+    "temperature_slope": true,
+    "policy_evaluation_latency": true
+  }
+}

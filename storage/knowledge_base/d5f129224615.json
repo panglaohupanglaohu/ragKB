@@ -1,0 +1,20 @@
+{
+  "doc_id": "d5f129224615",
+  "title": "[7c934759] deploy/config/settings.json",
+  "content": "# config/settings.json 新增配置\n{\n  \"ab_testing\": {\n    \"enabled\": true,\n    \"traffic_percentage\": 5,\n    \"ewma_alpha\": 0.3,\n    \"lamport_window_ms\": 100,\n    \"cooling_period_seconds\": 300,\n    \"rollback_conditions\": {\n      \"false_upgrade_rate\": 0.05,\n      \"resource_increase_pct\": 20\n    }\n  },\n  \"monitoring_probes\": {\n    \"behavior_fingerprint\": true,\n    \"anomaly_propagation_depth\": true,\n    \"prediction_error_rate\": true,\n    \"energy_consumption\": true,\n    \"temperature_slope\": true,\n    \"policy_evaluation_latency\": true\n  }\n}",
+  "source_agent": "deploy",
+  "source_team": "build_system",
+  "category": "deliverable",
+  "tags": [
+    "7c934759-39e",
+    "deploy",
+    "pipeline",
+    "auto_ingest",
+    "config/settings.json"
+  ],
+  "path": "pipeline/7c934759-39e/deploy/config/settings.json",
+  "created_at": "2026-05-05T01:10:56.353197+00:00",
+  "updated_at": "",
+  "metadata": {},
+  "size": 533
+}

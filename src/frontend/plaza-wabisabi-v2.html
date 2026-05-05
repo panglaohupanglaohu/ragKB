@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体广场 — AgentsGroup2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Noto+Sans+SC:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* ── Wabi-Sabi Light — Kenya Hara 空 · 侘寂 ─────────── */
+/* 80%+ whitespace · paper texture · layers of white · design by subtraction */
+:root{
+  --bg:#F5F0EB;--bg-warm:#F8F4EF;
+  --cream:#FAF7F2;--ivory:#FEFCF9;
+  --sand:#B8A898;--sand-dim:#9A8B7A;
+  --stone:#C8BFB4;--stone-warm:#D4CCC2;
+  --paper:#FFFFFF;--paper-dim:#E8E2DA;
+  --ink:#2C2520;
+  --accent:#7A9BAE;--accent-glow:#7A9BAE40;
+  --gold:#A08050;--gold-dim:#8A7045;
+  --red:#B06050;
+  --panel:#FAF7F2;--panel2:#F2EDE6;
+  --line:#E0D8CE;
+  --text:#3A3230;--muted:#8A7E74;--dim:#B0A698;
+  --font-serif:'Noto Serif SC',serif;
+  --font-sans:'Noto Sans SC',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+/* Paper texture overlay */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(#00000006 1px,transparent 1px),radial-gradient(#00000004 1px,transparent 1px);
+  background-size:5px 5px,7px 7px;background-position:0 0,3px 3px}
+
+/* ── Top bar ── */
+.top-bar{position:fixed;top:0;left:0;right:0;z-index:100;height:48px;
+  background:#FAF7F2F0;backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 24px;gap:16px}
+.top-bar .logo{font-family:var(--font-serif);font-size:16px;font-weight:400;color:var(--gold);letter-spacing:3px}
+.top-bar .nav-links{display:flex;gap:6px;margin-left:auto}
+.top-bar .nav-links a{color:var(--muted);text-decoration:none;font-size:12px;padding:6px 14px;
+  border-radius:3px;transition:all 0.3s;letter-spacing:0.5px}
+.top-bar .nav-links a:hover{color:var(--ink)}
+.top-bar .nav-links a.active{color:var(--gold);background:#A0805010}
+
+/* ── Layout ── */
+.layout{display:grid;grid-template-columns:240px 1fr 320px;height:calc(100vh - 48px);margin-top:48px}
+
+/* ── Left ── */
+.left{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.left .hd{padding:20px 18px 16px;border-bottom:1px solid var(--line)}
+.left .hd h2{font-family:var(--font-serif);font-size:14px;font-weight:400;color:var(--gold);letter-spacing:2px}
+.left .hd .sub{font-size:10px;color:var(--dim);margin-top:4px;letter-spacing:1px}
+.left .list{flex:1;overflow-y:auto;padding:8px 10px}
+.plaza-card{padding:14px 16px;margin-bottom:6px;background:transparent;border:1px solid transparent;
+  border-radius:4px;cursor:pointer;transition:all 0.3s}
+.plaza-card:hover{background:#A0805008;border-color:var(--stone)}
+.plaza-card.active{border-color:var(--sand);background:#A080500A}
+.plaza-card .nm{font-weight:400;font-size:13px;color:var(--text);letter-spacing:0.5px}
+.plaza-card .mt{font-size:10px;color:var(--dim);display:flex;gap:10px;margin-top:5px}
+.btn-new{margin:12px 10px;padding:10px 16px;background:transparent;border:1px dashed var(--stone);
+  color:var(--sand-dim);font-size:11px;border-radius:4px;cursor:pointer;letter-spacing:1px;transition:all 0.3s}
+.btn-new:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── Center: Three.js ── */
+.center{position:relative;overflow:hidden;background:var(--bg)}
+#three-canvas{width:100%;height:100%;display:block}
+.speech-bubble{position:absolute;max-width:240px;padding:12px 16px;
+  background:#FEFCF9F0;backdrop-filter:blur(12px);
+  border:1px solid var(--stone);border-radius:6px 6px 6px 0;
+  font-size:12px;line-height:1.7;color:var(--text);
+  pointer-events:none;opacity:0;transform:translateY(8px);
+  transition:opacity 0.4s ease,transform 0.4s ease;z-index:50;
+  box-shadow:0 4px 20px #00000012}
+.speech-bubble.show{opacity:1;transform:translateY(0)}
+.speech-bubble .sb-name{font-family:var(--font-serif);font-weight:400;font-size:11px;color:var(--gold);margin-bottom:4px;letter-spacing:1px}
+.speech-bubble .sb-text{white-space:pre-wrap;word-break:break-word}
+.speech-bubble::after{content:'';position:absolute;bottom:-7px;left:16px;
+  border-left:7px solid transparent;border-right:7px solid transparent;
+  border-top:7px solid var(--stone)}
+
+/* ── Right ── */
+.right{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.section{padding:16px 18px;border-bottom:1px solid var(--line)}
+.sec-title{font-family:var(--font-serif);font-size:11px;font-weight:400;color:var(--dim);
+  margin-bottom:10px;letter-spacing:2px;text-transform:uppercase}
+.disc-item{padding:12px 14px;margin-bottom:4px;background:transparent;border:1px solid transparent;
+  border-radius:4px;cursor:pointer;font-size:12px;transition:all 0.3s}
+.disc-item:hover{border-color:var(--stone)}
+.disc-item.active{border-color:var(--sand);background:#A080500A}
+.disc-item .tp{font-weight:400;margin-bottom:4px;color:var(--text)}
+.disc-item .dm{font-size:10px;color:var(--dim);display:flex;gap:8px}
+.msg-log{flex:1;overflow-y:auto;padding:12px 16px;font-size:12px;min-height:35vh}
+.msg-entry{margin-bottom:12px;padding:10px 12px;border-left:2px solid var(--stone);
+  background:var(--paper-dim);border-radius:0 4px 4px 0}
+.msg-entry .me-name{font-family:var(--font-serif);font-weight:400;color:var(--gold);font-size:11px;letter-spacing:0.5px}
+.msg-entry .me-text{color:var(--text);line-height:1.8;margin-top:4px}
+.msg-entry.mod{border-left-color:var(--gold)}
+.msg-entry.mod .me-name{color:var(--gold-dim)}
+.round-sep{text-align:center;color:var(--dim);font-size:10px;margin:16px 0;position:relative;letter-spacing:2px}
+.round-sep::before,.round-sep::after{content:'';position:absolute;top:50%;width:28%;height:1px;background:var(--line)}
+.round-sep::before{left:0}.round-sep::after{right:0}
+#plan-panel{max-height:35vh;overflow-y:auto;border-top:1px solid var(--line);flex-shrink:0}
+.plan-card{margin:12px 16px;padding:14px 16px;background:var(--cream);
+  border:1px solid #A0805020;border-radius:4px}
+.plan-card h4{font-family:var(--font-serif);font-size:13px;font-weight:400;color:var(--gold);margin-bottom:10px;letter-spacing:1px}
+.plan-card .plan-text{font-size:12px;line-height:1.8;color:var(--text)}
+.plan-card .plan-text strong{color:var(--ink)}
+.plan-card .plan-text code{background:var(--paper-dim);padding:1px 5px;border-radius:3px;font-size:11px;font-family:var(--font-mono)}
+.plan-card .assign-row{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.plan-card select{padding:6px 10px;background:var(--ivory);border:1px solid var(--line);color:var(--text);font-size:11px;border-radius:3px}
+.ctrl-bar{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn-start{padding:8px 22px;background:#A0805015;border:1px solid var(--gold);
+  color:var(--gold-dim);font-size:12px;font-weight:400;border-radius:4px;cursor:pointer;
+  letter-spacing:1px;transition:all 0.3s}
+.btn-start:hover{background:#A0805025}
+.btn-start:disabled{opacity:0.3;cursor:not-allowed}
+.btn{padding:6px 14px;background:transparent;border:1px solid var(--stone);color:var(--muted);
+  font-size:11px;border-radius:3px;cursor:pointer;transition:all 0.3s}
+.btn:hover{border-color:var(--sand);color:var(--text)}
+.ctrl-bar .status-text{margin-left:auto;font-size:10px;color:var(--dim);font-family:var(--font-mono)}
+.pill{display:inline-block;padding:2px 10px;border-radius:10px;font-size:10px;letter-spacing:0.5px}
+.pill-open{background:#7A9BAE18;color:var(--accent)}
+.pill-in_progress{background:#A0805015;color:var(--gold)}
+.pill-summarizing{background:#A0805020;color:var(--gold)}
+.pill-closed{background:#B0A69815;color:var(--dim)}
+
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;z-index:200;background:#00000025;backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--ivory);border:1px solid var(--stone);border-radius:6px;padding:28px;width:440px;max-width:90vw;
+  box-shadow:0 12px 40px #00000015}
+.modal h3{font-family:var(--font-serif);font-size:15px;font-weight:400;margin-bottom:20px;color:var(--gold);letter-spacing:1px}
+.fg{margin-bottom:14px}
+.fl{display:block;font-size:10px;color:var(--dim);margin-bottom:4px;letter-spacing:1px;text-transform:uppercase}
+.fi{width:100%;padding:10px 12px;background:var(--paper);border:1px solid var(--line);color:var(--text);
+  font-size:12px;font-family:var(--font-sans);border-radius:3px;outline:none;transition:border 0.3s}
+.fi:focus{border-color:var(--sand)}
+textarea.fi{resize:vertical;min-height:50px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.btn-primary{padding:8px 22px;background:#A0805012;border:1px solid var(--sand);
+  color:var(--gold-dim);font-size:12px;border-radius:3px;cursor:pointer;letter-spacing:1px}
+.btn-cancel{padding:8px 18px;background:transparent;border:1px solid var(--stone);color:var(--dim);
+  font-size:12px;border-radius:3px;cursor:pointer}
+.toast-box{position:fixed;top:60px;right:18px;z-index:300}
+.toast{padding:10px 18px;margin-bottom:6px;background:#FEFCF9F0;backdrop-filter:blur(8px);
+  border:1px solid var(--stone);border-radius:4px;font-size:12px;color:var(--gold-dim);
+  box-shadow:0 4px 16px #00000010;animation:tin 0.4s ease}
+@keyframes tin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--stone);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <span class="logo">议 事 广 场</span>
+  <div class="nav-links">
+    <a href="/agent-team-config.html">团队</a>
+    <a href="/datacenter-ratchet-evolution.html">演进</a>
+    <a href="/plaza.html" class="active">广场</a>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Left: Plaza list -->
+  <div class="left">
+    <div class="hd"><h2>广 场</h2><div class="sub">三维环形议事空间</div></div>
+    <div class="list" id="plaza-list"><div style="padding:20px;color:var(--dim);text-align:center;font-size:11px">加载中…</div></div>
+    <button class="btn-new" onclick="openCreatePlaza()">＋ 创 建</button>
+  </div>
+
+  <!-- Center: Three.js 3D Arena -->
+  <div class="center" id="arena-container">
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <!-- Right: Discussion panel -->
+  <div class="right">
+    <div class="section" id="disc-section">
+      <div class="sec-title">讨 论</div>
+      <div id="disc-list"><div style="color:var(--dim);font-size:11px">先选择广场</div></div>
+      <button class="btn" style="width:100%;margin-top:10px;border-style:dashed" onclick="openCreateDisc()">＋ 新建讨论</button>
+    </div>
+    <div class="msg-log" id="msg-log">
+      <div style="text-align:center;padding:40px 0;color:var(--dim);font-size:11px;letter-spacing:1px">
+        选择广场 · 创建讨论<br>全员自动入座
+      </div>
+    </div>
+    <div id="plan-panel" style="display:none"></div>
+    <div class="ctrl-bar">
+      <button class="btn-start" id="btn-start" onclick="startDiscussion()" disabled>开 始</button>
+      <button class="btn" onclick="openCreateDisc()">＋ 话题</button>
+      <span class="status-text" id="status-text"></span>
+    </div>
+  </div>
+</div>
+
+<div class="toast-box" id="toasts"></div>
+
+<!-- Create Plaza Modal -->
+<div class="modal-overlay" id="m-plaza" onclick="if(event.target===this)closeM(this.id)">
+  <div class="modal"><h3>创 建 广 场</h3>
+    <div class="fg"><label class="fl">名称</label><input class="fi" id="inp-pn" placeholder="如: 技术决策广场"></div>
+    <div class="fg"><label class="fl">描述</label><textarea class="fi" id="inp-pd" placeholder="广场用途"></textarea></div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-plaza')">取消</button><button class="btn-primary" onclick="doCreatePlaza()">创建</button></div>
+  </div>
+</div>
+
+<!-- Create Discussion Modal -->
+<div class="modal-overlay" id="m-disc" onclick="if(event.target===this)closeM(this.id)">
+  <div class="modal"><h3>创 建 讨 论</h3>
+    <div class="fg"><label class="fl">话题</label><input class="fi" id="inp-dt" placeholder="核心问题"></div>
+    <div class="fg"><label class="fl">目标</label><input class="fi" id="inp-dg" placeholder="期望达成"></div>
+    <div class="fg"><label class="fl">描述</label><textarea class="fi" id="inp-dd" placeholder="背景与产出"></textarea></div>
+    <div class="fg"><label class="fl">议事长</label><select class="fi" id="inp-dm"></select></div>
+    <div class="fg"><label class="fl">轮次</label><select class="fi" id="inp-dr">
+      <option value="1">1 轮</option><option value="2" selected>2 轮</option><option value="3">3 轮</option><option value="5">5 轮</option>
+    </select></div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-disc')">取消</button><button class="btn-primary" onclick="doCreateDisc()">创建</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ═══════════ GLOBALS ═══════════ */
+const API = '/api/v1/agent-config';
+let curPlaza = null, curDisc = null, curDiscData = null, evtSrc = null;
+let allTeams = [], allParticipants = [];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function toast(m) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
+  $('toasts').appendChild(t); setTimeout(() => t.remove(), 3500);
+}
+function openM(id) { $(id).classList.add('open') }
+function closeM(id) { $(id).classList.remove('open') }
+window.openM = openM; window.closeM = closeM;
+async function api(url, opts) {
+  try { const r = await fetch(url, opts); if (!r.ok) return null; return await r.json(); }
+  catch (e) { console.error(url, e); return null; }
+}
+
+/* ── Team colors: warm earth tones for wabi-sabi ── */
+const teamColors = {
+  build_system: 0x6B9E7A,
+  ai_coding: 0x7A8EAE,
+  energy_first_principle: 0xC09860
+};
+const teamCSS = {
+  build_system: '#6B9E7A',
+  ai_coding: '#7A8EAE',
+  energy_first_principle: '#C09860'
+};
+const teamNames = {
+  build_system: 'Build',
+  ai_coding: '编程',
+  energy_first_principle: '能源'
+};
+function tColor(tid) { return teamColors[tid] || 0x8A7E74; }
+
+/* ═══════════ THREE.JS SCENE — Wabi-Sabi Light ═══════════ */
+const canvas = $('three-canvas');
+const container = $('arena-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xF5F0EB);
+scene.fog = new THREE.FogExp2(0xF5F0EB, 0.008);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+camera.position.set(0, 28, 18);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setClearColor(0xF5F0EB);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 10;
+controls.maxDistance = 50;
+controls.maxPolarAngle = Math.PI / 2.15;
+controls.target.set(0, 0, 0);
+
+/* ── Lights: warm natural daylight ── */
+scene.add(new THREE.AmbientLight(0xFFF8F0, 0.6));
+const dLight = new THREE.DirectionalLight(0xFFF4E0, 0.8);
+dLight.position.set(8, 18, 10);
+dLight.castShadow = true;
+dLight.shadow.mapSize.set(1024, 1024);
+dLight.shadow.camera.near = 1; dLight.shadow.camera.far = 50;
+dLight.shadow.camera.left = -20; dLight.shadow.camera.right = 20;
+dLight.shadow.camera.top = 20; dLight.shadow.camera.bottom = -20;
+dLight.shadow.bias = -0.001;
+scene.add(dLight);
+scene.add(new THREE.HemisphereLight(0xF0EDE8, 0xD4CCC0, 0.5));
+
+/* ── Tiered Arena: 三层同心圆阶梯议事厅 (Roman Senate Style) ── */
+const groundGeo = new THREE.CircleGeometry(32, 64);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xE0D8CC, roughness: 0.92, metalness: 0.0 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+scene.add(ground);
+
+// Tier definitions: outer (highest) → inner (lowest)
+const tierDefs = [
+  { innerR: 14.5, outerR: 18.5, y: 1.5, wallH: 0.6, color: 0xC2B8AC },
+  { innerR: 9.5,  outerR: 13.5, y: 0.9, wallH: 0.5, color: 0xCBC2B6 },
+  { innerR: 5.5,  outerR: 8.5,  y: 0.4, wallH: 0.4, color: 0xD4CBC0 },
+];
+tierDefs.forEach(tier => {
+  // Top surface (seating ring)
+  const topGeo = new THREE.RingGeometry(tier.innerR, tier.outerR, 64);
+  const topMat = new THREE.MeshStandardMaterial({ color: tier.color, roughness: 0.85, metalness: 0.02 });
+  const top = new THREE.Mesh(topGeo, topMat);
+  top.rotation.x = -Math.PI / 2; top.position.y = tier.y;
+  top.receiveShadow = true;
+  scene.add(top);
+  // Inner step wall (facing center)
+  const wallGeo = new THREE.CylinderGeometry(tier.innerR, tier.innerR, tier.wallH, 64, 1, true);
+  const darkerColor = new THREE.Color(tier.color).multiplyScalar(0.88);
+  const wallMat = new THREE.MeshStandardMaterial({ color: darkerColor, roughness: 0.8, metalness: 0.02, side: THREE.DoubleSide });
+  const wall = new THREE.Mesh(wallGeo, wallMat);
+  wall.position.y = tier.y - tier.wallH / 2;
+  wall.receiveShadow = true; wall.castShadow = true;
+  scene.add(wall);
+  // Outer edge wall
+  const outerWallGeo = new THREE.CylinderGeometry(tier.outerR, tier.outerR, tier.y, 64, 1, true);
+  const outerColor = new THREE.Color(tier.color).multiplyScalar(0.92);
+  const outerWallMat = new THREE.MeshStandardMaterial({ color: outerColor, roughness: 0.8, metalness: 0.02, side: THREE.DoubleSide });
+  const outerWall = new THREE.Mesh(outerWallGeo, outerWallMat);
+  outerWall.position.y = tier.y / 2;
+  scene.add(outerWall);
+  // Groove detail lines on surface
+  [0.3, 0.65].forEach(frac => {
+    const r = tier.innerR + (tier.outerR - tier.innerR) * frac;
+    const grooveGeo = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+    const grooveMat = new THREE.MeshBasicMaterial({ color: 0xB8AEA2, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+    const groove = new THREE.Mesh(grooveGeo, grooveMat);
+    groove.rotation.x = -Math.PI / 2; groove.position.y = tier.y + 0.01;
+    scene.add(groove);
+  });
+});
+
+// Center floor
+const centerGeo = new THREE.CircleGeometry(5, 48);
+const centerMat = new THREE.MeshStandardMaterial({ color: 0xDCD4C8, roughness: 0.88, metalness: 0.01 });
+const centerFloor = new THREE.Mesh(centerGeo, centerMat);
+centerFloor.rotation.x = -Math.PI / 2; centerFloor.position.y = 0.02;
+centerFloor.receiveShadow = true;
+scene.add(centerFloor);
+
+// Center platform for throne
+const platGeo = new THREE.CylinderGeometry(1.8, 2.2, 0.15, 32);
+const platMat = new THREE.MeshStandardMaterial({ color: 0xC0B8AA, roughness: 0.75, metalness: 0.05 });
+const platform = new THREE.Mesh(platGeo, platMat);
+platform.position.y = 0.08; platform.castShadow = true; platform.receiveShadow = true;
+scene.add(platform);
+
+// Throne / 议事长座椅
+const throneGroup = new THREE.Group();
+const throneMat = new THREE.MeshStandardMaterial({ color: 0x9A8060, roughness: 0.55, metalness: 0.12 });
+const seatGeo = new THREE.BoxGeometry(1.1, 0.12, 0.75);
+const seatMesh = new THREE.Mesh(seatGeo, throneMat);
+seatMesh.position.y = 0.6; seatMesh.castShadow = true;
+throneGroup.add(seatMesh);
+const backMat = new THREE.MeshStandardMaterial({ color: 0x8A7050, roughness: 0.5, metalness: 0.15 });
+const backGeo = new THREE.BoxGeometry(1.1, 1.4, 0.08);
+const backMesh = new THREE.Mesh(backGeo, backMat);
+backMesh.position.set(0, 1.3, -0.34); backMesh.castShadow = true;
+throneGroup.add(backMesh);
+// Ornamental spheres on top
+const ornGeo = new THREE.SphereGeometry(0.1, 12, 12);
+const ornMat = new THREE.MeshStandardMaterial({ color: 0xA08050, roughness: 0.4, metalness: 0.3 });
+[-0.45, 0.45].forEach(x => {
+  const orn = new THREE.Mesh(ornGeo, ornMat);
+  orn.position.set(x, 2.05, -0.34);
+  throneGroup.add(orn);
+});
+// Throne legs
+[[-0.45, 0.3], [0.45, 0.3], [-0.45, -0.3], [0.45, -0.3]].forEach(([x, z]) => {
+  const legGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.55, 8);
+  const leg = new THREE.Mesh(legGeo, throneMat);
+  leg.position.set(x, 0.28, z);
+  throneGroup.add(leg);
+});
+// Armrests
+[-0.55, 0.55].forEach(x => {
+  const armGeo = new THREE.BoxGeometry(0.07, 0.07, 0.55);
+  const arm = new THREE.Mesh(armGeo, throneMat);
+  arm.position.set(x, 0.78, 0.05);
+  throneGroup.add(arm);
+});
+throneGroup.position.set(0, 0.15, 0);
+scene.add(throneGroup);
+
+// Outer perimeter wall segments (stone colonnade)
+const wallSegCount = 48;
+for (let i = 0; i < wallSegCount; i++) {
+  const angle = (i / wallSegCount) * Math.PI * 2;
+  if (i % 4 === 0) continue;
+  const brickGeo = new THREE.BoxGeometry(0.55, 2.2, 0.45);
+  const shade = 0.85 + Math.random() * 0.15;
+  const brickColor = new THREE.Color(0xB8AE9E).multiplyScalar(shade);
+  const brickMat = new THREE.MeshStandardMaterial({ color: brickColor, roughness: 0.9, metalness: 0.01 });
+  const brick = new THREE.Mesh(brickGeo, brickMat);
+  const r = 19.5;
+  brick.position.set(Math.cos(angle) * r, 1.1, Math.sin(angle) * r);
+  brick.rotation.y = -angle + Math.PI / 2;
+  brick.castShadow = true; brick.receiveShadow = true;
+  scene.add(brick);
+}
+
+// Center floor groove lines
+[2, 3, 4].forEach(r => {
+  const grooveGeo = new THREE.RingGeometry(r - 0.02, r + 0.02, 48);
+  const grooveMat = new THREE.MeshBasicMaterial({ color: 0xC8C0B4, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+  const groove = new THREE.Mesh(grooveGeo, grooveMat);
+  groove.rotation.x = -Math.PI / 2; groove.position.y = 0.03;
+  scene.add(groove);
+});
+
+/* ── Floating motes: warm dust ── */
+const dustCount = 80;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(dustCount * 3);
+for (let i = 0; i < dustCount; i++) {
+  dustPos[i * 3] = (Math.random() - 0.5) * 40;
+  dustPos[i * 3 + 1] = Math.random() * 8 + 1;
+  dustPos[i * 3 + 2] = (Math.random() - 0.5) * 40;
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dustMat = new THREE.PointsMaterial({ color: 0xC8B898, size: 0.05, transparent: true, opacity: 0.2 });
+const dust = new THREE.Points(dustGeo, dustMat);
+scene.add(dust);
+
+/* ═══════════ AGENT FIGURE — 淡色发光轮廓 ═══════════ */
+const agentMeshes = new Map();
+const sceneAgents = [];
+
+function makeTextCanvas(text, color) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.font = 'bold 24px "Noto Sans SC", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = color || '#2C2520';
+  ctx.fillText(text, 128, 32);
+  return c;
+}
+
+function createAgentFigure(name, hexColor, isChairman = false) {
+  const group = new THREE.Group();
+  const col = new THREE.Color(hexColor);
+  const scale = isChairman ? 1.3 : 1.0;
+
+  // Outline material: translucent glow
+  const outlineMat = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: 0.6, side: THREE.DoubleSide
+  });
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: 0.12, side: THREE.DoubleSide
+  });
+
+  // Head: thin torus ring (circle outline)
+  const headR = 0.36 * scale;
+  const headTube = 0.04 * scale;
+  const headGeo = new THREE.TorusGeometry(headR, headTube, 12, 32);
+  const head = new THREE.Mesh(headGeo, outlineMat);
+  head.position.y = 2.1 * scale;
+  group.add(head);
+
+  // Head glow halo
+  const glowHeadGeo = new THREE.TorusGeometry(headR, headTube * 3.5, 12, 32);
+  const glowHead = new THREE.Mesh(glowHeadGeo, glowMat);
+  glowHead.position.copy(head.position);
+  group.add(glowHead);
+
+  // Body: U-shaped arc (shoulders → torso)
+  const bodyPts = [];
+  for (let i = 0; i <= 32; i++) {
+    const t = i / 32;
+    const a = Math.PI * t;
+    const x = (-Math.cos(a)) * 0.52 * scale;
+    const y = (1.35 - Math.sin(a) * 0.7) * scale;
+    bodyPts.push(new THREE.Vector3(x, y, 0));
+  }
+  const bodyCurve = new THREE.CatmullRomCurve3(bodyPts);
+  const bodyGeo = new THREE.TubeGeometry(bodyCurve, 32, 0.04 * scale, 8, false);
+  const body = new THREE.Mesh(bodyGeo, outlineMat);
+  group.add(body);
+
+  // Body glow
+  const bodyGlowGeo = new THREE.TubeGeometry(bodyCurve, 32, 0.13 * scale, 8, false);
+  const bodyGlow = new THREE.Mesh(bodyGlowGeo, glowMat);
+  group.add(bodyGlow);
+
+  // Point light for glow illumination
+  const pLight = new THREE.PointLight(col, isChairman ? 0.6 : 0.3, isChairman ? 6 : 3.5);
+  pLight.position.y = 1.5 * scale;
+  group.add(pLight);
+
+  // Glow ring at feet
+  const ringGeo = new THREE.RingGeometry(0.4 * scale, 0.65 * scale, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.1, side: THREE.DoubleSide });
+  const glowRing = new THREE.Mesh(ringGeo, ringMat);
+  glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = 0.02;
+  group.add(glowRing);
+  group.userData.glowRing = glowRing;
+
+  // Name label: dark font for contrast
+  const tex = new THREE.CanvasTexture(makeTextCanvas(name, '#2C2520'));
+  tex.minFilter = THREE.LinearFilter;
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.y = (isChairman ? 3.0 : 2.7) * scale;
+  sprite.scale.set(2, 0.5, 1);
+  group.add(sprite);
+
+  return group;
+}
+
+/* ── Place agents in scene ── */
+function renderArena3D(participants) {
+  allParticipants = participants || [];
+  sceneAgents.forEach(g => scene.remove(g));
+  sceneAgents.length = 0;
+  agentMeshes.clear();
+
+  if (!allParticipants.length) return;
+
+  const groups = {};
+  allParticipants.forEach(p => {
+    const t = p.team_id || '_none';
+    if (!groups[t]) groups[t] = [];
+    groups[t].push(p);
+  });
+
+  let chairman = null;
+  if (curDiscData?.moderator_agent_id) {
+    chairman = allParticipants.find(p => p.agent_id === curDiscData.moderator_agent_id);
+  }
+  if (!chairman && allParticipants.length) chairman = allParticipants[0];
+
+  const seated = allParticipants.filter(p => !chairman || p.agent_id !== chairman.agent_id);
+
+  // Chairman at center throne — golden
+  if (chairman) {
+    const fig = createAgentFigure(chairman.agent_name || '议事长', 0xA08050, true);
+    fig.position.set(0, 0.15, 0.6);
+    scene.add(fig);
+    sceneAgents.push(fig);
+    agentMeshes.set(chairman.agent_id, { group: fig });
+  }
+
+  // Seated agents on tiered rings
+  if (seated.length > 0) {
+    const ringRadii = [7, 11.5, 16.5];
+    const ringHeights = [0.4, 0.9, 1.5];
+    const ringMax = [8, 12, 20];
+    const rings = [[], [], []];
+
+    let ri = 0;
+    seated.forEach(ag => {
+      while (ri < 2 && rings[ri].length >= ringMax[ri]) ri++;
+      rings[Math.min(ri, 2)].push(ag);
+    });
+
+    rings.forEach((ring, rIdx) => {
+      if (!ring.length) return;
+      const radius = ringRadii[rIdx];
+      ring.forEach((ag, ai) => {
+        const angle = (ai / ring.length) * Math.PI * 2 - Math.PI / 2;
+        const x = radius * Math.cos(angle);
+        const z = radius * Math.sin(angle);
+        const col = tColor(ag.team_id);
+        const fig = createAgentFigure(ag.agent_name || ag.agent_id, col);
+        fig.position.set(x, ringHeights[rIdx], z);
+        fig.lookAt(0, ringHeights[rIdx], 0);
+        fig.rotation.x = 0; fig.rotation.z = 0;
+        scene.add(fig);
+        sceneAgents.push(fig);
+        agentMeshes.set(ag.agent_id, { group: fig });
+      });
+    });
+  }
+
+  // Team arc labels
+  const teamIds = Object.keys(groups);
+  teamIds.forEach(tid => {
+    const agents = groups[tid].filter(p => !chairman || p.agent_id !== chairman.agent_id);
+    if (!agents.length) return;
+    let sumAngle = 0;
+    agents.forEach(ag => {
+      const entry = agentMeshes.get(ag.agent_id);
+      if (entry) {
+        const a = Math.atan2(entry.group.position.z, entry.group.position.x);
+        sumAngle += a;
+      }
+    });
+    const avgAngle = sumAngle / agents.length;
+    const lx = 23 * Math.cos(avgAngle);
+    const lz = 23 * Math.sin(avgAngle);
+    const css = teamCSS[tid] || '#8A7E74';
+    const tex = new THREE.CanvasTexture(makeTextCanvas(teamNames[tid] || tid, css));
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const label = new THREE.Sprite(mat);
+    label.position.set(lx, 2.0, lz);
+    label.scale.set(3, 0.8, 1);
+    scene.add(label);
+    sceneAgents.push(label);
+  });
+}
+
+/* ── Speaking effects ── */
+function highlightSpeaker(agentId, speaking) {
+  const entry = agentMeshes.get(agentId);
+  if (!entry) return;
+  const ring = entry.group.userData.glowRing;
+  if (ring) {
+    ring.material.opacity = speaking ? 0.4 : 0.1;
+    const s = speaking ? 1.4 : 1;
+    ring.scale.set(s, s, 1);
+  }
+}
+
+/* ── Speech bubbles ── */
+let bubbles = [];
+function showSpeechBubble(agentId, name, text, dur) {
+  const entry = agentMeshes.get(agentId);
+  if (!entry) return;
+  const pos = new THREE.Vector3();
+  entry.group.getWorldPosition(pos);
+  pos.y += 3.0;
+  const v = pos.clone().project(camera);
+  const rect = canvas.getBoundingClientRect();
+  const sx = (v.x * 0.5 + 0.5) * rect.width;
+  const sy = (-v.y * 0.5 + 0.5) * rect.height;
+
+  removeBubble(agentId);
+  highlightSpeaker(agentId, true);
+
+  const b = document.createElement('div');
+  b.className = 'speech-bubble'; b.dataset.agent = agentId;
+  const short = text.length > 120 ? text.slice(0, 120) + '…' : text;
+  b.innerHTML = `<div class="sb-name">${esc(name)}</div><div class="sb-text">${esc(short)}</div>`;
+  b.style.left = Math.max(10, Math.min(sx - 120, rect.width - 250)) + 'px';
+  b.style.top = Math.max(10, Math.min(sy - 80, rect.height - 100)) + 'px';
+  container.appendChild(b);
+  requestAnimationFrame(() => b.classList.add('show'));
+  bubbles.push({ agentId, bubble: b });
+  setTimeout(() => { removeBubble(agentId); highlightSpeaker(agentId, false); }, dur || 8000);
+}
+function removeBubble(aid) {
+  bubbles = bubbles.filter(b => {
+    if (b.agentId === aid) { b.bubble.classList.remove('show'); setTimeout(() => b.bubble.remove(), 400); return false; }
+    return true;
+  });
+}
+
+/* ═══════════ ANIMATION LOOP ═══════════ */
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  controls.update();
+
+  // Gentle floating dust
+  const positions = dust.geometry.attributes.position.array;
+  for (let i = 0; i < dustCount; i++) {
+    positions[i * 3 + 1] += Math.sin(t * 0.3 + i) * 0.001;
+    if (positions[i * 3 + 1] > 11) positions[i * 3 + 1] = 1;
+  }
+  dust.geometry.attributes.position.needsUpdate = true;
+
+  // Chairman gentle bob
+  if (allParticipants.length && curDiscData?.moderator_agent_id) {
+    const ch = agentMeshes.get(curDiscData.moderator_agent_id);
+    if (ch) ch.group.position.y = 0.15 + Math.sin(t * 0.8) * 0.03;
+  }
+
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  if (w === 0 || h === 0) return;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+new ResizeObserver(onResize).observe(container);
+onResize();
+animate();
+
+/* ═══════════ PLAZA CRUD ═══════════ */
+async function loadPlazas() {
+  const ps = await api(`${API}/plaza`);
+  const list = $('plaza-list');
+  if (!ps || !ps.length) {
+    list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:11px">无广场</div>';
+    return;
+  }
+  list.innerHTML = ps.map(p =>
+    `<div class="plaza-card ${p.id === curPlaza ? 'active' : ''}" onclick="selectPlaza('${esc(p.id)}')">
+      <div class="nm">${esc(p.name)}</div>
+      <div class="mt"><span>${p.participant_count} 人</span><span>${p.discussion_count} 题</span></div>
+    </div>`
+  ).join('');
+}
+
+window.selectPlaza = async function(id) {
+  curPlaza = id; curDisc = null; curDiscData = null;
+  loadPlazas();
+  await api(`${API}/plaza/${id}/auto-seat`, { method: 'POST' });
+  const plaza = await api(`${API}/plaza/${id}`);
+  if (!plaza) return;
+  renderArena3D(plaza.participants || []);
+  renderDiscList(plaza.discussions || []);
+  $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:11px;letter-spacing:1px">创建讨论开始议事</div>';
+  $('plan-panel').style.display = 'none';
+  $('btn-start').disabled = true;
+  $('status-text').textContent = '';
+};
+
+window.openCreatePlaza = function() { openM('m-plaza'); $('inp-pn').focus(); };
+
+window.doCreatePlaza = async function() {
+  const name = $('inp-pn').value.trim();
+  if (!name) { toast('请输入名称'); return; }
+  const r = await api(`${API}/plaza`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: $('inp-pd').value.trim() })
+  });
+  if (r) { closeM('m-plaza'); $('inp-pn').value = ''; $('inp-pd').value = ''; toast('广场已创建'); await loadPlazas(); selectPlaza(r.id); }
+};
+
+/* ═══════════ DISCUSSIONS ═══════════ */
+function renderDiscList(ds) {
+  $('disc-list').innerHTML = ds.map(d =>
+    `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" onclick="selectDisc('${esc(d.id)}')">
+      <div class="tp">${esc(d.topic)}</div>
+      <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
+    </div>`
+  ).join('') || '<div style="color:var(--dim);font-size:11px">无讨论</div>';
+}
+
+function statusTxt(s) {
+  return { open: '待启动', in_progress: '进行中', summarizing: '总结中', closed: '已结束' }[s] || s;
+}
+
+window.selectDisc = async function(discId) {
+  curDisc = discId;
+  const disc = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`);
+  if (!disc) return;
+  curDiscData = disc;
+  const plaza = await api(`${API}/plaza/${curPlaza}`);
+  if (plaza) { renderDiscList(plaza.discussions || []); renderArena3D(plaza.participants || []); }
+  renderMessages(disc.messages || []);
+  $('btn-start').disabled = disc.status !== 'open';
+  $('btn-start').textContent = disc.status === 'open' ? '开 始' :
+    disc.status === 'in_progress' ? '进行中' :
+    disc.status === 'summarizing' ? '总结中' : '已结束';
+  $('status-text').textContent = disc.goal ? `目标: ${disc.goal}` : '';
+  if (disc.status === 'closed' && disc.summary) renderPlan(disc);
+  else $('plan-panel').style.display = 'none';
+  if (disc.status === 'in_progress') connectSSE(discId);
+};
+
+function renderMessages(msgs) {
+  const log = $('msg-log');
+  if (!msgs.length) {
+    log.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:11px">点击「开始」启动讨论</div>';
+    return;
+  }
+  let h = '', lr = -1;
+  msgs.forEach(m => {
+    if (m.round_number !== lr && m.round_number > 0) {
+      h += `<div class="round-sep">第 ${m.round_number} 轮</div>`;
+      lr = m.round_number;
+    }
+    const isMod = m.niche_role === 'moderator';
+    h += `<div class="msg-entry ${isMod ? 'mod' : ''}">
+      <div class="me-name">${esc(m.agent_name)}${isMod ? ' · 议事长' : ''}</div>
+      <div class="me-text">${mdLite(m.content)}</div>
+    </div>`;
+  });
+  log.innerHTML = h;
+  log.scrollTop = log.scrollHeight;
+}
+
+function mdLite(s) {
+  return esc(s).replace(/\n/g, '<br>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^(#{1,4})\s+(.+)/gm, (m, h, t) => `<strong style="font-size:${17 - h.length * 2}px">${t}</strong>`);
+}
+
+function renderPlan(disc) {
+  const p = $('plan-panel'); p.style.display = '';
+  const opts = allTeams.map(t => `<option value="${esc(t.team_id)}">${esc(t.name)}</option>`).join('');
+  p.innerHTML = `<div class="plan-card">
+    <h4>执 行 计 划</h4>
+    <div class="plan-text">${mdLite(disc.summary)}</div>
+    <div class="assign-row">
+      <span style="font-size:10px;color:var(--dim)">派发:</span>
+      <select id="assign-team">${opts}</select>
+      <button class="btn" onclick="assignPlan()">派 发</button>
+    </div>
+  </div>`;
+}
+
+window.assignPlan = async function() {
+  if (!curPlaza || !curDisc) return;
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_id: $('assign-team').value })
+  });
+  if (r) toast(`计划已派发: ${r.status}`); else toast('派发失败');
+};
+
+window.openCreateDisc = async function() {
+  if (!curPlaza) { toast('请先选择广场'); return; }
+  const plaza = await api(`${API}/plaza/${curPlaza}`);
+  if (plaza?.participants) {
+    $('inp-dm').innerHTML = plaza.participants.map(p =>
+      `<option value="${esc(p.agent_id)}">${esc(p.agent_name)}</option>`
+    ).join('');
+  }
+  openM('m-disc'); $('inp-dt').focus();
+};
+
+window.doCreateDisc = async function() {
+  const topic = $('inp-dt').value.trim();
+  if (!topic) { toast('请输入话题'); return; }
+  const r = await api(`${API}/plaza/${curPlaza}/discussions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      topic,
+      goal: $('inp-dg').value.trim(),
+      description: $('inp-dd').value.trim(),
+      moderator_agent_id: $('inp-dm').value,
+      max_rounds: parseInt($('inp-dr').value)
+    })
+  });
+  if (r) {
+    closeM('m-disc'); $('inp-dt').value = ''; $('inp-dg').value = ''; $('inp-dd').value = '';
+    toast('讨论已创建'); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300);
+  }
+};
+
+window.startDiscussion = async function() {
+  if (!curPlaza || !curDisc) return;
+  $('btn-start').disabled = true; $('btn-start').textContent = '启动中…';
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/start`, { method: 'POST' });
+  if (r) connectSSE(curDisc);
+  else { $('btn-start').disabled = false; $('btn-start').textContent = '开 始'; toast('启动失败'); }
+};
+
+/* ═══════════ SSE ═══════════ */
+function connectSSE(discId) {
+  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  if (!curPlaza) return;
+  evtSrc = new EventSource(`${API}/plaza/${curPlaza}/discussions/${discId}/stream`);
+  let init = false;
+  evtSrc.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'heartbeat') return;
+      if (d.type === 'status') { init = true; return; }
+      if (d.type === 'message' && init) {
+        const m = d.message, log = $('msg-log');
+        if (log.querySelector('[style*="text-align:center"]')) log.innerHTML = '';
+        const isMod = m.niche_role === 'moderator';
+        const lastSep = log.querySelector('.round-sep:last-of-type');
+        const lastR = lastSep ? parseInt(lastSep.textContent.match(/\d+/)?.[0] || 0) : -1;
+        if (m.round_number > 0 && m.round_number !== lastR) {
+          log.insertAdjacentHTML('beforeend', `<div class="round-sep">第 ${m.round_number} 轮</div>`);
+        }
+        log.insertAdjacentHTML('beforeend',
+          `<div class="msg-entry ${isMod ? 'mod' : ''}">
+            <div class="me-name">${esc(m.agent_name)}${isMod ? ' · 议事长' : ''}</div>
+            <div class="me-text">${esc(m.content)}</div>
+          </div>`);
+        log.scrollTop = log.scrollHeight;
+        $('status-text').textContent = `第${m.round_number}轮 · ${m.agent_name}`;
+        showSpeechBubble(m.agent_id, m.agent_name, m.content, 6000);
+      }
+      if (d.type === 'discussion_start') { $('btn-start').disabled = true; $('btn-start').textContent = '进行中'; $('msg-log').innerHTML = ''; }
+      if (d.type === 'round_start') $('status-text').textContent = `第${d.round}/${d.max_rounds}轮`;
+      if (d.type === 'summarizing') { $('btn-start').textContent = '总结中'; $('status-text').textContent = '议事长总结中…'; }
+      if (d.type === 'discussion_end') {
+        $('btn-start').textContent = '已结束';
+        $('status-text').textContent = '完成';
+        evtSrc.close(); evtSrc = null;
+        toast('讨论结束');
+        setTimeout(() => selectDisc(discId), 500);
+      }
+    } catch (err) { console.warn('SSE parse error:', err); }
+  };
+}
+
+/* ═══════════ INIT ═══════════ */
+async function init() {
+  allTeams = await api(`${API}/teams`) || [];
+  loadPlazas();
+  renderArena3D([]);
+}
+init();
+</script>
+</body>
+</html>

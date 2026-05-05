@@ -1,0 +1,14 @@
+# istio-destinationrule.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: plaza-ab-testing-dr
+spec:
+  host: plaza-service
+  subsets:
+  - name: blue
+    labels:
+      version: v1
+  - name: green
+    labels:
+      version: v2

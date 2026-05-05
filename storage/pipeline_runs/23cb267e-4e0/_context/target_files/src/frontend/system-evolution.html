@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-obc-theme="dusk">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>系统演进 — AgentsGroup2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --shironeri:oklch(0.96 0.003 110);--ishi:oklch(0.91 0.004 110);--kabe:oklch(0.85 0.005 110);
+  --hai:oklch(0.78 0.005 110);--nezumi:oklch(0.68 0.006 110);--sumi:oklch(0.18 0.008 110);
+  --sumi-2:oklch(0.38 0.006 110);--sumi-3:oklch(0.55 0.005 110);
+  --koke:oklch(0.52 0.04 160);--shu:oklch(0.48 0.07 22);--kitsune:oklch(0.56 0.05 70);
+  --groove:oklch(0.82 0.004 110);
+  --font-serif:'Noto Serif SC',serif;--font-sans:'Noto Sans SC',sans-serif;--font-mono:'JetBrains Mono',monospace;
+  --lime:oklch(0.52 0.04 160);--cyan:oklch(0.52 0.04 160);--amber:oklch(0.56 0.05 70);--red:oklch(0.48 0.07 22);
+  --muted:oklch(0.55 0.005 110);--dim:oklch(0.55 0.005 110);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);min-height:100vh;background:var(--shironeri);color:var(--sumi);position:relative}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(oklch(0 0 0/.012) 1px,transparent 1px),radial-gradient(oklch(0 0 0/.008) 1px,transparent 1px);
+  background-size:5px 5px,7px 7px;background-position:0 0,3px 3px}
+a{color:var(--koke);text-decoration:none}
+.seal{display:inline-block;font-size:10px;font-weight:900;color:var(--shironeri);background:var(--sumi);padding:1px 5px;line-height:1.3;font-family:var(--font-serif);vertical-align:middle;margin-right:4px}
+.seal-koke{background:var(--koke)}.seal-shu{background:var(--shu)}.seal-kitsune{background:var(--kitsune)}
+
+/* Layout */
+.app{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
+.sidebar{width:260px;min-width:260px;background:var(--ishi);border-right:1px solid var(--groove);display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 28px;border-bottom:1px solid var(--groove);background:var(--shironeri);min-height:56px}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.topbar-left h1{font-size:18px;font-weight:600}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.main-scroll{flex:1;overflow-y:auto;padding:24px 28px;min-height:0}
+
+/* Sidebar */
+.sb-header{padding:16px;border-bottom:1px solid var(--groove)}
+.sb-header h2{font-size:15px;color:var(--koke);display:flex;align-items:center;gap:6px}
+.sb-nav{display:flex;flex-direction:column;gap:2px;padding:8px}
+.sb-nav a{padding:8px 12px;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px;transition:.15s}
+.sb-nav a:hover{background:oklch(0 0 0/.03);color:var(--sumi)}
+.sb-nav a.active{background:oklch(0.48 0.07 22/.06);color:var(--shu);font-weight:600}
+.sb-section{padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:8px;font-weight:600}
+.sb-footer{padding:12px;border-top:1px solid var(--groove);margin-top:auto}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--groove);font-family:inherit;transition:.15s;background:transparent;color:var(--koke)}.btn:hover{background:oklch(0 0 0/.03)}
+.btn-primary{background:var(--sumi);color:var(--shironeri);border-color:transparent}.btn-primary:hover{background:oklch(0.28 0.008 110)}
+.btn-danger{color:var(--shu);border-color:oklch(0.48 0.07 22/.3)}.btn-danger:hover{background:oklch(0.48 0.07 22/.06)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-ghost{border:none;padding:6px 10px}
+
+/* Cards */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px}
+.stat-card{background:var(--ishi);border:1px solid var(--groove);padding:16px}
+.stat-card .label{font-size:12px;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.stat-card .value{font-size:24px;font-weight:700;font-family:var(--font-mono);color:var(--sumi)}
+.stat-card .sub{font-size:11px;color:var(--dim);margin-top:4px}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--groove);letter-spacing:.5px;font-weight:500}
+.tbl td{padding:10px;border-bottom:1px solid oklch(0 0 0/.04);color:var(--sumi)}
+.tbl tr:hover td{background:oklch(0 0 0/.02)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;background:oklch(0 0 0/.03);color:var(--koke);border:1px solid var(--groove);margin:2px}
+.section{margin-bottom:24px}
+.section-title{font-size:16px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;background:var(--ishi);border:1px solid var(--groove);font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:999;color:var(--sumi)}.toast.show{opacity:1}
+
+/* Ratchet Flow Diagram */
+.ratchet-flow{display:flex;align-items:center;gap:0;padding:20px 0;overflow-x:auto}
+.ratchet-node{display:flex;flex-direction:column;align-items:center;min-width:130px}
+.ratchet-dot{width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;border:2px solid var(--groove);background:var(--shironeri);font-family:var(--font-serif);transition:.35s;position:relative}
+.ratchet-dot.active{border-color:var(--koke);box-shadow:0 0 0 3px oklch(0.52 0.04 160/.15),0 0 20px oklch(0.52 0.04 160/.25);animation:r-pulse 2s ease-in-out infinite}
+.ratchet-dot.done{border-color:var(--koke);background:oklch(0.52 0.04 160/.08);color:var(--koke)}
+.ratchet-dot.failed{border-color:var(--shu);background:oklch(0.48 0.07 22/.08);color:var(--shu)}
+@keyframes r-pulse{0%,100%{box-shadow:0 0 0 3px oklch(0.52 0.04 160/.15)}50%{box-shadow:0 0 0 3px oklch(0.52 0.04 160/.3),0 0 24px oklch(0.52 0.04 160/.2)}}
+.ratchet-label{font-size:11px;color:var(--muted);margin-top:6px;text-align:center;font-weight:500}
+.ratchet-sublabel{font-size:10px;color:var(--dim);margin-top:2px;font-family:var(--font-mono)}
+.ratchet-connector{width:40px;height:2px;background:var(--groove);flex-shrink:0}
+.ratchet-connector.done{background:var(--koke)}
+.ratchet-lock{border-color:var(--kitsune) !important}
+.ratchet-lock .ratchet-dot{border-color:var(--kitsune);color:var(--kitsune)}
+
+/* Compliance Gauge */
+.gauge-wrap{display:flex;align-items:center;gap:20px}
+.gauge-ring{position:relative;width:80px;height:80px;flex-shrink:0}
+.gauge-ring svg{width:80px;height:80px;transform:rotate(-90deg)}
+.gauge-grade{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;font-family:var(--font-mono)}
+
+/* Cycle log */
+.cycle-log{background:var(--ishi);border:1px solid var(--groove);padding:12px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.8;max-height:200px;overflow-y:auto;margin-top:12px}
+.cycle-log .ok{color:var(--koke)}.cycle-log .err{color:var(--shu)}.cycle-log .run{color:var(--kitsune)}
+
+/* Heritage ledger */
+.heritage-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--ishi);border:1px solid var(--groove);margin-bottom:6px;font-size:13px}
+.heritage-item .h-title{font-weight:600;font-size:13px}
+.heritage-item .h-meta{font-size:11px;color:var(--muted);font-family:var(--font-mono)}
+.heritage-item .h-delta{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--koke);white-space:nowrap}
+
+/* Zone badge */
+.zone-badge{padding:8px 14px;background:oklch(0.52 0.04 160/.06);border:1px solid oklch(0.52 0.04 160/.15);display:inline-flex;align-items:center;gap:8px;font-size:12px;margin:4px}
+.zone-badge b{color:var(--sumi)}
+
+/* Rule card */
+.rule-card{padding:10px 14px;background:var(--ishi);border:1px solid var(--groove)}
+.rule-card .r-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.rule-card .r-id{font-size:12px;font-weight:700;font-family:var(--font-mono)}
+.rule-card .r-title{font-size:12px;margin-top:2px}
+.rule-card .r-ref{font-size:11px;color:var(--dim);margin-top:2px}
+.rule-card .r-meta{font-size:11px;margin-top:4px}
+
+/* Tabs */
+.tab-bar{display:flex;gap:0;border-bottom:1px solid var(--groove);margin-bottom:20px}
+.tab-btn{padding:10px 18px;font-size:13px;cursor:pointer;color:var(--muted);border:none;border-bottom:2px solid transparent;background:none;font-family:inherit;font-weight:500;transition:.15s}
+.tab-btn:hover{color:var(--sumi)}
+.tab-btn.active{color:var(--shu);border-bottom-color:var(--shu);font-weight:600}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.filter-bar select,.filter-bar input{padding:6px 10px;font-size:12px;border:1px solid var(--groove);background:var(--shironeri);color:var(--sumi);font-family:inherit}
+.filter-bar select:focus,.filter-bar input:focus{outline:none;border-color:var(--koke)}
+
+/* Trend placeholder */
+.trend-chart{background:var(--ishi);border:1px solid var(--groove);padding:20px;min-height:120px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+.audit-entry{padding:8px 12px;border-bottom:1px solid oklch(0 0 0/.04);font-size:12px;display:flex;gap:12px;align-items:center}
+.audit-entry .ae-time{font-family:var(--font-mono);color:var(--dim);font-size:11px;min-width:140px}
+.audit-entry .ae-type{font-weight:600;min-width:80px}
+.audit-entry .ae-detail{color:var(--sumi-2);flex:1}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-header">
+      <h2><span class="seal seal-koke">演</span> 系统演进</h2>
+    </div>
+    <div class="sb-nav">
+      <a class="active" onclick="switchPanel('overview')"><span class="seal">览</span> 演进概览</a>
+      <a onclick="switchPanel('ratchet')"><span class="seal seal-kitsune">锁</span> 达尔文棘轮</a>
+      <a onclick="switchPanel('rules')"><span class="seal">规</span> 审查规则</a>
+      <a onclick="switchPanel('items')"><span class="seal seal-shu">项</span> 演进条目</a>
+      <a onclick="switchPanel('zones')"><span class="seal seal-koke">域</span> 合规区域</a>
+      <a onclick="switchPanel('trail')"><span class="seal">迹</span> 审计轨迹</a>
+      <a onclick="switchPanel('trend')"><span class="seal seal-kitsune">趋</span> 趋势分析</a>
+    </div>
+    <div class="sb-section">操作</div>
+    <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-sm" onclick="runAudit()">🔍 运行审查</button>
+      <button class="btn btn-sm btn-primary" onclick="runCycleStepper()">▶ 演进周期</button>
+      <button class="btn btn-sm" onclick="recalcRating()">📊 重算评级</button>
+    </div>
+    <div class="sb-footer">
+      <a href="/agent-team-config.html" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">← 返回团队管理</a>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="panel-title">演进概览</h1>
+        <span id="panel-badge" style="font-size:11px;padding:2px 8px;background:oklch(0.52 0.04 160/.1);color:var(--koke);font-family:var(--font-mono)"></span>
+      </div>
+      <div class="topbar-right">
+        <span id="last-audit" style="font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="refreshAll()">↻ 刷新</button>
+      </div>
+    </div>
+    <div class="main-scroll" id="content">
+
+      <!-- ═══ Overview Panel ═══ -->
+      <div id="panel-overview" class="tab-panel active">
+        <!-- Compliance Rating -->
+        <div class="section">
+          <div class="section-title">合规评级</div>
+          <div id="ov-rating" class="card-grid"></div>
+        </div>
+        <!-- Stats -->
+        <div class="section">
+          <div class="section-title">演进统计</div>
+          <div id="ov-stats" class="card-grid"></div>
+        </div>
+        <!-- Ratchet Flow (mini) -->
+        <div class="section">
+          <div class="section-title">🔄 达尔文棘轮 — 演进周期</div>
+          <div id="ov-ratchet" class="ratchet-flow"></div>
+          <div id="ov-cycle-log" class="cycle-log" style="display:none"></div>
+        </div>
+        <!-- Recent Items -->
+        <div class="section">
+          <div class="section-title">最近演进条目</div>
+          <div id="ov-items"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Ratchet Panel ═══ -->
+      <div id="panel-ratchet" class="tab-panel">
+        <div class="section">
+          <div class="section-title">达尔文棘轮 — 不可逆演进机制</div>
+          <p style="font-size:13px;color:var(--sumi-2);margin-bottom:16px;line-height:1.8">
+            棘轮机制确保系统只能向前演进，永不回退。每次通过验证的改进都被锁定为「遗产」(Heritage)，
+            形成 <b>append-only</b> 的不可变记录。如同达尔文进化论 — 有益的突变被保留，有害的被淘汰。
+          </p>
+        </div>
+        <!-- 5-Step Ratchet Flow -->
+        <div class="section">
+          <div class="section-title">五步闭环</div>
+          <div class="ratchet-flow" id="ratchet-flow">
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-audit">审</div>
+              <div class="ratchet-label">① 审查</div>
+              <div class="ratchet-sublabel">AUDIT</div>
+            </div>
+            <div class="ratchet-connector" id="rc-1"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-dispatch">派</div>
+              <div class="ratchet-label">② 派发</div>
+              <div class="ratchet-sublabel">DISPATCH</div>
+            </div>
+            <div class="ratchet-connector" id="rc-2"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-verify">验</div>
+              <div class="ratchet-label">③ 验证</div>
+              <div class="ratchet-sublabel">VERIFY</div>
+            </div>
+            <div class="ratchet-connector" id="rc-3"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-close">闭</div>
+              <div class="ratchet-label">④ 关闭</div>
+              <div class="ratchet-sublabel">CLOSE</div>
+            </div>
+            <div class="ratchet-connector" id="rc-4"></div>
+            <div class="ratchet-node ratchet-lock">
+              <div class="ratchet-dot" id="r-lock">🔒</div>
+              <div class="ratchet-label">⑤ 棘轮锁定</div>
+              <div class="ratchet-sublabel">RATCHET LOCK</div>
+            </div>
+          </div>
+          <div id="ratchet-log" class="cycle-log" style="display:none"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="runCycleOnRatchet()">▶ 运行完整周期</button>
+            <button class="btn btn-sm" onclick="runAuditOnly()">🔍 仅审查</button>
+          </div>
+        </div>
+        <!-- Heritage Ledger -->
+        <div class="section" style="margin-top:24px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📜 遗产账本 (Heritage Ledger)</span>
+            <span id="heritage-count" style="font-size:12px;font-family:var(--font-mono);color:var(--koke)"></span>
+          </div>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:12px">不可变、仅追加。每条记录代表一次被验证锁定的系统改进。</p>
+          <div id="heritage-list"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Rules Panel ═══ -->
+      <div id="panel-rules" class="tab-panel">
+        <div class="filter-bar">
+          <select id="rule-domain-filter" onchange="renderRules()">
+            <option value="">全部域</option>
+          </select>
+          <select id="rule-severity-filter" onchange="renderRules()">
+            <option value="">全部严重度</option>
+            <option value="critical">critical</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+          <span id="rule-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        </div>
+        <div id="rules-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+      </div>
+
+      <!-- ═══ Items Panel ═══ -->
+      <div id="panel-items" class="tab-panel">
+        <div class="filter-bar">
+          <select id="item-status-filter" onchange="loadItems()">
+            <option value="">全部状态</option>
+            <option value="discovered">发现</option>
+            <option value="dispatched">已派发</option>
+            <option value="in_progress">进行中</option>
+            <option value="verify_pending">待验证</option>
+            <option value="verified">已验证</option>
+            <option value="failed">失败</option>
+            <option value="closed">已关闭</option>
+          </select>
+          <select id="item-domain-filter" onchange="loadItems()">
+            <option value="">全部域</option>
+          </select>
+          <span id="item-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        </div>
+        <div id="items-table"></div>
+      </div>
+
+      <!-- ═══ Zones Panel ═══ -->
+      <div id="panel-zones" class="tab-panel">
+        <div class="section">
+          <div class="section-title">合规区域</div>
+          <div id="zones-all" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">活跃区域</div>
+          <div id="zones-active" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Audit Trail Panel ═══ -->
+      <div id="panel-trail" class="tab-panel">
+        <div class="filter-bar">
+          <select id="trail-type-filter" onchange="loadTrail()">
+            <option value="">全部类型</option>
+            <option value="audit_run">审查运行</option>
+            <option value="item_created">条目创建</option>
+            <option value="status_change">状态变更</option>
+            <option value="zone_entry">区域进入</option>
+            <option value="zone_exit">区域离开</option>
+          </select>
+          <button class="btn btn-sm" onclick="loadTrail()">刷新</button>
+        </div>
+        <div id="trail-list" style="background:var(--ishi);border:1px solid var(--groove)"></div>
+      </div>
+
+      <!-- ═══ Trend Panel ═══ -->
+      <div id="panel-trend" class="tab-panel">
+        <div class="section">
+          <div class="section-title">合规趋势</div>
+          <div id="trend-data"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">审查历史</div>
+          <div id="history-list"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">监控状态</div>
+          <div id="monitoring-data" class="card-grid"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const EVP = '/api/v1/agent-teams/evolution';
+let _allRules = [];
+let _allItems = [];
+
+// ── Utilities ──
+function el(id) { return document.getElementById(id); }
+function escapeHtml(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function toast(m) {
+  const e = el('toast'); e.textContent = m; e.classList.add('show');
+  setTimeout(() => e.classList.remove('show'), 2500);
+}
+async function api(p, o) {
+  try {
+    const r = await fetch(p, o);
+    if (!r.ok) { const d = await r.json().catch(() => ({})); console.warn(`API ${r.status}: ${p}`); return null; }
+    return await r.json();
+  } catch (e) { console.error(`API error: ${p}`, e); return null; }
+}
+function stL(s) { return { discovered: '发现', dispatched: '已派发', in_progress: '进行中', verify_pending: '待验证', verified: '已验证', failed: '失败', closed: '已关闭' }[s] || s; }
+function stColor(s) { return { discovered: 'var(--koke)', dispatched: 'var(--amber)', in_progress: 'var(--koke)', verify_pending: 'var(--shu)', verified: 'var(--lime)', failed: 'var(--red)', closed: 'var(--dim)' }[s] || 'var(--muted)'; }
+function sevColor(s) { return s === 'critical' ? 'var(--red)' : s === 'high' ? 'var(--amber)' : 'var(--muted)'; }
+function timeAgo(ts) { if (!ts) return '-'; const d = new Date(ts); return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+
+// ── Panel Switch ──
+function switchPanel(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-nav a').forEach(a => a.classList.remove('active'));
+  const panel = el('panel-' + name);
+  if (panel) panel.classList.add('active');
+  const links = document.querySelectorAll('.sb-nav a');
+  const map = { overview: 0, ratchet: 1, rules: 2, items: 3, zones: 4, trail: 5, trend: 6 };
+  if (map[name] !== undefined && links[map[name]]) links[map[name]].classList.add('active');
+  const titles = { overview: '演进概览', ratchet: '达尔文棘轮', rules: '审查规则', items: '演进条目', zones: '合规区域', trail: '审计轨迹', trend: '趋势分析' };
+  el('panel-title').textContent = titles[name] || name;
+  // Load data for panel
+  if (name === 'overview') loadOverview();
+  else if (name === 'ratchet') loadHeritage();
+  else if (name === 'rules') loadRules();
+  else if (name === 'items') loadItems();
+  else if (name === 'zones') loadZones();
+  else if (name === 'trail') loadTrail();
+  else if (name === 'trend') loadTrend();
+}
+
+// ── Overview ──
+async function loadOverview() {
+  const [summary, compliance, items, zones] = await Promise.all([
+    api(`${EVP}/summary`), api(`${EVP}/compliance-rating`), api(`${EVP}/items`), api(`${EVP}/zones/active`)
+  ]);
+
+  // Compliance Rating
+  const rc = el('ov-rating');
+  if (compliance) {
+    const g = compliance.grade || '?', s = compliance.score ?? 0;
+    const gc = { A: 'var(--lime)', B: 'var(--koke)', C: 'var(--amber)', D: 'var(--kitsune)', E: 'var(--red)' }[g] || 'var(--muted)';
+    rc.innerHTML = `<div class="stat-card" style="grid-column:span 2"><div class="gauge-wrap">
+      <div class="gauge-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--groove)" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${s} ${100 - s}" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center"/></svg><div class="gauge-grade" style="color:${gc}">${g}</div></div>
+      <div><div class="label">DNV 合规评级</div><div class="value" style="font-size:20px;color:${gc}">${s}/100</div><div class="sub">${escapeHtml(compliance.description || '')}</div></div>
+    </div></div>
+    <div class="stat-card"><div class="label">升级层级</div><div class="value" style="font-size:16px">${escapeHtml(compliance.escalation_tier || 'normal')}</div><div class="sub">DNV SEEMP Part III</div></div>`;
+  }
+
+  // Stats
+  if (summary) {
+    const bs = summary.by_status || {}, bd = summary.by_domain || {};
+    const bsv = summary.by_severity || {}, bop = summary.by_operational_domain || {};
+    el('ov-stats').innerHTML = `
+      <div class="stat-card"><div class="label"><span class="seal">规</span> 审查规则</div><div class="value">${summary.audit_rules_count || 0}</div><div class="sub">验证函数 ${summary.verify_tests_registered || 0}</div></div>
+      <div class="stat-card"><div class="label"><span class="seal seal-shu">项</span> 演进项</div><div class="value">${summary.total_items || 0}</div><div class="sub">${Object.entries(bs).map(([k, v]) => stL(k) + ': ' + v).join(' · ') || '无'}</div></div>
+      <div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k, v]) => k + ' ' + v).join(' · ') || '-'}</div></div>
+      <div class="stat-card"><div class="label">⚠ 严重度</div><div class="value" style="font-size:13px">${Object.entries(bsv).map(([k, v]) => `<span style="color:${sevColor(k)}">${k}: ${v}</span>`).join(' · ') || '-'}</div></div>
+      <div class="stat-card"><div class="label">🏢 运营域</div><div class="value" style="font-size:11px;line-height:1.6">${Object.entries(bop).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join('<br>') || '-'}</div></div>`;
+    el('panel-badge').textContent = `${summary.total_items || 0} 项`;
+  }
+
+  // Mini ratchet
+  buildMiniRatchet();
+
+  // Recent items (top 10)
+  if (items && items.length) {
+    const recent = items.slice(0, 10);
+    el('ov-items').innerHTML = `<table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>${recent.map(i => `<tr>
+      <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
+      <td><b>${escapeHtml(i.title)}</b></td>
+      <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
+      <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
+      <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
+      <td style="white-space:nowrap">${itemActions(i)}</td>
+    </tr>`).join('')}</tbody></table>
+    ${items.length > 10 ? `<button class="btn btn-sm" style="margin-top:8px" onclick="switchPanel('items')">查看全部 (${items.length})</button>` : ''}`;
+  } else {
+    el('ov-items').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px">暂无演进条目 — 点击「运行审查」开始</div>';
+  }
+}
+
+function buildMiniRatchet() {
+  const steps = [
+    { id: 'ov-r-audit', label: '审查', sub: 'AUDIT' },
+    { id: 'ov-r-dispatch', label: '派发', sub: 'DISPATCH' },
+    { id: 'ov-r-verify', label: '验证', sub: 'VERIFY' },
+    { id: 'ov-r-close', label: '关闭', sub: 'CLOSE' }
+  ];
+  el('ov-ratchet').innerHTML = steps.map((s, i) =>
+    `<div class="ratchet-node"><div class="ratchet-dot" id="${s.id}">${s.label[0]}</div><div class="ratchet-label">${s.label}</div><div class="ratchet-sublabel">${s.sub}</div></div>${i < 3 ? '<div class="ratchet-connector" id="ov-rc-' + (i + 1) + '"></div>' : ''}`
+  ).join('');
+}
+
+// ── Items ──
+async function loadItems() {
+  const sf = el('item-status-filter')?.value || '';
+  const df = el('item-domain-filter')?.value || '';
+  let url = `${EVP}/items`;
+  if (sf) url += `?status=${sf}`;
+  const items = await api(url);
+  _allItems = items || [];
+  // Populate domain filter
+  const domains = [...new Set(_allItems.map(i => i.audit_domain).filter(Boolean))];
+  const dSel = el('item-domain-filter');
+  const curDom = dSel.value;
+  if (dSel.options.length <= 1) {
+    domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
+  }
+  let filtered = _allItems;
+  if (df) filtered = filtered.filter(i => i.audit_domain === df);
+  el('item-count').textContent = `${filtered.length} 条`;
+
+  if (filtered.length) {
+    el('items-table').innerHTML = `<table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>目标通道</th><th>参考标准</th><th>操作</th></tr></thead><tbody>${filtered.map(i => `<tr>
+      <td style="font-family:var(--font-mono);font-size:11px" title="${escapeHtml(i.id || '')}">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
+      <td><b>${escapeHtml(i.title)}</b><br><span style="font-size:11px;color:var(--dim)">${escapeHtml(i.description?.slice(0, 60) || '')}</span></td>
+      <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
+      <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
+      <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
+      <td style="font-size:12px">${escapeHtml(i.target_channel || '')}</td>
+      <td style="font-size:11px;color:var(--dim)">${escapeHtml(i.reference_standard || '')}</td>
+      <td style="white-space:nowrap">${itemActions(i)}</td>
+    </tr>`).join('')}</tbody></table>`;
+  } else {
+    el('items-table').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px">暂无演进条目</div>';
+  }
+}
+
+function itemActions(item) {
+  const s = item.status;
+  if (s === 'discovered') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
+  if (s === 'dispatched') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
+  if (s === 'in_progress') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markComplete('${item.id}')">完成</button>`;
+  if (s === 'verify_pending') return `<span style="font-size:11px;color:var(--amber)">待验证</span>`;
+  if (s === 'verified') return `<span style="font-size:11px;color:var(--koke)">✓ 已验证</span>`;
+  if (s === 'failed') return `<span style="font-size:11px;color:var(--shu)">✗ 失败</span>`;
+  if (s === 'closed') return `<span style="font-size:11px;color:var(--dim)">已关闭</span>`;
+  return '—';
+}
+
+async function markProgress(itemId) {
+  const r = await api(`${EVP}/items/${itemId}/progress`, { method: 'POST' });
+  if (r) { toast('已标记为进行中'); refreshCurrent(); } else toast('操作失败');
+}
+async function markComplete(itemId) {
+  const r = await api(`${EVP}/items/${itemId}/complete`, { method: 'POST' });
+  if (r) { toast('已标记完成，等待验证'); refreshCurrent(); } else toast('操作失败');
+}
+
+// ── Rules ──
+async function loadRules() {
+  if (!_allRules.length) _allRules = await api(`${EVP}/rules`) || [];
+  // Populate domain filter
+  const domains = [...new Set(_allRules.map(r => r.domain).filter(Boolean))];
+  const dSel = el('rule-domain-filter');
+  if (dSel.options.length <= 1) {
+    domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });

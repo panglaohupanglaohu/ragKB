@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-obc-theme="dusk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentsGroup2026 — 登录</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --shironeri: oklch(0.96 0.003 110);
+      --ishi: oklch(0.91 0.004 110);
+      --kabe: oklch(0.85 0.005 110);
+      --sumi: oklch(0.18 0.008 110);
+      --sumi-2: oklch(0.38 0.006 110);
+      --sumi-3: oklch(0.55 0.005 110);
+      --koke: oklch(0.52 0.04 160);
+      --shu: oklch(0.48 0.07 22);
+      --kitsune: oklch(0.56 0.05 70);
+      --groove: oklch(0.82 0.004 110);
+      --font-serif: 'Noto Serif SC', serif;
+      --font-sans: 'Noto Sans SC', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--shironeri);
+      color: var(--sumi);
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background-image: radial-gradient(oklch(0 0 0/.012) 1px, transparent 1px),
+                         radial-gradient(oklch(0 0 0/.008) 1px, transparent 1px);
+      background-size: 5px 5px, 7px 7px;
+      background-position: 0 0, 3px 3px;
+    }
+
+    .login-container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 420px;
+      padding: 48px 40px;
+      background: var(--ishi);
+      border: 1px solid var(--groove);
+    }
+
+    .login-brand {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .login-brand .seal {
+      display: inline-block;
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--shironeri);
+      background: var(--sumi);
+      padding: 6px 14px;
+      line-height: 1.3;
+      font-family: var(--font-serif);
+      margin-bottom: 16px;
+    }
+
+    .login-brand h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--sumi);
+      margin-bottom: 6px;
+    }
+
+    .login-brand p {
+      font-size: 13px;
+      color: var(--sumi-3);
+      font-family: var(--font-mono);
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      color: var(--sumi-3);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--shironeri);
+      border: 1px solid var(--groove);
+      color: var(--sumi);
+      font-size: 14px;
+      font-family: inherit;
+      transition: 0.15s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--koke);
+      box-shadow: 0 0 0 2px oklch(0.52 0.04 160 / 0.12);
+    }
+
+    .form-input::placeholder {
+      color: var(--sumi-3);
+    }
+
+    .login-options {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      font-size: 12px;
+    }
+
+    .login-options label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--sumi-3);
+      cursor: pointer;
+    }
+
+    .login-options a {
+      color: var(--koke);
+      text-decoration: none;
+    }
+
+    .login-options a:hover {
+      text-decoration: underline;
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 14px;
+      background: var(--sumi);
+      color: var(--shironeri);
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-login:hover {
+      background: oklch(0.28 0.008 110);
+    }
+
+    .btn-login:active {
+      transform: scale(0.98);
+    }
+
+    .login-footer {
+      margin-top: 32px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--sumi-3);
+      font-family: var(--font-mono);
+    }
+
+    .login-error {
+      display: none;
+      padding: 10px 14px;
+      background: oklch(0.48 0.07 22 / 0.08);
+      border: 1px solid oklch(0.48 0.07 22 / 0.2);
+      color: var(--shu);
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .login-error.show {
+      display: block;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 24px 0;
+      font-size: 11px;
+      color: var(--sumi-3);
+    }
+
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--groove);
+    }
+
+    .btn-guest {
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      color: var(--koke);
+      border: 1px solid var(--groove);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    .btn-guest:hover {
+      background: var(--shironeri);
+      border-color: var(--koke);
+    }
+
+    .login-tabs {
+      display: flex;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--groove);
+    }
+
+    .login-tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--sumi-3);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-family: inherit;
+      transition: 0.15s;
+    }
+
+    .login-tab:hover {
+      color: var(--sumi-2);
+    }
+
+    .login-tab.active {
+      color: var(--sumi);
+      border-bottom-color: var(--shu);
+      font-weight: 600;
+    }
+
+    .login-success {
+      display: none;
+      padding: 10px 14px;
+      background: oklch(0.52 0.04 160 / 0.08);
+      border: 1px solid oklch(0.52 0.04 160 / 0.2);
+      color: var(--koke);
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .login-success.show {
+      display: block;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-brand">
+      <span class="seal">智</span>
+      <h1>AgentsGroup2026</h1>
+      <p>智能体团队管理平台</p>
+    </div>
+
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchTab('login')">登 录</button>
+      <button class="login-tab" onclick="switchTab('register')">注 册</button>
+    </div>
+
+    <div class="login-error" id="login-error"></div>
+    <div class="login-success" id="login-success"></div>
+
+    <!-- Login Form -->
+    <form id="login-form" onsubmit="return handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label">用户名</label>
+        <input class="form-input" type="text" id="username" placeholder="请输入用户名" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码</label>
+        <input class="form-input" type="password" id="password" placeholder="请输入密码" autocomplete="current-password" required>
+      </div>
+      <div class="login-options">
+        <label><input type="checkbox" id="remember"> 记住登录</label>
+      </div>
+      <button class="btn-login" type="submit">
+        <span class="seal" style="font-size:10px;padding:1px 5px;margin:0">入</span>
+        登 录
+      </button>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" class="hidden" onsubmit="return handleRegister(event)">
+      <div class="form-group">
+        <label class="form-label">用户名</label>
+        <input class="form-input" type="text" id="reg-username" placeholder="至少2个字符" autocomplete="username" required minlength="2">
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码</label>
+        <input class="form-input" type="password" id="reg-password" placeholder="至少4个字符" autocomplete="new-password" required minlength="4">
+      </div>
+      <div class="form-group">
+        <label class="form-label">确认密码</label>
+        <input class="form-input" type="password" id="reg-password2" placeholder="再次输入密码" autocomplete="new-password" required>
+      </div>
+      <button class="btn-login" type="submit">
+        <span class="seal" style="font-size:10px;padding:1px 5px;margin:0">册</span>
+        注 册
+      </button>
+    </form>
+
+    <div class="divider">或</div>
+    <button class="btn-guest" onclick="guestLogin()">访客模式进入</button>
+
+    <div class="login-footer">
+      AgentsGroup2026 v1.0.0 · Standalone Agent Platform
+    </div>
+  </div>
+
+  <script>
+    function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('login-error');
+
+      if (!username || !password) {
+        errorEl.textContent = '请填写用户名和密码';
+        errorEl.classList.add('show');
+        return false;
+      }
+
+      // Call backend login API
+      fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      .then(res => {
+        if (!res.ok) return res.json().then(d => Promise.reject(d));
+        return res.json();
+      })
+      .then(data => {
+        if (data.token) {
+          localStorage.setItem('ag-token', data.token);
+          localStorage.setItem('ag-user', username);
+        }
+        window.location.href = '/agent-team-config.html';
+      })
+      .catch(err => {
+        errorEl.textContent = err.detail || '登录失败，请检查用户名和密码';
+        errorEl.classList.add('show');
+      });
+
+      return false;
+    }
+
+    function handleRegister(e) {
+      e.preventDefault();
+      const username = document.getElementById('reg-username').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const password2 = document.getElementById('reg-password2').value;
+      const errorEl = document.getElementById('login-error');
+      const successEl = document.getElementById('login-success');
+      errorEl.classList.remove('show');
+      successEl.classList.remove('show');
+
+      if (!username || !password) {
+        errorEl.textContent = '请填写用户名和密码';
+        errorEl.classList.add('show');
+        return false;
+      }
+      if (password !== password2) {
+        errorEl.textContent = '两次输入的密码不一致';
+        errorEl.classList.add('show');
+        return false;
+      }
+
+      fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      .then(res => {
+        if (!res.ok) return res.json().then(d => Promise.reject(d));
+        return res.json();
+      })
+      .then(data => {
+        if (data.token) {
+          localStorage.setItem('ag-token', data.token);
+          localStorage.setItem('ag-user', username);
+        }
+        window.location.href = '/agent-team-config.html';
+      })
+      .catch(err => {
+        errorEl.textContent = err.detail || '注册失败，请稍后重试';
+        errorEl.classList.add('show');
+      });
+
+      return false;
+    }
+
+    function switchTab(tab) {
+      const tabs = document.querySelectorAll('.login-tab');
+      const loginForm = document.getElementById('login-form');
+      const registerForm = document.getElementById('register-form');
+      const errorEl = document.getElementById('login-error');
+      const successEl = document.getElementById('login-success');
+      errorEl.classList.remove('show');
+      successEl.classList.remove('show');
+
+      tabs.forEach(t => t.classList.remove('active'));
+      if (tab === 'login') {
+        tabs[0].classList.add('active');
+        loginForm.classList.remove('hidden');
+        registerForm.classList.add('hidden');
+      } else {
+        tabs[1].classList.add('active');
+        loginForm.classList.add('hidden');
+        registerForm.classList.remove('hidden');
+      }
+    }
+
+    function guestLogin() {
+      localStorage.setItem('ag-user', 'guest');
+      localStorage.removeItem('ag-token');
+      window.location.href = '/agent-team-config.html';
+    }
+
+    // If already logged in, redirect
+    if (localStorage.getItem('ag-token')) {
+      window.location.href = '/agent-team-config.html';
+    }
+  </script>
+</body>
+</html>

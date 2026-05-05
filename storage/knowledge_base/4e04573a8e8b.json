@@ -1,0 +1,20 @@
+{
+  "doc_id": "4e04573a8e8b",
+  "title": "[7c934759] deploy/istio-virtualservice.yaml",
+  "content": "# istio-virtualservice.yaml\napiVersion: networking.istio.io/v1beta1\nkind: VirtualService\nmetadata:\n  name: plaza-ab-testing\nspec:\n  hosts:\n  - plaza-service\n  http:\n  - match:\n    - headers:\n        x-sync-policy:\n          exact: ewma\n    route:\n    - destination:\n        host: plaza-green\n        port:\n          number: 8000\n      weight: 100\n  - route:\n    - destination:\n        host: plaza-blue\n        port:\n          number: 8000\n      weight: 100",
+  "source_agent": "deploy",
+  "source_team": "build_system",
+  "category": "deliverable",
+  "tags": [
+    "7c934759-39e",
+    "deploy",
+    "pipeline",
+    "auto_ingest",
+    "istio-virtualservice.yaml"
+  ],
+  "path": "pipeline/7c934759-39e/deploy/istio-virtualservice.yaml",
+  "created_at": "2026-05-05T01:10:56.352885+00:00",
+  "updated_at": "",
+  "metadata": {},
+  "size": 456
+}

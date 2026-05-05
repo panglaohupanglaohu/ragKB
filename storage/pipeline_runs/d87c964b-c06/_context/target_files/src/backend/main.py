@@ -1,0 +1,588 @@
+# -*- coding: utf-8 -*-
+"""
+AgentsGroup2026 — Standalone Agent Management + Evolution + Chat Server
+
+A self-contained FastAPI application extracted from AgentsGroup2026 that provides:
+  - Agent team management (create/configure/manage agents)
+  - System evolution engine (audit → dispatch → verify → close)
+  - Bridge chat (LLM-powered conversational interface)
+  - OpenClaw integration (connect external agents)
+
+Usage:
+    cd src/backend && python main.py --port 8080
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# ── Logging ──
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s  %(message)s")
+logger = logging.getLogger("agentsgroup")
+
+# ── App ──
+app = FastAPI(
+    title="AgentsGroup2026",
+    description="Standalone Agent Management, Evolution & Chat Platform",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ══════════════════════════════════════════════════════════════════
+# Request / Response Models
+# ══════════════════════════════════════════════════════════════════
+
+class BridgeChatRequest(BaseModel):
+    message: str
+    session_id: str = "default"
+    lang: str = "zh"
+    agent_id: str = "default_agent"
+    source: str = "bridge_chat"
+
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+    version: str = "1.0.0"
+    services: Dict[str, bool] = {}
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+# ══════════════════════════════════════════════════════════════════
+# Global State
+# ══════════════════════════════════════════════════════════════════
+
+_team_manager = None
+_chat_channel = None
+
+
+# ══════════════════════════════════════════════════════════════════
+# Startup
+# ══════════════════════════════════════════════════════════════════
+
+@app.on_event("startup")
+async def startup():
+    """Initialize all subsystems."""
+    global _team_manager, _chat_channel
+
+    logger.info("🚀 AgentsGroup2026 starting...")
+
+    # 1. Register channels (evolution + chat)
+    try:
+        from channels.marine_base import get_default_registry
+        from channels.system_evolution import SystemEvolutionChannel
+        from channels.bridge_chat import BridgeChatChannel
+
+        registry = get_default_registry()
+
+        # System Evolution
+        evo = SystemEvolutionChannel()
+        registry.register(evo)
+        evo.initialize()
+        logger.info("✅ SystemEvolutionChannel registered")
+
+        # Bridge Chat
+        channel_registry = {}
+        for ch_name in registry.list_channels():
+            ch = registry.get(ch_name)
+            if ch:
+                channel_registry[ch_name] = ch
+        _chat_channel = BridgeChatChannel(channel_registry=channel_registry)
+        registry.register(_chat_channel)
+        _chat_channel.initialize()
+        logger.info("✅ BridgeChatChannel registered")
+    except Exception as e:
+        logger.warning(f"⚠️ Channel registration failed: {e}")
+
+    # 2. Agent Team API (evolution endpoints)
+    try:
+        from agent_team_api import router as agent_team_router, set_teams
+        from channels.marine_base import get_default_registry
+
+        registry = get_default_registry()
+        evo_engine = registry.get("system_evolution")
+        set_teams(
+            build_team=None,
+            execution_team=None,
+            scheduler=None,
+            evolution_engine=evo_engine,
+        )
+        app.include_router(agent_team_router)
+        logger.info("✅ Agent Team API mounted (/api/v1/agent-teams)")
+    except Exception as e:
+        logger.warning(f"⚠️ Agent Team API failed: {e}")
+
+    # 3. Agent Config API (teams, agents, tools, skills, tasks, sessions)
+    try:
+        from agents.api import router as agent_config_router, init_agent_config
+        from agents.team_manager import TeamManager
+        from agents.teams.build_team import create_build_team
+
+        _team_manager = TeamManager()
+        build_team_obj = create_build_team()
+        _team_manager._teams[build_team_obj.team_id] = build_team_obj
+
+        # AI 编程团队
+        try:
+            from agents.teams.ai_coding_team import create_ai_coding_team
+            ai_coding_obj = create_ai_coding_team()
+            _team_manager._teams[ai_coding_obj.team_id] = ai_coding_obj
+        except Exception:
+            pass
+
+        # Try energy team (optional)
+        try:
+            from agents.teams.energy_team import create_energy_team
+            energy_team_obj = create_energy_team()
+            _team_manager._teams[energy_team_obj.team_id] = energy_team_obj
+        except Exception:
+            pass
+
+        init_agent_config(_team_manager)
+        app.include_router(agent_config_router)
+        logger.info(
+            "✅ Agent Config API mounted (/api/v1/agent-config) "
+            f"— teams: {len(_team_manager.list_teams())}, "
+            f"agents: {sum(len(t.agents) for t in _team_manager.list_teams())}"
+        )
+
+        # 4. 智能体广场 API
+        try:
+            from agents.plaza_routes import router as plaza_router
+            from agents.plaza_engine import get_plaza_engine
+            from agents.chat_harness import ChatHarness
+
+            plaza_engine = get_plaza_engine()
+            # 注入 ChatHarness.chat 函数
+            from agents.api import get_chat_harness
+            harness = get_chat_harness()
+            plaza_engine.set_chat_fn(harness.chat)
+
+            app.include_router(plaza_router, prefix="/api/v1/agent-config")
+            logger.info("✅ 智能体广场 API mounted (/api/v1/agent-config/plaza)")
+        except Exception as e:
+            logger.warning(f"⚠️ Plaza API failed: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ Agent Config API failed: {e}")
+
+    logger.info("🎉 AgentsGroup2026 ready")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Auth
+# ══════════════════════════════════════════════════════════════════
+
+import hashlib
+import secrets
+
+# Default users (in production, use a proper database)
+_USERS = {
+    "admin": hashlib.sha256("admin123".encode()).hexdigest(),
+}
+_TOKENS: Dict[str, str] = {}
+
+
+@app.post("/api/v1/auth/register")
+async def register(req: RegisterRequest):
+    """Register a new user."""
+    username = req.username.strip()
+    if not username or len(username) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少需要2个字符")
+    if len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="密码至少需要4个字符")
+    if username in _USERS:
+        raise HTTPException(status_code=409, detail="该用户名已被注册")
+    _USERS[username] = hashlib.sha256(req.password.encode()).hexdigest()
+    token = secrets.token_hex(32)
+    _TOKENS[token] = username
+    logger.info(f"✅ New user registered: {username}")
+    return {"token": token, "username": username}
+
+
+@app.post("/api/v1/auth/login")
+async def login(req: LoginRequest):
+    """Simple token-based login."""
+    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    if req.username not in _USERS or _USERS[req.username] != pwd_hash:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = secrets.token_hex(32)
+    _TOKENS[token] = req.username
+    return {"token": token, "username": req.username}
+
+
+@app.get("/api/v1/auth/me")
+async def auth_me(authorization: str = ""):
+    """Check current auth status."""
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if token in _TOKENS:
+        return {"username": _TOKENS[token], "authenticated": True}
+    return {"username": "guest", "authenticated": False}
+
+
+# ══════════════════════════════════════════════════════════════════
+# Health & Info
+# ══════════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/health")
+async def health():
+    """Health check endpoint."""
+    from channels.marine_base import get_default_registry
+    registry = get_default_registry()
+    return HealthResponse(
+        status="ok",
+        version="1.0.0",
+        services={
+            "evolution": registry.get("system_evolution") is not None,
+            "bridge_chat": registry.get("bridge_chat") is not None,
+            "agent_config": _team_manager is not None,
+        },
+    )
+
+
+@app.get("/api/v1/info")
+async def info():
+    """System info endpoint for external integrations."""
+    return {
+        "name": "AgentsGroup2026",
+        "version": "1.0.0",
+        "description": "Standalone Agent Management, Evolution & Chat Platform",
+        "capabilities": ["agent_management", "system_evolution", "chat", "openclaw_integration"],
+        "api_prefix": "/api/v1",
+        "endpoints": {
+            "agent_config": "/api/v1/agent-config",
+            "agent_teams": "/api/v1/agent-teams",
+            "evolution": "/api/v1/agent-teams/evolution",
+            "chat": "/api/v1/bridge-chat",
+            "health": "/api/v1/health",
+        },
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
+# Bridge Chat endpoints
+# ══════════════════════════════════════════════════════════════════
+
+async def _agent_llm_chat(
+    message: str,
+    session_id: str = "default",
+    agent_id: str = "default_agent",
+) -> Optional[Dict[str, Any]]:
+    """Try LLM chat with agent context. Returns None if LLM is unavailable."""
+    try:
+        from agents.chat_harness import get_chat_harness
+        from agents.api import _team_manager as tm
+    except ImportError:
+        return None
+
+    harness = get_chat_harness()
+    agent_prompt = ""
+    agent_name = agent_id
+
+    if tm:
+        for team in tm.list_teams():
+            agent = team.get_agent(agent_id)
+            if agent:
+                agent_prompt = agent.system_prompt or ""
+                agent_name = agent.name or agent_id
+                break
+
+    ctx_lines = []
+    if agent_prompt:
+        ctx_lines.append(agent_prompt)
+    else:
+        ctx_lines.append(f"你是 AgentsGroup2026 系统的智能体 {agent_name}。")
+    ctx_lines.append("回答时简洁专业，可中英文混合。")
+    ctx_lines.append("如果用户请求涉及系统改进，请提出具体可执行的建议。")
+    system_prompt = "\n".join(ctx_lines)
+
+    try:
+        result = await harness.chat(
+            message,
+            agent_id=agent_id,
+            session_id=f"chat_{session_id}",
+            system_prompt=system_prompt,
+        )
+        if result.error:
+            return None
+        reply = result.response.strip()
+        if not reply:
+            return None
+
+        urgency = "normal"
+        urgent_kw = ["紧急", "严重", "critical", "urgent", "emergency", "error"]
+        if any(kw in reply.lower() for kw in urgent_kw):
+            urgency = "high"
+
+        return {
+            "reply": reply,
+            "urgency": urgency,
+            "source": "agent_llm",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "model": result.model,
+            "provider": result.provider,
+            "latency_ms": round(result.latency_ms, 1),
+            "session_id": session_id,
+        }
+    except Exception as exc:
+        logger.debug("Agent LLM chat failed: %s", exc)
+        return None
+
+
+@app.post("/api/v1/bridge-chat/send")
+async def bridge_chat_send(payload: BridgeChatRequest):
+    """Handle chat message — LLM first, template fallback.
+
+    When the user mentions task/build keywords, automatically creates
+    a task for the build team via TaskEngine.
+    """
+    # Try LLM chat
+    llm_result = await _agent_llm_chat(payload.message, payload.session_id, agent_id=payload.agent_id)
+
+    # Auto-create task when message mentions build/task keywords
+    task_id = None
+    msg_text = (payload.message or "").strip()
+    _build_keywords = [
+        "build团队", "Build团队", "build team", "开发任务", "开发团队",
+        "构建团队", "提交任务", "分配任务", "创建任务", "新建任务",
+        "改进系统", "优化系统", "修复", "升级", "重构",
+    ]
+    _is_build_request = any(kw in msg_text for kw in _build_keywords)
+
+    if _is_build_request and len(msg_text) >= 4:
+        try:
+            from agents.api import _te
+            from agents.task_engine import AgentTask
+
+            title = msg_text.split("\n")[0][:120]
+            task_description = msg_text
+            if llm_result and llm_result.get("reply"):
+                task_description = (
+                    f"{msg_text}\n\n---\n\n"
+                    f"## Agent 分析建议 (参考)\n\n{llm_result['reply']}\n"
+                )
+
+            engine = _te()
+            if not engine._running:
+                await engine.start()
+
+            task = AgentTask(
+                agent_id="build_pm",
+                team_id="build_system",
+                title=title,
+                description=task_description,
+                priority=2,
+                metadata={
+                    "source": "bridge_chat",
+                    "session_id": payload.session_id,
+                    "agent_id": payload.agent_id,
+                },
+            )
+            await engine.submit_task(task)
+            task_id = task.task_id
+            logger.info(f"[Chat] Created task {task_id}: {title[:40]}")
+        except Exception as e:
+            logger.warning(f"[Chat] Task creation failed: {e}")
+            if llm_result:
+                llm_result["pipeline_error"] = f"任务创建失败: {str(e)[:200]}"
+
+    if llm_result:
+        if task_id:
+            llm_result["task_id"] = task_id
+        return llm_result
+
+    # Fallback to template-based bridge_chat channel
+    try:
+        from channels.marine_base import get_default_registry
+
+        registry = get_default_registry()
+        chat_ch = registry.get("bridge_chat")
+        if not chat_ch:
+            return {
+                "reply": "Chat channel 未注册，请检查后端配置。",
+                "urgency": "normal",
+                "source": "error",
+            }
+
+        result = await chat_ch.process_event({
+            "type": "chat_message",
+            "message": payload.message,
+            "session_id": payload.session_id,
+            "lang": payload.lang,
+        })
+        result["source"] = "bridge_chat_template"
+        if task_id:
+            result["task_id"] = task_id
+    except Exception as e:
+        logger.warning(f"[Chat] Template fallback failed: {e}")
+        return {
+            "reply": f"系统暂时无法处理请求: {str(e)[:100]}",
+            "urgency": "normal",
+            "source": "error",
+        }
+    return result
+
+
+@app.get("/api/v1/bridge-chat/history")
+async def bridge_chat_history(session_id: str = "default", limit: int = 20):
+    """Get chat history."""
+    from channels.marine_base import get_default_registry
+
+    registry = get_default_registry()
+    chat_ch = registry.get("bridge_chat")
+    if not chat_ch:
+        raise HTTPException(status_code=404, detail="Chat channel not found")
+    return {"session_id": session_id, "messages": chat_ch.get_session_history(session_id, limit)}
+
+
+@app.delete("/api/v1/bridge-chat/session/{session_id}")
+async def bridge_chat_clear_session(session_id: str):
+    """Clear chat session."""
+    from channels.marine_base import get_default_registry
+
+    registry = get_default_registry()
+    chat_ch = registry.get("bridge_chat")
+    if not chat_ch:
+        raise HTTPException(status_code=404, detail="Chat channel not found")
+    chat_ch.clear_session(session_id)
+    return {"status": "ok", "session_id": session_id}
+
+
+@app.get("/api/v1/bridge-chat/status")
+async def bridge_chat_status():
+    """Get chat channel status."""
+    from channels.marine_base import get_default_registry
+
+    registry = get_default_registry()
+    chat_ch = registry.get("bridge_chat")
+    if not chat_ch:
+        raise HTTPException(status_code=404, detail="Chat channel not found")
+    return chat_ch.get_status()
+
+
+# ══════════════════════════════════════════════════════════════════
+# OpenClaw Integration API
+# ══════════════════════════════════════════════════════════════════
+
+class OpenClawConnectRequest(BaseModel):
+    """Request to connect an external system via OpenClaw protocol."""
+    system_name: str
+    system_url: str
+    api_token: str = ""
+    description: str = ""
+    capabilities: list = []
+
+
+@app.post("/api/v1/openclaw/connect")
+async def openclaw_connect(req: OpenClawConnectRequest):
+    """Register an external system for OpenClaw integration.
+
+    This enables two-way communication:
+    - External system can call AgentsGroup2026 APIs
+    - AgentsGroup2026 can push evolution tasks to external system
+    """
+    return {
+        "status": "connected",
+        "system_name": req.system_name,
+        "integration_id": f"oc_{hash(req.system_url) % 100000:05d}",
+        "available_apis": {
+            "chat": "/api/v1/bridge-chat/send",
+            "evolution": "/api/v1/agent-teams/evolution/*",
+            "agent_config": "/api/v1/agent-config/*",
+            "health": "/api/v1/health",
+        },
+        "message": f"System '{req.system_name}' connected. Use the available APIs to integrate.",
+    }
+
+
+@app.get("/api/v1/openclaw/status")
+async def openclaw_status():
+    """Check OpenClaw integration status."""
+    return {
+        "protocol": "openclaw/v1",
+        "status": "ready",
+        "capabilities": [
+            "agent_management",
+            "system_evolution",
+            "chat_improvement",
+            "task_dispatch",
+            "compliance_rating",
+        ],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
+# Static Files (Frontend)
+# ══════════════════════════════════════════════════════════════════
+
+# Mount frontend static files
+_frontend_dir = Path(__file__).parent.parent / "frontend"
+if _frontend_dir.exists():
+    app.mount("/js", StaticFiles(directory=str(_frontend_dir / "js")), name="js")
+    app.mount("/css", StaticFiles(directory=str(_frontend_dir / "css")), name="css")
+
+    from fastapi.responses import FileResponse
+
+    @app.get("/")
+    async def index():
+        return FileResponse(str(_frontend_dir / "agent-team-config.html"))
+
+    @app.get("/agent-team-config.html")
+    async def agent_config_page():
+        return FileResponse(str(_frontend_dir / "agent-team-config.html"))
+
+    @app.get("/evolution.html")
+    async def evolution_page():
+        p = _frontend_dir / "datacenter-ratchet-evolution.html"
+        if p.exists():
+            return FileResponse(str(p))
+        raise HTTPException(404, "Evolution page not found")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Entry Point
+# ══════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AgentsGroup2026 Server")
+    parser.add_argument("--port", type=int, default=8080, help="Port to listen on")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--reload", action="store_true", help="Enable hot reload")
+    args = parser.parse_args()
+
+    logger.info(f"Starting AgentsGroup2026 on {args.host}:{args.port}")
+    uvicorn.run(
+        "main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )

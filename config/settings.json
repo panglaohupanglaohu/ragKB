@@ -1,0 +1,38 @@
+{
+  "system": {
+    "name": "AgentsGroup2026",
+    "version": "1.0.0",
+    "description": "Agent Management + Evolution + Chat Platform"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "llm": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "api_base_url": "https://api.deepseek.com",
+    "api_key": "",
+    "max_tokens": 8192,
+    "temperature": 0.7,
+    "thinking": {"type": "enabled"},
+    "reasoning_effort": "high"
+  },
+  "openclaw": {
+    "enabled": true,
+    "default_gateway": "http://localhost:3008",
+    "protocol_version": "v1"
+  },
+  "tts": {
+    "engine": "edge-tts",
+    "api_url": "http://127.0.0.1:9880",
+    "ref_audio_path": "/Users/panglaohu/GPT-SoVITS/ref_audio/rocko_male_zh.wav",
+    "prompt_text": "大家好，我是一名沉稳清晰的男性播报员。下面开始正式讨论。",
+    "prompt_lang": "zh",
+    "text_lang": "zh",
+    "speed_factor": 1.0,
+    "edge_voice": "zh-CN-YunxiNeural",
+    "edge_rate": "+8%",
+    "gpt_sovits_dir": "/Users/panglaohu/GPT-SoVITS"
+  }
+}
