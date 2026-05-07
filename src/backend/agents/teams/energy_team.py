@@ -10,9 +10,9 @@ from ..models import (
 
 def _model_deepseek() -> ModelConfig:
     return ModelConfig(
-        model_id="deepseek", provider="deepseek", name="deepseek-chat",
+        model_id="deepseek", provider="deepseek", name="deepseek-v4-pro",
         max_tokens=8192, temperature=0.2, is_default=True,
-        api_base_url="https://api.deepseek.com/v1",
+        api_base_url="https://api.deepseek.com",
     )
 
 

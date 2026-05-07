@@ -27,6 +27,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -631,7 +632,11 @@ class ChatHarness:
     def from_settings_file(cls, path: str = "config/settings.json") -> "ChatHarness":
         """Create harness from the project settings file."""
         try:
-            with open(path) as f:
+            settings_path = Path(path)
+            if not settings_path.is_absolute():
+                repo_root = Path(__file__).resolve().parents[3]
+                settings_path = repo_root / settings_path
+            with settings_path.open() as f:
                 settings = json.load(f)
             config = ProviderConfig.from_settings(settings)
         except (FileNotFoundError, json.JSONDecodeError):

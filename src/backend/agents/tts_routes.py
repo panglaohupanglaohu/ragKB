@@ -115,19 +115,32 @@ def _speechify_text(text: str) -> str:
     return spoken.strip("。 ") + "。"
 
 
+def _rate_to_percent(rate: str) -> int:
+    match = re.match(r"([+-]?\d+)%", (rate or "").strip())
+    if not match:
+        return 0
+    return int(match.group(1))
+
+
+def _prefer_faster_rate(base_rate: str, computed_rate: str) -> str:
+    if _rate_to_percent(computed_rate) > _rate_to_percent(base_rate):
+        return computed_rate
+    return base_rate
+
+
 def _rate_for_text(text: str, base_speed: float = 1.0) -> str:
     """Compute natural speaking rate for conversational discussion."""
     length = len(text.replace(" ", ""))
     if length < 20:
-        pct = 0
+        pct = 8
     elif length < 60:
-        pct = 5
+        pct = 12
     elif length < 150:
-        pct = 10
+        pct = 18
     else:
-        pct = 13
+        pct = 22
     pct += int((base_speed - 1.0) * 25)
-    pct = max(-15, min(25, pct))
+    pct = max(-10, min(30, pct))
     return f"+{pct}%" if pct >= 0 else f"{pct}%"
 
 
@@ -196,7 +209,8 @@ async def tts_synthesize(req: TTSRequest):
     profile = _profile_for_agent(req.agent_name)
 
     voice = req.voice or profile["voice"]
-    rate = req.rate or profile["rate"] or _rate_for_text(spoken_text, req.speed_factor)
+    computed_rate = _rate_for_text(spoken_text, req.speed_factor)
+    rate = req.rate or _prefer_faster_rate(profile["rate"], computed_rate)
     pitch = req.pitch or profile["pitch"] or DEFAULT_PITCH
 
     # Try Edge-TTS first

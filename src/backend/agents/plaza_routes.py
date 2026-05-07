@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .plaza import PRESET_TOPICS, SeatTier, NicheRole
+from .plaza import PRESET_TOPICS, SeatTier, NicheRole, DiscussionStatus
 from .plaza_engine import get_plaza_engine
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,18 @@ router = APIRouter(prefix="/plaza", tags=["Plaza"])
 
 # ── Request Models ────────────────────────────────────────
 
+class SelectedAgent(BaseModel):
+    agent_id: str
+    agent_name: str = ""
+    role: str = ""
+    team_id: str = ""
+
+
 class CreatePlazaRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
+    selected_agents: List[SelectedAgent] = Field(default_factory=list)
+    chairperson_agent_id: str = Field(default="")
 
 
 class AddParticipantRequest(BaseModel):
@@ -52,7 +61,29 @@ class SetVisualModeRequest(BaseModel):
 @router.post("", summary="创建广场", status_code=status.HTTP_201_CREATED)
 async def create_plaza(req: CreatePlazaRequest) -> Dict[str, Any]:
     engine = get_plaza_engine()
+    if req.chairperson_agent_id:
+        selected_ids = {agent.agent_id for agent in req.selected_agents}
+        if req.chairperson_agent_id not in selected_ids:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "议事长必须来自已选择的智能体",
+            )
+
     plaza = engine.create_plaza(req.name, req.description)
+
+    # 如果指定了智能体列表，直接入座
+    for sa in req.selected_agents:
+        is_chair = (sa.agent_id == req.chairperson_agent_id)
+        engine.add_participant(
+            plaza.id,
+            sa.agent_id,
+            sa.agent_name,
+            sa.role,
+            sa.team_id,
+            SeatTier.INNER if is_chair else SeatTier.MIDDLE,
+            NicheRole.MODERATOR if is_chair else NicheRole.OBSERVER,
+        )
+
     return plaza.to_dict(include_details=True)
 
 
@@ -296,39 +327,53 @@ class DispatchTasksRequest(BaseModel):
 async def dispatch_tasks_from_discussion(
     plaza_id: str, disc_id: str, req: DispatchTasksRequest,
 ) -> Dict[str, Any]:
-    """解析讨论总结中的行动计划，为每个步骤创建独立任务并提交到 TaskEngine."""
+    """解析执行计划中的任务表格，为每行创建独立的可追踪任务."""
+    import re as _re
+
     engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
     disc = engine.get_discussion(plaza_id, disc_id)
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
-    if not disc.summary:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "讨论尚无总结，请先完成讨论")
 
-    # 用 LLM 解析总结 → 任务列表
-    from .chat_harness import get_chat_harness
-    harness = get_chat_harness()
-    parse_prompt = (
-        "你是任务拆解助手。请分析以下讨论总结，提取可执行的任务列表。\n"
-        "严格按照 JSON 数组格式输出，每项包含: title, description, priority (1-3, 1最高)\n"
-        "只输出 JSON 数组，不要任何其他文字。\n\n"
-        f"讨论话题: {disc.topic}\n\n"
-        f"讨论总结:\n{disc.summary}\n"
-    )
-    try:
-        llm_reply = await harness.chat(parse_prompt, system="你是一个任务拆解专家，只输出JSON。")
-        # 提取 JSON 数组
-        import re
-        json_match = re.search(r'\[.*\]', llm_reply, re.DOTALL)
-        if not json_match:
-            raise ValueError("LLM 未返回有效 JSON 数组")
-        tasks_data = json.loads(json_match.group())
-    except Exception as e:
-        logger.warning(f"LLM 任务拆解失败: {e}，回退为单任务")
-        tasks_data = [{
-            "title": f"[广场计划] {disc.topic[:50]}",
-            "description": disc.summary,
-            "priority": 2,
-        }]
+    # 优先从 disc.plan.content 取，其次 disc.summary
+    plan_source = ""
+    if disc.plan and disc.plan.get("content"):
+        plan_source = disc.plan["content"]
+    elif disc.summary:
+        plan_source = disc.summary
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或插话生成计划")
+
+    # 先尝试从 plan 表格直接解析，失败再用 LLM
+    tasks_data = _parse_plan_table(plan_source)
+    if not tasks_data or (len(tasks_data) == 1 and tasks_data[0].get("title") == "演化需求"):
+        from .chat_harness import get_chat_harness
+        harness = get_chat_harness()
+        parse_prompt = (
+            "你是任务拆解助手。请分析以下执行计划，提取可执行的任务列表。\n"
+            "严格按照 JSON 数组格式输出，每项包含: title, description, priority (1-3, 1最高)\n"
+            "只输出 JSON 数组，不要任何其他文字。\n\n"
+            f"讨论话题: {disc.topic}\n\n"
+            f"执行计划:\n{plan_source}\n"
+        )
+        try:
+            result = await harness.chat(parse_prompt, system_prompt="你是一个任务拆解专家，只输出JSON。")
+            llm_reply = result.response
+            import re
+            json_match = re.search(r'\[.*\]', llm_reply, re.DOTALL)
+            if not json_match:
+                raise ValueError("LLM 未返回有效 JSON 数组")
+            tasks_data = json.loads(json_match.group())
+        except Exception as e:
+            logger.warning(f"LLM 任务拆解失败: {e}，回退为单任务")
+            tasks_data = [{
+                "title": f"[广场计划] {disc.topic[:50]}",
+                "description": plan_source[:500],
+                "priority": 2,
+            }]
 
     # 批量提交任务
     from .task_engine import get_task_engine, AgentTask
@@ -358,6 +403,335 @@ async def dispatch_tasks_from_discussion(
         "team_id": req.team_id,
         "task_count": len(created_tasks),
         "tasks": created_tasks,
+    }
+
+
+# ── 刷新执行计划（议事长重新小结） ─────────────────────────
+
+@router.post("/{plaza_id}/discussions/{disc_id}/refresh-plan", summary="议事长根据对话重新生成执行计划")
+async def refresh_plan(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+    """让议事长回顾全部对话，重新输出执行计划."""
+    engine = get_plaza_engine()
+    result = await engine.regenerate_plan(plaza_id, disc_id)
+    if "error" in result:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result["error"])
+    return result
+
+
+# ── 派发并立即执行 ──────────────────────────────────────────
+
+
+def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
+    """从 markdown 表格或列表格式中提取任务项."""
+    import re
+    tasks: List[Dict[str, Any]] = []
+
+    # 尝试匹配 markdown 表格行: | 序号 | 标题 | 描述 | 优先级 | 负责人 |
+    table_rows = re.findall(
+        r'\|\s*\d+\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(P[0-3]|\d)\s*\|(?:\s*(.+?)\s*\|)?',
+        plan_text,
+    )
+    if table_rows:
+        priority_map = {"P0": 1, "P1": 1, "P2": 2, "P3": 3, "1": 1, "2": 2, "3": 3}
+        for row in table_rows:
+            title, desc, pri, responsible = row[0], row[1], row[2], row[3] if len(row) > 3 else ""
+            tasks.append({
+                "title": title.strip(),
+                "description": desc.strip(),
+                "priority": priority_map.get(pri.strip(), 2),
+                "responsible": responsible.strip() if responsible else "",
+            })
+        return tasks
+
+    # 尝试匹配列表格式: - 任务标题: 描述
+    list_items = re.findall(r'[-*]\s+(.+?)[:：]\s*(.+)', plan_text)
+    if list_items:
+        for i, (title, desc) in enumerate(list_items):
+            tasks.append({
+                "title": title.strip(),
+                "description": desc.strip(),
+                "priority": 2,
+            })
+        return tasks
+
+    # 回退：按行分割，每行视为一个任务
+    lines = [l.strip() for l in plan_text.split('\n') if l.strip() and not l.strip().startswith('#')]
+    for i, line in enumerate(lines[:8]):
+        clean = re.sub(r'^[\d.)\-*]+\s*', '', line)
+        if clean:
+            tasks.append({
+                "title": clean[:100],
+                "description": clean,
+                "priority": 2,
+            })
+
+    return tasks or [{"title": "演化需求", "description": plan_text[:500], "priority": 2}]
+
+
+@router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行")
+async def dispatch_and_execute(
+    plaza_id: str, disc_id: str, req: DispatchTasksRequest,
+) -> Dict[str, Any]:
+    """拆解执行计划为任务，并立即触发自动执行流水线."""
+    # 先调用标准派发
+    result = await dispatch_tasks_from_discussion(plaza_id, disc_id, req)
+    if result["task_count"] == 0:
+        return result
+
+    # 立即启动所有任务
+    from .task_engine import get_task_engine
+    te = get_task_engine()
+    if not te._running:
+        await te.start()
+
+    started = []
+    for task_dict in result["tasks"]:
+        task = te.get_task(task_dict["task_id"])
+        if task and task.status.value == "pending":
+            started_task = await te.start_task(task.task_id)
+            if started_task:
+                # 如果有 executor 注册，自动执行
+                if te._executor:
+                    try:
+                        await te._executor(started_task)
+                    except Exception as e:
+                        logger.warning(f"任务自动执行失败 {task.task_id}: {e}")
+                started.append(started_task.to_dict())
+            else:
+                started.append(task_dict)
+        else:
+            started.append(task_dict)
+
+    result["tasks"] = started
+    result["status"] = "executing"
+    return result
+
+
+# ── 进入演化 ──────────────────────────────────────────────
+
+class EvolveRequest(BaseModel):
+    team_id: str = Field(default="")
+
+
+@router.post("/{plaza_id}/discussions/{disc_id}/evolve", summary="将讨论结论注入系统演化引擎")
+async def evolve_from_discussion(
+    plaza_id: str, disc_id: str, req: EvolveRequest,
+) -> Dict[str, Any]:
+    """将讨论中的执行计划转化为系统演化需求，注入演化引擎自动迭代."""
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    plan_source = ""
+    if disc.plan and disc.plan.get("content"):
+        plan_source = disc.plan["content"]
+    elif disc.summary:
+        plan_source = disc.summary
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划")
+
+    # 解析为演化需求项并注入 SystemEvolutionChannel
+    from ..channels.system_evolution import SystemEvolutionChannel, EvolutionItem
+    from ..agent_team_api import _evolution_engine
+
+    if not _evolution_engine:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
+
+    # 从计划中提取任务，转为演化项
+    tasks_data = _parse_plan_table(plan_source)
+    evolution_items = []
+
+    for i, td in enumerate(tasks_data[:8]):
+        item = EvolutionItem(
+            title=str(td.get("title", f"演化项 {i+1}"))[:100],
+            description=str(td.get("description", ""))[:500],
+            target_channel=f"plaza:{plaza_id}/discussion:{disc.id}",
+            severity="high" if td.get("priority", 2) <= 1 else "medium",
+        )
+        _evolution_engine.evolution_items[item.id] = item
+        evolution_items.append({
+            "id": item.id,
+            "title": item.title,
+            "status": item.status,
+            "priority": td.get("priority", 2),
+        })
+
+    # 触发演化周期
+    cycle_result = _evolution_engine.run_evolution_cycle()
+
+    # 如果指定了团队，同时派发
+    dispatched_tasks = []
+    if req.team_id:
+        try:
+            dispatch_result = await dispatch_tasks_from_discussion(
+                plaza_id, disc_id, DispatchTasksRequest(team_id=req.team_id)
+            )
+            dispatched_tasks = dispatch_result.get("tasks", [])
+        except Exception as e:
+            logger.warning(f"演化时派发失败: {e}")
+
+    return {
+        "status": "evolving",
+        "evolution_items": len(evolution_items),
+        "items": evolution_items,
+        "cycle_result": cycle_result,
+        "tasks": dispatched_tasks,
+        "task_count": len(dispatched_tasks),
+    }
+
+
+# ── 用户插话（发给议事长判断） ──────────────────────────────
+
+class InterjectRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+@router.post("/{plaza_id}/discussions/{disc_id}/interject", summary="用户向议事长提问/建议")
+async def interject_to_moderator(
+    plaza_id: str, disc_id: str, req: InterjectRequest,
+) -> Dict[str, Any]:
+    """用户发送建议/问题给议事长，议事长判断是否需要发起新一轮讨论或直接回复解释."""
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    # 找到议事长
+    moderator = None
+    if disc.moderator_agent_id:
+        moderator = plaza.participants.get(disc.moderator_agent_id)
+    if not moderator:
+        for p in plaza.participants.values():
+            if p.niche_role == NicheRole.MODERATOR:
+                moderator = p
+                break
+    if not moderator:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "广场没有议事长")
+
+    # 先广播用户消息
+    from .plaza import PlazaMessage
+    user_msg = PlazaMessage(
+        discussion_id=disc.id,
+        agent_id="__user__",
+        agent_name="用户",
+        role="human",
+        niche_role="human",
+        content=req.message,
+        round_number=disc.current_round,
+    )
+    disc.messages.append(user_msg)
+    await engine._broadcast(disc.id, {
+        "type": "message",
+        "message": user_msg.to_dict(),
+    })
+
+    if disc.status == DiscussionStatus.IN_PROGRESS:
+        correction = await engine.handle_live_interjection(
+            plaza_id,
+            disc_id,
+            req.message,
+            user_msg.id,
+        )
+        return {
+            "action": "redirect",
+            "user_message": user_msg.to_dict(),
+            "moderator_reply": correction["moderator_reply"].to_dict() if correction.get("moderator_reply") else None,
+            "nominated_reply": correction["nominated_reply"].to_dict() if correction.get("nominated_reply") else None,
+            "extra_replies": [m.to_dict() for m in correction.get("extra_replies", [])],
+            "moderator_resume": correction["moderator_resume"].to_dict() if correction.get("moderator_resume") else None,
+            "new_discussion": None,
+        }
+
+    new_disc = None
+
+    if not engine._chat_fn:
+        reply_content = f"收到您的建议。关于「{req.message[:30]}」，我会在后续讨论中纳入考虑。"
+        action = "reply"
+    else:
+        recent = engine._format_recent(disc, limit=8)
+        prompt = (
+            f"你是本场讨论的议事长（主持人）。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
+            f"最近对话:\n{recent}\n\n"
+            f"现在，观察者（用户）向你提出了建议/问题:\n"
+            f"「{req.message}」\n\n"
+            f"请判断并回应，严格遵守下面格式之一:\n"
+            f"格式 A：如果需要生成一个新的讨论\n"
+            f"[NEW_DISCUSSION]\n"
+            f"TOPIC: 新讨论标题\n"
+            f"GOAL: 新讨论要收敛的问题\n"
+            f"REPLY: 你对用户的简短说明\n\n"
+            f"格式 B：如果不需要新讨论\n"
+            f"REPLY: 直接解释，简洁有力，2-4 句\n\n"
+            f"- 不要客套，像苏格拉底一样直接"
+        )
+        decision_text = await engine._generate_agent_content(moderator, prompt)
+        action = "new_discussion" if "[NEW_DISCUSSION]" in decision_text else "reply"
+
+        topic = ""
+        goal = ""
+        reply_lines = []
+        for raw_line in decision_text.splitlines():
+            line = raw_line.strip()
+            if not line or line == "[NEW_DISCUSSION]":
+                continue
+            if line.startswith("TOPIC:"):
+                topic = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("GOAL:"):
+                goal = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("REPLY:"):
+                reply_lines.append(line.split(":", 1)[1].strip())
+                continue
+            reply_lines.append(line)
+
+        reply_content = "\n".join(line for line in reply_lines if line).strip()
+        if not reply_content:
+            reply_content = "这个追问我先收下。"
+
+        if action == "new_discussion":
+            new_disc = engine.create_discussion(
+                plaza_id,
+                topic or f"追问：{req.message[:24]}",
+                f"由用户追问触发，来源讨论：{disc.topic}\n\n用户追问：{req.message}",
+                moderator.agent_id,
+                2,
+            )
+            if new_disc:
+                new_disc.goal = goal or req.message
+
+    mod_msg = PlazaMessage(
+        discussion_id=disc.id,
+        agent_id=moderator.agent_id,
+        agent_name=moderator.agent_name or moderator.agent_id,
+        role=moderator.role,
+        niche_role="moderator",
+        content=reply_content,
+        round_number=disc.current_round,
+        reply_to=user_msg.id,
+    )
+    disc.messages.append(mod_msg)
+    await engine._broadcast(disc.id, {
+        "type": "message",
+        "message": mod_msg.to_dict(),
+    })
+
+    engine._store.save_plaza(plaza)
+
+    return {
+        "action": action,
+        "user_message": user_msg.to_dict(),
+        "moderator_reply": mod_msg.to_dict(),
+        "new_discussion": new_disc.to_dict() if new_disc else None,
     }
 
 

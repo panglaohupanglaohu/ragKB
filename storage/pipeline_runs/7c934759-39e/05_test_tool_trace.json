@@ -8,16 +8,16 @@
   "summary": "",
   "log": [
     {
-      "name": "grep",
-      "args": "{\"pattern\": \"openclaw|ewma|lamport|causal_consistency|sync_policy|ab_test\", \"include\": \"src/backend/**/*.py\"}",
-      "ok": true,
-      "summary": "50 hits"
-    },
-    {
       "name": "list_files",
-      "args": "{\"path\": \"src/backend\", \"max_depth\": 4}",
+      "args": "{\"path\": \"src/backend\", \"max_depth\": 3}",
       "ok": true,
       "summary": "49 files"
+    },
+    {
+      "name": "grep",
+      "args": "{\"pattern\": \"ewma|EWMA|lamport|Lamport|openclaw|OpenClaw|x-sync-policy\", \"include\": \"src/backend/**/*.py\"}",
+      "ok": true,
+      "summary": "50 hits"
     },
     {
       "name": "read_file",
@@ -33,9 +33,15 @@
     },
     {
       "name": "read_file",
-      "args": "{\"path\": \"src/backend/channels/marine_base.py\", \"start_line\": 1, \"end_line\": 80}",
+      "args": "{\"path\": \"src/backend/channels/marine_base.py\"}",
       "ok": true,
-      "summary": "467 lines, 1984 chars"
+      "summary": "467 lines, 12121 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/plaza.py\", \"start_line\": 1, \"end_line\": 100}",
+      "ok": true,
+      "summary": "235 lines, 2935 chars"
     },
     {
       "name": "read_file",
@@ -50,142 +56,178 @@
       "summary": "0 lines, 0 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\nprint(\\\"Python path set to:\\\", sys.path[0])\\n\"}",
+      "name": "grep",
+      "args": "{\"pattern\": \"test_ab_testing|test_openclaw\", \"include\": \"**/*.py\"}",
       "ok": true,
-      "summary": "exit=0, 0.04s"
+      "summary": "0 hits"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\n# 尝试导入 ab_testing 模块\\nfrom agents.ab_testing import (\\n    EWMAThresholdCalculator, \\n    LamportClock,\\n    TrafficRouter,\\n    WarmupCache,\\n    ABTestConfig,\\n    ABTestingFramework,\\n    SyncPolicy,\\n    ExperimentGroup,\\n    TrafficAllocation,\\n    ProbeMetrics,\\n    ProbeType,\\n)\\nprint(\\\"✅ agents.ab_testing 所有类导入成功\\\")\\n\\n# 检查关键类的属性\\nprint(\\\"\\\\n--- EWMAThresholdCalculator ---\\\")\\nprint(dir(EWMAThresholdCalculator))\\n\\nprint(\\\"\\\\n--- LamportClock ---\\\")\\nprint(dir(LamportClock))\\n\\nprint(\\\"\\\\n--- TrafficRouter ---\\\")\\nprint(dir(TrafficRouter))\\n\"}",
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 1, \"end_line\": 100}",
       "ok": true,
-      "summary": "exit=1, 0.09s"
+      "summary": "1002 lines, 2428 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/openclaw_sync.py\", \"start_line\": 1, \"end_line\": 100}",
+      "ok": true,
+      "summary": "480 lines, 2763 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 100, \"end_line\": 300}",
+      "ok": true,
+      "summary": "1002 lines, 6464 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/openclaw_sync.py\", \"start_line\": 100, \"end_line\": 300}",
+      "ok": true,
+      "summary": "480 lines, 6917 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 300, \"end_line\": 600}",
+      "ok": true,
+      "summary": "1002 lines, 8318 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/openclaw_sync.py\", \"start_line\": 300, \"end_line\": 480}",
+      "ok": true,
+      "summary": "480 lines, 5544 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 600, \"end_line\": 1002}",
+      "ok": true,
+      "summary": "1002 lines, 12006 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 1, \"end_line\": 100}",
+      "ok": true,
+      "summary": "1002 lines, 2428 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/openclaw_sync.py\", \"start_line\": 1, \"end_line\": 100}",
+      "ok": true,
+      "summary": "480 lines, 2763 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/marine_base.py\", \"start_line\": 1, \"end_line\": 200}",
+      "ok": true,
+      "summary": "467 lines, 5261 chars"
     },
     {
       "name": "grep",
-      "args": "{\"pattern\": \"^class \", \"include\": \"src/backend/agents/ab_testing.py\"}",
-      "ok": true,
-      "summary": "11 hits"
-    },
-    {
-      "name": "grep",
-      "args": "{\"pattern\": \"^class \", \"include\": \"src/backend/channels/openclaw_sync.py\"}",
+      "args": "{\"pattern\": \"def get_default_registry\", \"include\": \"src/backend/channels/marine_base.py\"}",
       "ok": true,
       "summary": "1 hits"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\n# 尝试导入 ab_testing 模块中的实际类\\nfrom agents.ab_testing import (\\n    SyncPolicy,\\n    TrafficAllocation,\\n    LamportClock,\\n    CausalDependency,\\n    EWMAConfig,\\n    ABTestMetrics,\\n    EWMAThresholdEngine,\\n    WarmCache,\\n    TrafficStainer,\\n    CausalConsistencyDecider,\\n    ABTestManager,\\n)\\nprint(\\\"✅ agents.ab_testing 所有类导入成功\\\")\\n\\n# 尝试导入 openclaw_sync 模块\\nfrom channels.openclaw_sync import OpenClawSyncChannel\\nprint(\\\"✅ channels.openclaw_sync.OpenClawSyncChannel 导入成功\\\")\\n\"}",
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/marine_base.py\", \"start_line\": 400, \"end_line\": 467}",
       "ok": true,
-      "summary": "exit=0, 0.1s"
-    },
-    {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock()\\nprint(f\\\"  初始时间: {clock.time}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: {clock.time}\\\")\\nclock.receive(42)\\nprint(f\\\"  接收时间42后: {clock.time}\\\")\\nassert clock.time >= 42, \\\"Lamport clock should be at least 42\\\"\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  beta: {config.beta}\\\")\\nprint(f\\\"  base_threshold: {config.base_threshold}\\\")\\nprint(f\\\"  cooling_period_ms: {config.cooling_period_ms}\\\")\\nprint(f\\\"  min_samples: {config.min_samples}\\\")\\nprint(f\\\"  ",
-      "ok": true,
-      "summary": "exit=1, 0.1s"
+      "summary": "467 lines, 1565 chars"
     },
     {
       "name": "read_file",
-      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 48, \"end_line\": 102}",
+      "args": "{\"path\": \"src/backend/monitoring/models.py\"}",
       "ok": true,
-      "summary": "1002 lines, 1347 chars"
-    },
-    {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始时间: counter={clock.counter}, timestamp={clock.timestamp}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42, \\\"Lamport clock should be at least 42\\\"\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  beta: {config.beta}\\\")\\nprint(f\\\"  base_threshold: {config.b",
-      "ok": true,
-      "summary": "exit=1, 0.1s"
+      "summary": "308 lines, 10208 chars"
     },
     {
       "name": "read_file",
-      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 119, \"end_line\": 160}",
+      "args": "{\"path\": \"src/backend/monitoring/collector.py\", \"start_line\": 1, \"end_line\": 100}",
       "ok": true,
-      "summary": "1002 lines, 1619 chars"
+      "summary": "253 lines, 2478 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/main.py\", \"start_line\": 530, \"end_line\": 600}",
       "ok": true,
-      "summary": "exit=1, 0.11s"
+      "summary": "637 lines, 2363 chars"
     },
     {
       "name": "grep",
-      "args": "{\"include\": \"src/backend/agents/ab_testing.py\", \"pattern\": \"class EWMAThresholdEngine|def \"}",
+      "args": "{\"include\": \"**/test_*.py\", \"pattern\": \"ab_testing|openclaw_sync|EWMA|Lamport\"}",
       "ok": true,
       "summary": "50 hits"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
+      "name": "read_file",
+      "args": "{\"path\": \"tests/test_ab_testing.py\"}",
       "ok": true,
-      "summary": "exit=1, 0.11s"
+      "summary": "428 lines, 14692 chars"
     },
     {
       "name": "read_file",
-      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 382, \"end_line\": 430}",
+      "args": "{\"path\": \"tests/test_openclaw_sync.py\"}",
       "ok": true,
-      "summary": "1002 lines, 1068 chars"
+      "summary": "245 lines, 8646 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
+      "name": "run_pytest",
+      "args": "{\"target\": \"tests/test_ab_testing.py -v\", \"timeout\": 60}",
       "ok": true,
-      "summary": "exit=1, 0.08s"
+      "summary": "exit=4, 0.3s"
+    },
+    {
+      "name": "run_pytest",
+      "args": "{\"target\": \"tests/test_openclaw_sync.py -v\", \"timeout\": 60}",
+      "ok": true,
+      "summary": "exit=4, 0.19s"
+    },
+    {
+      "name": "run_pytest",
+      "args": "{\"target\": \"tests/test_ab_testing.py\", \"timeout\": 60}",
+      "ok": true,
+      "summary": "exit=1, 0.23s"
+    },
+    {
+      "name": "run_pytest",
+      "args": "{\"target\": \"tests/test_openclaw_sync.py\", \"timeout\": 60}",
+      "ok": true,
+      "summary": "exit=1, 0.22s"
     },
     {
       "name": "grep",
-      "args": "{\"include\": \"src/backend/agents/ab_testing.py\", \"pattern\": \"class TrafficStainer|def \", \"max_hits\": 30}",
+      "args": "{\"include\": \"src/backend/agents/ab_testing.py\", \"pattern\": \"class EWMAConfig\"}",
       "ok": true,
-      "summary": "30 hits"
-    },
-    {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
-      "ok": true,
-      "summary": "exit=1, 0.1s"
-    },
-    {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
-      "ok": true,
-      "summary": "exit=1, 0.11s"
+      "summary": "1 hits"
     },
     {
       "name": "grep",
-      "args": "{\"include\": \"src/backend/agents/ab_testing.py\", \"pattern\": \"class CausalConsistencyDecider|def should_force_sync\"}",
+      "args": "{\"include\": \"src/backend/agents/ab_testing.py\", \"pattern\": \"class EWMAThresholdEngine\"}",
       "ok": true,
-      "summary": "2 hits"
+      "summary": "1 hits"
     },
     {
       "name": "read_file",
-      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 594, \"end_line\": 660}",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 119, \"end_line\": 215}",
       "ok": true,
-      "summary": "1002 lines, 2065 chars"
+      "summary": "1002 lines, 3841 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nprint(f\\\"  初始: counter={clock.counter}\\\")\\nclock.tick()\\nprint(f\\\"  自增后: counter={clock.counter}\\\")\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nprint(f\\\"  合并(42)后: counter={clock.counter}\\\")\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nprint(f\\\"  alpha: {config.alpha}\\\")\\nprint(f\\\"  base_threshold_ms: {config.base_threshold_ms}\\\")\\nprint(f\\\"  threshold_multiplier: {config.threshold_multiplier}\\\")\\nprint(f\\\"  cool",
+      "name": "read_file",
+      "args": "{\"path\": \"tests/test_ab_testing.py\", \"start_line\": 1, \"end_line\": 100}",
       "ok": true,
-      "summary": "exit=1, 0.11s"
+      "summary": "428 lines, 2955 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import ABTestManager, TrafficAllocation\\n\\nmanager = ABTestManager()\\nstatus = manager.get_status()\\nprint(f\\\"  get_status() 返回: {status}\\\")\\nprint(f\\\"  keys: {status.keys()}\\\")\\n\"}",
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/ab_testing.py\", \"start_line\": 215, \"end_line\": 400}",
       "ok": true,
-      "summary": "exit=0, 0.09s"
+      "summary": "1002 lines, 5172 chars"
     },
     {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom agents.ab_testing import (\\n    LamportClock, EWMAConfig, EWMAThresholdEngine, \\n    WarmCache, TrafficStainer, CausalConsistencyDecider,\\n    ABTestManager, SyncPolicy, TrafficAllocation, ABTestMetrics\\n)\\n\\n# ── 测试 LamportClock ──\\nprint(\\\"=\\\" * 60)\\nprint(\\\"测试 LamportClock\\\")\\nclock = LamportClock(node_id=\\\"node-001\\\")\\nclock.tick()\\nclock.merge(LamportClock(node_id=\\\"node-002\\\", counter=42, timestamp=0))\\nassert clock.counter >= 42\\nprint(\\\"  ✅ LamportClock 测试通过\\\")\\n\\n# ── 测试 EWMAConfig ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAConfig\\\")\\nconfig = EWMAConfig()\\nassert config.alpha == 0.3\\nassert config.base_threshold_ms == 100.0\\nassert config.max_dependency_depth == 3\\nassert config.clock_skew_tolerance_ms == 100.0\\nprint(\\\"  ✅ EWMAConfig 测试通过\\\")\\n\\n# ── 测试 EWMAThresholdEngine ──\\nprint(\\\"\\\\n\\\" + \\\"=\\\" * 60)\\nprint(\\\"测试 EWMAThresholdEngine\\\")\\nengine = EWMAThresholdEngi",
+      "name": "read_file",
+      "args": "{\"path\": \"tests/test_ab_testing.py\", \"start_line\": 100, \"end_line\": 428}",
       "ok": true,
-      "summary": "exit=0, 0.09s"
-    },
-    {
-      "name": "run_python",
-      "args": "{\"code\": \"import sys\\nsys.path.insert(0, '/Users/panglaohu/Downloads/AgentsGroup2026/src/backend')\\n\\nfrom channels.openclaw_sync import OpenClawSyncChannel\\n\\n# 测试 OpenClawSyncChannel 实例化\\nprint(\\\"测试 OpenClawSyncChannel\\\")\\nchannel = OpenClawSyncChannel()\\nprint(f\\\"  实例化成功: {type(channel).__name__}\\\")\\n\\n# 测试 initialize\\nresult = channel.initialize()\\nprint(f\\\"  initialize() 返回: {result}\\\")\\n\\n# 测试 process_event\\nevent = {\\\"type\\\": \\\"sync_request\\\", \\\"data\\\": {\\\"node_id\\\": \\\"node-001\\\", \\\"payload\\\": \\\"test\\\"}}\\nresponse = channel.process_event(event)\\nprint(f\\\"  process_event() 返回: {response}\\\")\\n\\n# 测试 get_status\\nstatus = channel.get_status()\\nprint(f\\\"  get_status() 返回: {status}\\\")\\nprint(f\\\"  status keys: {status.keys()}\\\")\\n\\nprint(\\\"\\\\n✅ OpenClawSyncChannel 测试通过\\\")\\n\"}",
-      "ok": true,
-      "summary": "exit=0, 0.09s"
+      "summary": "428 lines, 11737 chars"
     }
   ]
 }

@@ -14,39 +14,39 @@
     "deepseek": {
       "model_id": "deepseek",
       "provider": "deepseek",
-      "name": "deepseek-chat",
+      "name": "deepseek-v4-pro",
       "max_tokens": 65536,
       "temperature": 0.2,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://api.deepseek.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
   "ai_coding": {
     "deepseek": {
       "model_id": "deepseek",
       "provider": "deepseek",
-      "name": "deepseek-chat",
+      "name": "deepseek-v4-pro",
       "max_tokens": 65536,
       "temperature": 0.2,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://api.deepseek.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
   "energy_first_principle": {
     "deepseek": {
       "model_id": "deepseek",
       "provider": "deepseek",
-      "name": "deepseek-chat",
+      "name": "deepseek-v4-pro",
       "max_tokens": 65536,
       "temperature": 0.2,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://api.deepseek.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     },
     "copilot": {
       "model_id": "copilot",

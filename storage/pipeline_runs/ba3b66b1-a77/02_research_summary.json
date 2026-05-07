@@ -1,0 +1,13 @@
+{
+  "step": "research",
+  "task_id": "ba3b66b1-a77",
+  "timestamp": "2026-05-05T23:40:41",
+  "char_count": 116191,
+  "decisions": [],
+  "files_changed": [
+    "src/backend/agents/r_threshold_calibrator.py",
+    "src/backend/scripts/incident_replay.py"
+  ],
+  "findings": [],
+  "prose_summary": "任务: [广场计划] 如何把 OpenClaw 智能体接入现有团队体系，并输出可直接派发的执行计划\nAgent: build_researcher\n📋 任务: ba3b66b1-a77\n🤖 Agent: Researcher (researcher)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Researcher (researcher)。\n你是技术研究员。请对以下任务进行技术调研:\n[广场计划] 如何把 OpenClaw 智能体接入现有团队体系，并输出可直接派发的执行计划\n以**可逆性系数 R** 动态控制 OpenClaw 决策权限，R 阈值由事故回放标定（取恢复成本中位数 0.3 分位）。首次上线采用**免疫接种**——让越权操作在原子化回滚中真实发生，用微创代价暴露误判率，废除影子模式。回滚窗口需绑定**全链路延迟热力梯度断层**，而非静态分位，避免回滚本身成为级联故障源。最大风险是梯度断层标定滞后于拓扑演进，首要动作是搭建事故回放预演环境并输出 R 阈值初版。\n## 加权结论 (P0→P1→P2)\n- [P0] 权限采用 R 系数动态函数，通过免疫接种获取真实误判率，回滚原子性必须基于全拓扑最大超时包络线校准 | Architect, Developer, 技术研究员 | 直接决定智能体决策卡位能否从“拟像指标”进入生产有效治理\n- [P1] 回滚窗口验证必须覆盖尾延迟引发的死锁脉冲场景，防止治愈机制退化为致病原 | Tester | 是级联安全的唯一质量门禁，否则免疫接种实验无法通过\n- [P2] 将免疫接种期间的资源开销纳入可观测成本面板，作为后续能耗优化的输入，不阻塞主上线"
+}

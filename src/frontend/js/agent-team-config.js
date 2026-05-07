@@ -339,7 +339,7 @@ async function openEditModel(mid){
   updateEmUrlHint();
   openModal('modal-edit-model');
 }
-const _providerDefaultUrls={deepseek:'https://api.deepseek.com/v1',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',github:'https://models.inference.ai.azure.com',qwen:'https://dashscope.aliyuncs.com/compatible-mode/v1',openrouter:'https://openrouter.ai/api/v1',local:'http://127.0.0.1:11434/v1'};
+const _providerDefaultUrls={deepseek:'https://api.deepseek.com',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',github:'https://models.inference.ai.azure.com',qwen:'https://dashscope.aliyuncs.com/compatible-mode/v1',openrouter:'https://openrouter.ai/api/v1',local:'http://127.0.0.1:11434/v1'};
 function updateEmUrlHint(){
   const prov=el('em-prov').value;
   const defaultUrl=_providerDefaultUrls[prov]||'';
@@ -386,7 +386,7 @@ async function testModelInEdit(){
 let _tcToolId='';
 async function loadTools(){
   const[all,team]=await Promise.all([api(`${A}/tools`),api(`${A}/teams/${tid}/tools`)]);
-  const en=new Set((team||[]).map(t=>t.tool_id||t.id));const box=el('tools-cards');
+  const en=new Set((team||[]).filter(t=>t.enabled!==false).map(t=>t.tool_id||t.id));const box=el('tools-cards');
   if(!all||!all.length){box.innerHTML='<p style="color:var(--dim)">暂无工具</p>';return}
   const cats={};all.forEach(t=>{const c=(t.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(t)});
   let html='';Object.keys(cats).sort().forEach(cat=>{

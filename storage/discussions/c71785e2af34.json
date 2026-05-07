@@ -1,0 +1,207 @@
+{
+  "id": "c71785e2af34",
+  "name": "节奏验收广场-211928",
+  "description": "用于验收真实讨论节奏与概要质量",
+  "diameter": 60.0,
+  "height": 30.0,
+  "oculus_diameter": 9.0,
+  "niche_count": 17,
+  "seat_tiers": 3,
+  "visual_mode": "modern",
+  "created_at": "2026-05-05T13:19:28.324677+00:00",
+  "metadata": {},
+  "participants": {
+    "build_pm": {
+      "agent_id": "build_pm",
+      "agent_name": "PM",
+      "role": "project_manager",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 0,
+      "joined_at": "2026-05-05T13:19:28.326951+00:00"
+    },
+    "build_researcher": {
+      "agent_id": "build_researcher",
+      "agent_name": "Researcher",
+      "role": "researcher",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 1,
+      "joined_at": "2026-05-05T13:19:28.327365+00:00"
+    },
+    "build_architect": {
+      "agent_id": "build_architect",
+      "agent_name": "Architect",
+      "role": "architect",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 2,
+      "joined_at": "2026-05-05T13:19:28.327549+00:00"
+    },
+    "build_developer": {
+      "agent_id": "build_developer",
+      "agent_name": "Developer",
+      "role": "developer",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 3,
+      "joined_at": "2026-05-05T13:19:28.327746+00:00"
+    },
+    "build_tester": {
+      "agent_id": "build_tester",
+      "agent_name": "Tester",
+      "role": "qa_engineer",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 4,
+      "joined_at": "2026-05-05T13:19:28.327926+00:00"
+    },
+    "build_deployer": {
+      "agent_id": "build_deployer",
+      "agent_name": "Deployer",
+      "role": "devops",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 5,
+      "joined_at": "2026-05-05T13:19:28.328222+00:00"
+    },
+    "build_doc_writer": {
+      "agent_id": "build_doc_writer",
+      "agent_name": "Doc Writer",
+      "role": "documentation",
+      "team_id": "build_system",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 6,
+      "joined_at": "2026-05-05T13:19:28.328557+00:00"
+    },
+    "coding_pm": {
+      "agent_id": "coding_pm",
+      "agent_name": "项目经理",
+      "role": "project_manager",
+      "team_id": "ai_coding",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 7,
+      "joined_at": "2026-05-05T13:19:28.328789+00:00"
+    },
+    "coding_researcher": {
+      "agent_id": "coding_researcher",
+      "agent_name": "技术研究员",
+      "role": "researcher",
+      "team_id": "ai_coding",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 8,
+      "joined_at": "2026-05-05T13:19:28.328926+00:00"
+    },
+    "coding_developer": {
+      "agent_id": "coding_developer",
+      "agent_name": "全栈开发",
+      "role": "developer",
+      "team_id": "ai_coding",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 9,
+      "joined_at": "2026-05-05T13:19:28.329044+00:00"
+    },
+    "coding_tester": {
+      "agent_id": "coding_tester",
+      "agent_name": "测试工程师",
+      "role": "qa_engineer",
+      "team_id": "ai_coding",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 10,
+      "joined_at": "2026-05-05T13:19:28.329154+00:00"
+    },
+    "energy_pue_optimizer": {
+      "agent_id": "energy_pue_optimizer",
+      "agent_name": "PUE Optimizer",
+      "role": "energy_optimizer",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 11,
+      "joined_at": "2026-05-05T13:19:28.329265+00:00"
+    },
+    "energy_thermal_sentinel": {
+      "agent_id": "energy_thermal_sentinel",
+      "agent_name": "Thermal Sentinel",
+      "role": "thermal_engineer",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 12,
+      "joined_at": "2026-05-05T13:19:28.329374+00:00"
+    },
+    "energy_policy_engine": {
+      "agent_id": "energy_policy_engine",
+      "agent_name": "Policy Engine",
+      "role": "policy_analyst",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 13,
+      "joined_at": "2026-05-05T13:19:28.329520+00:00"
+    },
+    "energy_darwin_ratchet": {
+      "agent_id": "energy_darwin_ratchet",
+      "agent_name": "Darwin Ratchet",
+      "role": "evolution_engineer",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 14,
+      "joined_at": "2026-05-05T13:19:28.329651+00:00"
+    },
+    "energy_anomaly_watchdog": {
+      "agent_id": "energy_anomaly_watchdog",
+      "agent_name": "Anomaly Watchdog",
+      "role": "anomaly_detector",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 15,
+      "joined_at": "2026-05-05T13:19:28.329880+00:00"
+    },
+    "energy_forecast_planner": {
+      "agent_id": "energy_forecast_planner",
+      "agent_name": "Forecast Planner",
+      "role": "forecast_analyst",
+      "team_id": "energy_first_principle",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 16,
+      "joined_at": "2026-05-05T13:19:28.330052+00:00"
+    }
+  },
+  "discussions": {
+    "84549bcec659": {
+      "id": "84549bcec659",
+      "plaza_id": "c71785e2af34",
+      "topic": "如何把 OpenClaw 智能体接入现有团队体系，并输出可直接派发的执行计划",
+      "description": "要求兼顾接入路径、权限边界、配置落点、测试与回滚方案",
+      "status": "open",
+      "moderator_agent_id": "",
+      "max_rounds": 2,
+      "current_round": 0,
+      "goal": "",
+      "summary": "",
+      "key_conclusions": [],
+      "plan": {},
+      "assigned_team_id": "",
+      "created_at": "2026-05-05T13:19:28.331526+00:00",
+      "started_at": null,
+      "ended_at": null,
+      "metadata": {},
+      "messages": []
+    }
+  }
+}

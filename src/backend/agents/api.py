@@ -306,6 +306,29 @@ def list_teams() -> List[Dict[str, Any]]:
     ]
 
 
+@router.get("/teams-tree", summary="All teams with agents tree")
+def teams_tree() -> List[Dict[str, Any]]:
+    """返回团队→智能体树状结构，供广场选人使用."""
+    result = []
+    for t in _tm().list_teams():
+        agents_list = t.agents
+        if isinstance(agents_list, dict):
+            agents_list = list(agents_list.values())
+        result.append({
+            "team_id": t.team_id,
+            "name": t.name,
+            "agents": [
+                {
+                    "agent_id": a.agent_id,
+                    "name": a.name or a.agent_id,
+                    "role": a.role or "",
+                }
+                for a in agents_list
+            ],
+        })
+    return result
+
+
 @router.get("/teams/{team_id}", summary="Get team detail")
 def get_team(team_id: str) -> Dict[str, Any]:
     team = _tm().get_team(team_id)
@@ -503,6 +526,7 @@ def enable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
         team.add_tool(source)
     tool = team.tools[tool_id]
     tool.enabled = True
+    _tm()._persist()
     return tool.to_dict()
 
 
@@ -523,6 +547,7 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
         team.add_tool(source)
         tool = team.tools[tool_id]
     tool.enabled = False
+    _tm()._persist()
     return tool.to_dict()
 
 

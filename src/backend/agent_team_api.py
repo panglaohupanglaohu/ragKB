@@ -315,12 +315,29 @@ async def evolution_close_verified():
     return {"closed": closed, "count": len(closed)}
 
 
+@router.post("/evolution/close")
+async def evolution_close():
+    """关闭所有已验证通过的演进项 (close-verified 别名)。"""
+    if not _evolution_engine:
+        raise HTTPException(404, "Evolution engine not registered")
+    closed = _evolution_engine.close_verified()
+    return {"closed": closed, "count": len(closed)}
+
+
 @router.get("/evolution/history")
 async def evolution_audit_history():
     """获取审查历史记录。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_audit_history()
+    raw = _evolution_engine.get_audit_history()
+    # Normalize field names for frontend (expects timestamp, total)
+    result = []
+    for h in raw:
+        entry = dict(h)
+        entry.setdefault("timestamp", entry.pop("time", None))
+        entry.setdefault("total", (entry.get("passed") or 0) + (entry.get("failed") or 0) + (entry.get("skipped") or 0))
+        result.append(entry)
+    return result
 
 
 @router.get("/evolution/analytics")
@@ -350,7 +367,16 @@ async def evolution_compliance_rating():
     """获取 DNV CII 风格 A~E 合规评级。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_compliance_rating()
+    data = _evolution_engine.get_compliance_rating()
+    # Add aliases expected by frontend
+    data["grade"] = data.get("rating", "?")
+    data["description"] = data.get("rating_label", "")
+    escalation = _evolution_engine.get_escalation_status()
+    if escalation.get("escalated_count", 0) > 0:
+        data["escalation_tier"] = "corrective"
+    else:
+        data["escalation_tier"] = "normal"
+    return data
 
 
 @router.post("/evolution/compliance-rating/calculate")
@@ -382,11 +408,7 @@ async def evolution_active_zones():
     """获取当前激活的合规区域。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return {
-        "active_zones": _evolution_engine.get_active_zones(),
-        "activated_rules": _evolution_engine.get_zone_activated_rules(),
-        "vessel_position": _evolution_engine._vessel_position,
-    }
+    return _evolution_engine.get_active_zones()
 
 
 @router.post("/evolution/zones/update-position")
@@ -410,7 +432,11 @@ async def evolution_trend():
     """获取合规评级趋势分析。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_trend_analysis()
+    data = _evolution_engine.get_trend_analysis()
+    # Frontend expects improvement_rate
+    delta = data.get("trend_delta", 0.0)
+    data["improvement_rate"] = round(delta, 1)
+    return data
 
 
 @router.get("/evolution/monitoring")
@@ -418,7 +444,15 @@ async def evolution_monitoring():
     """获取连续监控状态。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_monitoring_status()
+    data = _evolution_engine.get_monitoring_status()
+    # Frontend expects 'active' bool and 'last_check' timestamp
+    data["active"] = True
+    if _evolution_engine._last_monitoring_time:
+        from datetime import datetime as _dt
+        data["last_check"] = _dt.fromtimestamp(_evolution_engine._last_monitoring_time).isoformat()
+    else:
+        data["last_check"] = None
+    return data
 
 
 @router.get("/evolution/audit-trail")

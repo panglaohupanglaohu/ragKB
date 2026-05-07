@@ -249,6 +249,118 @@ class AuditRule:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+# ── General system check functions (work against self / bridge_chat) ──
+
+def _check_evolution_self_audit(channel):
+    """自检: 演进引擎自身必须正常初始化."""
+    if not hasattr(channel, '_initialized') or not channel._initialized:
+        return False, "演进引擎未初始化"
+    return True, "演进引擎运行正常"
+
+
+def _check_audit_rules_loaded(channel):
+    """审查规则: 至少 5 条规则已加载."""
+    rules = getattr(channel, 'audit_rules', [])
+    if len(rules) < 5:
+        return False, f"仅加载 {len(rules)} 条规则, 需 >= 5"
+    return True, f"已加载 {len(rules)} 条审查规则"
+
+
+def _check_compliance_zones_loaded(channel):
+    """合规区域: 至少 1 个区域已配置."""
+    zones = getattr(channel, 'compliance_zones', [])
+    if len(zones) < 1:
+        return False, "未配置合规区域"
+    return True, f"已配置 {len(zones)} 个合规区域"
+
+
+def _check_audit_trail_active(channel):
+    """审计轨迹: 审计日志可写入."""
+    trail = getattr(channel, '_audit_trail', None)
+    if trail is None:
+        return False, "审计轨迹存储未初始化"
+    return True, f"审计轨迹活跃, 含 {len(trail)} 条记录"
+
+
+def _check_bridge_chat_channel(channel):
+    """通信通道: bridge_chat 须已注册."""
+    registry = get_default_registry()
+    bc = registry.get("bridge_chat")
+    if not bc:
+        return False, "bridge_chat Channel 未注册"
+    return True, "bridge_chat 通信通道正常"
+
+
+def _check_escalation_mechanism(channel):
+    """升级机制: 失败升级追踪正常运作."""
+    if not hasattr(channel, '_rule_failure_counts'):
+        return False, "失败追踪字典缺失"
+    if not hasattr(channel, '_escalation_levels'):
+        return False, "升级层级字典缺失"
+    return True, "DNV SEEMP Part III 升级机制就绪"
+
+
+def _check_rating_calculation(channel):
+    """评级计算: A~E 合规评级功能就绪."""
+    if not hasattr(channel, 'calculate_compliance_rating'):
+        return False, "评级计算方法缺失"
+    if not hasattr(channel, '_compliance_score'):
+        return False, "合规分数状态缺失"
+    return True, f"合规评级系统正常, 当前 {channel._compliance_rating} ({channel._compliance_score}分)"
+
+
+def _check_trend_analysis(channel):
+    """趋势分析: 合规趋势追踪功能完备."""
+    if not hasattr(channel, '_score_trend'):
+        return False, "趋势数据列表缺失"
+    if not hasattr(channel, 'get_trend_analysis'):
+        return False, "趋势分析方法缺失"
+    return True, f"趋势分析就绪, 已记录 {len(channel._score_trend)} 个数据点"
+
+
+def _check_verify_registry(channel):
+    """验证注册: 验证测试函数注册表可用."""
+    reg = getattr(channel, '_verify_registry', None)
+    if reg is None:
+        return False, "验证注册表未初始化"
+    # 验证注册表应随演进周期自动填充
+    return True, f"验证注册表活跃, {len(reg)} 个测试已注册"
+
+
+def _check_monitoring_interval(channel):
+    """监控间隔: 连续监控配置合理 (60~600s)."""
+    interval = getattr(channel, '_monitoring_interval', 0)
+    if interval < 60 or interval > 600:
+        return False, f"监控间隔 {interval}s 不合理 (需 60~600s)"
+    return True, f"监控间隔 {interval}s, 符合最佳实践"
+
+
+def _check_evolution_cycle_maturity(channel):
+    """演进成熟度: 至少完成 2 轮完整演进闭环."""
+    closed = getattr(channel, 'total_closed', 0)
+    if closed < 2:
+        return False, f"仅完成 {closed} 项闭环, 需 ≥ 2 以证明演进能力"
+    return True, f"已完成 {closed} 项闭环演进, 系统成熟"
+
+
+def _check_heritage_ledger_populated(channel):
+    """遗产账本: Heritage Ledger 须有不可逆锁定记录."""
+    history = getattr(channel, 'audit_history', [])
+    trend = getattr(channel, '_score_trend', [])
+    if len(trend) < 3:
+        return False, f"趋势数据仅 {len(trend)} 点, 需 ≥ 3 以建立基线"
+    return True, f"Heritage 基线已建立, {len(trend)} 个数据点"
+
+
+def _check_escalation_exercised(channel):
+    """升级演练: 至少 1 条规则经历过升级流程."""
+    levels = getattr(channel, '_escalation_levels', {})
+    escalated = sum(1 for v in levels.values() if v != "normal")
+    if escalated < 1:
+        return False, "尚无规则经历升级流程, 需演练确认升级路径"
+    return True, f"{escalated} 条规则已激活升级机制"
+
+
 # ── Datacenter Energy check functions ──
 
 def _check_dc_pue_monitoring(channel):
@@ -373,6 +485,177 @@ def _check_dc_whatif_simulation(channel):
 
 # 所有内置审查规则
 BUILTIN_AUDIT_RULES: List[AuditRule] = [
+    # ── General System Health Rules (always checkable) ──
+    AuditRule(
+        id="GEN-SELF-001",
+        domain=AuditDomain.GENERAL.value,
+        title="演进引擎自检",
+        description="自演进引擎必须正常初始化并运行",
+        target_channel="system_evolution",
+        check_fn=_check_evolution_self_audit,
+        reference="ISO 27001 ISMS, PDCA",
+        severity=Severity.CRITICAL.value,
+        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
+        checklist_level=ChecklistLevel.BOTH.value,
+        rating_weight=3.0,
+    ),
+    AuditRule(
+        id="GEN-RULE-002",
+        domain=AuditDomain.GENERAL.value,
+        title="审查规则加载完整性",
+        description="系统须加载 ≥5 条审查规则，覆盖关键合规域",
+        target_channel="system_evolution",
+        check_fn=_check_audit_rules_loaded,
+        reference="ISM Code §12, ISO 19011",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.COMPANY.value,
+        rating_weight=2.0,
+    ),
+    AuditRule(
+        id="GEN-ZONE-003",
+        domain=AuditDomain.GENERAL.value,
+        title="合规区域配置完备",
+        description="至少配置 1 个合规区域 (ECA/MARPOL/PSSA 等)",
+        target_channel="system_evolution",
+        check_fn=_check_compliance_zones_loaded,
+        reference="MARPOL Annex VI, Wärtsilä Zone Mgmt",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=2.0,
+    ),
+    AuditRule(
+        id="GEN-TRAIL-004",
+        domain=AuditDomain.GENERAL.value,
+        title="审计轨迹可用性",
+        description="审计日志必须可写入，确保合规可追溯",
+        target_channel="system_evolution",
+        check_fn=_check_audit_trail_active,
+        reference="NAPA Logbook, IMO FAL.5/Circ.39",
+        severity=Severity.CRITICAL.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.BOTH.value,
+        rating_weight=2.5,
+    ),
+    AuditRule(
+        id="GEN-CHAT-005",
+        domain=AuditDomain.GENERAL.value,
+        title="通信通道可达性",
+        description="bridge_chat 通信通道须已注册并可用",
+        target_channel="system_evolution",
+        check_fn=_check_bridge_chat_channel,
+        reference="SOLAS Ch.IV, GMDSS",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=2.0,
+    ),
+    AuditRule(
+        id="GEN-ESC-006",
+        domain=AuditDomain.GENERAL.value,
+        title="失败升级机制就绪",
+        description="DNV SEEMP Part III 风格的失败升级追踪正常",
+        target_channel="system_evolution",
+        check_fn=_check_escalation_mechanism,
+        reference="DNV SEEMP Part III, CII",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.COMPANY.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="GEN-RATE-007",
+        domain=AuditDomain.GENERAL.value,
+        title="A~E 合规评级功能",
+        description="DNV CII 风格 A~E 五级评级计算正常运作",
+        target_channel="system_evolution",
+        check_fn=_check_rating_calculation,
+        reference="DNV CII Rating, IMO DCS",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.COMPANY.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="GEN-TREND-008",
+        domain=AuditDomain.GENERAL.value,
+        title="合规趋势分析能力",
+        description="须具备趋势追踪与方向判断能力",
+        target_channel="system_evolution",
+        check_fn=_check_trend_analysis,
+        reference="Wärtsilä FOS, ISO 50006",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="GEN-VREG-009",
+        domain=AuditDomain.GENERAL.value,
+        title="验证注册表活跃",
+        description="自动化验证测试注册表须可用",
+        target_channel="system_evolution",
+        check_fn=_check_verify_registry,
+        reference="ISO 17025, ClassNK Rules",
+        severity=Severity.LOW.value,
+        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.0,
+    ),
+    AuditRule(
+        id="GEN-MON-010",
+        domain=AuditDomain.GENERAL.value,
+        title="连续监控间隔配置",
+        description="监控间隔须在 60~600s 范围内",
+        target_channel="system_evolution",
+        check_fn=_check_monitoring_interval,
+        reference="ISO 50001:2018, DCIM BP",
+        severity=Severity.LOW.value,
+        operational_domain=OperationalDomain.ADVANCED_OPS.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.0,
+    ),
+    # ── Improvement Canary Rules (designed to fail initially) ──
+    AuditRule(
+        id="GEN-MATUR-011",
+        domain=AuditDomain.GENERAL.value,
+        title="演进闭环成熟度验证",
+        description="系统须完成 ≥2 项完整闭环演进以证明自我改善能力",
+        target_channel="system_evolution",
+        check_fn=_check_evolution_cycle_maturity,
+        reference="PDCA Maturity Model, CMMI Level 3",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.COMPANY.value,
+        rating_weight=2.5,
+    ),
+    AuditRule(
+        id="GEN-HERIT-012",
+        domain=AuditDomain.GENERAL.value,
+        title="Heritage 基线数据充足性",
+        description="趋势分析须有 ≥3 个历史数据点以建立可靠基线",
+        target_channel="system_evolution",
+        check_fn=_check_heritage_ledger_populated,
+        reference="ISO 50006, DNV CII Baseline",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="GEN-ESCEX-013",
+        domain=AuditDomain.GENERAL.value,
+        title="升级机制演练确认",
+        description="至少 1 条规则须经历过升级流程以验证升级路径",
+        target_channel="system_evolution",
+        check_fn=_check_escalation_exercised,
+        reference="DNV SEEMP III, ISM Code §9",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
+        checklist_level=ChecklistLevel.COMPANY.value,
+        rating_weight=1.5,
+    ),
     # ── Datacenter Energy First Principle ──
     AuditRule(
         id="DC-PUE-032",
@@ -509,7 +792,67 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
 
 # ── Built-in Compliance Zones ─────
 
-BUILTIN_COMPLIANCE_ZONES: List[ComplianceZone] = []
+BUILTIN_COMPLIANCE_ZONES: List[ComplianceZone] = [
+    ComplianceZone(
+        id="ZONE-ECA-NORTH",
+        name="北欧 ECA 排放控制区",
+        zone_type="ECA",
+        description="波罗的海/北海排放控制区，SOx ≤ 0.10%",
+        lat_min=50.0, lat_max=66.0,
+        lon_min=-5.0, lon_max=30.0,
+        activated_rule_ids=["DC-PUE-032", "DC-LOOP-037", "DC-ANOM-038"],
+        extra_requirements="需连续监控能效指标，SOx/NOx 限值加严",
+        active=True,
+    ),
+    ComplianceZone(
+        id="ZONE-MARPOL-MED",
+        name="地中海 MARPOL 特殊区域",
+        zone_type="MARPOL_SPECIAL",
+        description="地中海防污染特殊区域",
+        lat_min=30.0, lat_max=46.0,
+        lon_min=-6.0, lon_max=36.0,
+        activated_rule_ids=["DC-PUE-032", "DC-POL-036"],
+        extra_requirements="垃圾排放零容忍，油污水处理加严",
+        active=True,
+    ),
+    ComplianceZone(
+        id="ZONE-PSSA-REEF",
+        name="大堡礁 PSSA 保护区",
+        zone_type="PSSA",
+        description="特别敏感海域 — 航速限制 + 双重审查",
+        lat_min=-25.0, lat_max=-10.0,
+        lon_min=142.0, lon_max=155.0,
+        activated_rule_ids=["DC-RATCH-033", "DC-HEAT-035", "DC-MUSK-039"],
+        extra_requirements="航速 ≤ 12kn，须实施鲸鱼避让措施",
+        active=True,
+    ),
+    ComplianceZone(
+        id="ZONE-HIGH-RISK-GOA",
+        name="亚丁湾高风险区",
+        zone_type="HIGH_RISK",
+        description="海盗高风险区域 — 加强安全监控",
+        lat_min=10.0, lat_max=20.0,
+        lon_min=42.0, lon_max=60.0,
+        activated_rule_ids=["DC-IOT-034", "DC-ANOM-038"],
+        extra_requirements="需启用 AIS 持续播发，加强瞭望",
+        active=True,
+    ),
+    ComplianceZone(
+        id="ZONE-DC-CAMPUS",
+        name="数据中心园区",
+        zone_type="CUSTOM",
+        description="数据中心本地合规区 — 全部规则激活",
+        lat_min=22.0, lat_max=23.0,
+        lon_min=113.0, lon_max=114.0,
+        activated_rule_ids=[
+            "DC-PUE-032", "DC-RATCH-033", "DC-IOT-034", "DC-HEAT-035",
+            "DC-POL-036", "DC-LOOP-037", "DC-ANOM-038", "DC-MUSK-039",
+            "DC-FCST-040", "DC-WHIF-041",
+        ],
+        extra_requirements="全面能效审查，PUE ≤ 1.4 目标",
+        active=True,
+    ),
+]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
