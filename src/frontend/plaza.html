@@ -118,6 +118,8 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .disc-item .dm{font-size:9px;color:var(--dim);display:flex;gap:8px;font-family:var(--font-mono)}
 .disc-del{margin-left:auto;flex:0 0 auto;padding:2px 8px;background:transparent;border:1px solid var(--line);color:var(--dim);font-size:9px;cursor:pointer;transition:all 0.3s;font-family:var(--font-mono)}
 .disc-del:hover{border-color:#A46C6C;color:#D7B8B8}
+.disc-act{padding:2px 8px;background:transparent;border:1px solid var(--line);color:var(--dim);font-size:9px;cursor:pointer;transition:all 0.3s;font-family:var(--font-mono)}
+.disc-act:hover{border-color:var(--slit-glow);color:var(--slit-glow)}
 .msg-log{flex:1;overflow-y:auto;padding:12px 16px;font-size:13px;min-height:0}
 .msg-entry{margin-bottom:12px;padding:10px 12px;border-left:2px solid var(--line);
   background:#00000006}
@@ -226,6 +228,7 @@ textarea.fi{resize:vertical;min-height:45px}
     <a href="/agent-team-config.html">团队</a>
     <a href="/datacenter-ratchet-evolution.html">演进</a>
     <a href="/plaza.html" class="active">广场</a>
+    <a href="/skill-extract.html">萃取</a>
   </div>
 </div>
 
@@ -1304,7 +1307,7 @@ window.deletePlaza = async function(id, name) {
 function renderDiscList(ds) {
   $('disc-list').innerHTML = ds.map(d =>
     `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" onclick="selectDisc('${esc(d.id)}')">
-      <div class="dh"><div class="tp">${esc(d.topic)}</div><button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
+      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">PDF</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
       <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
     </div>`
   ).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
@@ -1598,6 +1601,55 @@ window.continueDeepDiscussion = async function(question) {
   } else {
     toast('创建失败');
   }
+};
+
+window.extractFromDisc = async function(event, discId) {
+  event?.stopPropagation();
+  const id = discId || curDisc;
+  if (!curPlaza || !id) return;
+  toast('正在创建萃取管线…');
+  const disc = await api(`${API}/plaza/${curPlaza}/discussions/${id}`);
+  if (!disc) { toast('获取讨论失败'); return; }
+  const rawText = (disc.messages || []).map(m => `[${m.agent_name}] ${m.content}`).join('\n\n');
+  const name = disc.topic || '讨论萃取';
+  const r = await api('/api/v1/extraction/pipelines', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `萃取: ${name}`, description: disc.summary || disc.topic, tags: ['plaza', 'discussion'] })
+  });
+  const pid = r && (r.pipeline_id || r.id);
+  if (pid) {
+    await api(`/api/v1/extraction/pipelines/${pid}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: { raw_text: rawText, source: 'plaza_discussion', discussion_id: id, plaza_id: curPlaza } })
+    });
+    toast('萃取管线已创建');
+    window.open(`/extraction-pipeline.html#${pid}`, '_blank');
+  } else { toast('创建萃取管线失败'); }
+};
+
+window.exportDiscPDF = async function(event, discId) {
+  event?.stopPropagation();
+  const id = discId || curDisc;
+  if (!curPlaza || !id) return;
+  toast('正在生成 PDF…');
+  const disc = await api(`${API}/plaza/${curPlaza}/discussions/${id}`);
+  if (!disc) { toast('获取讨论失败'); return; }
+  const title = disc.topic || '讨论记录';
+  const msgs = disc.messages || [];
+  let body = `<h1 style="font-size:18px;margin-bottom:4px">${esc(title)}</h1>`;
+  if (disc.goal) body += `<p style="color:#666;font-size:12px;margin-bottom:8px">目标: ${esc(disc.goal)}</p>`;
+  body += `<p style="color:#999;font-size:10px;margin-bottom:16px">状态: ${statusTxt(disc.status)} · ${msgs.length} 条消息</p><hr style="border:none;border-top:1px solid #ddd;margin:12px 0">`;
+  let lr = -1;
+  msgs.forEach(m => {
+    if (m.round_number !== lr && m.round_number > 0) { body += `<div style="text-align:center;color:#999;font-size:10px;margin:12px 0">── ROUND ${m.round_number} ──</div>`; lr = m.round_number; }
+    const label = m.niche_role === 'moderator' ? ' · 议事长' : (m.niche_role === 'human' ? ' · 你' : '');
+    body += `<div style="margin-bottom:12px"><div style="font-weight:600;font-size:12px;color:#333;margin-bottom:2px">${esc(m.agent_name)}${label}</div><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(m.content)}</div></div>`;
+  });
+  if (disc.summary) { body += `<hr style="border:none;border-top:1px solid #ddd;margin:12px 0"><h2 style="font-size:14px;margin-bottom:6px">总结</h2><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(disc.summary)}</div>`; }
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}@media print{body{margin:20px}}</style></head><body>${body}</body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); w.document.title = title; setTimeout(() => { w.print(); }, 500); }
+  toast('PDF 已生成，请在打印对话框中选择"存储为 PDF"');
 };
 
 window.refreshPlan = async function() {

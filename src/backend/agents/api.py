@@ -175,6 +175,8 @@ def init_agent_config(team_manager: TeamManager) -> None:
     _load_model_pool(team_manager)
     # Sync any existing default model to the chat harness
     _init_harness_from_teams(team_manager)
+    # Initialize skill library chain (演化/验证/效果贯通)
+    _init_skill_library_chain(team_manager, _skill_registry)
 
 
 def _get_tool_registry() -> ToolRegistry:
@@ -214,6 +216,36 @@ def _init_harness_from_teams(tm: TeamManager) -> None:
                     return
     except Exception:
         pass  # Non-critical, harness will use env/settings fallback
+
+
+def _init_skill_library_chain(tm: TeamManager, sr: SkillRegistry) -> None:
+    """Initialize skill library + evolver + verifier + tracker with proper dependencies."""
+    import logging as _sl_log
+    _sl_logger = _sl_log.getLogger(__name__)
+    try:
+        from .skill_library import init_skill_library
+        from .skill_evolver import get_skill_evolver
+        from .skill_verifier import get_skill_verifier
+        from .skill_tracker import get_skill_tracker
+        from .chat_harness import get_chat_harness
+
+        lib = init_skill_library(team_manager=tm, skill_registry=sr)
+        harness = get_chat_harness()
+
+        evolver = get_skill_evolver()
+        evolver._skill_library = lib
+        evolver._chat_harness = harness
+
+        verifier = get_skill_verifier()
+        verifier._skill_library = lib
+        verifier._chat_harness = harness
+
+        tracker = get_skill_tracker()
+        tracker._skill_library = lib
+
+        _sl_logger.info("✅ Skill library chain initialized (library→evolver→verifier→tracker)")
+    except Exception as e:
+        _sl_logger.warning("⚠️ Skill library chain init failed: %s", e)
 
 
 def _tm() -> TeamManager:
@@ -962,6 +994,104 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
     return {"disabled": skill_id}
+
+
+# ── Skill Extraction Routes ──────────────────────────────────────────────
+
+@router.get("/teams/{team_id}/skill-extract/queue", summary="List skill extraction queue")
+def skill_extract_queue(team_id: str, status_filter: str = "") -> List[Dict[str, Any]]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    return engine.get_queue(team_id, status_filter=status_filter)
+
+
+@router.post("/teams/{team_id}/skill-extract/start", summary="Start skill extraction")
+async def skill_extract_start(team_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    source_text = body.get("source_text", "")
+    source_title = body.get("source_title", "")
+    source_type = body.get("source_type", "chat")
+    if not source_text or len(source_text) < 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="source_text must be at least 10 characters")
+    item = await engine.start_extraction(
+        team_id=team_id,
+        source_text=source_text,
+        source_title=source_title,
+        source_type=source_type,
+    )
+    return item.to_dict()
+
+
+@router.get("/teams/{team_id}/skill-extract/stream", summary="SSE stream for extraction updates")
+async def skill_extract_stream(team_id: str):
+    from .skill_extractor import get_skill_extractor_engine
+    from starlette.responses import StreamingResponse
+    engine = get_skill_extractor_engine()
+    q = engine.subscribe(team_id)
+
+    async def event_gen():
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            engine.unsubscribe(team_id, q)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@router.get("/teams/{team_id}/skill-extract/{item_id}", summary="Get extraction item detail")
+def skill_extract_detail(team_id: str, item_id: str) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    item = engine.get_item(team_id, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return item
+
+
+@router.post("/teams/{team_id}/skill-extract/{item_id}/edit", summary="Edit extraction draft")
+async def skill_extract_edit(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    field_updates = body.get("field_updates", {})
+    result = await engine.edit_item(team_id, item_id, field_updates)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return result
+
+
+@router.post("/teams/{team_id}/skill-extract/{item_id}/approve", summary="Approve extraction item")
+async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    reviewer = body.get("reviewer", "")
+    edited_fields = body.get("edited_fields")
+    result = await engine.approve_item(team_id, item_id, reviewer=reviewer, edited_fields=edited_fields)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return result
+
+
+@router.post("/teams/{team_id}/skill-extract/{item_id}/reject", summary="Reject extraction item")
+async def skill_extract_reject(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    reviewer = body.get("reviewer", "")
+    reason = body.get("reason", "")
+    result = await engine.reject_item(team_id, item_id, reviewer=reviewer, reason=reason)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return result
 
 
 @router.get("/skills/{skill_id}/tools", summary="Get tools required by skill")
@@ -7511,4 +7641,106 @@ def kb_search_enhanced(req: KBSearchRequest) -> Dict[str, Any]:
                 "path": doc.path,
             }
     return {"query": req.query, "results": results, "total": len(results)}
+
+
+# ── Skill Library Routes (演化/验证/效果/版本/发布) ──────────────────────
+
+def _get_skill_library():
+    from .skill_library import get_skill_library
+    return get_skill_library()
+
+def _get_skill_evolver():
+    from .skill_evolver import get_skill_evolver
+    return get_skill_evolver()
+
+def _get_skill_verifier():
+    from .skill_verifier import get_skill_verifier
+    return get_skill_verifier()
+
+def _get_skill_tracker():
+    from .skill_tracker import get_skill_tracker
+    return get_skill_tracker()
+
+
+@router.get("/skill-library/overview", summary="技能库全局总览")
+def skill_library_overview() -> Dict[str, Any]:
+    return _get_skill_library().get_overview()
+
+
+@router.get("/skill-library", summary="浏览技能库")
+def skill_library_browse(
+    team_id: str = "",
+    query: str = "",
+    visibility: str = "",
+    category: str = "",
+    lifecycle: str = "",
+) -> List[Dict[str, Any]]:
+    return _get_skill_library().browse(
+        team_id=team_id, query=query,
+        visibility_filter=visibility,
+        category_filter=category,
+        lifecycle_filter=lifecycle,
+    )
+
+
+@router.get("/skill-library/suggestions", summary="获取演化建议")
+def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
+    return _get_skill_evolver().suggest_evolution(team_id)
+
+
+@router.post("/skill-library/evolve", summary="触发技能演化")
+async def skill_library_evolve(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not team_id or not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    return await _get_skill_evolver().evolve_skill(team_id, skill_id)
+
+
+@router.post("/skill-library/apply-evolution", summary="应用演化结果")
+def skill_library_apply_evolution(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    new_instructions = body.get("new_instructions", "")
+    if not team_id or not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    return _get_skill_evolver().apply_evolution(team_id, skill_id, new_instructions)
+
+
+@router.post("/skill-library/verify", summary="验证技能")
+async def skill_library_verify(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not team_id or not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    result = await _get_skill_verifier().verify_skill(team_id, skill_id)
+    return result.to_dict()
+
+
+@router.post("/skill-library/publish", summary="发布技能到公共库")
+def skill_library_publish(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not team_id or not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    return _get_skill_library().publish(team_id, skill_id)
+
+
+@router.post("/skill-library/import", summary="引入公共技能到团队")
+def skill_library_import(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    target_team_id = body.get("target_team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not target_team_id or not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="target_team_id and skill_id required")
+    return _get_skill_library().import_skill(target_team_id, skill_id)
+
+
+@router.get("/skill-library/{skill_id}/lineage", summary="获取技能演化谱系")
+def skill_library_lineage(skill_id: str, team_id: str = "") -> Dict[str, Any]:
+    return _get_skill_library().get_lineage(skill_id)
+
+
+@router.get("/skill-library/{skill_id}/evolution-history", summary="获取技能演化历史")
+def skill_library_evolution_history(skill_id: str, team_id: str = "") -> Dict[str, Any]:
+    return _get_skill_evolver().get_evolution_history(team_id, skill_id)
 

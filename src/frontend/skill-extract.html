@@ -143,6 +143,49 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   padding:4px 8px;transition:.2s}
 .star-cancel:hover{color:oklch(0.75 0.08 18)}
 
+/* ── STAR Step Modal ─────────────────────────────────────────────── */
+.star-modal-overlay{position:fixed;inset:0;z-index:210;background:oklch(0 0 0/.7);backdrop-filter:blur(8px);
+  display:none;align-items:center;justify-content:center}
+.star-modal-overlay.open{display:flex}
+.star-modal{background:#2A3037;border:1px solid #4A535C;width:min(680px,90vw);
+  max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.star-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;
+  border-bottom:1px solid #4A535C40}
+.star-modal-header h2{font-size:15px;font-weight:600;color:oklch(0.88 0.06 70)}
+.star-modal-header .close-btn{background:none;border:none;color:oklch(0.5 0.005 110);font-size:18px;cursor:pointer}
+.star-modal-header .close-btn:hover{color:var(--shironeri)}
+.star-modal-progress{display:flex;gap:2px;padding:12px 24px 0;flex-shrink:0}
+.star-modal-progress .smp-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:8px 4px;border:1px solid oklch(1 0 0/.08);transition:.2s;position:relative}
+.star-modal-progress .smp-step.active{border-color:oklch(0.62 0.10 70/.5);background:oklch(0.62 0.10 70/.1)}
+.star-modal-progress .smp-step.done{border-color:oklch(0.52 0.04 160/.3);background:oklch(0.52 0.04 160/.08)}
+.star-modal-progress .smp-key{font-family:var(--font-mono);font-size:16px;font-weight:700;
+  color:oklch(0.45 0.005 110);transition:.2s}
+.star-modal-progress .smp-step.active .smp-key{color:oklch(0.9 0.08 70)}
+.star-modal-progress .smp-step.done .smp-key{color:oklch(0.65 0.06 155)}
+.star-modal-progress .smp-label{font-size:10px;color:oklch(0.45 0.005 110)}
+.star-modal-progress .smp-step.active .smp-label{color:oklch(0.75 0.06 70)}
+.star-modal-progress .smp-step.done .smp-label{color:oklch(0.55 0.04 155)}
+.star-modal-body{flex:1;overflow-y:auto;padding:20px 24px}
+.star-modal-body .star-context{font-size:11px;color:oklch(0.5 0.04 70);line-height:1.5;
+  padding:10px 14px;background:oklch(0.12 0.008 200);border-left:3px solid oklch(0.62 0.10 70/.3);margin-bottom:16px}
+.star-modal-body .star-question{font-size:14px;font-weight:600;color:oklch(0.88 0.06 70);margin-bottom:6px}
+.star-modal-body .star-hint{font-size:11px;color:oklch(0.5 0.005 110);margin-bottom:14px;line-height:1.5}
+.star-modal-body textarea{width:100%;padding:12px 14px;background:#21272D;border:1px solid #4A535C60;
+  color:var(--shironeri);font-size:13px;line-height:1.7;font-family:var(--font-sans);resize:vertical;min-height:120px}
+.star-modal-body textarea:focus{border-color:oklch(0.62 0.10 70/.5);outline:none}
+.star-modal-body .star-example{font-size:10px;color:oklch(0.4 0.005 110);margin-top:8px;font-style:italic}
+.star-modal-footer{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;
+  border-top:1px solid #4A535C40}
+.star-modal-footer .smp-hint{font-size:10px;color:oklch(0.4 0.005 110)}
+.star-modal-footer .smp-btns{display:flex;gap:8px}
+.star-modal-footer .btn-sp{padding:8px 20px;font-size:12px;font-weight:600;border:1px solid oklch(0.62 0.10 70/.4);
+  background:oklch(0.62 0.10 70/.12);color:oklch(0.88 0.06 70);cursor:pointer;transition:.2s;font-family:var(--font-sans)}
+.star-modal-footer .btn-sp:hover{background:oklch(0.62 0.10 70/.2)}
+.star-modal-footer .btn-sp.btn-prev{background:transparent;border-color:oklch(1 0 0/.12);color:oklch(0.5 0.005 110)}
+.star-modal-footer .btn-sp.btn-prev:hover{color:oklch(0.75 0.005 110)}
+.star-modal-footer .btn-sp:disabled{opacity:0.4;cursor:not-allowed}
+
 /* ── Six-Pager Modal ─────────────────────────────────────────────── */
 .sixpager-overlay{position:fixed;inset:0;z-index:200;background:oklch(0 0 0/.7);backdrop-filter:blur(8px);
   display:none;align-items:center;justify-content:center}
@@ -811,7 +854,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <!-- SkillClaw Workflow: Evidence → Attribution → Evolution → Distribution -->
       <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden;margin-bottom:4px">
         <div style="padding:6px 12px;background:oklch(0.12 0.008 200);font-size:10px;color:oklch(0.6 0.06 200);display:flex;align-items:center;gap:6px">
-          <span style="font-size:13px">🦞</span> SkillClaw 工作流
+          工作流
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:oklch(0.15 0.005 110)">
           <div class="skillclaw-phase" data-claw-phase="evidence" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
@@ -989,6 +1032,36 @@ A：北极星指标：配置变更引发的事故数降至每季度≤1次；辅
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- STAR Step Modal -->
+<div class="star-modal-overlay" id="star-modal-overlay" onclick="if(event.target===this)closeStarModal()">
+<div class="star-modal">
+  <div class="star-modal-header">
+    <h2 id="star-modal-title">⭐ STAR 经验萃取</h2>
+    <button class="close-btn" onclick="closeStarModal()">✕</button>
+  </div>
+  <div class="star-modal-progress">
+    <div class="smp-step" data-smp="0"><span class="smp-key">S</span><span class="smp-label">场景</span></div>
+    <div class="smp-step" data-smp="1"><span class="smp-key">T</span><span class="smp-label">任务</span></div>
+    <div class="smp-step" data-smp="2"><span class="smp-key">A</span><span class="smp-label">行动</span></div>
+    <div class="smp-step" data-smp="3"><span class="smp-key">R</span><span class="smp-label">结果</span></div>
+  </div>
+  <div class="star-modal-body">
+    <div class="star-context" id="star-modal-context"></div>
+    <div class="star-question" id="star-modal-question"></div>
+    <div class="star-hint" id="star-modal-hint"></div>
+    <textarea id="star-modal-input" placeholder=""></textarea>
+    <div class="star-example" id="star-modal-example"></div>
+  </div>
+  <div class="star-modal-footer">
+    <span class="smp-hint" id="star-modal-step-hint"></span>
+    <div class="smp-btns">
+      <button class="btn-sp btn-prev" id="star-modal-prev" onclick="starModalPrev()">← 上一步</button>
+      <button class="btn-sp" id="star-modal-next" onclick="starModalNext()">下一步 →</button>
+    </div>
+  </div>
+</div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <script type="module">
@@ -2572,9 +2645,44 @@ const STAR_STEPS = [
   { key: 'A', label: '行动', prompt: '你具体采取了哪些<b>行动/步骤</b>？用了什么方法或工具？', placeholder: '例：我先分析了近3个月的用户行为数据，然后设计了一份…' },
   { key: 'R', label: '结果', prompt: '最终取得了什么<b>结果/成效</b>？有什么经验教训？', placeholder: '例：流失率在两个月内降低了8%，团队沉淀了一套…' },
 ];
+
+// STAR modal step definitions (richer than chat prompts)
+const STAR_MODAL_STEPS = [
+  {
+    key: 'S', label: '场景 Situation',
+    question: '请描述一个与上述文档相关的真实场景',
+    hint: '回忆你亲历过的一次具体事件 — 当时是什么环境？团队处于什么阶段？面临什么压力或约束条件？越具体越好，时间、地点、角色都可以写。',
+    placeholder: '例：2025年Q3末，我们的生产环境在凌晨3点发生了一次配置变更导致的P0事故。当时值班的运维工程师在AWS控制台手动修改了安全组规则…',
+    context_prefix: '基于你在 Six-Pager 中描述的背景，',
+  },
+  {
+    key: 'T', label: '任务 Task',
+    question: '在那个场景中，你的具体任务是什么？',
+    hint: '明确你需要达成的目标或解决的问题。这个任务是谁交给你的？有什么时间限制？成功的标准是什么？',
+    placeholder: '例：事故复盘后，CTO要求我在两周内建立一套配置变更标准流程，确保同类事故不再发生。目标是将配置变更事故率降低80%…',
+    context_prefix: '结合你刚才描述的场景，',
+  },
+  {
+    key: 'A', label: '行动 Action',
+    question: '你具体采取了哪些行动？',
+    hint: '详细描述你的操作步骤、使用的工具和方法。这是萃取技能的核心 — 你做了什么"别人可以复用"的事情？分步骤写最佳。',
+    placeholder: '例：\n1. 首先梳理了过去6个月所有配置变更记录，识别出高风险操作类型\n2. 引入了 Terraform 作为 IaC 工具，将所有配置代码化\n3. 设计了灰度发布流程：10%→25%→50%→100%\n4. 为每个变更编写自动回滚脚本…',
+    context_prefix: '针对上述任务，',
+  },
+  {
+    key: 'R', label: '结果 Result',
+    question: '最终取得了什么结果？',
+    hint: '用数据说话 — 量化成效。同时总结经验教训：哪些做法值得推广？哪些踩坑需要避免？这些会成为技能的"验证依据"。',
+    placeholder: '例：实施3个月后，配置变更引发的事故从每月2.3次降至0.1次，降幅96%。MTTR从45分钟缩短至3分钟。团队沉淀了一套标准操作手册，新成员入职即可使用…',
+    context_prefix: '经过上述行动，',
+  },
+];
+
 let starActive = false;
 let starStep = 0;
 let starData = {};
+let _starModalStep = 0;
+let _starModalAnswers = {};
 
 window.startStarGuide = function() {
   if (starActive) { cancelStarGuide(); return; }
@@ -2608,20 +2716,127 @@ window.submitSixPager = function() {
   if (faq)     composed += `## 5. 内部 FAQ\n${faq}\n\n`;
   if (risk)    composed += `## 6. 风险预判\n${risk}\n\n`;
 
-  // Close modal
+  // Close Six-Pager modal
   closeSixPager();
 
-  // Now start STAR guided flow with Six-Pager context
+  // Open STAR step modal
   starActive = true;
-  starStep = 0;
-  starData = { _sixPager: composed };
-  document.getElementById('panel-left').classList.add('star-guide-active');
-  document.getElementById('star-guide-bar').classList.add('visible');
-  updateStarUI();
-  addMessage('system', '📄 <b>Six-Pager 叙述文档</b>已收集 — 现在通过 STAR 引导补充具体经验案例，将叙述知识转化为可萃取技能。');
-  showStarPrompt();
+  starData = { _sixPager: composed, _sixPagerTitle: purpose.slice(0, 40) };
+  _starModalStep = 0;
+  _starModalAnswers = {};
+  _renderStarModal();
+  document.getElementById('star-modal-overlay').classList.add('open');
+  addMessage('system', '📄 <b>Six-Pager 叙述文档</b>已收集 — 现在通过 STAR 四步引导补充真实经验案例。');
 };
 
+// ── STAR Modal Navigation ───────────────────────────────────────
+function _renderStarModal() {
+  const step = STAR_MODAL_STEPS[_starModalStep];
+  const total = STAR_MODAL_STEPS.length;
+
+  // Progress
+  document.querySelectorAll('.smp-step').forEach((el, i) => {
+    el.classList.remove('active', 'done');
+    if (i < _starModalStep) el.classList.add('done');
+    else if (i === _starModalStep) el.classList.add('active');
+  });
+
+  // Context from Six-Pager
+  const ctxEl = document.getElementById('star-modal-context');
+  if (starData._sixPagerTitle) {
+    ctxEl.innerHTML = `${step.context_prefix}请回忆一个与「<b>${escHtml(starData._sixPagerTitle)}</b>」相关的真实经验案例。`;
+    ctxEl.style.display = '';
+  } else {
+    ctxEl.style.display = 'none';
+  }
+
+  // Question & hint
+  document.getElementById('star-modal-question').textContent = `${step.key}. ${step.question}`;
+  document.getElementById('star-modal-hint').textContent = step.hint;
+  document.getElementById('star-modal-example').textContent = step.placeholder;
+
+  // Input
+  const input = document.getElementById('star-modal-input');
+  input.value = _starModalAnswers[step.key] || '';
+  input.placeholder = step.placeholder;
+  setTimeout(() => input.focus(), 100);
+
+  // Buttons
+  document.getElementById('star-modal-prev').style.display = _starModalStep === 0 ? 'none' : '';
+  const nextBtn = document.getElementById('star-modal-next');
+  if (_starModalStep === total - 1) {
+    nextBtn.textContent = '⚗️ 完成并萃取';
+  } else {
+    nextBtn.textContent = '下一步 →';
+  }
+
+  // Step hint
+  document.getElementById('star-modal-step-hint').textContent = `第 ${_starModalStep + 1} 步 / 共 ${total} 步`;
+}
+
+window.starModalNext = function() {
+  const step = STAR_MODAL_STEPS[_starModalStep];
+  const val = document.getElementById('star-modal-input').value.trim();
+  if (!val) {
+    showToast(`请填写「${step.label}」`, 'warn');
+    return;
+  }
+  _starModalAnswers[step.key] = val;
+
+  if (_starModalStep >= STAR_MODAL_STEPS.length - 1) {
+    // All done — extract
+    document.getElementById('star-modal-overlay').classList.remove('open');
+    _finishStarModal();
+  } else {
+    _starModalStep++;
+    _renderStarModal();
+  }
+};
+
+window.starModalPrev = function() {
+  if (_starModalStep <= 0) return;
+  // Save current input
+  const step = STAR_MODAL_STEPS[_starModalStep];
+  _starModalAnswers[step.key] = document.getElementById('star-modal-input').value.trim();
+  _starModalStep--;
+  _renderStarModal();
+};
+
+window.closeStarModal = function() {
+  document.getElementById('star-modal-overlay').classList.remove('open');
+  starActive = false;
+  starData = {};
+  _starModalStep = 0;
+  _starModalAnswers = {};
+  addMessage('system', '⭐ STAR 引导已退出');
+};
+
+function _finishStarModal() {
+  let composed = '';
+
+  // Include Six-Pager
+  if (starData._sixPager) {
+    composed += starData._sixPager + '\n---\n\n【STAR 经验案例】\n\n';
+  }
+
+  composed += `【场景 Situation】\n${_starModalAnswers.S}\n\n【任务 Task】\n${_starModalAnswers.T}\n\n【行动 Action】\n${_starModalAnswers.A}\n\n【结果 Result】\n${_starModalAnswers.R}`;
+
+  addMessage('system', '⭐ STAR 四步收集完成，正在组合知识文本并启动萃取…');
+
+  // Fill source text and trigger extraction
+  document.getElementById('source-text').value = composed;
+  document.getElementById('source-title').value = starData._sixPager ? 'Six-Pager + STAR萃取' : 'STAR引导萃取';
+  startExtraction();
+
+  // Reset
+  starActive = false;
+  starStep = 0;
+  starData = {};
+  _starModalStep = 0;
+  _starModalAnswers = {};
+}
+
+// ── Legacy chat-based STAR (kept for /star command without Six-Pager) ──
 window.cancelStarGuide = function() {
   starActive = false;
   starStep = 0;

@@ -61,6 +61,17 @@ class SkillCategory(Enum):
     DOMAIN_KNOWLEDGE = "domain_knowledge"
 
 
+class SkillLifecycleStage(Enum):
+    """Skill lifecycle stages (Filter→Improve→Verify→Solidify)."""
+
+    DRAFT = "draft"
+    TEAM_LOCAL = "team_local"
+    PUBLISHED = "published"
+    VERIFIED = "verified"
+    SOLIDIFIED = "solidified"
+    DEGRADED = "degraded"
+
+
 class Visibility(Enum):
     """Visibility level for teams/agents."""
 
@@ -184,6 +195,21 @@ class SkillDefinition:
     slug: str = ""
     required_tools: List[str] = field(default_factory=list)
     instructions: str = ""
+    # Lifecycle & tracking fields
+    lifecycle_stage: str = "draft"
+    quality_score: float = 0.0
+    visibility: str = "private"
+    version: int = 1
+    usage_count: int = 0
+    success_count: int = 0
+    fail_count: int = 0
+    effectiveness: float = 0.0
+    last_used_at: str = ""
+    adopted_by: List[str] = field(default_factory=list)
+    origin_team_id: str = ""
+    lineage: str = ""
+    schema_version: int = 1
+    evidence_sessions: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.skill_id:
@@ -194,7 +220,7 @@ class SkillDefinition:
             "skill_id": self.skill_id,
             "name": self.name,
             "description": self.description,
-            "category": self.category.value,
+            "category": self.category.value if isinstance(self.category, Enum) else self.category,
             "required": self.required,
             "enabled": self.enabled,
             "icon": self.icon,
@@ -205,6 +231,18 @@ class SkillDefinition:
             "slug": self.slug,
             "required_tools": self.required_tools,
             "has_instructions": bool(self.instructions),
+            "lifecycle_stage": self.lifecycle_stage.value if isinstance(self.lifecycle_stage, Enum) else self.lifecycle_stage,
+            "quality_score": self.quality_score,
+            "visibility": self.visibility.value if isinstance(self.visibility, Enum) else self.visibility,
+            "version": self.version,
+            "usage_count": self.usage_count,
+            "success_count": self.success_count,
+            "fail_count": self.fail_count,
+            "effectiveness": self.effectiveness,
+            "last_used_at": self.last_used_at,
+            "adopted_by": self.adopted_by,
+            "origin_team_id": self.origin_team_id,
+            "lineage": self.lineage,
         }
 
 

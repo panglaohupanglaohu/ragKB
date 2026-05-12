@@ -166,6 +166,14 @@ async def startup():
         except Exception:
             pass
 
+        # 公有云 xOPs 团队 (optional)
+        try:
+            from agents.teams.xops_team import create_xops_team
+            xops_team_obj = create_xops_team()
+            _team_manager._teams[xops_team_obj.team_id] = xops_team_obj
+        except Exception:
+            pass
+
         init_agent_config(_team_manager)
         app.include_router(agent_config_router)
         logger.info(
@@ -216,6 +224,14 @@ async def startup():
             logger.info("✅ TTS API mounted (/api/v1/tts)")
         except Exception as e:
             logger.warning(f"⚠️ TTS API failed: {e}")
+
+        # 4c. 萃取管线 API
+        try:
+            from agents.extraction_routes import router as extraction_router
+            app.include_router(extraction_router)
+            logger.info("✅ Extraction Pipeline API mounted (/api/v1/extraction)")
+        except Exception as e:
+            logger.warning(f"⚠️ Extraction Pipeline API failed: {e}")
 
     except Exception as e:
         logger.warning(f"⚠️ Agent Config API failed: {e}")

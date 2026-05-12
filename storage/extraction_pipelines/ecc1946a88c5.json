@@ -1,0 +1,151 @@
+{
+  "pipeline_id": "ecc1946a88c5",
+  "name": "稀疏奖励冷启动优化",
+  "description": "萃取管线 — d04a96a9",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 2,
+      "required_identities": [
+        "peer",
+        "senior"
+      ],
+      "min_approvals": 2,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "lead"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "architect"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [
+    {
+      "todo_id": "3c7f0a7442f1",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 peer 身份复核人",
+      "description": "需要 peer 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:15:00.983102+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "6be2682fa1eb",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 senior 身份复核人",
+      "description": "需要 senior 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:15:00.983102+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "663052b973a2",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 还需要 2 位复核人",
+      "description": "当前 0/2 人",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:15:00.983102+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "3e25af9d2069",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 peer 身份复核人",
+      "description": "需要 peer 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:16:21.453502+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "ade4c2d3b856",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 senior 身份复核人",
+      "description": "需要 senior 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:16:21.453502+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "2e510987175d",
+      "pipeline_id": "ecc1946a88c5",
+      "stage": "review",
+      "title": "[门禁缺口] 还需要 2 位复核人",
+      "description": "当前 0/2 人",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-12T08:16:21.453502+00:00",
+      "completed_at": null,
+      "metadata": {}
+    }
+  ],
+  "payload": {},
+  "tags": [
+    "item:d04a96a9"
+  ],
+  "version": 7,
+  "created_at": "2026-05-12T08:01:57.673121+00:00",
+  "updated_at": "2026-05-12T08:16:21.454803+00:00"
+}

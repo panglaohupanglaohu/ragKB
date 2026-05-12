@@ -498,6 +498,9 @@ class LLMClient:
             payload["thinking"] = self._config.thinking
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
+        # Qwen3 models: disable thinking to get content in 'content' field
+        if model and "qwen" in model.lower():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
             payload["tools"] = tools
 
@@ -567,6 +570,9 @@ class LLMClient:
             payload["thinking"] = self._config.thinking
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
+        # Qwen3 models: disable thinking to get content in 'content' field
+        if model and "qwen" in model.lower():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         api_key = self._config.api_key or os.getenv("DEEPSEEK_API_KEY", "")
         if api_key:
@@ -868,7 +874,10 @@ class ChatHarness:
 
         choice = choices[0]
         message = choice.get("message", {})
-        content = message.get("content", "")
+        content = message.get("content") or ""
+        # Qwen3 thinking mode: content is null, actual response in reasoning
+        if not content and message.get("reasoning"):
+            content = message["reasoning"]
         stop_reason = choice.get("finish_reason", "stop")
 
         # Token usage
@@ -934,7 +943,7 @@ class ChatHarness:
             choices = chunk.get("choices", [])
             if choices:
                 delta = choices[0].get("delta", {})
-                text = delta.get("content", "")
+                text = delta.get("content") or delta.get("reasoning") or ""
                 if text:
                     full_content += text
                     yield {"type": "message_delta", "text": text}
