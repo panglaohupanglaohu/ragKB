@@ -493,6 +493,7 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temp,
+            "stream": False,
         }
         if self._config.thinking:
             payload["thinking"] = self._config.thinking
@@ -536,7 +537,7 @@ class LLMClient:
                             "status": resp.status,
                             "message": error_text[:500],
                         }
-                    return await resp.json()
+                    return await resp.json(content_type=None)
         except Exception as exc:
             return {
                 "error": True,

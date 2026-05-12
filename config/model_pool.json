@@ -8,8 +8,8 @@
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
-      "api_key": "sk-ZdQKtFIO1P5qscoINws54esEwWGX5Ytc8xqULAhvcnFWTAzS",
-      "api_base_url": "https://sub2api.uuuu.site/v1"
+      "api_key": "",
+      "api_base_url": "https://sub2api.fcyaxing.com/v1"
     },
     "copilot": {
       "model_id": "copilot",
@@ -30,7 +30,7 @@
       "temperature": 0.7,
       "is_default": false,
       "enabled": true,
-      "api_key": "sk-21cf5443859b4b4f8c41864fe0da8cba",
+      "api_key": "",
       "api_base_url": "https://api.deepseek.com"
     }
   },
@@ -43,8 +43,8 @@
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
-      "api_key": "sk-ZdQKtFIO1P5qscoINws54esEwWGX5Ytc8xqULAhvcnFWTAzS",
-      "api_base_url": "https://sub2api.uuuu.site/v1"
+      "api_key": "",
+      "api_base_url": "https://sub2api.fcyaxing.com/v1"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -54,7 +54,7 @@
       "temperature": 0.7,
       "is_default": false,
       "enabled": true,
-      "api_key": "sk-21cf5443859b4b4f8c41864fe0da8cba",
+      "api_key": "",
       "api_base_url": "https://api.deepseek.com"
     }
   },
@@ -67,8 +67,8 @@
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
-      "api_key": "sk-ZdQKtFIO1P5qscoINws54esEwWGX5Ytc8xqULAhvcnFWTAzS",
-      "api_base_url": "https://sub2api.uuuu.site/v1"
+      "api_key": "",
+      "api_base_url": "https://sub2api.fcyaxing.com/v1"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -78,7 +78,7 @@
       "temperature": 0.7,
       "is_default": false,
       "enabled": true,
-      "api_key": "sk-21cf5443859b4b4f8c41864fe0da8cba",
+      "api_key": "",
       "api_base_url": "https://api.deepseek.com"
     },
     "copilot": {
@@ -93,8 +93,17 @@
       "api_base_url": ""
     }
   },
-  "team-001": {},
-  "t2": {},
-  "t1": {},
-  "d083a568": {}
+  "d083a568": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "openai",
+      "name": "Qwen3.6-27B-FP8",
+      "max_tokens": 8192,
+      "temperature": 0.7,
+      "is_default": true,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+    }
+  }
 }
