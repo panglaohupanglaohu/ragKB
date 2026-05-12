@@ -225,10 +225,9 @@ textarea.fi{resize:vertical;min-height:45px}
 <div class="top-bar">
   <span class="logo">议事广场</span>
   <div class="nav-links">
-    <a href="/agent-team-config.html">团队</a>
-    <a href="/datacenter-ratchet-evolution.html">演进</a>
-    <a href="/plaza.html" class="active">广场</a>
-    <a href="/skill-extract.html">萃取</a>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/system-evolution.html">系统演进</a>
+    <a href="/skill-extract.html">技能萃取</a>
   </div>
 </div>
 
@@ -1623,7 +1622,7 @@ window.extractFromDisc = async function(event, discId) {
       body: JSON.stringify({ payload: { raw_text: rawText, source: 'plaza_discussion', discussion_id: id, plaza_id: curPlaza } })
     });
     toast('萃取管线已创建');
-    window.open(`/extraction-pipeline.html#${pid}`, '_blank');
+    window.open(`/skill-extract.html#${pid}`, '_blank');
   } else { toast('创建萃取管线失败'); }
 };
 
@@ -1649,7 +1648,7 @@ window.exportDiscPDF = async function(event, discId) {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}@media print{body{margin:20px}}</style></head><body>${body}</body></html>`;
   const w = window.open('', '_blank');
   if (w) { w.document.write(html); w.document.close(); w.document.title = title; setTimeout(() => { w.print(); }, 500); }
-  toast('PDF 已生成，请在打印对话框中选择"存储为 PDF"');
+  toast('PDF 预览已打开，请在弹出的打印窗口中选择「存储为 PDF」');
 };
 
 window.refreshPlan = async function() {

@@ -4,28 +4,28 @@
    data-obc-theme changes (day | dusk | night | bright)
    ============================================================ */
 
-/* ── Dusk (default — current WS Rubber palette) ───────────── */
+/* ── Dusk (default — concrete deep blue-gray) ───────────── */
 [data-obc-theme='dusk'], :root {
-  --shironeri: oklch(0.96 0.003 110);
-  --ishi: oklch(0.91 0.004 110);
-  --kabe: oklch(0.85 0.005 110);
-  --hai: oklch(0.78 0.005 110);
-  --nezumi: oklch(0.68 0.006 110);
-  --rubber: oklch(0.72 0.006 110);
-  --rubber-hover: oklch(0.68 0.007 110);
-  --rubber-press: oklch(0.64 0.007 110);
-  --sumi: oklch(0.18 0.008 110);
-  --sumi-2: oklch(0.38 0.006 110);
-  --sumi-3: oklch(0.55 0.005 110);
-  --koke: oklch(0.52 0.04 160);
-  --shu: oklch(0.48 0.07 22);
-  --kitsune: oklch(0.56 0.05 70);
-  --text: oklch(0.18 0.008 110);
-  --text-2: oklch(0.42 0.006 110);
-  --text-3: oklch(0.60 0.005 110);
-  --groove: oklch(0.82 0.004 110);
-  --ridge: oklch(1.00 0 0 / 0.6);
-  --muted: oklch(0.55 0.005 110);
+  --shironeri: #1A1F25;
+  --ishi: #21272D;
+  --kabe: #30363D;
+  --hai: #424A52;
+  --nezumi: #64707A;
+  --rubber: #3B434C;
+  --rubber-hover: #424A52;
+  --rubber-press: #4A535C;
+  --sumi: #EEF2F5;
+  --sumi-2: #A2ABB4;
+  --sumi-3: #7C8792;
+  --koke: #6BC47F;
+  --shu: #E07070;
+  --kitsune: #D4A44A;
+  --text: #D7DEE4;
+  --text-2: #A2ABB4;
+  --text-3: #7C8792;
+  --groove: #3B434C;
+  --ridge: rgba(255,255,255,0.06);
+  --muted: #7C8792;
 }
 
 /* ── Day (standard daylight) ──────────────────────────────── */
@@ -109,6 +109,15 @@
   background-image: none !important;
 }
 
+/* ── Dusk mode body overrides ─────────────────────────────── */
+[data-obc-theme='dusk'] body, body {
+  background: #1A1F25 !important;
+  color: #D7DEE4 !important;
+}
+[data-obc-theme='dusk'] body::before, body::before {
+  background-image: radial-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),radial-gradient(rgba(255,255,255,0.008) 1px,transparent 1px) !important;
+}
+
 /* ── Bright mode body overrides ───────────────────────────── */
 [data-obc-theme='bright'] body {
   background: #ffffff !important;
@@ -121,33 +130,33 @@
 
 /* Dusk (default) */
 [data-obc-theme='dusk'], :root {
-  --ws-sidebar-bg: rgba(232,240,250,0.95);
-  --ws-hover-bg: rgba(26,95,180,0.08);
-  --ws-active-bg: rgba(224,64,160,0.12);
-  --ws-border: rgba(30,60,110,0.18);
-  --ws-border-light: rgba(30,60,110,0.10);
-  --ws-border-subtle: rgba(30,60,110,0.06);
-  --ws-panel-bg: oklch(0.96 0.003 110);
-  --ws-panel2-bg: oklch(0.91 0.004 110);
-  --ws-input-bg: oklch(0.96 0.003 110);
-  --ws-soul-bg: rgba(240,244,252,0.95);
-  --ws-memory-bg: rgba(232,240,250,0.6);
-  --ws-focus-bg: rgba(232,240,250,0.5);
-  --ws-hover-row: rgba(26,95,180,0.04);
-  --ws-zebra: rgba(26,95,180,0.02);
-  --ws-btn-hover: rgba(26,95,180,0.08);
-  --ws-danger-bg: rgba(224,27,36,0.08);
-  --ws-danger-border: rgba(224,27,36,0.18);
-  --ws-toast-bg: oklch(0.96 0.003 110);
-  --ws-toast-border: rgba(30,60,110,0.12);
-  --ws-toast-error-bg: oklch(0.97 0.01 22);
-  --ws-toast-success-bg: oklch(0.97 0.01 160);
-  --ws-toast-warn-bg: oklch(0.97 0.01 70);
-  --ws-scrollbar: oklch(0.82 0.004 110);
-  --ws-scrollbar-hover: oklch(0.68 0.006 110);
-  --ws-shadow: oklch(0 0 0 / 0.04);
-  --ws-shadow-md: oklch(0 0 0 / 0.08);
-  --ws-shadow-lg: oklch(0 0 0 / 0.1);
+  --ws-sidebar-bg: #21272D;
+  --ws-hover-bg: rgba(166,176,186,0.08);
+  --ws-active-bg: rgba(107,196,127,0.12);
+  --ws-border: #4A535C;
+  --ws-border-light: #3B434C;
+  --ws-border-subtle: rgba(255,255,255,0.04);
+  --ws-panel-bg: #1A1F25;
+  --ws-panel2-bg: #21272D;
+  --ws-input-bg: #21272D;
+  --ws-soul-bg: #21272D;
+  --ws-memory-bg: #2A3037;
+  --ws-focus-bg: #2A3037;
+  --ws-hover-row: rgba(166,176,186,0.04);
+  --ws-zebra: rgba(166,176,186,0.02);
+  --ws-btn-hover: rgba(166,176,186,0.08);
+  --ws-danger-bg: rgba(224,112,112,0.10);
+  --ws-danger-border: rgba(224,112,112,0.20);
+  --ws-toast-bg: #2A3037;
+  --ws-toast-border: #4A535C;
+  --ws-toast-error-bg: #2D1F1F;
+  --ws-toast-success-bg: #1F2D1F;
+  --ws-toast-warn-bg: #2D2A1F;
+  --ws-scrollbar: #3B434C;
+  --ws-scrollbar-hover: #64707A;
+  --ws-shadow: rgba(0,0,0,0.20);
+  --ws-shadow-md: rgba(0,0,0,0.30);
+  --ws-shadow-lg: rgba(0,0,0,0.40);
 }
 
 /* Day */
