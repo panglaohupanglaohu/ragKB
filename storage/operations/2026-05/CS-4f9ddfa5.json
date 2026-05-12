@@ -1,0 +1,14 @@
+{
+  "slice_id": "CS-4f9ddfa5",
+  "operation_id": "OP-f20c972a",
+  "context_type": "session_state",
+  "timestamp": "2026-05-10T11:33:12.965523+00:00",
+  "payload": {
+    "messages": 3
+  },
+  "summary": "Test slice",
+  "context_hash": "299bb9e4d4574b4d",
+  "schema_version": 1,
+  "entity_id": null,
+  "entity_type": null
+}

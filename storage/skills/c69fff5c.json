@@ -1,0 +1,30 @@
+{
+  "skill_id": "c69fff5c",
+  "schema_version": 1,
+  "idempotency_key": "c69fff5c:v1",
+  "snapshot": {
+    "skill_id": "c69fff5c",
+    "name": "技能演化关键路径判定",
+    "description": "从冗长的技能迭代流程中提炼出决定演化成败的3-5个核心决策点。通过设定明确的触发条件与验证阈值，确保每次技能更新都走在最优路径上，避免盲目试错。",
+    "category": "automation",
+    "required": false,
+    "enabled": true,
+    "icon": "🧭",
+    "slug": "critical-path-skill-evolution",
+    "source": "distilled",
+    "required_tools": [
+      "threshold-monitor",
+      "decision-gate",
+      "verification-sandbox"
+    ],
+    "instructions": "核心算法：1. 路径映射：将演化流程拆解为“采集-诊断-提案-验证-合并”五个节点。2. 阈值设定：为每个节点设定通过标准（如：验证覆盖率>80%，失败率下降>15%）。3. 决策执行：仅当关键路径节点全部达标时，才执行技能合并。\n合格标准：能准确识别并拦截不满足阈值的演化提案。\n卓越标准：实现动态阈值调整，根据技能成熟度自动收紧或放宽决策条件。\n避坑指南：避免“验证孤岛”，需确保验证环境与生产环境轨迹一致；关键路径节点不可过度堆砌，保留3-5个核心点即可，防止决策疲劳。",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {}
+  },
+  "created_at": "2026-05-11T14:24:05.703981+00:00",
+  "updated_at": "2026-05-11T14:24:05.704025+00:00",
+  "version": 2,
+  "is_deleted": false
+}

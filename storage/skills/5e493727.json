@@ -1,0 +1,26 @@
+{
+  "skill_id": "5e493727",
+  "schema_version": 1,
+  "idempotency_key": "5e493727:v1",
+  "snapshot": {
+    "skill_id": "5e493727",
+    "name": "Simplicity-First Coding",
+    "description": "Produce the minimum amount of code needed to solve the problem. Avoid speculative features, unnecessary abstractions, or flexibility not requested. Refactor to simplify when the code is longer than necessary. This reduces maintenance burden and potential bugs.",
+    "category": "automation",
+    "required": false,
+    "enabled": true,
+    "icon": "🧹",
+    "slug": "simplicity-first-coding",
+    "source": "distilled",
+    "required_tools": [],
+    "instructions": "When writing code, ask: 'What is the simplest thing that could possibly work?' Implement only the required functionality. Do not add error handling for impossible scenarios. Do not create abstractions for single-use code. If your implementation is verbose, refactor to the fewest lines while maintaining clarity. A good heuristic: if you wrote 200 lines and it could be 50, rewrite it. Push back on overly complex requests; propose a simpler solution if appropriate.",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {}
+  },
+  "created_at": "2026-05-10T04:21:39.978833+00:00",
+  "updated_at": "2026-05-10T04:21:39.978845+00:00",
+  "version": 2,
+  "is_deleted": false
+}

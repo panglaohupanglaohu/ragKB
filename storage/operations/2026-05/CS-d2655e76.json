@@ -1,0 +1,14 @@
+{
+  "slice_id": "CS-d2655e76",
+  "operation_id": "OP-c6e83461",
+  "context_type": "environment",
+  "timestamp": "2026-05-10T11:22:15.435751+00:00",
+  "payload": {
+    "python": "3.11"
+  },
+  "summary": "",
+  "context_hash": "350ae6a3b1f8668e",
+  "schema_version": 1,
+  "entity_id": null,
+  "entity_type": null
+}

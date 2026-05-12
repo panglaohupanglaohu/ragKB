@@ -10,3 +10,4 @@ dist/
 .pytest_cache/
 .env
 *.log
+config/.api_keys.json

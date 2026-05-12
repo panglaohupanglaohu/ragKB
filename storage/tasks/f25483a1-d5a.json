@@ -1,0 +1,31 @@
+{
+  "task_id": "f25483a1-d5a",
+  "agent_id": "a1",
+  "team_id": "team-1",
+  "title": "Team A Task",
+  "description": "",
+  "status": "completed",
+  "priority": 2,
+  "created_at": "2026-05-09T05:46:42.380202+00:00",
+  "started_at": "2026-05-09T07:32:32.210578+00:00",
+  "completed_at": "2026-05-09T07:32:32.218757+00:00",
+  "result": {
+    "message": "Workflow started with 1 steps",
+    "first_session": null
+  },
+  "error": "",
+  "dependencies": [],
+  "metadata": {
+    "workflow": [
+      {
+        "index": 0,
+        "key": "execute",
+        "label": "a1",
+        "agent_id": "",
+        "agent_role": "unknown",
+        "status": "active"
+      }
+    ],
+    "pipeline_dir": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/pipeline_runs/f25483a1-d5a"
+  }
+}

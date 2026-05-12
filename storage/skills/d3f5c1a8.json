@@ -1,0 +1,43 @@
+{
+  "skill_id": "d3f5c1a8",
+  "schema_version": 1,
+  "idempotency_key": "d3f5c1a8:v1",
+  "snapshot": {
+    "skill_id": "d3f5c1a8",
+    "name": "防御性配置变更",
+    "name_en": "Defensive Configuration Mutation",
+    "description": "将生产环境的配置变更从随机的运维行为转化为可验证、可回滚、可审计的工程实践。",
+    "category": "devops",
+    "required": false,
+    "enabled": true,
+    "icon": "🛡️",
+    "slug": "defensive-config-mutation",
+    "source": "six-pager-extraction",
+    "required_tools": [],
+    "instructions": "核心算法:\n\n1. 三原则法则 (Triple Anchor Method)\n   - 禁绝手动：除紧急故障外，严禁通过管理控制台进行点选式修改\n   - 变更即代码：所有配置变更必须通过版本控制系统（IaC）记录\n   - 观察即生命：没有对应监控告警的变更不准上线\n\n2. 指标锚定 (Metric Anchoring)\n   - 变更前记录基线指标（延迟P99、错误率、吞吐量）\n   - 设置自动回滚阈值：错误率上升>5%或延迟增长>20%触发回滚\n   - 灰度部署比例：10% → 25% → 50% → 100%，每级观察窗口≥5分钟\n\n3. 版本锚定 (Version Anchoring)\n   - 变更前创建配置快照或数据库快照\n   - 准备经过验证的一键回滚脚本\n   - 使用 X-Ray/依赖图梳理变更影响半径\n\n执行流程:\n- 第一阶段（前置校验）：依赖梳理 → 快照创建 → 回滚脚本验证\n- 第二阶段（实施策略）：灰度发布 → 分级扩量 → 实时监控\n- 第三阶段（验证闭环）：指标对比 → 告警确认 → 文档归档",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {
+      "proficiency_levels": {
+        "qualified": "能独立执行带灰度的配置变更，会设置基本监控告警，能在5分钟内完成回滚",
+        "excellent": "能设计端到端的配置变更SOP，预判级联影响，建立自动化回滚机制，将变更事故率降低80%+"
+      },
+      "anti_patterns": [
+        "控制台战士：直接在生产环境管理控制台手动修改参数",
+        "盲目变更：不检查依赖关系就修改共享配置",
+        "回滚失忆：变更后无法还原到之前的状态",
+        "监控缺位：变更上线后没有对应的观测指标"
+      ],
+      "extraction_algorithms": [
+        "de-contextualization",
+        "inverse-problem-solving",
+        "critical-path-extraction"
+      ]
+    }
+  },
+  "created_at": "2026-05-11T12:00:00.000000+00:00",
+  "updated_at": "2026-05-11T12:00:00.000000+00:00",
+  "version": 1,
+  "is_deleted": false
+}

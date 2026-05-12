@@ -1,0 +1,16 @@
+{
+  "task_id": "f30cbdf0-7a3",
+  "agent_id": "a1",
+  "team_id": "",
+  "title": "Cancel Me",
+  "description": "",
+  "status": "cancelled",
+  "priority": 2,
+  "created_at": "2026-05-09T08:04:05.741581+00:00",
+  "started_at": "",
+  "completed_at": "2026-05-09T08:04:05.741788+00:00",
+  "result": null,
+  "error": "",
+  "dependencies": [],
+  "metadata": {}
+}

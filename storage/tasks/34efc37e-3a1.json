@@ -1,0 +1,31 @@
+{
+  "task_id": "34efc37e-3a1",
+  "agent_id": "a1",
+  "team_id": "",
+  "title": "With Desc",
+  "description": "这是一段描述",
+  "status": "completed",
+  "priority": 2,
+  "created_at": "2026-05-09T06:13:22.131748+00:00",
+  "started_at": "2026-05-09T07:32:31.947153+00:00",
+  "completed_at": "2026-05-09T07:32:31.969341+00:00",
+  "result": {
+    "message": "Workflow started with 1 steps",
+    "first_session": null
+  },
+  "error": "",
+  "dependencies": [],
+  "metadata": {
+    "workflow": [
+      {
+        "index": 0,
+        "key": "execute",
+        "label": "a1",
+        "agent_id": "",
+        "agent_role": "unknown",
+        "status": "active"
+      }
+    ],
+    "pipeline_dir": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/pipeline_runs/34efc37e-3a1"
+  }
+}

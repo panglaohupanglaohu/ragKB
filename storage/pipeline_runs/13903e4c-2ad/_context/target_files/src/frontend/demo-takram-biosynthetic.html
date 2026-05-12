@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Demo A — 菌丝萃取 · 结晶</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#08080A;overflow:hidden;font-family:'Noto Sans SC',sans-serif}
+canvas{display:block;width:100vw;height:100vh}
+.label{position:fixed;bottom:28px;left:28px;color:rgba(180,175,168,0.5);font-size:11px;letter-spacing:2px;z-index:10}
+.label b{color:rgba(180,175,168,0.8);font-weight:600}
+.badge{position:fixed;top:24px;left:24px;font-size:10px;color:rgba(170,160,148,0.4);
+  border:1px solid rgba(170,160,148,0.15);padding:4px 12px;letter-spacing:1.5px;z-index:10}
+.legend{position:fixed;top:24px;right:24px;font-size:10px;color:rgba(180,175,168,0.5);z-index:10;line-height:2.4}
+.legend span{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="badge">菌丝萃取 · 分解结晶</div>
+<div class="label"><b>技能萃取</b> — 分枝 · 分解 · 结晶</div>
+<div class="legend">
+  <div><span style="background:#D4A574"></span>菌丝网络 — 萃取通路</div>
+  <div><span style="background:#B898C8"></span>原子技能 — 基础结晶</div>
+  <div><span style="background:#C8B468"></span>特质技能 — 独特结晶</div>
+  <div><span style="background:#88AABA"></span>组合技能 — 复合结晶</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setClearColor(0x08080A);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x08080A, 0.016);
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 120);
+camera.position.set(0, 16, 18);
+const ctrl = new OrbitControls(camera, canvas);
+ctrl.enableDamping = true; ctrl.dampingFactor = 0.05;
+ctrl.target.set(0, 0.5, 0); ctrl.maxPolarAngle = Math.PI / 2.05;
+
+scene.add(new THREE.AmbientLight(0x2A2828, 0.06));
+scene.add(new THREE.HemisphereLight(0x2A2828, 0x181614, 0.08));
+const topLight = new THREE.DirectionalLight(0x554840, 0.15);
+topLight.position.set(0, 20, 5); scene.add(topLight);
+
+// ── LAYER 1: 基质层 — 培养皿 ──
+const substrate = new THREE.Mesh(
+  new THREE.CircleGeometry(18, 96),
+  new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.96, metalness: 0, transparent: true, opacity: 0.85 })
+);
+substrate.rotation.x = -Math.PI / 2;
+scene.add(substrate);
+
+const rim = new THREE.Mesh(
+  new THREE.TorusGeometry(18, 0.15, 12, 96),
+  new THREE.MeshStandardMaterial({ color: 0x1E1A16, roughness: 0.6, metalness: 0.15 })
+);
+rim.rotation.x = -Math.PI / 2; rim.position.y = 0.08;
+scene.add(rim);
+
+for (let r = 3; r <= 16; r += 3) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(r - 0.02, r + 0.02, 96),
+    new THREE.MeshBasicMaterial({ color: 0x221E18, transparent: true, opacity: 0.08 })
+  );
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002;
+  scene.add(ring);
+}
+
+// ── LAYER 2: 菌丝网络 — 递归分枝，半透明玻璃质感 ──
+const myceliumGroup = new THREE.Group();
+scene.add(myceliumGroup);
+const myceliumColor = new THREE.Color(0xD4A574);
+
+function growHypha(origin, direction, length, thickness, depth, maxDepth) {
+  if (depth > maxDepth || length < 0.25) return;
+
+  const pts = [origin.clone()];
+  const steps = Math.max(Math.floor(length * 5), 3);
+  const current = origin.clone();
+  const dir = direction.clone().normalize();
+
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const wobble = Math.sin(t * 7 + depth * 2.5) * 0.08 * (1 + depth * 0.3);
+    const perpX = -dir.z, perpZ = dir.x;
+    current.add(dir.clone().multiplyScalar(length / steps));
+    current.x += perpX * wobble;
+    current.z += perpZ * wobble;
+    current.y = origin.y + Math.sin(t * Math.PI) * 0.06 * length;
+    pts.push(current.clone());
+  }
+
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const depthRatio = 1 - depth / maxDepth;
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: myceliumColor, roughness: 0.12, metalness: 0,
+    transmission: 0.6, thickness: 0.06, ior: 1.18,
+    emissive: myceliumColor, emissiveIntensity: 0.015 + depthRatio * 0.05,
+    transparent: true, opacity: 0.06 + depthRatio * 0.18,
+    side: THREE.DoubleSide
+  });
+
+  myceliumGroup.add(new THREE.Mesh(
+    new THREE.TubeGeometry(curve, Math.max(steps * 3, 8), thickness, 5, false), mat
+  ));
+
+  const endPt = pts[pts.length - 1];
+  const branches = depth < 2 ? 3 : depth < 4 ? 2 : 1;
+  for (let b = 0; b < branches; b++) {
+    const spread = (b / branches) * Math.PI * 1.4 - Math.PI * 0.7;
+    const newDir = new THREE.Vector3(
+      dir.x * Math.cos(spread) - dir.z * Math.sin(spread), 0,
+      dir.x * Math.sin(spread) + dir.z * Math.cos(spread)
+    ).normalize();
+    newDir.x += (Math.random() - 0.5) * 0.35;
+    newDir.z += (Math.random() - 0.5) * 0.35;
+    newDir.normalize();
+    growHypha(endPt, newDir, length * (0.5 + Math.random() * 0.28), thickness * 0.6, depth + 1, maxDepth);
+  }
+
+  if (depth < 2 && length > 2) {
+    const midPt = pts[Math.floor(pts.length * 0.45)];
+    const sideDir = new THREE.Vector3(-dir.z + (Math.random() - 0.5) * 0.3, 0, dir.x + (Math.random() - 0.5) * 0.3).normalize();
+    growHypha(midPt, sideDir, length * 0.35, thickness * 0.45, depth + 2, maxDepth);
+  }
+}
+
+[0, 1.05, 2.1, 3.14, 4.19, 5.24].forEach(angle => {
+  growHypha(new THREE.Vector3(0, 0.06, 0), new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)),
+    3.5 + Math.random() * 1.8, 0.035 + Math.random() * 0.012, 0, 6);
+});
+
+// 智能体形象 — 议事厅风格
+const agentGroup = new THREE.Group();
+const agentCol = new THREE.Color(0xD4A574);
+const outlineMat = new THREE.MeshBasicMaterial({ color: agentCol, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+const glowMat = new THREE.MeshBasicMaterial({ color: agentCol, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+
+// Head ring
+const headR = 0.34, headTube = 0.035;
+const agentHead = new THREE.Mesh(new THREE.TorusGeometry(headR, headTube, 12, 32), outlineMat);
+agentHead.position.y = 2.0; agentGroup.add(agentHead);
+const headGlow = new THREE.Mesh(new THREE.TorusGeometry(headR, headTube * 4, 12, 32), glowMat);
+headGlow.position.copy(agentHead.position); agentGroup.add(headGlow);
+
+// Body U-arc
+const bodyPts = [];
+for (let i = 0; i <= 32; i++) {
+  const bt = i / 32, ba = Math.PI * bt;
+  bodyPts.push(new THREE.Vector3(-Math.cos(ba) * 0.48, 1.25 - Math.sin(ba) * 0.65, 0));
+}
+const bodyCurve = new THREE.CatmullRomCurve3(bodyPts);
+agentGroup.add(new THREE.Mesh(new THREE.TubeGeometry(bodyCurve, 32, 0.035, 8, false), outlineMat));
+agentGroup.add(new THREE.Mesh(new THREE.TubeGeometry(bodyCurve, 32, 0.12, 8, false), glowMat));
+
+// Light
+const agentLight = new THREE.PointLight(agentCol, 0.55, 5.5);
+agentLight.position.y = 1.4; agentGroup.add(agentLight);
+
+// Ground ring
+const groundRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.35, 0.55, 32),
+  new THREE.MeshBasicMaterial({ color: agentCol, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+);
+groundRing.rotation.x = -Math.PI / 2; groundRing.position.y = 0.01;
+agentGroup.add(groundRing);
+
+// 智能体标签
+const alCvs = document.createElement('canvas'); alCvs.width = 384; alCvs.height = 96;
+const alCtx = alCvs.getContext('2d');
+alCtx.font = '700 28px "Noto Sans SC"'; alCtx.textAlign = 'center'; alCtx.textBaseline = 'middle';
+alCtx.fillStyle = '#D4A574'; alCtx.fillText('智能体', 192, 48);
+const alTex = new THREE.CanvasTexture(alCvs); alTex.minFilter = THREE.LinearFilter;
+const alSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: alTex, transparent: true, depthTest: false }));
+alSp.position.y = 2.84; alSp.scale.set(2.4, 0.6, 1); agentGroup.add(alSp);
+scene.add(agentGroup);
+
+// ── LAYER 3: 技能结晶 ──
+const skillDefs = [
+  { name: '代码实现', type: 'atomic',    angle: 0.0,  r: 7,   color: 0xB898C8 },
+  { name: '研究分析', type: 'atomic',    angle: 1.05, r: 6.5, color: 0xB898C8 },
+  { name: '测试验证', type: 'atomic',    angle: 2.1,  r: 8,   color: 0xB898C8 },
+  { name: '能效审计', type: 'trait',     angle: 3.14, r: 9,   color: 0xC8B468 },
+  { name: 'PUE优化',  type: 'trait',     angle: 4.19, r: 8.5, color: 0xC8B468 },
+  { name: '全链路流水线', type: 'composite', angle: 5.24, r: 11, color: 0x88AABA },
+];
+
+const allCrystals = [];
+
+skillDefs.forEach((s, idx) => {
+  const x = Math.cos(s.angle) * s.r;
+  const z = Math.sin(s.angle) * s.r;
+  const col = new THREE.Color(s.color);
+  let crystal;
+
+  // 统一圆球体，用颜色区分类型
+  const radius = s.type === 'composite' ? 0.4 : s.type === 'trait' ? 0.32 : 0.25;
+  crystal = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 32, 24),
+    new THREE.MeshPhysicalMaterial({
+      color: col, roughness: 0.05, metalness: 0.05,
+      transmission: 0.7, thickness: radius * 1.5, ior: 1.8,
+      emissive: col, emissiveIntensity: 0.15,
+      clearcoat: 1, clearcoatRoughness: 0.01
+    })
+  );
+  crystal.position.set(x, radius, z);
+  scene.add(crystal);
+  allCrystals.push({ mesh: crystal, orbit: false, idx });
+
+  const cLight = new THREE.PointLight(s.color, 0.25, 4);
+  cLight.position.set(x, 0.5, z); scene.add(cLight);
+  allCrystals.push({ light: cLight, idx });
+
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.8, 32),
+    new THREE.MeshBasicMaterial({ color: s.color, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  glow.rotation.x = -Math.PI / 2; glow.position.set(x, 0.003, z);
+  scene.add(glow);
+
+  const lc = document.createElement('canvas'); lc.width = 256; lc.height = 64;
+  const lx = lc.getContext('2d');
+  lx.font = '500 20px "Noto Sans SC"'; lx.textAlign = 'center'; lx.textBaseline = 'middle';
+  lx.fillStyle = '#' + col.getHexString(); lx.globalAlpha = 0.65;
+  lx.fillText(s.name, 128, 32);
+  const tex = new THREE.CanvasTexture(lc); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.position.set(x, (s.type === 'composite' ? 0.4 : s.type === 'trait' ? 0.32 : 0.25) * 2 + 0.6, z);
+  sp.scale.set(2, 0.5, 1); scene.add(sp);
+});
+
+// ── ANIMATION ──
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  ctrl.update();
+
+  const metabolic = Math.sin(t * 0.4) * 0.5 + 0.5;
+
+  agentLight.intensity = 0.4 + metabolic * 0.3;
+  agentHead.material.emissiveIntensity = 0.2 + metabolic * 0.1;
+  agentGroup.position.y = Math.sin(t * 0.5) * 0.03;
+
+  myceliumGroup.children.forEach((mesh, i) => {
+    if (mesh.material && mesh.material.emissiveIntensity !== undefined) {
+      const wave = Math.sin(t * 0.6 + i * 0.25) * 0.5 + 0.5;
+      mesh.material.emissiveIntensity = 0.01 + wave * 0.05 + metabolic * 0.02;
+      mesh.material.opacity = 0.05 + wave * 0.12 + metabolic * 0.04;
+    }
+  });
+
+  allCrystals.forEach((c) => {
+    if (c.mesh) {
+      const g = Math.sin(t * 0.5 + c.idx * 1.1) * 0.5 + 0.5;
+      if (c.mesh.material) c.mesh.material.emissiveIntensity = 0.10 + g * 0.14;
+    }
+    if (c.light) c.light.intensity = 0.2 + metabolic * 0.12;
+  });
+
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+addEventListener('resize', onResize); onResize();
+animate();
+</script>
+</body>
+</html>

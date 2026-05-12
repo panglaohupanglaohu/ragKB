@@ -1,0 +1,15 @@
+{
+  "slice_id": "CS-5bf53523",
+  "operation_id": "OP-877ed719",
+  "context_type": "session_state",
+  "timestamp": "2026-05-10T11:22:15.435288+00:00",
+  "payload": {
+    "messages": 5,
+    "tokens": 1200
+  },
+  "summary": "Session before call",
+  "context_hash": "26d60dd51070ffd5",
+  "schema_version": 1,
+  "entity_id": null,
+  "entity_type": null
+}

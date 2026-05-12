@@ -1,0 +1,14 @@
+{
+  "slice_id": "CS-6049deb8",
+  "operation_id": "OP-c6e83461",
+  "context_type": "agent_config",
+  "timestamp": "2026-05-10T11:22:15.435737+00:00",
+  "payload": {
+    "role": "developer"
+  },
+  "summary": "",
+  "context_hash": "36c49a20d7cc40bc",
+  "schema_version": 1,
+  "entity_id": null,
+  "entity_type": null
+}

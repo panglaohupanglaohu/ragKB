@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+"""数据模型单元测试 — AgentProfile, AgentTeam, ModelConfig 等."""
+
+from __future__ import annotations
+
+import json
+
+from agents.models import (
+    AccessLevel,
+    AgentChannelConfig,
+    AgentPermission,
+    AgentPersonality,
+    AgentProfile,
+    AgentState,
+    AgentTeam,
+    AgentTemplateType,
+    ModelConfig,
+    SkillCategory,
+    SkillDefinition,
+    ToolCategory,
+    ToolDefinition,
+    Visibility,
+)
+
+
+class TestAgentState:
+    """AgentState 枚举测试."""
+
+    def test_all_states_exist(self):
+        states = {s.value for s in AgentState}
+        assert "idle" in states
+        assert "working" in states
+        assert "error" in states
+        assert "offline" in states
+
+    def test_from_string(self):
+        assert AgentState("idle") == AgentState.IDLE
+        assert AgentState("working") == AgentState.WORKING
+
+
+class TestAgentProfile:
+    """AgentProfile 数据类测试."""
+
+    def test_minimal_creation(self):
+        agent = AgentProfile(
+            id="agent-001",
+            name="TestAgent",
+            role="developer",
+        )
+        assert agent.id == "agent-001"
+        assert agent.name == "TestAgent"
+        assert agent.role == "developer"
+        assert agent.state == AgentState.IDLE
+
+    def test_full_creation(self):
+        agent = AgentProfile(
+            id="agent-002",
+            name="FullAgent",
+            role="qa",
+            state=AgentState.WORKING,
+            team_id="team-001",
+            personality=AgentPersonality(
+                tone="formal",
+                verbosity="high",
+                creativity="medium",
+            ),
+            permissions=[
+                AgentPermission(action="read", resource="*"),
+                AgentPermission(action="write", resource="tests/*"),
+            ],
+        )
+        assert agent.state == AgentState.WORKING
+        assert agent.team_id == "team-001"
+        assert len(agent.permissions) == 2
+
+    def test_to_dict_roundtrip(self):
+        agent = AgentProfile(
+            id="agent-003",
+            name="RoundtripAgent",
+            role="architect",
+            team_id="team-002",
+        )
+        d = agent.to_dict()
+        assert d["id"] == "agent-003"
+        assert d["name"] == "RoundtripAgent"
+        assert d["role"] == "architect"
+        assert d["team_id"] == "team-002"
+
+    def test_to_dict_is_json_serializable(self):
+        agent = AgentProfile(
+            id="agent-004",
+            name="JSONAgent",
+            role="researcher",
+        )
+        d = agent.to_dict()
+        # 不应抛出异常
+        json_str = json.dumps(d, ensure_ascii=False)
+        assert len(json_str) > 0
+
+
+class TestAgentTeam:
+    """AgentTeam 数据类测试."""
+
+    def test_minimal_creation(self):
+        team = AgentTeam(
+            id="team-001",
+            name="测试团队",
+            org_id="org-001",
+        )
+        assert team.id == "team-001"
+        assert team.name == "测试团队"
+        assert team.agents == []
+        assert team.models == []
+
+    def test_add_agent(self):
+        team = AgentTeam(id="team-002", name="Team2", org_id="org-001")
+        agent = AgentProfile(id="a1", name="A1", role="developer")
+        team.agents.append(agent)
+        assert len(team.agents) == 1
+        assert team.agents[0].id == "a1"
+
+    def test_to_dict(self):
+        team = AgentTeam(
+            id="team-003",
+            name="DictTeam",
+            org_id="org-001",
+            description="A test team",
+        )
+        d = team.to_dict()
+        assert d["id"] == "team-003"
+        assert d["name"] == "DictTeam"
+        assert "agents" in d
+
+
+class TestModelConfig:
+    """ModelConfig 数据类测试."""
+
+    def test_minimal_creation(self):
+        model = ModelConfig(
+            id="model-001",
+            name="deepseek-v4",
+            provider="deepseek",
+        )
+        assert model.id == "model-001"
+        assert model.provider == "deepseek"
+        assert model.is_default is False
+
+    def test_default_values(self):
+        model = ModelConfig(
+            id="model-002",
+            name="gpt-4o",
+            provider="openai",
+        )
+        assert model.max_tokens == 4096
+        assert model.temperature == 0.7
+
+    def test_to_dict(self):
+        model = ModelConfig(
+            id="model-003",
+            name="claude-sonnet",
+            provider="anthropic",
+            max_tokens=8192,
+            temperature=0.3,
+            is_default=True,
+        )
+        d = model.to_dict()
+        assert d["provider"] == "anthropic"
+        assert d["max_tokens"] == 8192
+
+
+class TestToolDefinition:
+    """ToolDefinition 数据类测试."""
+
+    def test_creation(self):
+        tool = ToolDefinition(
+            id="tool-001",
+            name="read_file",
+            description="读取文件内容",
+            category=ToolCategory.FILE,
+            parameters_schema={"type": "object", "properties": {}},
+        )
+        assert tool.id == "tool-001"
+        assert tool.category == ToolCategory.FILE
+
+    def test_to_dict(self):
+        tool = ToolDefinition(
+            id="tool-002",
+            name="grep",
+            description="搜索代码",
+            category=ToolCategory.CODE,
+            parameters_schema={},
+            access_level=AccessLevel.INTERNAL,
+        )
+        d = tool.to_dict()
+        assert d["name"] == "grep"
+        assert d["category"] == "code"
+
+
+class TestSkillDefinition:
+    """SkillDefinition 数据类测试."""
+
+    def test_creation(self):
+        skill = SkillDefinition(
+            id="skill-001",
+            name="greeting",
+            description="问候技能",
+            category=SkillCategory.GENERAL,
+            prompt_template="你好，{{ name }}!",
+        )
+        assert skill.id == "skill-001"
+        assert skill.category == SkillCategory.GENERAL
+
+    def test_to_dict(self):
+        skill = SkillDefinition(
+            id="skill-002",
+            name="code_review",
+            description="代码审查",
+            category=SkillCategory.DEVELOPMENT,
+            prompt_template="请审查以下代码: {{ code }}",
+            visibility=Visibility.PUBLIC,
+        )
+        d = skill.to_dict()
+        assert "code_review" in d["name"]
+
+
+class TestAgentTemplateType:
+    """AgentTemplateType 枚举测试."""
+
+    def test_template_types(self):
+        types = {t.value for t in AgentTemplateType}
+        assert "developer" in types
+        assert "qa" in types
+        assert "architect" in types
+        assert "researcher" in types
+        assert "project_manager" in types

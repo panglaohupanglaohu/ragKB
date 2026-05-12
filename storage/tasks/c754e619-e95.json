@@ -1,0 +1,31 @@
+{
+  "task_id": "c754e619-e95",
+  "agent_id": "agent-001",
+  "team_id": "",
+  "title": "Test Submit",
+  "description": "",
+  "status": "completed",
+  "priority": 2,
+  "created_at": "2026-05-09T06:13:22.035770+00:00",
+  "started_at": "2026-05-09T07:32:32.309210+00:00",
+  "completed_at": "2026-05-09T07:32:32.328401+00:00",
+  "result": {
+    "message": "Workflow started with 1 steps",
+    "first_session": null
+  },
+  "error": "",
+  "dependencies": [],
+  "metadata": {
+    "workflow": [
+      {
+        "index": 0,
+        "key": "execute",
+        "label": "agent-001",
+        "agent_id": "",
+        "agent_role": "unknown",
+        "status": "active"
+      }
+    ],
+    "pipeline_dir": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/pipeline_runs/c754e619-e95"
+  }
+}

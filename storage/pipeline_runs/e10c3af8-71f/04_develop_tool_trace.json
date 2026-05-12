@@ -1,0 +1,227 @@
+{
+  "task_id": "e10c3af8-71f",
+  "step": "develop",
+  "role": "developer",
+  "ok": true,
+  "iterations": 25,
+  "files_changed": [
+    "src/backend/agents/extraction_models.py",
+    "src/backend/agents/extraction_store.py",
+    "src/backend/agents/extraction_pipeline.py",
+    "src/backend/agents/extraction_routes.py",
+    "src/backend/main.py",
+    "src/frontend/extraction-pipeline.html"
+  ],
+  "summary": "\n## 萃取管线状态机 — 全栈开发完成\n\n### 后端 (4 个新文件 + 1 个修改)\n\n**1. `agents/extraction_models.py`** — 数据模型层\n- `PipelineStage` 枚举：四阶段 DRAFT → REVIEW → APPROVAL → PUBLISHED\n- `TransitionType`：advance / reject / reset / archive\n- `ReviewerIdentity`：8 种身份类型 (peer, senior, lead, architect, qa, external…)\n- `GateRequirement`：门禁配置 (最少复核人数、必填身份、同意票/否决票、自审禁止、跨团队要求)\n- `GateCheckResult`：门禁检查结果\n- `StageTransition`：事件溯源迁移记录\n- `TodoItem` / `TodoStatus`：待办驱动模型\n- `ExtractionPipeline`：聚合根实体\n- `default_gate_requirements()`：默认三阶段门禁 (REVIEW需peer+senior 2人; APPROVAL需lead; PUBLISHED需architect)\n\n**2. `agents/extraction_store.py`** — 事件溯源存储\n- Append-only JSONL 事件流 (不可变)\n- JSON 快照缓存加速读取\n- asyncio.Lock 线程安全\n- 完整 CRUD + 事件回放 (replay_events)\n- Reviewer / Todo 管理\n- 全局单例模式\n\n**3. `agents/extraction_pipeline.py`** — 状态机引擎\n- `check_gate()`：6 项门禁检查 (人数/身份/同意票/否决票/自审/跨团队)\n- `advance()`：推进到下一阶段（门禁校验 + 事件溯源）\n- `reject()` / `reset()`：打回/重置\n- `submit_review()`：提交复核（含自审拦截 + auto_advance）\n- `resolve_todo()`：解决待办并自动尝试推进\n- `_generate_stage_todos()` / `_generate_gate_todos()`：根据缺口自动生成待办\n- `GateValidationError`：门禁失败异常（含完整结果）\n\n**4. `agents/extraction_routes.py`** — REST API (18 个端点)\n- CRUD: `POST/GET/PATCH/DELETE /api/v1/extraction/pipelines`\n- 状态迁移: `/advance`, `/reject`, `/reset`, `/check-gate`\n- 复核: `POST/GET /reviewers`\n- 待办: `GET /todos`, 创建/更新/解决\n- 事件: `GET /events` (事件溯源回放)\n- 统计: `GET /stats`, `GET /enums`\n\n**5. `main.py`** — 路由注册 (patch)\n- 在 Agent Config 初始化块中注册 Extraction Pipeline API\n\n### 前端 (1 个新文件)\n\n**6. `frontend/extraction-pipeline.html`** — 管线管理 UI\n- 管线列表仪表盘 (按阶段统计)\n- 管线详情面板 (阶段进度条 + 门禁检查 + 复核提交 + 事件溯源时间线)\n- 待办中心 (按状态过滤、一键解决)\n- 新建管线表单 (模态框 + 内联两种模式)\n- 推进/打回/重置操作 (含 force 跳过门禁)\n- OpenBridge 主题风格，响应式布局\n\n### 验证结果\n- ✅ 18 个 API 端点全部注册\n- ✅ 四阶段完整流转测试通过 (DRAFT→REVIEW→APPROVAL→PUBLISHED)\n- ✅ 门禁校验：人数不足、身份缺失、自审禁止 均正确拦截\n- ✅ 事件溯源：JSONL 追加写入 + 回放\n- ✅ 待办自动生成 + 解决驱动\n- ✅ 所有现有模块 import 无影响\n",
+  "log": [
+    {
+      "name": "list_files",
+      "args": "{\"path\": \"src/backend/channels\", \"max_depth\": 2}",
+      "ok": true,
+      "summary": "7 files"
+    },
+    {
+      "name": "grep",
+      "args": "{\"pattern\": \"class.*Channel|class.*MarineChannel|class.*StateMachine|class.*Pipeline\", \"include\": \"src/backend/**/*.py\"}",
+      "ok": true,
+      "summary": "23 hits"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/channels/marine_base.py\"}",
+      "ok": true,
+      "summary": "467 lines, 12121 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/task_engine.py\"}",
+      "ok": true,
+      "summary": "399 lines, 15098 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/task_store.py\"}",
+      "ok": true,
+      "summary": "63 lines, 2147 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/review_models.py\"}",
+      "ok": true,
+      "summary": "184 lines, 6717 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/review_service.py\"}",
+      "ok": true,
+      "summary": "290 lines, 9975 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/gate_evaluator.py\"}",
+      "ok": true,
+      "summary": "243 lines, 7007 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/domain_events.py\"}",
+      "ok": true,
+      "summary": "313 lines, 10117 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/review_routes.py\"}",
+      "ok": true,
+      "summary": "321 lines, 9523 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/audit_store.py\"}",
+      "ok": true,
+      "summary": "242 lines, 7865 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/event_bus.py\"}",
+      "ok": true,
+      "summary": "175 lines, 5322 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/main.py\"}",
+      "ok": true,
+      "summary": "678 lines, 22982 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/frontend/tasks.html\", \"start_line\": 1, \"end_line\": 100}",
+      "ok": true,
+      "summary": "176 lines, 4708 chars"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Verify key imports\\nfrom agents.domain_events import DomainEvent, EventType\\nfrom agents.event_bus import EventBus, get_event_bus\\nfrom agents.review_models import GateEvaluationContext, GateEvaluationResult, GateLevel\\nfrom agents.review_service import ReviewService, get_review_service\\nfrom agents.gate_evaluator import evaluate, quick_evaluate\\n\\nprint(\\\"✅ Core imports OK\\\")\\n\\n# Check EventType values\\nprint(\\\"EventType values:\\\", [e.value for e in EventType])\\n\\n# Check GateLevel values\\nprint(\\\"GateLevel values:\\\", [e.value for e in GateLevel])\\n\\n# Check if TaskStatus exists\\nfrom agents.task_engine import AgentTask, TaskStatus\\nprint(\\\"TaskStatus values:\\\", [s.value for s in TaskStatus])\\n\"}",
+      "ok": true,
+      "summary": "exit=0, 0.16s"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/domain_events.py\", \"start_line\": 1, \"end_line\": 50}",
+      "ok": true,
+      "summary": "313 lines, 1359 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/agents/review_models.py\", \"start_line\": 1, \"end_line\": 80}",
+      "ok": true,
+      "summary": "184 lines, 2762 chars"
+    },
+    {
+      "name": "write_file",
+      "args": "{\"path\": \"src/backend/agents/extraction_models.py\", \"content\": \"# -*- coding: utf-8 -*-\\n\\\"\\\"\\\"萃取管线状态机 — 数据模型 (Extraction Pipeline State Machine Models).\\n\\n定义:\\n- PipelineStage:   四阶段枚举 (DRAFT → REVIEW → APPROVAL → PUBLISHED)\\n- StageTransition: 阶段迁移事件 (event sourcing)\\n- GateRequirement: 阶段门禁要求 (交叉复核人数/身份检查)\\n- GateCheckResult: 门禁检查结果\\n- ExtractionPipeline: 管线实体 (聚合根)\\n- TodoItem:        待办事项 (驱动状态迁移)\\n- ReviewerIdentity: 复核人身份\\n\\n四阶段流转:\\n  DRAFT ──[gate:review]──► REVIEW ──[gate:approval]──► APPROVAL ──[gate:publish]──► PUBLISHED\\n\\\"\\\"\\\"\\n\\nfrom __future__ import annotations\\n\\nimport uuid\\nfrom dataclasses import dataclass, field\\nfrom datetime import datetime, timezone\\nfrom enum import Enum\\nfrom typing import Any, Dict, List, Optional\\n\\nfrom pydantic import BaseModel, Field\\n\\n\\n# ═══════════════════════════════════════════════════════\\n# Enums\\n# ═══════════════════════════════════════════════════════\\n\\nclass PipelineStage(str, Enum):\\n    \\\"\\\"\\\"萃取管线四阶段.\\\"\\\"\\\"\\n    DRAFT = \\\"",
+      "ok": true,
+      "summary": "9716 bytes"
+    },
+    {
+      "name": "write_file",
+      "args": "{\"content\": \"# -*- coding: utf-8 -*-\\n\\\"\\\"\\\"萃取管线事件溯源存储 — Append-only Event Store.\\n\\n基于 JSON 文件的轻量级事件溯源存储：\\n- 追加写入（不可变事件流）\\n- 按 pipeline_id 分区\\n- 支持事件回放重建管线状态\\n- 线程安全（asyncio.Lock）\\n\\\"\\\"\\\"\\n\\nfrom __future__ import annotations\\n\\nimport asyncio\\nimport json\\nimport logging\\nimport os\\nfrom datetime import datetime, timezone\\nfrom pathlib import Path\\nfrom typing import Any, Dict, List, Optional\\n\\nfrom .extraction_models import (\\n    ExtractionPipeline,\\n    PipelineStage,\\n    StageTransition,\\n    TransitionType,\\n    GateCheckResult,\\n    TodoItem,\\n    ReviewerRecord,\\n    default_gate_requirements,\\n)\\n\\nlogger = logging.getLogger(__name__)\\n\\nSTORAGE_DIR = Path(__file__).resolve().parents[3] / \\\"storage\\\" / \\\"extraction_pipelines\\\"\\n\\n\\nclass ExtractionStore:\\n    \\\"\\\"\\\"事件溯源存储 — JSON 文件持久化 + 事件流.\\\"\\\"\\\"\\n\\n    def __init__(self, storage_dir: Optional[Path] = None):\\n        self._dir = storage_dir or STORAGE_DIR\\n        self._dir.mkdir(parents=True, exist_ok=True)\\n        self.",
+      "ok": true,
+      "summary": "15286 bytes"
+    },
+    {
+      "name": "write_file",
+      "args": "{\"content\": \"# -*- coding: utf-8 -*-\\n\\\"\\\"\\\"萃取管线状态机 — Pipeline State Machine + Gate Validation.\\n\\n核心职责:\\n1. 四阶段流转控制 (DRAFT → REVIEW → APPROVAL → PUBLISHED)\\n2. 阶段门禁校验（交叉复核人数 + 身份检查）\\n3. 事件溯源集成（每次迁移生成 StageTransition 事件）\\n4. Todo 自动生成（根据门禁缺口生成待办）\\n\\\"\\\"\\\"\\n\\nfrom __future__ import annotations\\n\\nimport logging\\nfrom datetime import datetime, timezone\\nfrom typing import Any, Dict, List, Optional, Tuple\\n\\nfrom .extraction_models import (\\n    ExtractionPipeline,\\n    PipelineStage,\\n    StageTransition,\\n    TransitionType,\\n    GateRequirement,\\n    GateCheckResult,\\n    ReviewerRecord,\\n    ReviewerIdentity,\\n    TodoItem,\\n    TodoStatus,\\n    default_gate_requirements,\\n)\\nfrom .extraction_store import ExtractionStore, get_extraction_store\\n\\nlogger = logging.getLogger(__name__)\\n\\n\\nclass GateValidationError(Exception):\\n    \\\"\\\"\\\"门禁校验失败异常.\\\"\\\"\\\"\\n    def __init__(self, result: GateCheckResult):\\n        self.result = result\\n        super().__init__(result.reason)\\n\\n\\nclass Extra",
+      "ok": true,
+      "summary": "15497 bytes"
+    },
+    {
+      "name": "write_file",
+      "args": "{\"content\": \"# -*- coding: utf-8 -*-\\n\\\"\\\"\\\"萃取管线 REST API — State Transitions + Todo-driven API.\\n\\n端点:\\n  CRUD:\\n    POST   /api/v1/extraction/pipelines            — 创建管线\\n    GET    /api/v1/extraction/pipelines            — 列出管线\\n    GET    /api/v1/extraction/pipelines/{id}       — 获取管线详情\\n    PATCH  /api/v1/extraction/pipelines/{id}       — 更新管线元数据\\n    DELETE /api/v1/extraction/pipelines/{id}       — 删除管线\\n\\n  State Transitions:\\n    POST   /api/v1/extraction/pipelines/{id}/advance   — 推进到下一阶段\\n    POST   /api/v1/extraction/pipelines/{id}/reject    — 打回到上一阶段\\n    POST   /api/v1/extraction/pipelines/{id}/reset     — 重置到草稿\\n    POST   /api/v1/extraction/pipelines/{id}/check-gate — 仅检查门禁（不迁移）\\n\\n  Reviewers:\\n    POST   /api/v1/extraction/pipelines/{id}/reviewers  — 提交复核\\n    GET    /api/v1/extraction/pipelines/{id}/reviewers  — 获取复核记录\\n\\n  Todos:\\n    GET    /api/v1/extraction/todos                    — 获取所有待办\\n    POST   /api/v1/extraction/pipelines/{id}/todos     — 创建待办\\n    PATCH ",
+      "ok": true,
+      "summary": "14306 bytes"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Test extraction_models imports\\nfrom agents.extraction_models import (\\n    PipelineStage, TransitionType, ReviewerIdentity, TodoStatus,\\n    GateRequirement, GateCheckResult, StageTransition, TodoItem,\\n    ReviewerRecord, ExtractionPipeline, PipelineConfig,\\n    default_gate_requirements,\\n)\\n\\n# Test enum values\\nassert PipelineStage.DRAFT.value == \\\"draft\\\"\\nassert PipelineStage.REVIEW.value == \\\"review\\\"\\nassert PipelineStage.APPROVAL.value == \\\"approval\\\"\\nassert PipelineStage.PUBLISHED.value == \\\"published\\\"\\n\\n# Test stage ordering\\nassert PipelineStage.DRAFT.next_stage() == PipelineStage.REVIEW\\nassert PipelineStage.REVIEW.next_stage() == PipelineStage.APPROVAL\\nassert PipelineStage.APPROVAL.next_stage() == PipelineStage.PUBLISHED\\nassert PipelineStage.PUBLISHED.next_stage() is None\\nassert PipelineStage.REVIEW.prev_stage() == PipelineStage.DRAFT\\nassert PipelineStage.PUBLISHED.prev_stage() == PipelineStage.APPROVAL\\nassert PipelineStage.DRAFT.prev_stage() is Non",
+      "ok": true,
+      "summary": "exit=0, 0.16s"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Test extraction_store imports and basic operations\\nimport asyncio\\nimport tempfile\\nfrom pathlib import Path\\n\\nfrom agents.extraction_store import (\\n    ExtractionStore, get_extraction_store, init_extraction_store,\\n)\\n\\nasync def test_store():\\n    # Use temp dir\\n    with tempfile.TemporaryDirectory() as tmpdir:\\n        store = ExtractionStore(storage_dir=Path(tmpdir))\\n        \\n        # Create pipeline\\n        p = await store.create_pipeline(\\n            name=\\\"Test Pipe\\\",\\n            description=\\\"A test pipeline\\\",\\n            team_id=\\\"team-1\\\",\\n            created_by=\\\"user-1\\\",\\n        )\\n        print(f\\\"✅ Created pipeline: {p.pipeline_id} [{p.name}] stage={p.current_stage.value}\\\")\\n        \\n        # Get pipeline\\n        p2 = await store.get_pipeline(p.pipeline_id)\\n        assert p2 is not None\\n        assert p2.name == \\\"Test Pipe\\\"\\n        print(f\\\"✅ Get pipeline OK\\\")\\n        \\n        # List pipelines\\n        pipelines = await store.list",
+      "ok": true,
+      "summary": "exit=0, 0.18s"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Test extraction_pipeline engine: gate validation + state transitions\\nimport asyncio\\nimport tempfile\\nfrom pathlib import Path\\n\\nasync def test_engine():\\n    from agents.extraction_store import ExtractionStore\\n    from agents.extraction_pipeline import (\\n        ExtractionPipelineEngine, GateValidationError,\\n    )\\n    from agents.extraction_models import (\\n        PipelineStage, TransitionType, GateCheckResult,\\n        ReviewerIdentity, ReviewerRecord, TodoStatus,\\n        GateRequirement, default_gate_requirements,\\n    )\\n    \\n    with tempfile.TemporaryDirectory() as tmpdir:\\n        store = ExtractionStore(storage_dir=Path(tmpdir))\\n        engine = ExtractionPipelineEngine(store=store)\\n        \\n        # Create a pipeline with default gates\\n        gates = default_gate_requirements()\\n        p = await store.create_pipeline(\\n            name=\\\"Engine Test\\\",\\n            description=\\\"Testing state machine\\\",\\n            team_id=\\\"team-1\\\",\\n          ",
+      "ok": true,
+      "summary": "exit=1, 0.29s"
+    },
+    {
+      "name": "patch_file",
+      "args": "{\"path\": \"src/backend/agents/extraction_pipeline.py\", \"search\": \"    async def get_all_todos(\\n        self,\\n        assignee_id: Optional[str] = None,\\n        status: Optional[str] = None,\\n    ) -> List[TodoItem]:\\n        \\\"\\\"\\\"获取所有待办.\\\"\\\"\\\"\\n        return await self._store.get_todos(assignee_id=assignee_id, status=status)\", \"replace\": \"    async def get_all_todos(\\n        self,\\n        assignee_id: Optional[str] = None,\\n        status: Optional[str] = None,\\n        pipeline_id: Optional[str] = None,\\n    ) -> List[TodoItem]:\\n        \\\"\\\"\\\"获取所有待办.\\\"\\\"\\\"\\n        return await self._store.get_todos(\\n            assignee_id=assignee_id,\\n            status=status,\\n            pipeline_id=pipeline_id,\\n        )\"}",
+      "ok": true,
+      "summary": "15612 bytes"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\nimport asyncio, tempfile\\nfrom pathlib import Path\\n\\nasync def test_engine():\\n    from agents.extraction_store import ExtractionStore\\n    from agents.extraction_pipeline import ExtractionPipelineEngine, GateValidationError\\n    from agents.extraction_models import (\\n        PipelineStage, GateCheckResult, ReviewerIdentity, ReviewerRecord, TodoStatus,\\n        default_gate_requirements,\\n    )\\n    \\n    with tempfile.TemporaryDirectory() as tmpdir:\\n        store = ExtractionStore(storage_dir=Path(tmpdir))\\n        engine = ExtractionPipelineEngine(store=store)\\n        gates = default_gate_requirements()\\n        p = await store.create_pipeline(name=\\\"Engine Test\\\", team_id=\\\"team-1\\\", created_by=\\\"user-author\\\", gate_requirements=gates)\\n        pid = p.pipeline_id\\n        \\n        # Full test through all 4 stages\\n        # Add 2 peer + 1 senior = 3 approvals (gate: min 2 reviewers, min 2 approvals, peer+senior required)\\n        await engine.submit_review(pid, rev",
+      "ok": true,
+      "summary": "exit=0, 0.18s"
+    },
+    {
+      "name": "grep",
+      "args": "{\"pattern\": \"include_router|app\\\\.include_router\", \"include\": \"src/backend/main.py\"}",
+      "ok": true,
+      "summary": "8 hits"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"path\": \"src/backend/main.py\", \"start_line\": 235, \"end_line\": 275}",
+      "ok": true,
+      "summary": "702 lines, 1697 chars"
+    },
+    {
+      "name": "read_file",
+      "args": "{\"end_line\": 280, \"path\": \"src/backend/main.py\", \"start_line\": 260}",
+      "ok": true,
+      "summary": "702 lines, 628 chars"
+    },
+    {
+      "name": "patch_file",
+      "args": "{\"path\": \"src/backend/main.py\", \"search\": \"        except Exception as e:\\n            logger.warning(f\\\"⚠️ TTS API failed: {e}\\\")\\n\\n    except Exception as e:\\n        logger.warning(f\\\"⚠️ Agent Config API failed: {e}\\\")\\n\\n    # 5. 启动验证路由\", \"replace\": \"        except Exception as e:\\n            logger.warning(f\\\"⚠️ TTS API failed: {e}\\\")\\n\\n        # 4d. 萃取管线 API (四阶段状态机 + 事件溯源 + 门禁校验)\\n        try:\\n            from agents.extraction_routes import router as extraction_router\\n            from agents.extraction_store import init_extraction_store\\n            from agents.extraction_pipeline import init_extraction_engine\\n\\n            extraction_store = init_extraction_store()\\n            init_extraction_engine(store=extraction_store)\\n            app.include_router(extraction_router)\\n            logger.info(\\\"✅ Extraction Pipeline API mounted (/api/v1/extraction)\\\")\\n        except Exception as e:\\n            logger.warning(f\\\"⚠️ Extraction Pipeline API failed: {e}\\\")\\n\\n    exc",
+      "ok": true,
+      "summary": "24712 bytes"
+    },
+    {
+      "name": "write_file",
+      "args": "{\"content\": \"<!DOCTYPE html>\\n<html lang=\\\"zh-CN\\\" data-obc-theme=\\\"dusk\\\">\\n<head>\\n<meta charset=\\\"UTF-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\">\\n<title>萃取管线 — AgentsGroup2026</title>\\n<link rel=\\\"stylesheet\\\" href=\\\"/css/openbridge-theme.css\\\">\\n<style>\\n:root {\\n  --bg: #1a1e2e; --card: #232840; --text: #e0e6ed;\\n  --dim: #8892a4; --accent: #409eff; --success: #67c23a;\\n  --warn: #e6a23c; --danger: #f56c6c;\\n  --border: #2d3358; --hover: #2a3050;\\n  --stage-draft: #909399; --stage-review: #409eff;\\n  --stage-approval: #e6a23c; --stage-published: #67c23a;\\n}\\n* { margin:0; padding:0; box-sizing:border-box; }\\nbody { font-family:\\\"Inter\\\",\\\"Segoe UI\\\",system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }\\n\\n/* Layout */\\n.app-wrap { display:flex; min-height:100vh; }\\n.sidebar { width:220px; background:var(--card); border-right:1px solid var(--border); padding:16px 0; flex-shrink:0; }\\n.sidebar h2 { font-size:14px; pa",
+      "ok": true,
+      "summary": "24813 bytes"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Full integration test: routes, store, engine\\nimport asyncio, tempfile\\nfrom pathlib import Path\\n\\nasync def full_integration_test():\\n    # 1. Test routes import\\n    from agents.extraction_routes import router as extraction_router\\n    routes = [r.path for r in extraction_router.routes]\\n    print(f\\\"✅ Routes loaded: {len(routes)} endpoints\\\")\\n    for r in routes:\\n        print(f\\\"   {r}\\\")\\n    \\n    # 2. Test route tags\\n    assert any('extraction' in str(r.path).lower() for r in extraction_router.routes)\\n    \\n    # 3. Full pipeline flow with routes logic\\n    from agents.extraction_store import ExtractionStore, init_extraction_store\\n    from agents.extraction_pipeline import ExtractionPipelineEngine, init_extraction_engine\\n    from agents.extraction_models import (\\n        PipelineStage, ReviewerIdentity, default_gate_requirements,\\n    )\\n    \\n    with tempfile.TemporaryDirectory() as tmpdir:\\n        store = init_extraction_store(storage_dir=Path(tmpdir))\\",
+      "ok": true,
+      "summary": "exit=0, 0.32s"
+    },
+    {
+      "name": "grep",
+      "args": "{\"include\": \"src/backend/main.py\", \"pattern\": \"Extraction Pipeline|extraction_router|extraction_store|extraction_engine\"}",
+      "ok": true,
+      "summary": "8 hits"
+    },
+    {
+      "name": "run_python",
+      "args": "{\"code\": \"\\n# Quick smoke test: verify all existing modules still import\\nimports_to_test = [\\n    (\\\"agents.models\\\", \\\"from agents.models import AgentProfile, ModelConfig, AgentState\\\"),\\n    (\\\"agents.domain_events\\\", \\\"from agents.domain_events import DomainEvent, EventType\\\"),\\n    (\\\"agents.event_bus\\\", \\\"from agents.event_bus import EventBus, get_event_bus\\\"),\\n    (\\\"agents.review_models\\\", \\\"from agents.review_models import GateEvaluationContext, GateLevel, ReviewEntry, ReviewStatus\\\"),\\n    (\\\"agents.review_service\\\", \\\"from agents.review_service import ReviewService, get_review_service\\\"),\\n    (\\\"agents.gate_evaluator\\\", \\\"from agents.gate_evaluator import evaluate, quick_evaluate\\\"),\\n    (\\\"agents.task_engine\\\", \\\"from agents.task_engine import AgentTask, TaskStatus, TaskEngine\\\"),\\n    (\\\"agents.task_store\\\", \\\"from agents.task_store import TaskStore\\\"),\\n    (\\\"agents.extraction_models\\\", \\\"from agents.extraction_models import PipelineStage, ExtractionPipeline\\\"),\\n    ",
+      "ok": true,
+      "summary": "exit=0, 0.49s"
+    },
+    {
+      "name": "finish",
+      "args": "{\"summary\": \"\\n## 萃取管线状态机 — 全栈开发完成\\n\\n### 后端 (4 个新文件 + 1 个修改)\\n\\n**1. `agents/extraction_models.py`** — 数据模型层\\n- `PipelineStage` 枚举：四阶段 DRAFT → REVIEW → APPROVAL → PUBLISHED\\n- `TransitionType`：advance / reject / reset / archive\\n- `ReviewerIdentity`：8 种身份类型 (peer, senior, lead, architect, qa, external…)\\n- `GateRequirement`：门禁配置 (最少复核人数、必填身份、同意票/否决票、自审禁止、跨团队要求)\\n- `GateCheckResult`：门禁检查结果\\n- `StageTransition`：事件溯源迁移记录\\n- `TodoItem` / `TodoStatus`：待办驱动模型\\n- `ExtractionPipeline`：聚合根实体\\n- `default_gate_requirements()`：默认三阶段门禁 (REVIEW需peer+senior 2人; APPROVAL需lead; PUBLISHED需architect)\\n\\n**2. `agents/extraction_store.py`** — 事件溯源存储\\n- Append-only JSONL 事件流 (不可变)\\n- JSON 快照缓存加速读取\\n- asyncio.Lock 线程安全\\n- 完整 CRUD + 事件回放 (replay_events)\\n- Reviewer / Todo 管理\\n- 全局单例模式\\n\\n**3. `agents/extraction_pipeline.py`** — 状态机引擎\\n- `check_gate()`：6 项门禁检查 (人数/身份/同意票/否决票/自审/跨团队)\\n- `advance()`：推进到下一阶段（门禁校验 + 事件溯源）\\n- `reject()` / `reset()`：打回/重置\\n- `submit_review()`：提交复核（含自审拦截 + auto_advance）\\n- `resolve_todo()`：解决待办并自动尝试推进\\n- `_generate_stage_todos()` / `_generate_gate_todos()`：根据缺口自动生成待办\\n- `GateValidationError`：门禁失败异常（含完整结果）\\n\\n**4. `agents/extraction_routes.py`** — REST API (18 个端点)\\n- CRUD: `POST/GET/PATCH/DELETE /api/v1/extraction/pipelines`\\n- 状态迁移: `/advance`, `/reject`, `/reset`, `/check-gate`\\n- 复核: `POST/GET /reviewers`\\n- 待办: `GET /todos`, 创建/更新/解决\\n- 事件: `GET /events` (事件溯源回放)\\n- 统计: `GET /stats`, `GET /enums`\\n\\n**5. `main.py`** — 路由注册 (patch)\\n- 在 Agent Config 初始化块中注册 Extraction Pipeline API\\n\\n### 前端 (1 个新文件)\\n\\n**6. `frontend/extraction-pipeline.html`** — 管线管理 UI\\n- 管线列表仪表盘 (按阶段统计)\\n- 管线详情面板 (阶段进度条 + 门禁检查 + 复核提交 + 事件溯源时间线)\\n- 待办中心 (按状态过滤、一键解决)\\n- 新建管线表单 (模态框 + 内联两种模式)\\n- 推进/打回/重置操作 (含 force 跳过门禁)\\n- OpenBridge 主题风格，响应式布局\\n\\n### 验证结果\\n- ✅ 18 个 API 端点全部注册\\n- ✅ 四阶段完整流转测试通过 (DRAFT→REVIEW→APPROVAL→PUBLISHED)\\n- ✅ 门禁校验：人数不足、身份缺失、自审禁止 均正确拦截\\n- ✅ 事件溯源：JSONL 追加写入 + 回放\\n- ✅ 待办自动生成 + 解决驱动\\n- ✅ 所有现有模块 import 无影响\\n\", \"files_changed\": [\"src/backend/agents/extraction_models.py\", \"src/backend/agents/extraction_store.py\", \"src/backend/agents/extraction_pipeline.py\", \"src/backend/agents/extraction_routes.py\", \"src/backend/main.py\", \"src/frontend/extraction-pipeline.html\"]}",
+      "ok": true
+    }
+  ]
+}

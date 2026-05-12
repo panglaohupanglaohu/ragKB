@@ -1,0 +1,354 @@
+{
+  "task_id": "e9781ac4-a03",
+  "agent_id": "",
+  "team_id": "build_system",
+  "title": "CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。",
+  "description": "Deployer, 测试工程师",
+  "status": "completed",
+  "priority": 1,
+  "created_at": "2026-05-09T07:52:58.624820+00:00",
+  "started_at": "2026-05-09T07:52:58.874701+00:00",
+  "completed_at": "2026-05-09T08:18:10.171221+00:00",
+  "result": {
+    "message": "Task 'CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。' completed"
+  },
+  "error": "",
+  "dependencies": [],
+  "metadata": {
+    "source": "plaza_dispatch",
+    "discussion_id": "e4c13cda0681",
+    "plaza_id": "3c1394b23b1b",
+    "sequence": 3,
+    "workflow": [
+      {
+        "index": 0,
+        "key": "pm_decompose",
+        "label": "PM分解",
+        "agent_id": "build_pm",
+        "agent_role": "project_manager",
+        "status": "completed",
+        "session_id": "492ea53f-656",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_pm_decompose.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "pm_decompose",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T15:55:29",
+          "char_count": 71473,
+          "decisions": [],
+          "files_changed": [],
+          "subtasks": [
+            "*目标**：建立一套完整的 CI/CD 流水线，能够在部署阶段自动执行 schema 迁移脚本，并通过分层自动化测试（评估器边界覆盖、审核流竞态/断网场景、烟雾测试）保证系统的数据一致性、稳定性和关键路径完整性。",
+            "可重放的 schema 迁移脚本（集成为部署 Job 自动执行）",
+            "评估器（EWMA 阈值引擎、A/B 测试相关组件）边界用例测试套件",
+            "审核流（任务审核/配置变更审核）在并发竞态与网络中断下的健壮性测试",
+            "烟雾测试套件（验证服务启动后索引就绪、SkillStore 完整性）",
+            "CI/CD 配置文件（如 GitHub Actions / Jenkinsfile）更新，串联上述步骤",
+            "*涉及角色**：Deployer（部署工程师）、测试工程师",
+            "**后端框架**：Python FastAPI（`src/backend/main.py`）",
+            "**现有测试基础设施**：`src/backend/tests/` 下已有 pytest 测试套件（`conftest.py`，包含 FastAPI TestClient、mock 等 fixtures）",
+            "**启动验证**：已存在 `startup_check.py` + `startup_validator.py`，提供可扩展的健康检查和 API 端点可用性验证，可作为烟雾测试的基座",
+            "**核心业务模块**：",
+            " **已有机能**：",
+            "项目无传统数据库 ORM，无 alembic 迁移；schema 迁移指**数据模型/存储结构变更脚本**（如 JSON schema 升级、字段补全、索引重建），需要在部署时按版本增量执行",
+            "审核流的具体实现在当前文件列表中未显式暴露，可能位于 `agents/` 下某个未列出文件，如 `agents/audit_flow.py`，或嵌入在 `task_engine.py`/`plaza_engine.py` 中，需首先由研究员（后续阶段）定位",
+            "**输入**：现有数据模型定义（`agents/models.py`）、各 Store 的 JSON 文件示例、历史变更日志"
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n步骤: pm_decompose\n📋 任务: e9781ac4-a03\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`\n### 文件: `src/backend/startup_validator.py`\n### 文件: `src/backend/tests/__init__.py`"
+        }
+      },
+      {
+        "index": 1,
+        "key": "research",
+        "label": "研究分析",
+        "agent_id": "build_researcher",
+        "agent_role": "researcher",
+        "status": "completed",
+        "session_id": "56a49680-98c",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_research.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "research",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T15:57:59",
+          "char_count": 111927,
+          "decisions": [
+            "- `src/backend/scripts/migrate.py` – schema 迁移脚本\n- `src/backend/tests/test_evolution_race.py` – 审核流竞态/断网测试\n\n（注：新增文件符合项目 `src/backend/scripts/` 和 `tests/` 目录结构，且任务明确要求此类测试，故予推荐）"
+          ],
+          "files_changed": [
+            "src/backend/channels/system_evolution.py",
+            "src/backend/startup_validator.py",
+            "src/backend/tests/test_evolution_race.py",
+            "src/backend/channels/evolution_executor.py",
+            "src/backend/scripts/migrate.py",
+            "src/backend/startup_check.py",
+            "src/backend/agents/plaza_routes.py",
+            "src/backend/tests/conftest.py",
+            "src/backend/tests/test_ab_testing.py",
+            "src/backend/agents/skill_registry.py"
+          ],
+          "findings": [],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\nAgent: build_researcher\n📋 任务: e9781ac4-a03\n🤖 Agent: Researcher (researcher)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Researcher (researcher)。\n你是技术研究员。请对以下任务进行技术调研:\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`\n### 文件: `src/backend/startup_validator.py`\n### 文件: `src/backend/tests/__init__.py`"
+        }
+      },
+      {
+        "index": 2,
+        "key": "architecture",
+        "label": "架构设计",
+        "agent_id": "build_architect",
+        "agent_role": "architect",
+        "status": "completed",
+        "session_id": "ef0fc3fd-881",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_architecture.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "architecture",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T16:00:29",
+          "char_count": 118472,
+          "decisions": [],
+          "files_changed": [
+            "src/backend/agents/ab_testing.py"
+          ],
+          "api_specs": [
+            "(直连)",
+            "应用启动后自动运行验证检查，",
+            "端点可用性验证",
+            "端点可用性",
+            "端点\"\"\"",
+            "HTTP {resp.status_code}\",",
+            "路由、团队管理 API",
+            "TestClient (自动设置环境变量).\"\"\"",
+            "生成代码\\n- **manual**: 生成任务描述供人工编码\"),",
+            "文档\","
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n步骤: architecture\nAgent: build_architect\n📋 任务: e9781ac4-a03\n🤖 Agent: Architect (architect)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Architect (architect)。\n你是系统架构师。请为以下任务设计技术方案:\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`\n### 文件: `src/backend/startup_validator.py`"
+        }
+      },
+      {
+        "index": 3,
+        "key": "develop",
+        "label": "代码开发",
+        "agent_id": "build_developer",
+        "agent_role": "developer",
+        "status": "completed",
+        "session_id": "42193359-cb4",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_develop.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "develop",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T16:11:24",
+          "char_count": 117444,
+          "decisions": [],
+          "files_changed": [
+            "src/backend/channels/system_evolution.py",
+            "src/backend/startup_validator.py",
+            "src/backend/channels/evolution_executor.py",
+            "src/backend/scripts/migrate.py",
+            "src/backend/startup_check.py",
+            "src/backend/agents/plaza_routes.py",
+            "src/backend/tests/conftest.py",
+            "src/backend/tests/test_evolution_race.py",
+            "src/backend/tests/test_ab_testing.py",
+            "src/backend/agents/skill_registry.py"
+          ],
+          "verify_checklist": [
+            "import check: `src/backend/channels/system_evolution.py`",
+            "import check: `src/backend/startup_validator.py`",
+            "import check: `src/backend/channels/evolution_executor.py`",
+            "import check: `src/backend/scripts/migrate.py`",
+            "import check: `src/backend/startup_check.py`",
+            "import check: `src/backend/agents/plaza_routes.py`",
+            "import check: `src/backend/tests/conftest.py`",
+            "import check: `src/backend/tests/test_evolution_race.py`",
+            "import check: `src/backend/tests/test_ab_testing.py`",
+            "import check: `src/backend/agents/skill_registry.py`"
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\nAgent: build_developer\n📋 任务: e9781ac4-a03\n🤖 Agent: Developer (developer)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Developer (developer)。\n你是开发工程师 (DeepSeek V4 + 工具循环模式)。\n你**已经被赋予真正的工具能力**: read_file / grep / list_files / write_file / patch_file / run_python。\n禁止凭空想象 — 所有写代码前必须先用工具读真实代码。\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`"
+        }
+      },
+      {
+        "index": 4,
+        "key": "test",
+        "label": "测试验证",
+        "agent_id": "build_tester",
+        "agent_role": "qa_engineer",
+        "status": "completed",
+        "session_id": "4e319fea-ae1",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_test.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "test",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T16:15:40",
+          "char_count": 116671,
+          "decisions": [],
+          "files_changed": [
+            "src/backend/channels/system_evolution.py",
+            "src/backend/startup_validator.py",
+            "src/backend/channels/evolution_executor.py",
+            "src/backend/scripts/migrate.py",
+            "src/backend/startup_check.py",
+            "src/backend/agents/plaza_routes.py",
+            "src/backend/tests/conftest.py",
+            "src/backend/tests/test_evolution_race.py",
+            "src/backend/tests/test_ab_testing.py",
+            "src/backend/agents/ab_testing.py",
+            "src/backend/agents/skill_registry.py"
+          ],
+          "verdict": "PASS",
+          "checklist": [
+            {
+              "severity": "BLOCKER",
+              "detail": "→ FAIL"
+            },
+            {
+              "severity": "BLOCKER",
+              "detail": "→ FAIL"
+            },
+            {
+              "severity": "BLOCKER",
+              "detail": "级缺陷。"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "{check.name}: {check.error}\")"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "= \"fail\""
+            },
+            {
+              "severity": "FAIL",
+              "detail": "self.failed += 1"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "{self.failed}/{self.total_checks} checks FAILED\""
+            },
+            {
+              "severity": "FAIL",
+              "detail": "→ BLOCKER → FAIL"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "### 通过项:"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "**`ChannelEvent` 不存在于 `channels/marine_base.py`** — `monitoring/trace_bridge.py` 和 `monitoring/fingerprint_bypass.py` 均尝试 `from channels.marine_base import ChannelEvent`，但 `marine_base.py` 仅有 `ChannelStatus/ChannelPriority/ChannelHealth/ChannelMetrics/MarineChannel`。这会导致两个监控模块完全无法加载，属于 BLOCKER 级缺陷。"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "`test_evolution_race.py` — 5/20 失败: `test_callback_race_condition` (0 回调)、`test_concurrent_discovery_dispatch`/`test_full_pipeline_concurrent` (TypeError: 'dict' object can't be awaited)、`test_evolution_item_status_transition_race` (unexpected keyword 'domain')、`test_plaza_store_index_ready` (PlazaS"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "`test_merge_plugin.py` — 5/37 失败: 聚类/去重逻辑相关断言失败"
+            },
+            {
+              "severity": "FAIL",
+              "detail": "`test_gate_evaluator.py` — 1/27 失败: `test_evaluate_from_dict` 访问不存在的 `entity_id` 属性"
+            }
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\nAgent: build_tester\n📋 任务: e9781ac4-a03\n🤖 Agent: Tester (qa_engineer)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Tester (qa_engineer)。\n你是 QA 测试工程师 (DeepSeek V4 + 工具循环模式)。\n你**已经被赋予真正的测试工具能力**: read_file / grep / run_python / run_pytest。\n禁止凭空判定 — 所有结论必须来自工具的真实输出。\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`"
+        }
+      },
+      {
+        "index": 5,
+        "key": "deploy",
+        "label": "部署上线",
+        "agent_id": "build_deployer",
+        "agent_role": "devops",
+        "status": "completed",
+        "session_id": "bd1998b7-07f",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_deploy.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "deploy",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T16:17:05",
+          "char_count": 115347,
+          "decisions": [],
+          "files_changed": [
+            "src/backend/channels/system_evolution.py",
+            "src/backend/startup_validator.py",
+            "src/backend/channels/evolution_executor.py",
+            "src/backend/scripts/migrate.py",
+            "src/backend/startup_check.py",
+            "src/backend/agents/plaza_routes.py",
+            "src/backend/tests/conftest.py",
+            "src/backend/tests/test_evolution_race.py",
+            "src/backend/tests/test_ab_testing.py",
+            "src/backend/agents/ab_testing.py",
+            "src/backend/agents/skill_registry.py"
+          ],
+          "verify_checklist": [
+            "import check: `src/backend/channels/system_evolution.py`",
+            "import check: `src/backend/startup_validator.py`",
+            "import check: `src/backend/channels/evolution_executor.py`",
+            "import check: `src/backend/scripts/migrate.py`",
+            "import check: `src/backend/startup_check.py`",
+            "import check: `src/backend/agents/plaza_routes.py`",
+            "import check: `src/backend/tests/conftest.py`",
+            "import check: `src/backend/tests/test_evolution_race.py`",
+            "import check: `src/backend/tests/test_ab_testing.py`",
+            "import check: `src/backend/agents/ab_testing.py`",
+            "import check: `src/backend/agents/skill_registry.py`"
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\nAgent: build_deployer\n📋 任务: e9781ac4-a03\n🤖 Agent: Deployer (devops)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Deployer (devops)。\n你是 DevOps 部署工程师。\n开发者的代码交付物已自动保存到管线共享工作区。\n部署步骤完成后，系统会自动将代码文件应用到项目代码库。\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`"
+        },
+        "files_applied": 0,
+        "deploy_result": {
+          "developer": {
+            "applied": [],
+            "skipped": [],
+            "failed": [],
+            "backup": []
+          },
+          "deployer": {
+            "applied": [],
+            "skipped": [],
+            "failed": [],
+            "backup": []
+          }
+        },
+        "deploy_no_op": true
+      },
+      {
+        "index": 6,
+        "key": "document",
+        "label": "文档更新",
+        "agent_id": "build_doc_writer",
+        "agent_role": "documentation",
+        "status": "completed",
+        "session_id": "c696d130-56c",
+        "artifact": "/Users/panglaohu/Downloads/AgentsGroup2026/src/docs/workflow_artifacts/e9781ac4-a03_document.md",
+        "deliverable_count": 0,
+        "_summary": {
+          "step": "document",
+          "task_id": "e9781ac4-a03",
+          "timestamp": "2026-05-09T16:18:10",
+          "char_count": 116636,
+          "decisions": [],
+          "files_changed": [
+            "src/backend/channels/system_evolution.py",
+            "src/backend/startup_validator.py",
+            "src/backend/channels/evolution_executor.py",
+            "src/backend/scripts/migrate.py",
+            "src/backend/startup_check.py",
+            "src/backend/agents/plaza_routes.py",
+            "src/backend/tests/conftest.py",
+            "src/backend/tests/test_evolution_race.py",
+            "src/backend/tests/test_ab_testing.py",
+            "src/backend/agents/ab_testing.py",
+            "src/backend/agents/skill_registry.py"
+          ],
+          "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\nAgent: build_doc_writer\n📋 任务: e9781ac4-a03\n🤖 Agent: Doc Writer (documentation)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 Doc Writer (documentation)。\n你是文档工程师。请更新以下任务的相关文档:\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`\n### 文件: `src/backend/startup_validator.py`\n### 文件: `src/backend/tests/__init__.py`"
+        }
+      }
+    ],
+    "pipeline_dir": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/pipeline_runs/e9781ac4-a03"
+  }
+}

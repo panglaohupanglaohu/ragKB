@@ -1,0 +1,14 @@
+{
+  "slice_id": "CS-0f2ddc97",
+  "operation_id": "OP-b7b63eb6",
+  "context_type": "environment",
+  "timestamp": "2026-05-10T11:33:12.965819+00:00",
+  "payload": {
+    "env": "test"
+  },
+  "summary": "Env slice",
+  "context_hash": "5518e3ef55801ec5",
+  "schema_version": 1,
+  "entity_id": null,
+  "entity_type": null
+}

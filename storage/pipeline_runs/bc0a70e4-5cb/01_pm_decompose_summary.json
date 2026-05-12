@@ -1,0 +1,26 @@
+{
+  "step": "pm_decompose",
+  "task_id": "bc0a70e4-5cb",
+  "timestamp": "2026-05-09T10:23:59",
+  "char_count": 67906,
+  "decisions": [],
+  "files_changed": [],
+  "subtasks": [
+    "*目标**：为 AgentsGroup2026 系统建立一套持续、可靠的自动化测试流水线（Test Pipeline），覆盖单元测试、集成测试、端对端测试与 A/B 测试验证，提升代码质量，减少回归故障，并为后续迭代提供安全网。",
+    "项目无显式的 `tests/` 目录，未发现 pytest 或其它测试框架配置。",
+    "Handoffs 记录中存在大量 `test_FAILED`（如 `1ce78c0e-062_test_FAILED_xx`），表明手工测试或临时验证频繁失败。",
+    "核心模块（`ab_testing`, `task_engine`, `plaza_engine`, `team_manager` 等）逻辑复杂，但缺乏自动化保障。",
+    "A/B 测试框架已包含指标模型（`ABTestMetrics`）和 EWMA 阈值引擎，尚未集成到持续性测试中。",
+    "搭建测试基础设施（目录结构、pytest + 插件）。",
+    "为核心模块编写单元测试，覆盖率 > 70%。",
+    "API 集成测试覆盖所有 FastAPI 路由。",
+    "关键用户场景端到端测试（智能体团队创建 → 任务派发 → 会话存档）。",
+    "A/B 测试策略自动化验证管道。",
+    "CI/CD 集成（GitHub Actions），每次 PR 自动运行测试。",
+    "测试报告与告警机制。",
+    "分析 `src/docs/agent_handoffs/` 中 `test_FAILED` 的常见错误类型（超时、断言不匹配、状态不一致），这些将转化为具体的测试用例。",
+    "研究 A/B 测试指标（`false_upgrade_rate`, `behavior_fingerprint_mutation_rate`）的统计显著性，为 T7 自动判定提供阈值建议。",
+    "定义测试接口边界：存储层需提供内存版实现（例如 `TaskStore` 可注入 `InMemoryTaskStore`）。"
+  ],
+  "prose_summary": "步骤: pm_decompose\n📋 任务: bc0a70e4-5cb\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/frontend/agent-team-config.html`\n### 文件: `src/frontend/css/agent-team-config.css`\n### 文件: `src/frontend/js/i18n.js`\n### 文件: `src/backend/agents/ab_testing.py`\n(后续文件因 token 预算已省略)"
+}

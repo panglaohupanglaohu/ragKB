@@ -1,0 +1,30 @@
+{
+  "step": "pm_decompose",
+  "task_id": "21ef94ba-2b6",
+  "timestamp": "2026-05-09T15:51:06",
+  "char_count": 71821,
+  "decisions": [],
+  "files_changed": [
+    "src/backend/agents/agent_loop.py",
+    "src/backend/agents/team_manager.py",
+    "src/backend/agents/ab_testing.py"
+  ],
+  "subtasks": [
+    "*任务**：可观测性集成——指纹遥测旁路、聚合链路 trace ID 关联、面板监控  ",
+    "*角色**：Architect, Developer  ",
+    "*日期**：2026-05-09  ",
+    "*状态**：已规划  ",
+    "**指纹遥测旁路**：在不干扰主业务流程的前提下，异步采集 Agent 行为指纹（突变率、升级异常等），用于事后分析与 A/B 测试反馈。",
+    "**聚合链路 Trace ID 关联**：为多 Agent 协作（Plaza 讨论、Handoff、Team 调度）统一注入 Trace ID，实现全链路追踪与因果关系梳理。",
+    "**面板监控**：为前端提供实时指标看板，展示遥测指标与 Trace 拓扑。",
+    "`src/backend/monitoring/` 目录：",
+    "`src/backend/agents/ab_testing.py` – 包含 `ABTestMetrics`（含 `behavior_fingerprint_mutation_rate`、`false_upgrade_rate` 等指纹相关指标）。",
+    "`src/backend/agents/agent_loop.py`、`chat_harness.py`、`plaza_engine.py` – 核心调用链，是 trace 注入点。",
+    "`src/backend/agents/team_manager.py`、`task_engine.py` – 任务与团队编排，需要 trace 传播。",
+    "前端有 `plaza-wabisabi-v2.html`、`agent-team-config.html` 等页面，可扩展监控面板。",
+    "后端 API 由 `main.py`、`plaza_routes.py` 等提供。",
+    "*目标**：确定需要旁路采集的指纹指标，定义遥测数据契约。  ",
+    "*负责人**：Architect + Developer  "
+  ],
+  "prose_summary": "任务: 可观测性集成：指纹遥测旁路、聚合链路trace ID关联、面板监控\n步骤: pm_decompose\n📋 任务: 21ef94ba-2b6\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\n可观测性集成：指纹遥测旁路、聚合链路trace ID关联、面板监控\nArchitect, Developer\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/tests/conftest.py`\n### 文件: `src/backend/tests/test_agent_toolbox.py`"
+}

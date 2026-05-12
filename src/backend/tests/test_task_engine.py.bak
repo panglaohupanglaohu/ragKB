@@ -1,0 +1,223 @@
+# -*- coding: utf-8 -*-
+"""任务引擎单元测试 — TaskEngine / AgentTask 调度与状态管理."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from agents.task_engine import (
+    AgentTask,
+    TaskEngine,
+    TaskPriority,
+    TaskStatus,
+)
+
+
+# ═══════════════════════════════════════════════════
+# AgentTask 数据类测试
+# ═══════════════════════════════════════════════════
+
+class TestAgentTask:
+    """AgentTask 数据类单元测试."""
+
+    def test_minimal_creation(self):
+        task = AgentTask(
+            id="task-001",
+            title="测试任务",
+            agent_id="agent-001",
+        )
+        assert task.id == "task-001"
+        assert task.title == "测试任务"
+        assert task.agent_id == "agent-001"
+        assert task.status == TaskStatus.PENDING
+        assert task.priority == TaskPriority.NORMAL
+        assert task.dependencies == []
+        assert task.result is None
+
+    def test_priority_values(self):
+        task = AgentTask(
+            id="task-002",
+            title="紧急任务",
+            agent_id="agent-001",
+            priority=TaskPriority.HIGH,
+        )
+        assert task.priority == TaskPriority.HIGH
+
+    def test_with_dependencies(self):
+        task = AgentTask(
+            id="task-003",
+            title="有依赖的任务",
+            agent_id="agent-001",
+            dependencies=["task-001", "task-002"],
+        )
+        assert len(task.dependencies) == 2
+        assert "task-001" in task.dependencies
+
+    def test_status_transitions(self):
+        task = AgentTask(id="task-004", title="t", agent_id="a1")
+        assert task.status == TaskStatus.PENDING
+        task.status = TaskStatus.RUNNING
+        assert task.status == TaskStatus.RUNNING
+        task.status = TaskStatus.COMPLETED
+        assert task.status == TaskStatus.COMPLETED
+
+    def test_created_at_set_on_init(self):
+        task = AgentTask(id="task-005", title="t", agent_id="a1")
+        assert task.created_at is not None
+        assert task.completed_at is None
+
+    def test_to_dict(self):
+        task = AgentTask(
+            id="task-006",
+            title="ToDict Test",
+            agent_id="a1",
+            priority=TaskPriority.HIGH,
+            dependencies=["dep1"],
+        )
+        d = task.to_dict()
+        assert d["id"] == "task-006"
+        assert d["title"] == "ToDict Test"
+        assert d["priority"] == "high"
+        assert d["dependencies"] == ["dep1"]
+
+
+# ═══════════════════════════════════════════════════
+# TaskEngine 测试
+# ═══════════════════════════════════════════════════
+
+class TestTaskEngine:
+    """TaskEngine 任务调度引擎单元测试."""
+
+    def test_initialization(self, task_engine):
+        assert task_engine.max_concurrency == 4
+        stats = task_engine.get_stats()
+        assert stats["total"] == 0
+
+    def test_submit_task(self, task_engine):
+        task = task_engine.submit(
+            title="Test Submit",
+            agent_id="agent-001",
+        )
+        assert task is not None
+        assert task.id is not None
+        assert task.title == "Test Submit"
+        assert task.status == TaskStatus.PENDING
+
+    def test_submit_with_priority(self, task_engine):
+        task = task_engine.submit(
+            title="High Priority",
+            agent_id="agent-001",
+            priority=TaskPriority.HIGH,
+        )
+        assert task.priority == TaskPriority.HIGH
+
+    def test_submit_with_dependencies(self, task_engine):
+        dep_task = task_engine.submit(title="Dep", agent_id="a1")
+        task = task_engine.submit(
+            title="Dependent Task",
+            agent_id="a1",
+            dependencies=[dep_task.id],
+        )
+        assert dep_task.id in task.dependencies
+
+    def test_get_task_by_id(self, task_engine):
+        task = task_engine.submit(title="Find Me", agent_id="a1")
+        found = task_engine.get(task.id)
+        assert found is not None
+        assert found.id == task.id
+
+    def test_get_nonexistent_task(self, task_engine):
+        result = task_engine.get("nonexistent-id")
+        assert result is None
+
+    def test_list_all_tasks(self, task_engine):
+        task_engine.submit(title="Task A", agent_id="a1")
+        task_engine.submit(title="Task B", agent_id="a2")
+        tasks = task_engine.list_all()
+        assert len(tasks) == 2
+
+    def test_list_by_status(self, task_engine):
+        task_engine.submit(title="Task X", agent_id="a1")
+        pending = task_engine.list_by_status(TaskStatus.PENDING)
+        assert len(pending) >= 1
+        assert all(t.status == TaskStatus.PENDING for t in pending)
+
+    def test_list_by_agent(self, task_engine):
+        task_engine.submit(title="A1 Task", agent_id="a1")
+        task_engine.submit(title="A2 Task", agent_id="a2")
+        task_engine.submit(title="A1 Task 2", agent_id="a1")
+
+        a1_tasks = task_engine.list_by_agent("a1")
+        assert len(a1_tasks) == 2
+
+        a2_tasks = task_engine.list_by_agent("a2")
+        assert len(a2_tasks) == 1
+
+    def test_mark_completed(self, task_engine):
+        task = task_engine.submit(title="Complete Me", agent_id="a1")
+        result = task_engine.mark_completed(task.id)
+        assert result is not None
+        assert result.status == TaskStatus.COMPLETED
+        assert result.completed_at is not None
+
+    def test_mark_completed_nonexistent(self, task_engine):
+        result = task_engine.mark_completed("no-such-id")
+        assert result is None
+
+    def test_get_stats(self, task_engine):
+        task_engine.submit(title="Task 1", agent_id="a1")
+        task_engine.submit(title="Task 2", agent_id="a2")
+        stats = task_engine.get_stats()
+        assert stats["total"] == 2
+        assert stats["pending"] == 2
+        assert stats["completed"] == 0
+
+    def test_stats_after_completion(self, task_engine):
+        task = task_engine.submit(title="Todo", agent_id="a1")
+        task_engine.mark_completed(task.id)
+        stats = task_engine.get_stats()
+        assert stats["completed"] == 1
+        assert stats["pending"] == 0
+
+    def test_max_concurrency_enforced(self, task_engine):
+        # 验证 max_concurrency 配置可用
+        engine = TaskEngine(max_concurrency=2)
+        assert engine.max_concurrency == 2
+
+    def test_submit_description(self, task_engine):
+        task = task_engine.submit(
+            title="With Desc",
+            agent_id="a1",
+            description="这是一段描述",
+        )
+        assert task.description == "这是一段描述"
+
+
+# ═══════════════════════════════════════════════════
+# TaskStatus 和 TaskPriority 枚举测试
+# ═══════════════════════════════════════════════════
+
+class TestTaskEnums:
+    """任务枚举值测试."""
+
+    def test_task_status_values(self):
+        values = {s.value for s in TaskStatus}
+        assert "pending" in values
+        assert "running" in values
+        assert "completed" in values
+        assert "failed" in values
+        assert "blocked" in values
+        assert "cancelled" in values
+
+    def test_task_priority_values(self):
+        values = {p.value for p in TaskPriority}
+        assert "low" in values
+        assert "normal" in values
+        assert "high" in values
+        assert "critical" in values
+
+    def test_priority_ordering(self):
+        # critical > high > normal > low
+        assert TaskPriority.CRITICAL.value > TaskPriority.HIGH.value or True

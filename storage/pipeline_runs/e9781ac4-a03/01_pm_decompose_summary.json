@@ -1,0 +1,26 @@
+{
+  "step": "pm_decompose",
+  "task_id": "e9781ac4-a03",
+  "timestamp": "2026-05-09T15:55:29",
+  "char_count": 71473,
+  "decisions": [],
+  "files_changed": [],
+  "subtasks": [
+    "*目标**：建立一套完整的 CI/CD 流水线，能够在部署阶段自动执行 schema 迁移脚本，并通过分层自动化测试（评估器边界覆盖、审核流竞态/断网场景、烟雾测试）保证系统的数据一致性、稳定性和关键路径完整性。",
+    "可重放的 schema 迁移脚本（集成为部署 Job 自动执行）",
+    "评估器（EWMA 阈值引擎、A/B 测试相关组件）边界用例测试套件",
+    "审核流（任务审核/配置变更审核）在并发竞态与网络中断下的健壮性测试",
+    "烟雾测试套件（验证服务启动后索引就绪、SkillStore 完整性）",
+    "CI/CD 配置文件（如 GitHub Actions / Jenkinsfile）更新，串联上述步骤",
+    "*涉及角色**：Deployer（部署工程师）、测试工程师",
+    "**后端框架**：Python FastAPI（`src/backend/main.py`）",
+    "**现有测试基础设施**：`src/backend/tests/` 下已有 pytest 测试套件（`conftest.py`，包含 FastAPI TestClient、mock 等 fixtures）",
+    "**启动验证**：已存在 `startup_check.py` + `startup_validator.py`，提供可扩展的健康检查和 API 端点可用性验证，可作为烟雾测试的基座",
+    "**核心业务模块**：",
+    " **已有机能**：",
+    "项目无传统数据库 ORM，无 alembic 迁移；schema 迁移指**数据模型/存储结构变更脚本**（如 JSON schema 升级、字段补全、索引重建），需要在部署时按版本增量执行",
+    "审核流的具体实现在当前文件列表中未显式暴露，可能位于 `agents/` 下某个未列出文件，如 `agents/audit_flow.py`，或嵌入在 `task_engine.py`/`plaza_engine.py` 中，需首先由研究员（后续阶段）定位",
+    "**输入**：现有数据模型定义（`agents/models.py`）、各 Store 的 JSON 文件示例、历史变更日志"
+  ],
+  "prose_summary": "任务: CI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n步骤: pm_decompose\n📋 任务: e9781ac4-a03\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\nCI/CD 集成 schema 迁移与端到端自动化测试：迁移脚本作为部署 Job 自动执行，评估器边界用例覆盖，审核流竞态与断网场景测试，烟雾测试验证索引就绪与 SkillStore 完整性。\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_check.py`\n### 文件: `src/backend/startup_validator.py`\n### 文件: `src/backend/tests/__init__.py`"
+}

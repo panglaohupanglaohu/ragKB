@@ -1,0 +1,26 @@
+{
+  "step": "pm_decompose",
+  "task_id": "2da416d2-cdf",
+  "timestamp": "2026-05-09T15:51:21",
+  "char_count": 69313,
+  "decisions": [],
+  "files_changed": [],
+  "subtasks": [
+    "**模板变体注入测试** – 确保前端多套 Plaza 模板（wabisabi, wabisabi‑v2, dark, old 等）在动态注入内容时不会出现 XSS、样式破损或渲染异常。",
+    "**窗口边界与规则变更集成测试** – 验证系统演进视图、审查规则编辑器等交互组���的边界条件，以及在规则修改后全链路的正确性。",
+    "**端到端回归测试** – 覆盖从用户界面到后端 API、从任务派发到智能体讨论的核心业务流程，保障已修复缺陷不再复现。",
+    "**指纹一致性校验** – 检查系统关键产出物（配置摘要、模型指纹、演进记录）的哈希/签名一致性，防止静默篡改或数据损坏。",
+    "后端服务已启动 (`src/backend/main.py`, 含 FastAPI 路由)，并能接入测试专用 LLM 或模拟回话。",
+    "前端页面可通过浏览器或 headless 工具访问（建议使用 `puppeteer` / `playwright` 或 Selenium）。",
+    "测试框架：`pytest` + `pytest-asyncio`，参考已有的 `src/backend/tests/conftest.py` 配置。",
+    "数据库或文件存储（`plaza_store.py`, `session_store.py` 等）处于可清空/可重置状态。",
+    "测试数据：准备已知的 Plaza 讨论模板、规则配置、任务队列示例。",
+    "**关键测试用例**",
+    " **风险与缓解**",
+    "**关键测试用例**",
+    " **风险与缓解**",
+    "**测试范围（回归基线）**",
+    "**关键测试用例**"
+  ],
+  "prose_summary": "任务: 测试验证：模板变体注入测试、窗口边界与规则变更集成测试、端到端回归测试及指纹一致性校验\n步骤: pm_decompose\n📋 任务: 2da416d2-cdf\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\n测试验证：模板变体注入测试、窗口边界与规则变更集成测试、端到端回归测试及指纹一致性校验\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/frontend/agent-team-config.html`\n### 文件: `src/frontend/js/i18n.js`\n### 文件: `src/backend/tests/__init__.py`"
+}

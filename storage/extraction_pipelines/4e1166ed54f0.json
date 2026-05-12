@@ -1,0 +1,60 @@
+{
+  "pipeline_id": "4e1166ed54f0",
+  "name": "新技能 - 议事广场",
+  "description": "萃取管线 — ca758df9",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 2,
+      "required_identities": [
+        "peer",
+        "senior"
+      ],
+      "min_approvals": 2,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "lead"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "architect"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [],
+  "payload": {},
+  "tags": [
+    "item:ca758df9"
+  ],
+  "version": 1,
+  "created_at": "2026-05-11T05:41:23.045410+00:00",
+  "updated_at": "2026-05-11T05:41:23.045426+00:00"
+}

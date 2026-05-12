@@ -1,0 +1,709 @@
+# -*- coding: utf-8 -*-
+"""Aggregation Window Engine — sliding-window state management, persistence,
+dual-write transition, and window-boundary semantics.
+
+Provides a reusable, high-performance aggregation engine for the monitoring
+pipeline.  Supports:
+
+* **Window types**   — Tumbling, Sliding (Hopping), Session
+* **Aggregations**   — SUM, AVG, COUNT, MAX, MIN, PERCENTILE (P50/P90/P99)
+* **Persistence**    — Save / restore window state (JSON) for fault recovery
+* **Dual-write**     — Parallel old/new aggregation with gradual traffic shift
+* **Boundary semantics** — Inclusive / exclusive edges + watermark / late-arrival
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import enum
+import json
+import logging
+import math
+import os
+import threading
+import time
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Enums
+# ═══════════════════════════════════════════════════════════════════
+
+class WindowType(str, enum.Enum):
+    """Sliding-window topology."""
+    TUMBLING = "tumbling"   # fixed-size, non-overlapping
+    SLIDING  = "sliding"    # fixed-size, overlapping (hop < size)
+    SESSION  = "session"    # dynamic-size, gap-based
+    COUNT    = "count"      # count-based, triggers every N events
+
+
+class AggFunc(str, enum.Enum):
+    """Supported aggregation functions."""
+    SUM  = "sum"
+    AVG  = "avg"
+    COUNT = "count"
+    MAX  = "max"
+    MIN  = "min"
+    P50  = "p50"
+    P90  = "p90"
+    P99  = "p99"
+    STDDEV     = "stddev"
+    PERCENTILE = "percentile"  # custom percentile via config key "percentile"
+
+
+class WindowBoundary(str, enum.Enum):
+    """Edge-inclusion policy for window boundaries."""
+    INCLUSIVE = "inclusive"   # [start, end]
+    EXCLUSIVE = "exclusive"   # (start, end) or [start, end)
+    LEFT_INCLUSIVE = "left_inclusive"  # [start, end)
+
+
+class DualWritePhase(str, enum.Enum):
+    """Dual-write lifecycle phase."""
+    OLD_ONLY   = "old_only"     # 100% traffic → old aggregator
+    SHADOW     = "shadow"       # old primary, new shadow (compare only)
+    GRADUAL    = "gradual"      # split traffic by ratio
+    NEW_PRIMARY = "new_primary" # new primary, old shadow
+    NEW_ONLY   = "new_only"     # 100% traffic → new aggregator
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Data classes
+# ═══════════════════════════════════════════════════════════════════
+
+@dataclass
+class WindowConfig:
+    """Immutable configuration for one aggregation window.
+
+    Attributes:
+        window_type: Tumbling / Sliding / Session.
+        size_ms: Window size in milliseconds (ignored for SESSION).
+        hop_ms: Hop/slide interval in ms (SLIDING only; defaults to size_ms).
+        gap_ms: Session gap timeout in ms (SESSION only).
+        functions: Aggregation functions to compute.
+        boundary: Edge-inclusion semantics.
+        max_late_ms: Maximum late-arrival tolerance (0 = reject late).
+        watermark_policy: How watermarks advance (None = event-time driven).
+    """
+    window_type: WindowType = WindowType.TUMBLING
+    size_ms: int = 60_000            # 1 minute default
+    hop_ms: int = 0                  # 0 → use size_ms
+    gap_ms: int = 30_000             # 30 s session gap
+    functions: Tuple[AggFunc, ...] = (AggFunc.COUNT, AggFunc.AVG)
+    boundary: WindowBoundary = WindowBoundary.LEFT_INCLUSIVE
+    max_late_ms: int = 0
+    watermark_policy: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.hop_ms:
+            self.hop_ms = self.size_ms
+        if self.hop_ms > self.size_ms:
+            raise ValueError("hop_ms must be <= size_ms")
+        if not isinstance(self.functions, tuple):
+            object.__setattr__(self, 'functions', tuple(self.functions))
+
+
+@dataclass
+class AggregateResult:
+    """Result of one window aggregation."""
+    window_start_ms: float
+    window_end_ms: float
+    values: Dict[str, float] = field(default_factory=dict)
+    count: int = 0
+    is_complete: bool = True
+
+    def get(self, func: AggFunc, default: float = 0.0) -> float:
+        return self.values.get(func.value, default)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "window_start_ms": self.window_start_ms,
+            "window_end_ms": self.window_end_ms,
+            "values": self.values,
+            "count": self.count,
+            "is_complete": self.is_complete,
+        }
+
+
+@dataclass
+class WindowState:
+    """Serialisable snapshot of a single window's internal state."""
+    start_ms: float
+    end_ms: float
+    values: List[float] = field(default_factory=list)
+    sum_: float = 0.0
+    min_: float = float("inf")
+    max_: float = float("-inf")
+    count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "values": self.values,
+            "sum": self.sum_,
+            "min": self.min_ if self.count else None,
+            "max": self.max_ if self.count else None,
+            "count": self.count,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "WindowState":
+        return cls(
+            start_ms=d["start_ms"],
+            end_ms=d["end_ms"],
+            values=d.get("values", []),
+            sum_=d.get("sum", 0.0),
+            min_=d.get("min", float("inf")) if d.get("min") is not None else float("inf"),
+            max_=d.get("max", float("-inf")) if d.get("max") is not None else float("-inf"),
+            count=d.get("count", 0),
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Engine
+# ═══════════════════════════════════════════════════════════════════
+
+class AggregationWindowEngine:
+    """High-performance sliding-window aggregation engine.
+
+    Thread-safe.  One engine instance manages multiple named metrics,
+    each with its own window configuration.
+
+    Usage::
+
+        engine = AggregationWindowEngine()
+        engine.configure("cpu_usage", WindowConfig(
+            window_type=WindowType.SLIDING,
+            size_ms=60_000, hop_ms=10_000,
+            functions=(AggFunc.AVG, AggFunc.MAX),
+        ))
+        engine.add("cpu_usage", 45.2, ts_ms=now_ms())
+        engine.add("cpu_usage", 52.1, ts_ms=now_ms())
+        results = engine.query("cpu_usage")  # → list[AggregateResult]
+
+        # Persist for fault recovery:
+        engine.save("/data/windows.json")
+        engine.load("/data/windows.json")
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        # metric_name → WindowConfig
+        self._configs: Dict[str, WindowConfig] = {}
+        # metric_name → list of active WindowState
+        self._windows: Dict[str, List[WindowState]] = defaultdict(list)
+        # metric_name → latest event timestamp (watermark basis)
+        self._watermarks: Dict[str, float] = {}
+
+    # ── Configuration ──────────────────────────────────────────────
+
+    def configure(self, metric_name: str, config: WindowConfig) -> None:
+        """Register (or update) configuration for a metric."""
+        with self._lock:
+            self._configs[metric_name] = config
+
+    def get_config(self, metric_name: str) -> Optional[WindowConfig]:
+        with self._lock:
+            return self._configs.get(metric_name)
+
+    # ── Event ingestion ────────────────────────────────────────────
+
+    def add(self, metric_name: str, value: float, *,
+            ts_ms: Optional[float] = None) -> List[AggregateResult]:
+        """Ingest a single event.
+
+        Returns a list of completed ``AggregateResult`` (0 or more — sliding
+        windows can close multiple windows with a single event).
+        """
+        ts = ts_ms if ts_ms is not None else time.time() * 1000.0
+        with self._lock:
+            cfg = self._configs.get(metric_name)
+            if cfg is None:
+                raise KeyError(f"Metric '{metric_name}' not configured")
+
+            windows = self._windows[metric_name]
+            completed: List[AggregateResult] = []
+
+            if cfg.window_type in (WindowType.TUMBLING, WindowType.SLIDING):
+                completed = self._add_fixed(cfg, windows, ts, value)
+            elif cfg.window_type == WindowType.SESSION:
+                r = self._add_session(cfg, windows, ts, value)
+                if r is not None:
+                    completed.append(r)
+
+            # Advance watermark
+            if metric_name not in self._watermarks or ts > self._watermarks[metric_name]:
+                self._watermarks[metric_name] = ts
+
+            return completed
+
+    def add_batch(self, metric_name: str,
+                  events: List[Tuple[float, float]]) -> List[AggregateResult]:
+        """Ingest a batch of (value, ts_ms) — more efficient than N calls."""
+        results: List[AggregateResult] = []
+        for value, ts_ms in events:
+            results.extend(self.add(metric_name, value, ts_ms=ts_ms))
+        return results
+
+    # ── Query ──────────────────────────────────────────────────────
+
+    def query(self, metric_name: str, *,
+              include_open: bool = False) -> List[AggregateResult]:
+        """Return aggregate results for windows of *metric_name*.
+
+        By default only returns closed (complete) windows.  Set
+        *include_open=True* to also return in-progress windows.
+        """
+        with self._lock:
+            cfg = self._configs.get(metric_name)
+            if cfg is None:
+                return []
+            windows = self._windows.get(metric_name, [])
+            wm = self._watermarks.get(metric_name, 0.0)
+            results: List[AggregateResult] = []
+            for ws in windows:
+                vals = self._compute_aggregates(ws, cfg.functions)
+                # A window is "complete" when watermark has passed window end
+                # (adjusted by max_late_ms tolerance)
+                if cfg.max_late_ms > 0:
+                    complete = ws.end_ms <= wm - cfg.max_late_ms
+                else:
+                    complete = True  # no late-arrival tolerance → always complete
+                if include_open or complete:
+                    results.append(AggregateResult(
+                        window_start_ms=ws.start_ms,
+                        window_end_ms=ws.end_ms,
+                        values=vals,
+                        count=ws.count,
+                        is_complete=complete,
+                    ))
+            return results
+
+    def query_window(self, metric_name: str,
+                     start_ms: float, end_ms: float) -> AggregateResult | None:
+        """Return aggregate over *any* interval (adhoc)."""
+        with self._lock:
+            cfg = self._configs.get(metric_name)
+            if cfg is None:
+                return None
+            windows = self._windows.get(metric_name, [])
+            # Collect values falling inside [start_ms, end_ms)
+            collected: List[float] = []
+            for ws in windows:
+                if ws.end_ms <= start_ms or ws.start_ms >= end_ms:
+                    continue
+                for v in ws.values:
+                    # values don't have individual timestamps inside a window;
+                    # approximate — if window overlaps, include all its values
+                    collected.append(v)
+            if not collected:
+                return AggregateResult(
+                    window_start_ms=start_ms, window_end_ms=end_ms,
+                    values={f.value: 0.0 for f in cfg.functions},
+                    count=0, is_complete=True,
+                )
+            return AggregateResult(
+                window_start_ms=start_ms, window_end_ms=end_ms,
+                values=self._compute_from_list(collected, cfg.functions),
+                count=len(collected), is_complete=True,
+            )
+
+    # ── Watermark ──────────────────────────────────────────────────
+
+    def get_watermark(self, metric_name: str) -> float | None:
+        """Return the latest-seen timestamp for *metric_name*."""
+        with self._lock:
+            return self._watermarks.get(metric_name)
+
+    # ── Persistence ────────────────────────────────────────────────
+
+    def save(self, path: str | Path) -> None:
+        """Persist full engine state to a JSON file."""
+        with self._lock:
+            payload: Dict[str, Any] = {
+                "version": 1,
+                "watermarks": dict(self._watermarks),
+                "configs": {
+                    name: dataclasses.asdict(cfg)
+                    for name, cfg in self._configs.items()
+                },
+                "windows": {
+                    name: [ws.to_dict() for ws in wlist]
+                    for name, wlist in self._windows.items()
+                },
+            }
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        tmp = str(path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, str(path))  # atomic on POSIX
+        logger.info("AggregationWindowEngine saved to %s (%d metrics)",
+                     path, len(payload["windows"]))
+
+    def load(self, path: str | Path) -> bool:
+        """Restore engine state from a JSON file. Returns True on success."""
+        p = Path(path)
+        if not p.exists():
+            logger.warning("Save file not found: %s", path)
+            return False
+        with open(p, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        with self._lock:
+            self._watermarks = dict(payload.get("watermarks", {}))
+            self._configs = {}
+            for name, d in payload.get("configs", {}).items():
+                # reconstruct WindowConfig from dict
+                funcs_raw = d.get("functions", ["count", "avg"])
+                funcs = tuple(AggFunc(f) for f in funcs_raw)
+                self._configs[name] = WindowConfig(
+                    window_type=WindowType(d.get("window_type", "tumbling")),
+                    size_ms=d.get("size_ms", 60_000),
+                    hop_ms=d.get("hop_ms", 0),
+                    gap_ms=d.get("gap_ms", 30_000),
+                    functions=funcs,
+                    boundary=WindowBoundary(d.get("boundary", "left_inclusive")),
+                    max_late_ms=d.get("max_late_ms", 0),
+                )
+            self._windows.clear()
+            for name, wlist in payload.get("windows", {}).items():
+                self._windows[name] = [WindowState.from_dict(d) for d in wlist]
+        logger.info("AggregationWindowEngine loaded from %s (%d metrics)",
+                     path, len(self._windows))
+        return True
+
+    # ── Internal helpers ───────────────────────────────────────────
+
+    def _add_fixed(self, cfg: WindowConfig,
+                   windows: List[WindowState],
+                   ts: float, value: float) -> List[AggregateResult]:
+        """Handle TUMBLING / SLIDING event.  Returns closed-window results."""
+        size = cfg.size_ms
+        hop = cfg.hop_ms
+        completed: List[AggregateResult] = []
+
+        # Determine which windows this event belongs to
+        if cfg.window_type == WindowType.TUMBLING:
+            bucket_start = math.floor(ts / size) * size
+            bucket_end = bucket_start + size
+            candidates = [(bucket_start, bucket_end)]
+        else:  # SLIDING
+            oldest_start = math.floor((ts - size) / hop) * hop
+            candidates = []
+            for start in range(int(oldest_start), int(ts) + 1, hop):
+                start_f = float(start)
+                end_f = start_f + size
+                if start_f <= ts < end_f:
+                    candidates.append((start_f, end_f))
+
+        for w_start, w_end in candidates:
+            ws = self._find_or_create_window(cfg, windows, w_start, w_end)
+            self._add_value_to_window(ws, value)
+
+        # After adding the value, check which windows have closed
+        # (their end time has passed relative to current timestamp)
+        closed_now: List[WindowState] = []
+        for ws in windows:
+            if ws.end_ms <= ts:
+                closed_now.append(ws)
+
+        for ws in closed_now:
+            vals = self._compute_aggregates(ws, cfg.functions)
+            completed.append(AggregateResult(
+                window_start_ms=ws.start_ms, window_end_ms=ws.end_ms,
+                values=vals, count=ws.count, is_complete=True,
+            ))
+        # Remove closed windows for TUMBLING (cleanup)
+        if cfg.window_type == WindowType.TUMBLING:
+            for ws in closed_now:
+                if ws in windows:
+                    windows.remove(ws)
+        elif cfg.window_type == WindowType.SLIDING:
+            # For sliding, keep a bounded history; remove the very oldest
+            max_active = (size // hop) + 3
+            while len(windows) > max_active:
+                oldest = min(windows, key=lambda w: w.start_ms)
+                if oldest in closed_now or oldest.end_ms <= ts:
+                    windows.remove(oldest)
+                else:
+                    break
+
+        return completed
+
+    def _add_session(self, cfg: WindowConfig,
+                     windows: List[WindowState],
+                     ts: float, value: float) -> AggregateResult | None:
+        """Handle SESSION window event."""
+        gap = cfg.gap_ms
+        completed: AggregateResult | None = None
+
+        if not windows:
+            # Start new session
+            ws = WindowState(start_ms=ts, end_ms=ts + gap)
+            self._add_value_to_window(ws, value)
+            windows.append(ws)
+        else:
+            active = windows[-1]
+            if ts - active.end_ms <= gap:
+                # Extend current session
+                active.end_ms = ts + gap
+                self._add_value_to_window(active, value)
+            else:
+                # Close current session
+                vals = self._compute_aggregates(active, cfg.functions)
+                completed = AggregateResult(
+                    window_start_ms=active.start_ms,
+                    window_end_ms=active.end_ms - gap,  # actual end
+                    values=vals, count=active.count, is_complete=True,
+                )
+                # Start new session
+                new_ws = WindowState(start_ms=ts, end_ms=ts + gap)
+                self._add_value_to_window(new_ws, value)
+                windows.append(new_ws)
+
+        return completed
+
+    def _find_or_create_window(self, cfg: WindowConfig,
+                               windows: List[WindowState],
+                               start: float, end: float) -> WindowState:
+        for ws in windows:
+            if ws.start_ms == start and ws.end_ms == end:
+                return ws
+        ws = WindowState(start_ms=start, end_ms=end)
+        windows.append(ws)
+        return ws
+
+    @staticmethod
+    def _add_value_to_window(ws: WindowState, value: float) -> None:
+        ws.values.append(value)
+        ws.sum_ += value
+        ws.count += 1
+        if value < ws.min_:
+            ws.min_ = value
+        if value > ws.max_:
+            ws.max_ = value
+
+    @staticmethod
+    def _compute_aggregates(ws: WindowState,
+                            funcs: Tuple[AggFunc, ...]) -> Dict[str, float]:
+        return _compute_from_list(ws.values, funcs, ws.sum_, ws.min_, ws.max_,
+                                  ws.count)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Standalone helpers
+# ═══════════════════════════════════════════════════════════════════
+
+def _compute_from_list(values: List[float],
+                       funcs: Tuple[AggFunc, ...],
+                       preset_sum: float | None = None,
+                       preset_min: float | None = None,
+                       preset_max: float | None = None,
+                       preset_count: int | None = None) -> Dict[str, float]:
+    """Compute aggregation functions from a list of values."""
+    n = preset_count if preset_count is not None else len(values)
+    if n == 0:
+        return {f.value: 0.0 for f in funcs}
+
+    total = preset_sum if preset_sum is not None else sum(values)
+    vmin = preset_min if preset_min is not None else min(values)
+    vmax = preset_max if preset_max is not None else max(values)
+
+    result: Dict[str, float] = {}
+    for func in funcs:
+        if func == AggFunc.SUM:
+            result[func.value] = total
+        elif func == AggFunc.AVG:
+            result[func.value] = total / n
+        elif func == AggFunc.COUNT:
+            result[func.value] = float(n)
+        elif func == AggFunc.MAX:
+            result[func.value] = vmax
+        elif func == AggFunc.MIN:
+            result[func.value] = vmin
+        elif func in (AggFunc.P50, AggFunc.P90, AggFunc.P99, AggFunc.PERCENTILE):
+            sorted_vals = sorted(values)
+            percentile_map = {AggFunc.P50: 0.50, AggFunc.P90: 0.90, AggFunc.P99: 0.99, AggFunc.PERCENTILE: 0.95}
+            pct = percentile_map[func]
+            idx = (len(sorted_vals) - 1) * pct
+            lo = int(idx)
+            hi = min(lo + 1, len(sorted_vals) - 1)
+            frac = idx - lo
+            result[func.value] = sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac
+        elif func == AggFunc.STDDEV:
+            mean = total / n
+            variance = sum((v - mean) ** 2 for v in values) / max(n - 1, 1)
+            result[func.value] = variance ** 0.5
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Dual-Write Transition
+# ═══════════════════════════════════════════════════════════════════
+
+class DualWriteController:
+    """Orchestrate a safe migration from an *old* aggregator to a *new* one.
+
+    Implements the dual-write / shadow-read / gradual-cutover pattern:
+
+    - **old_only**       → 100% traffic to old.
+    - **shadow**         → write both, compare results, serve old.
+    - **gradual**        → split traffic by *ratio*, serve from primary.
+    - **new_primary**    → new primary, old shadow.
+    - **new_only**       → 100% traffic to new.
+
+    Usage::
+
+        dual = DualWriteController(old_engine, new_engine)
+        dual.transition(DualWritePhase.SHADOW)
+
+        # In your ingestion loop:
+        def ingest(metric, value, ts):
+            result, mismatches = dual.add(metric, value, ts)
+            if mismatches:
+                log.warning("Dual-write mismatch: %s", mismatches)
+            return result
+
+        # After confidence is high:
+        dual.transition(DualWritePhase.NEW_ONLY)
+    """
+
+    def __init__(self,
+                 old_engine: AggregationWindowEngine,
+                 new_engine: AggregationWindowEngine,
+                 *,
+                 tolerance: float = 1e-6,
+                 on_mismatch: Callable[[str, Dict[str, Any]], None] | None = None,
+                 ) -> None:
+        self.old = old_engine
+        self.new = new_engine
+        self.phase = DualWritePhase.OLD_ONLY
+        self.ratio: float = 0.0            # fraction to new (0..1)
+        self.tolerance = tolerance
+        self.on_mismatch = on_mismatch
+        self._mismatch_log: Deque[Dict[str, Any]] = deque(maxlen=500)
+        self._lock = threading.RLock()
+
+    # ── Phase management ───────────────────────────────────────────
+
+    def transition(self, phase: DualWritePhase, ratio: float = 0.0) -> None:
+        """Move to a new dual-write phase."""
+        with self._lock:
+            self.phase = phase
+            self.ratio = max(0.0, min(1.0, ratio))
+            logger.info("DualWrite → %s (ratio=%.2f)", phase.value, self.ratio)
+
+    def get_phase(self) -> DualWritePhase:
+        return self.phase
+
+    def get_mismatches(self) -> List[Dict[str, Any]]:
+        """Return recent mismatch records for diagnostics."""
+        return list(self._mismatch_log)
+
+    # ── Ingestion ──────────────────────────────────────────────────
+
+    def add(self, metric_name: str, value: float, *,
+            ts_ms: float | None = None) -> Tuple[AggregateResult | None,
+                                                  List[Dict[str, Any]]]:
+        """Route an event according to the current phase.
+
+        Returns *(primary_result, mismatches)*.
+        """
+        with self._lock:
+            phase = self.phase
+            ratio = self.ratio
+
+        ts = ts_ms if ts_ms is not None else time.time() * 1000.0
+        mismatches: List[Dict[str, Any]] = []
+
+        if phase == DualWritePhase.OLD_ONLY:
+            return self.old.add(metric_name, value, ts_ms=ts), mismatches
+
+        if phase == DualWritePhase.NEW_ONLY:
+            return self.new.add(metric_name, value, ts_ms=ts), mismatches
+
+        # SHADOW / GRADUAL / NEW_PRIMARY — write both
+        old_result = self.old.add(metric_name, value, ts_ms=ts)
+        new_result = self.new.add(metric_name, value, ts_ms=ts)
+
+        # Compare when both return a result
+        if old_result is not None and new_result is not None:
+            mm = self._compare(old_result, new_result, metric_name)
+            if mm:
+                mismatches.append(mm)
+                self._mismatch_log.append(mm)
+                if self.on_mismatch:
+                    self.on_mismatch(metric_name, mm)
+
+        # Determine primary result
+        if phase == DualWritePhase.SHADOW:
+            return old_result, mismatches
+        elif phase == DualWritePhase.NEW_PRIMARY:
+            return new_result, mismatches
+        else:  # GRADUAL
+            import random
+            if random.random() < ratio:
+                return new_result, mismatches
+            return old_result, mismatches
+
+    # ── Helpers ────────────────────────────────────────────────────
+
+    def _compare(self, old: AggregateResult, new: AggregateResult,
+                 metric_name: str) -> Dict[str, Any] | None:
+        """Compare two aggregate results.  Returns mismatch dict or None."""
+        diffs: Dict[str, float] = {}
+        all_keys = set(old.values.keys()) | set(new.values.keys())
+        for k in all_keys:
+            ov = old.values.get(k, 0.0)
+            nv = new.values.get(k, 0.0)
+            if abs(ov - nv) > self.tolerance:
+                diffs[k] = abs(ov - nv)
+
+        if not diffs and old.count == new.count:
+            return None
+
+        return {
+            "metric": metric_name,
+            "old_window": old.to_dict(),
+            "new_window": new.to_dict(),
+            "diffs": diffs,
+            "ts": time.time(),
+        }
+
+    def validate_consistency(self, metric_name: str) -> Dict[str, Any]:
+        """Run a comprehensive consistency check between old and new engines."""
+        old_configs = {k for k in self.old._configs if k == metric_name or not metric_name}
+        new_configs = {k for k in self.new._configs if k == metric_name or not metric_name}
+        issues: List[str] = []
+
+        if old_configs != new_configs:
+            issues.append(f"Config mismatch: old={old_configs}, new={new_configs}")
+
+        for m in old_configs & new_configs:
+            old_results = {r.window_start_ms: r for r in self.old.query(m)}
+            new_results = {r.window_start_ms: r for r in self.new.query(m)}
+            all_windows = set(old_results.keys()) | set(new_results.keys())
+            for w in sorted(all_windows):
+                o = old_results.get(w)
+                n = new_results.get(w)
+                if o is None:
+                    issues.append(f"{m}: window {w} missing in old")
+                elif n is None:
+                    issues.append(f"{m}: window {w} missing in new")
+                else:
+                    mm = self._compare(o, n, m)
+                    if mm:
+                        issues.append(f"{m}: window {w} mismatch: {mm['diffs']}")
+
+        return {
+            "consistent": len(issues) == 0,
+            "phase": self.phase.value,
+            "issues": issues,
+            "old_watermarks": dict(self.old._watermarks),
+            "new_watermarks": dict(self.new._watermarks),
+        }

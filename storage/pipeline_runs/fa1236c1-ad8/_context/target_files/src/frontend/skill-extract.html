@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>技能萃取工坊 — AgentsGroup2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<script type="importmap">
+{ "imports": {
+    "three":          "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+
+<style>
+/* ── Wabi-Sabi Oklch Palette ─────────────────────────────────────── */
+:root{
+  --shironeri:oklch(0.96 0.003 110);--ishi:oklch(0.91 0.004 110);--kabe:oklch(0.85 0.005 110);
+  --hai:oklch(0.78 0.005 110);--nezumi:oklch(0.68 0.006 110);--sumi:oklch(0.18 0.008 110);
+  --sumi-2:oklch(0.38 0.006 110);--sumi-3:oklch(0.55 0.005 110);
+  --koke:oklch(0.52 0.04 160);--shu:oklch(0.48 0.07 22);--kitsune:oklch(0.56 0.05 70);
+  --groove:oklch(0.82 0.004 110);
+  --font-serif:'Noto Serif SC',serif;--font-sans:'Noto Sans SC',sans-serif;--font-mono:'JetBrains Mono',monospace;
+  --vessel-red:oklch(0.55 0.12 18);--nerve-blue:oklch(0.55 0.10 250);
+  --atomic-green:oklch(0.58 0.08 155);--trait-amber:oklch(0.62 0.10 70);--composite-violet:oklch(0.52 0.10 300);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);height:100vh;overflow:hidden;background:#141210;color:var(--shironeri);position:relative}
+
+/* ── Three.js Canvas ─────────────────────────────────────────────── */
+#three-canvas{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%}
+
+/* ── Overlay Layout ──────────────────────────────────────────────── */
+.overlay{position:fixed;inset:0;z-index:10;pointer-events:none;display:grid;
+  grid-template-columns:360px 1fr 380px;grid-template-rows:56px 1fr auto;gap:0}
+.overlay>*{pointer-events:auto}
+
+/* ── Topbar ──────────────────────────────────────────────────────── */
+.topbar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;background:oklch(0.12 0.005 60/.82);backdrop-filter:blur(18px);
+  border-bottom:1px solid oklch(1 0 0/.06)}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.topbar-left h1{font-size:17px;font-weight:600;font-family:var(--font-serif);color:oklch(0.88 0.003 110);letter-spacing:1px}
+.topbar-left .seal{display:inline-block;font-size:9px;font-weight:900;color:var(--shironeri);
+  background:var(--shu);padding:2px 6px;font-family:var(--font-serif);vertical-align:middle}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.topbar-right select{background:oklch(0.18 0.005 60);border:1px solid oklch(1 0 0/.1);
+  color:oklch(0.82 0.003 110);padding:6px 12px;font-size:12px;font-family:var(--font-sans);cursor:pointer;outline:none}
+.topbar-right select:focus{border-color:var(--koke)}
+.topbar-nav{display:flex;gap:4px}
+.topbar-nav a{padding:6px 14px;font-size:12px;color:oklch(0.65 0.005 110);cursor:pointer;
+  border:1px solid transparent;transition:.2s;text-decoration:none}
+.topbar-nav a:hover{color:oklch(0.85 0.005 110);background:oklch(1 0 0/.04)}
+.topbar-nav a.active{color:var(--shironeri);border-bottom:2px solid var(--koke)}
+
+/* ── Left Panel: Submission + Message Flow ────────────────────────── */
+.panel-left{grid-column:1;grid-row:2/4;display:flex;flex-direction:column;
+  background:oklch(0.12 0.005 60/.78);backdrop-filter:blur(14px);
+  border-right:1px solid oklch(1 0 0/.06);overflow:hidden;transition:transform .35s}
+.panel-left.collapsed{transform:translateX(-100%)}
+.panel-section{padding:18px 20px;border-bottom:1px solid oklch(1 0 0/.06)}
+.panel-section h3{font-size:13px;font-weight:600;margin-bottom:10px;color:oklch(0.75 0.005 110);
+  display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.panel-section h3 .icon{font-size:16px}
+.panel-section h3 .collapse-arrow{font-size:10px;margin-left:auto;transition:transform .2s}
+.panel-section.collapsed .collapse-arrow{transform:rotate(-90deg)}
+.panel-section.collapsed .submit-form{display:none}
+
+/* Submission form */
+.submit-form textarea{width:100%;height:100px;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);
+  color:oklch(0.88 0.003 110);padding:12px;font-size:12px;font-family:var(--font-mono);
+  resize:vertical;outline:none;line-height:1.6}
+.submit-form textarea:focus{border-color:var(--koke)}
+.submit-form textarea::placeholder{color:oklch(0.4 0.005 110)}
+.submit-row{display:flex;gap:8px;margin-top:10px}
+.submit-row input,.submit-row select{flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);
+  color:oklch(0.82 0.003 110);padding:7px 10px;font-size:12px;font-family:var(--font-sans);outline:none}
+.submit-row input:focus,.submit-row select:focus{border-color:var(--koke)}
+
+.file-drop{border:1px dashed oklch(1 0 0/.12);padding:14px;text-align:center;cursor:pointer;
+  font-size:11px;color:oklch(0.5 0.005 110);margin-top:8px;transition:.2s}
+.file-drop:hover,.file-drop.dragover{border-color:var(--koke);color:var(--koke);background:oklch(0.52 0.04 160/.06)}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;font-weight:600;
+  cursor:pointer;border:1px solid oklch(1 0 0/.12);font-family:var(--font-sans);transition:.2s;
+  background:transparent;color:oklch(0.75 0.005 110)}
+.btn:hover{background:oklch(1 0 0/.06);color:var(--shironeri)}
+.btn-extract{background:var(--vessel-red);color:var(--shironeri);border-color:transparent}
+.btn-extract:hover{background:oklch(0.60 0.12 18)}
+.btn-sm{padding:5px 10px;font-size:11px}
+
+/* ── Message Flow ────────────────────────────────────────────────── */
+.msg-log{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.msg{padding:10px 14px;font-size:12px;line-height:1.6;max-width:92%;animation:msgFadeIn .3s ease}
+@keyframes msgFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.msg.user{align-self:flex-end;background:oklch(0.18 0.01 60);border:1px solid oklch(1 0 0/.08);
+  color:oklch(0.85 0.003 110);border-radius:0}
+.msg.system{align-self:flex-start;background:oklch(0.14 0.005 60);border:1px solid oklch(1 0 0/.05);
+  color:oklch(0.68 0.005 110);border-radius:0}
+.msg.skill-card{align-self:stretch;background:oklch(0.15 0.008 60);border:1px solid oklch(0.52 0.04 160/.2);
+  color:oklch(0.82 0.003 110);padding:12px 14px}
+.msg.skill-card .sc-inline-name{font-weight:600;font-size:13px;margin-bottom:6px;color:oklch(0.88 0.003 110)}
+.msg.skill-card .sc-inline-actions{display:flex;gap:6px;margin-top:8px}
+.msg.skill-card .sc-inline-actions button{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid oklch(1 0 0/.1);
+  background:transparent;color:oklch(0.7 0.005 110);font-family:var(--font-sans);transition:.2s}
+.msg.skill-card .sc-inline-actions button:hover{background:oklch(1 0 0/.06);color:var(--shironeri)}
+.msg.skill-card .sc-inline-actions .btn-inline-approve{border-color:oklch(0.52 0.04 160/.3);color:var(--koke)}
+.msg.skill-card .sc-inline-actions .btn-inline-reject{border-color:oklch(0.48 0.07 22/.3);color:var(--shu)}
+.msg-time{font-size:9px;color:oklch(0.38 0.005 110);margin-top:4px;font-family:var(--font-mono)}
+
+/* ── Chat Input Bar ──────────────────────────────────────────────── */
+.chat-input-bar{display:flex;gap:8px;padding:12px 16px;border-top:1px solid oklch(1 0 0/.06);
+  background:oklch(0.11 0.005 60/.9);flex-shrink:0}
+.chat-input-bar textarea{flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);
+  color:oklch(0.88 0.003 110);padding:8px 12px;font-size:12px;font-family:var(--font-sans);
+  resize:none;outline:none;line-height:1.5;max-height:80px;min-height:36px}
+.chat-input-bar textarea:focus{border-color:var(--koke)}
+.chat-input-bar textarea::placeholder{color:oklch(0.4 0.005 110)}
+.chat-input-bar button{flex-shrink:0;padding:8px 14px;font-size:12px;background:var(--vessel-red);
+  color:var(--shironeri);border:none;cursor:pointer;font-family:var(--font-sans);font-weight:600;transition:.2s}
+.chat-input-bar button:hover{background:oklch(0.60 0.12 18)}
+.chat-input-bar button:disabled{opacity:0.4;cursor:not-allowed}
+
+/* ── Slash Command Menu ──────────────────────────────────────────── */
+.cmd-menu{position:absolute;bottom:100%;left:0;right:0;background:oklch(0.14 0.005 60);
+  border:1px solid oklch(1 0 0/.1);border-bottom:none;display:none;flex-direction:column;
+  box-shadow:0 -4px 16px oklch(0 0 0/.4);z-index:50;max-height:240px;overflow-y:auto}
+.cmd-menu.open{display:flex}
+.cmd-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:.15s;border-bottom:1px solid oklch(1 0 0/.04)}
+.cmd-item:hover,.cmd-item.active{background:oklch(0.18 0.008 160/.3)}
+.cmd-item .cmd-icon{font-size:16px;width:24px;text-align:center;flex-shrink:0}
+.cmd-item .cmd-body{flex:1;min-width:0}
+.cmd-item .cmd-name{font-size:12px;font-weight:600;color:oklch(0.88 0.003 110)}
+.cmd-item .cmd-name span{color:var(--koke);font-family:var(--font-mono)}
+.cmd-item .cmd-desc{font-size:10px;color:oklch(0.5 0.005 110);margin-top:2px}
+.cmd-item .cmd-shortcut{font-size:9px;color:oklch(0.4 0.005 110);font-family:var(--font-mono);flex-shrink:0}
+
+/* ── Right Panel: Review Queue ───────────────────────────────────── */
+.panel-right{grid-column:3;grid-row:2/4;display:flex;flex-direction:column;
+  background:oklch(0.12 0.005 60/.78);backdrop-filter:blur(14px);
+  border-left:1px solid oklch(1 0 0/.06);overflow:hidden;transition:transform .35s}
+.panel-right.collapsed{transform:translateX(100%)}
+
+.queue-tabs{display:flex;border-bottom:1px solid oklch(1 0 0/.06);padding:0 12px}
+.queue-tabs button{flex:1;padding:10px 8px;font-size:11px;font-weight:500;background:none;border:none;
+  color:oklch(0.5 0.005 110);cursor:pointer;border-bottom:2px solid transparent;font-family:var(--font-sans)}
+.queue-tabs button:hover{color:oklch(0.75 0.005 110)}
+.queue-tabs button.active{color:var(--shironeri);border-bottom-color:var(--koke)}
+
+.queue-list{flex:1;overflow-y:auto;padding:8px}
+.queue-item{display:flex;align-items:flex-start;gap:10px;padding:12px;margin-bottom:6px;
+  border:1px solid oklch(1 0 0/.06);cursor:pointer;transition:.2s;position:relative}
+.queue-item:hover{background:oklch(1 0 0/.04);border-color:oklch(1 0 0/.12)}
+.queue-item.selected{border-color:var(--koke);background:oklch(0.52 0.04 160/.06)}
+.queue-item .status-dot{font-size:18px;flex-shrink:0;line-height:1}
+.queue-item .qi-body{flex:1;min-width:0}
+.queue-item .qi-name{font-size:13px;font-weight:600;color:oklch(0.85 0.003 110);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.queue-item .qi-meta{font-size:11px;color:oklch(0.5 0.005 110);margin-top:3px;display:flex;gap:8px}
+.queue-item .qi-conf{font-family:var(--font-mono);font-size:10px}
+.queue-item .qi-actions{display:flex;gap:4px;flex-shrink:0}
+
+/* ── Center: Three.js viewport ───────────────────────────────────── */
+.viewport{grid-column:2;grid-row:2;pointer-events:auto;position:relative}
+
+/* ── Bottom: Skill Taxonomy Bar ──────────────────────────────────── */
+.taxonomy-bar{grid-column:2;grid-row:3;display:flex;flex-direction:column;
+  background:oklch(0.12 0.005 60/.78);backdrop-filter:blur(14px);
+  border-top:1px solid oklch(1 0 0/.06);max-height:220px;overflow:hidden;transition:max-height .35s}
+.taxonomy-bar.collapsed{max-height:36px}
+.taxonomy-header{display:flex;align-items:center;justify-content:space-between;padding:8px 20px;
+  cursor:pointer;min-height:36px}
+.taxonomy-header h3{font-size:12px;font-weight:600;color:oklch(0.7 0.005 110);display:flex;gap:10px;align-items:center}
+.taxonomy-body{display:flex;gap:12px;padding:0 20px 14px;overflow-x:auto}
+.taxonomy-body::-webkit-scrollbar{height:4px}
+.taxonomy-body::-webkit-scrollbar-thumb{background:oklch(1 0 0/.1)}
+
+/* Skill cards */
+.skill-card{min-width:150px;max-width:180px;padding:12px;border:1px solid oklch(1 0 0/.08);
+  flex-shrink:0;position:relative;transition:.2s}
+.skill-card:hover{border-color:oklch(1 0 0/.2);background:oklch(1 0 0/.03)}
+.skill-card .sc-icon{font-size:20px;margin-bottom:6px}
+.skill-card .sc-name{font-size:12px;font-weight:600;color:oklch(0.85 0.003 110);margin-bottom:4px}
+.skill-card .sc-desc{font-size:10px;color:oklch(0.5 0.005 110);line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.skill-card .sc-type{position:absolute;top:6px;right:8px;font-size:9px;font-weight:700;
+  padding:2px 6px;letter-spacing:.5px;text-transform:uppercase;font-family:var(--font-mono)}
+.skill-card.atomic .sc-type{color:var(--atomic-green);border:1px solid oklch(0.58 0.08 155/.3)}
+.skill-card.trait .sc-type{color:var(--trait-amber);border:1px solid oklch(0.62 0.10 70/.3)}
+.skill-card.composite .sc-type{color:var(--composite-violet);border:1px solid oklch(0.52 0.10 300/.3)}
+.skill-card .sc-source{font-size:9px;color:oklch(0.4 0.005 110);margin-top:6px;font-family:var(--font-mono)}
+
+/* ── Detail Modal ────────────────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;z-index:100;background:oklch(0 0 0/.6);backdrop-filter:blur(6px);
+  display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:oklch(0.14 0.005 60);border:1px solid oklch(1 0 0/.1);width:min(900px,90vw);
+  max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;
+  border-bottom:1px solid oklch(1 0 0/.06)}
+.modal-header h2{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.modal-header .close-btn{background:none;border:none;color:oklch(0.5 0.005 110);font-size:18px;cursor:pointer;padding:4px 8px}
+.modal-header .close-btn:hover{color:var(--shironeri)}
+.modal-body{flex:1;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.modal-col{padding:16px 20px;overflow-y:auto}
+.modal-col:first-child{border-right:1px solid oklch(1 0 0/.06)}
+.modal-col h4{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:oklch(0.5 0.005 110);
+  margin-bottom:10px;font-weight:600}
+.modal-col .source-text{font-size:12px;line-height:1.7;color:oklch(0.75 0.005 110);
+  font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all}
+.modal-field{margin-bottom:14px}
+.modal-field label{font-size:11px;color:oklch(0.55 0.005 110);display:block;margin-bottom:4px;font-weight:500}
+.modal-field input,.modal-field select,.modal-field textarea{width:100%;background:oklch(0.16 0.005 60);
+  border:1px solid oklch(1 0 0/.1);color:oklch(0.85 0.003 110);padding:8px 10px;font-size:12px;
+  font-family:var(--font-sans);outline:none}
+.modal-field textarea{height:100px;font-family:var(--font-mono);resize:vertical;line-height:1.5}
+.modal-field input:focus,.modal-field select:focus,.modal-field textarea:focus{border-color:var(--koke)}
+.modal-footer{display:flex;justify-content:space-between;padding:14px 20px;border-top:1px solid oklch(1 0 0/.06)}
+.modal-footer .btn-approve{background:var(--koke);color:var(--shironeri);border-color:transparent}
+.modal-footer .btn-reject{color:var(--shu);border-color:oklch(0.48 0.07 22/.3)}
+.modal-tab{background:none;border:none;color:oklch(0.5 0.005 110);font-size:11px;padding:8px 16px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;transition:all .2s}
+.modal-tab:hover{color:oklch(0.7 0.005 110)}
+.modal-tab.active{color:oklch(0.85 0.03 80);border-bottom-color:oklch(0.7 0.06 80)}
+.modal-tab-content{display:none}
+.modal-tab-content.active{display:flex}
+.confidence-bar{height:6px;background:oklch(1 0 0/.08);margin-top:4px;position:relative;overflow:hidden}
+.confidence-fill{height:100%;transition:width .5s}
+
+/* ── Toast ───────────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 24px;
+  background:oklch(0.16 0.005 60);border:1px solid oklch(1 0 0/.1);font-size:12px;
+  color:oklch(0.82 0.003 110);z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.toast-error{border-color:oklch(0.55 0.12 18/.5);color:oklch(0.75 0.08 18)}
+.toast.toast-info{border-color:oklch(0.55 0.10 250/.5);color:oklch(0.75 0.08 250)}
+
+/* ── Extraction Progress Overlay ─────────────────────────────────── */
+.extract-progress{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);
+  background:oklch(0.12 0.005 60/.85);backdrop-filter:blur(10px);border:1px solid oklch(1 0 0/.08);
+  padding:12px 24px;display:none;align-items:center;gap:14px;z-index:15;pointer-events:auto}
+.extract-progress.visible{display:flex}
+.extract-progress .ep-icon{font-size:20px;animation:pulse 1.5s ease-in-out infinite}
+.extract-progress .ep-text{font-size:12px;color:oklch(0.7 0.005 110)}
+.extract-progress .ep-bar{width:120px;height:4px;background:oklch(1 0 0/.08);overflow:hidden}
+.extract-progress .ep-fill{height:100%;background:var(--vessel-red);transition:width .3s;animation:flowPulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes flowPulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* ── Panel toggles ───────────────────────────────────────────────── */
+.toggle-btn{position:fixed;z-index:20;background:oklch(0.14 0.005 60/.85);border:1px solid oklch(1 0 0/.1);
+  color:oklch(0.6 0.005 110);width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:14px;transition:.2s}
+.toggle-btn:hover{color:var(--shironeri);background:oklch(0.18 0.005 60)}
+#toggle-left{top:50%;left:360px;transform:translateY(-50%)}
+#toggle-right{top:50%;right:380px;transform:translateY(-50%)}
+.panel-left.collapsed~#toggle-left{left:0}
+.panel-right.collapsed~#toggle-right{right:0}
+
+/* ── Scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:oklch(1 0 0/.1)}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+
+<body>
+<canvas id="three-canvas"></canvas>
+
+<div class="overlay">
+  <!-- ── Topbar ──────────────────────────────────────────────── -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="seal">萃</span>
+      <h1>技能萃取工坊</h1>
+    </div>
+    <div class="topbar-nav">
+      <a href="plaza.html">议事厅</a>
+      <a href="agent-team-config.html">智能体</a>
+      <a href="skill-extract.html" class="active">萃取</a>
+      <a href="system-evolution.html">演进</a>
+    </div>
+    <div class="topbar-right">
+      <select id="team-select" title="选择团队"></select>
+    </div>
+  </div>
+
+  <!-- ── Left Panel: Message Flow + Submission ────────────────────── -->
+  <div class="panel-left" id="panel-left">
+    <div class="panel-section collapsed" id="knowledge-input-section">
+      <h3 onclick="toggleKnowledgeInput()"><span class="icon">📎</span> 知识投入<span class="collapse-arrow">▼</span></h3>
+      <div class="submit-form">
+        <textarea id="source-text" placeholder="粘贴对话记录、文档片段、或任何包含可萃取技能的知识文本…"></textarea>
+        <div class="submit-row">
+          <input id="source-title" type="text" placeholder="来源标题（可选）"/>
+          <select id="source-type">
+            <option value="chat">对话</option>
+            <option value="document">文档</option>
+            <option value="manual">手动</option>
+          </select>
+        </div>
+        <div class="file-drop" id="file-drop">
+          📄 拖拽文件到此处，或点击选择 (.txt / .md / .json / .pdf)
+          <input type="file" id="file-input" accept=".txt,.md,.json,.log,.pdf" style="display:none"/>
+        </div>
+        <div class="submit-row" style="margin-top:8px">
+          <button class="btn btn-extract" id="btn-extract" onclick="startExtraction()">🩸 开始萃取</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 消息流 — 萃取过程的叙事通道 -->
+    <div class="msg-log" id="msg-log">
+      <div class="msg system">
+        <div>🧬 技能萃取工坊已就绪。在下方输入框粘贴知识文本，或展开上方「知识投入」区导入文件。</div>
+        <div class="msg-time">系统</div>
+      </div>
+    </div>
+
+    <!-- 底部输入框 — >200字自动触发萃取 -->
+    <div class="chat-input-bar" style="position:relative">
+      <div class="cmd-menu" id="cmd-menu"></div>
+      <textarea id="chat-input" placeholder="输入知识文本或指令（/extract, /evolve, /share）…&#10;Enter 发送 · Shift+Enter 换行 · >200字自动萃取" rows="1"></textarea>
+      <button id="btn-send" onclick="handleChatSend()">发送</button>
+    </div>
+  </div>
+
+  <!-- ── Center Viewport (Three.js) ─────────────────────────── -->
+  <div class="viewport" id="viewport">
+    <div class="extract-progress" id="extract-progress">
+      <span class="ep-icon">🩸</span>
+      <span class="ep-text" id="ep-text">正在萃取…</span>
+      <div class="ep-bar"><div class="ep-fill" id="ep-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- ── Right Panel: Review Queue ───────────────────────────── -->
+  <div class="panel-right" id="panel-right">
+    <div class="panel-section" style="padding-bottom:0">
+      <h3><span class="icon">📋</span> 审核队列</h3>
+    </div>
+    <div class="queue-tabs">
+      <button class="active" data-filter="" onclick="setQueueFilter(this,'')">全部</button>
+      <button data-filter="pending" onclick="setQueueFilter(this,'pending')">待处理</button>
+      <button data-filter="ready_for_review" onclick="setQueueFilter(this,'ready_for_review')">待审核</button>
+      <button data-filter="approved" onclick="setQueueFilter(this,'approved')">已通过</button>
+      <button data-filter="rejected" onclick="setQueueFilter(this,'rejected')">已拒绝</button>
+    </div>
+    <div class="queue-list" id="queue-list">
+      <div style="text-align:center;padding:40px 20px;color:oklch(0.4 0.005 110);font-size:12px">
+        暂无萃取项目<br><span style="font-size:10px;margin-top:4px;display:block">提交知识文本后，萃取结果将出现在此</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Bottom: Taxonomy Bar (双标签: 我的技能 / 公共技能库) ──── -->
+  <div class="taxonomy-bar" id="taxonomy-bar">
+    <div class="taxonomy-header">
+      <div style="display:flex;gap:2px">
+        <button class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--koke);color:var(--shironeri);cursor:pointer;font-family:var(--font-sans)">🔬 我的技能</button>
+        <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌐 公共技能库</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:10px;color:var(--atomic-green)">◉ <b id="count-atomic">0</b></span>
+        <span style="font-size:10px;color:var(--trait-amber)">◈ <b id="count-trait">0</b></span>
+        <span style="font-size:10px;color:var(--composite-violet)">◇ <b id="count-composite">0</b></span>
+        <button onclick="toggleViewMode()" id="btn-view-mode" style="padding:3px 8px;font-size:10px;background:none;border:1px solid oklch(1 0 0/.1);color:oklch(0.55 0.005 110);cursor:pointer;font-family:var(--font-sans)" title="切换萃取视角/全景视角">🔬</button>
+        <span id="taxonomy-toggle" onclick="toggleTaxonomy()" style="font-size:10px;color:oklch(0.4 0.005 110);cursor:pointer">▼</span>
+      </div>
+    </div>
+    <div class="taxonomy-body" id="taxonomy-body"></div>
+    <div class="taxonomy-body" id="taxonomy-body-public" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ── Detail Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-detail">
+  <div class="modal">
+    <div class="modal-header">
+      <h2><span id="modal-icon">⚡</span> <span id="modal-title">技能详情</span></h2>
+      <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <!-- Modal tabs -->
+    <div style="display:flex;gap:0;border-bottom:1px solid oklch(0.3 0.005 110);margin:0 24px">
+      <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')">📝 编辑</button>
+      <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')">🧬 演化</button>
+      <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')">🔬 验证</button>
+      <button class="modal-tab" data-tab="usage" onclick="switchModalTab('usage')">📊 效果</button>
+      <button class="modal-tab" data-tab="version" onclick="switchModalTab('version')">📜 版本</button>
+    </div>
+    <!-- Tab: Edit (default) -->
+    <div class="modal-body modal-tab-content active" id="tab-edit">
+      <div class="modal-col">
+        <h4>🩸 原始来源（血管侧）</h4>
+        <div class="source-text" id="modal-source"></div>
+      </div>
+      <div class="modal-col">
+        <h4>⚡ LLM 萃取草稿（神经侧）</h4>
+        <div class="modal-field">
+          <label>名称</label>
+          <input id="edit-name" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label>描述</label>
+          <textarea id="edit-desc"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>类别</label>
+          <select id="edit-category">
+            <option value="general">通用</option>
+            <option value="research">研究</option>
+            <option value="automation">自动化</option>
+            <option value="domain_knowledge">领域知识</option>
+            <option value="digital_twin">数字孪生</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label>图标</label>
+          <input id="edit-icon" type="text" maxlength="4"/>
+        </div>
+        <div class="modal-field">
+          <label>Slug</label>
+          <input id="edit-slug" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label>指令 (Instructions)</label>
+          <textarea id="edit-instructions" style="height:120px"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>依赖工具 (逗号分隔)</label>
+          <input id="edit-tools" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label>置信度</label>
+          <div class="confidence-bar"><div class="confidence-fill" id="edit-confidence-bar"></div></div>
+          <span id="edit-confidence-val" style="font-size:10px;font-family:var(--font-mono);color:oklch(0.5 0.005 110)"></span>
+          <span id="edit-scope-badge" style="margin-left:12px"></span>
+        </div>
+      </div>
+    </div>
+    <!-- Tab: Evolve -->
+    <div class="modal-body modal-tab-content" id="tab-evolve" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">🧬 技能演化</h4>
+        <button class="btn btn-approve" onclick="triggerEvolve()" id="btn-evolve">⚡ 触发演化</button>
+      </div>
+      <div id="evolve-stats" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono);color:oklch(0.6 0.005 110)"></div>
+      <div id="evolve-diff" style="display:none;border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110)">📊 指令对比 (旧 → 新)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:oklch(0.2 0.005 110)">
+          <pre id="evolve-old" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.01 0/0.5);color:oklch(0.6 0.02 20);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+          <pre id="evolve-new" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.02 140/0.3);color:oklch(0.7 0.02 140);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+        </div>
+        <div style="padding:8px 12px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-reject" onclick="discardEvolution()">❌ 丢弃</button>
+          <button class="btn btn-approve" onclick="acceptEvolution()">✅ 接受演化</button>
+        </div>
+      </div>
+      <div id="evolve-suggestions" style="font-size:11px"></div>
+    </div>
+    <!-- Tab: Verify -->
+    <div class="modal-body modal-tab-content" id="tab-verify" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">🔬 技能验证</h4>
+        <button class="btn" onclick="triggerVerify()" id="btn-verify">🧪 开始验证</button>
+      </div>
+      <div id="verify-status" style="padding:16px;text-align:center;font-size:12px;color:oklch(0.5 0.005 110)">
+        尚未执行验证
+      </div>
+      <div id="verify-results" style="display:none">
+        <div style="display:flex;gap:16px;margin-bottom:12px">
+          <div id="verify-pass-rate" style="font-size:28px;font-family:var(--font-mono);color:oklch(0.7 0.1 140)"></div>
+          <div style="font-size:11px;color:oklch(0.5 0.005 110);display:flex;flex-direction:column;justify-content:center">
+            <div>通过: <span id="verify-passed" style="color:oklch(0.7 0.1 140)">0</span></div>
+            <div>失败: <span id="verify-failed" style="color:oklch(0.7 0.1 25)">0</span></div>
+          </div>
+        </div>
+        <div id="verify-details" style="font-size:10px;font-family:var(--font-mono)"></div>
+      </div>
+    </div>
+    <!-- Tab: Usage / Before-After -->
+    <div class="modal-body modal-tab-content" id="tab-usage" style="display:none;flex-direction:column;gap:16px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">📊 使用效果 (Before → After)</h4>
+        <button class="btn btn-sm" onclick="refreshUsageTab()" id="btn-refresh-usage">🔄 刷新</button>
+      </div>
+      <!-- Usage metrics row -->
+      <div id="usage-metrics" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"></div>
+      <!-- Before / After comparison -->
+      <div style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;

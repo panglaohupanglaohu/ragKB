@@ -1,0 +1,26 @@
+{
+  "step": "pm_decompose",
+  "task_id": "3f9494e1-96d",
+  "timestamp": "2026-05-09T15:50:56",
+  "char_count": 69686,
+  "decisions": [],
+  "files_changed": [],
+  "subtasks": [
+    "*PM:** AgentsGroup2026 项目组  ",
+    "*状态:** 待开发  ",
+    "*对象:** 全栈开发、架构师、研究员  ",
+    "**模板提取**  ",
+    "**动态变量剔除**  ",
+    "**精确哈希**  ",
+    "**自检与稳定性监控埋点**  ",
+    "读取 `agents/ab_testing.py`、`agents/models.py`、`agents/team_store.py` 中的 Agent 配置与行为快照。",
+    "输出指纹给 `ab_testing` 用于变异率计算。",
+    "通过 `monitoring/collector.py` 上报稳定性指标。",
+    "*负责人:** 架构师（可兼研究员）  ",
+    "*预估工时:** 0.5 人天  ",
+    "*前置依赖:** 无  ",
+    "`fingerprint_interface.py` 或集成于 `models.py` 中的协议定义",
+    "数据流图更新（Markdown）"
+  ],
+  "prose_summary": "任务: 实现指纹计算模块：模板提取、动态变量剔除、精确哈希、自检与稳定性监控埋点\n步骤: pm_decompose\n📋 任务: 3f9494e1-96d\n🤖 Agent: PM (project_manager)\n📂 工作目录: /Users/panglaohu/Downloads/AgentsGroup2026\n🔧 执行方式: DeepSeek API (直连)\n────────────────────────────────────────────────────────────\n你是 AgentsGroup2026 系统的 PM (project_manager)。\n你是项目经理 (PM)。请对以下任务进行分解和规划:\n实现指纹计算模块：模板提取、动态变量剔除、精确哈希、自检与稳定性监控埋点\n## 📂 项目上下文 (系统自动预加载)\n### 项目文件结构 (src/ 目录)\n### 文件: `src/backend/startup_validator.py`\n### 文件: `src/backend/tests/conftest.py`\n### 文件: `src/backend/agents/skill_registry.py`"
+}

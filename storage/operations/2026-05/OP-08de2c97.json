@@ -1,0 +1,17 @@
+{
+  "operation_id": "OP-08de2c97",
+  "operation_type": "tool_call",
+  "agent_id": "agent-001",
+  "team_id": "build-team",
+  "timestamp": "2026-05-10T11:32:34.196368+00:00",
+  "summary": "Test async append",
+  "detail": {
+    "tool": "read_file"
+  },
+  "parent_operation_id": null,
+  "session_id": null,
+  "task_id": null,
+  "operation_hash": "009446c1cb1ef1d0",
+  "schema_version": 1,
+  "idempotency_key": null
+}

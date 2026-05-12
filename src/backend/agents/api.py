@@ -74,20 +74,24 @@ _skill_registry: Optional[SkillRegistry] = None
 # ── Model Pool Persistence ──
 import os as _mp_os, json as _mp_json
 
-_MODEL_POOL_PATH = _mp_os.path.join(
+_CONFIG_DIR = _mp_os.path.join(
     _mp_os.path.dirname(_mp_os.path.dirname(_mp_os.path.dirname(
         _mp_os.path.dirname(_mp_os.path.abspath(__file__))))),
-    "config", "model_pool.json"
+    "config",
 )
+_MODEL_POOL_PATH = _mp_os.path.join(_CONFIG_DIR, "model_pool.json")
+_API_KEYS_PATH = _mp_os.path.join(_CONFIG_DIR, ".api_keys.json")
 
 
 def _save_model_pool() -> None:
-    """Persist all teams' model pool to config/model_pool.json."""
+    """Persist model pool: config to model_pool.json, secrets to .api_keys.json."""
     if _team_manager is None:
         return
     data: Dict[str, Any] = {}
+    secrets: Dict[str, Dict[str, str]] = {}
     for team in _team_manager.list_teams():
         team_models = {}
+        team_secrets = {}
         for m in team.models.values():
             team_models[m.model_id] = {
                 "model_id": m.model_id,
@@ -97,20 +101,37 @@ def _save_model_pool() -> None:
                 "temperature": m.temperature,
                 "is_default": m.is_default,
                 "enabled": m.enabled,
-                "api_key": m.api_key,
+                "api_key": "",
                 "api_base_url": m.api_base_url,
             }
+            if m.api_key:
+                team_secrets[m.model_id] = m.api_key
         data[team.team_id] = team_models
+        if team_secrets:
+            secrets[team.team_id] = team_secrets
     try:
-        _mp_os.makedirs(_mp_os.path.dirname(_MODEL_POOL_PATH), exist_ok=True)
+        _mp_os.makedirs(_CONFIG_DIR, exist_ok=True)
         with open(_MODEL_POOL_PATH, "w", encoding="utf-8") as f:
             _mp_json.dump(data, f, ensure_ascii=False, indent=2)
+        with open(_API_KEYS_PATH, "w", encoding="utf-8") as f:
+            _mp_json.dump(secrets, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
 
+def _load_api_keys() -> Dict[str, Dict[str, str]]:
+    """Load API keys from .api_keys.json (gitignored secrets file)."""
+    if not _mp_os.path.isfile(_API_KEYS_PATH):
+        return {}
+    try:
+        with open(_API_KEYS_PATH, "r", encoding="utf-8") as f:
+            return _mp_json.load(f)
+    except Exception:
+        return {}
+
+
 def _load_model_pool(tm: TeamManager) -> None:
-    """Load persisted model pool from config/model_pool.json, overriding defaults."""
+    """Load persisted model pool from config/model_pool.json + .api_keys.json."""
     if not _mp_os.path.isfile(_MODEL_POOL_PATH):
         return
     try:
@@ -118,13 +139,16 @@ def _load_model_pool(tm: TeamManager) -> None:
             data = _mp_json.load(f)
     except Exception:
         return
+    secrets = _load_api_keys()
     for team in tm.list_teams():
         team_data = data.get(team.team_id)
         if not team_data:
             continue
+        team_secrets = secrets.get(team.team_id, {})
         # Replace the entire model pool with persisted version
         team.models.clear()
         for mid, mdata in team_data.items():
+            api_key = team_secrets.get(mid, mdata.get("api_key", ""))
             model = ModelConfig(
                 model_id=mdata.get("model_id", mid),
                 provider=mdata.get("provider", "deepseek"),
@@ -133,7 +157,7 @@ def _load_model_pool(tm: TeamManager) -> None:
                 temperature=mdata.get("temperature", 0.7),
                 is_default=mdata.get("is_default", False),
                 enabled=mdata.get("enabled", True),
-                api_key=mdata.get("api_key", ""),
+                api_key=api_key,
                 api_base_url=mdata.get("api_base_url", ""),
             )
             team.add_model(model)

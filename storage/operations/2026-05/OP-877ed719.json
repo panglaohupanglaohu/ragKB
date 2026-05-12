@@ -1,0 +1,18 @@
+{
+  "operation_id": "OP-877ed719",
+  "operation_type": "tool_call",
+  "agent_id": "dev-001",
+  "team_id": "build-team",
+  "timestamp": "2026-05-10T11:22:15.434363+00:00",
+  "summary": "Tool call: read_file",
+  "detail": {
+    "tool": "read_file",
+    "path": "src/main.py"
+  },
+  "parent_operation_id": null,
+  "session_id": "sess-abc",
+  "task_id": null,
+  "operation_hash": "9bc72030b7b7f97f",
+  "schema_version": 1,
+  "idempotency_key": "test-key-001"
+}

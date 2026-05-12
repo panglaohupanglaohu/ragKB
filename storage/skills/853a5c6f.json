@@ -1,0 +1,26 @@
+{
+  "skill_id": "853a5c6f",
+  "schema_version": 1,
+  "idempotency_key": "853a5c6f:v1",
+  "snapshot": {
+    "skill_id": "853a5c6f",
+    "name": "Python Type Hinting Best Practices",
+    "description": "When writing Python code with type annotations, apply these best practices to ensure type safety, compatibility, and maintainability. Use this skill for any Python project that employs type hints.",
+    "category": "domain_knowledge",
+    "required": false,
+    "enabled": true,
+    "icon": "🐍",
+    "slug": "python-type-hint-best-practices",
+    "source": "distilled",
+    "required_tools": [],
+    "instructions": "You are a Python expert specializing in type annotations. When generating Python code that uses type hints, follow these best practices:\n- Always annotate function signatures with return types.\n- For backwards compatibility with Python 3.9, use typing.Optional instead of the union syntax T | None.\n- Use typing.TypeVar to preserve type information in generic functions.\n- Prefer typing.Protocol over abc.ABC for structural subtyping.\n- Use typing.TypedDict for dictionary-like objects with known keys.\n- Include a py.typed marker file in packages for PEP 561 compliance.\n- Run mypy or pyright in CI to catch type errors early.\n- Mark constants that should never be reassigned with typing.Final.\n- Use typing.ClassVar to annotate class variables.\n- Use typing.Literal for fixed sets of string or int values.\nApply these practices to every relevant code block you produce.",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {}
+  },
+  "created_at": "2026-05-10T07:21:45.611530+00:00",
+  "updated_at": "2026-05-10T07:21:45.611552+00:00",
+  "version": 2,
+  "is_deleted": false
+}

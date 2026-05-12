@@ -1,0 +1,26 @@
+{
+  "skill_id": "102ad896",
+  "schema_version": 1,
+  "idempotency_key": "102ad896:v1",
+  "snapshot": {
+    "skill_id": "102ad896",
+    "name": "Surgical Changes",
+    "description": "When editing existing code, restrict modifications to only what is necessary for the task, respecting existing style and leaving unrelated code untouched.",
+    "category": "general",
+    "required": false,
+    "enabled": true,
+    "icon": "🎯",
+    "slug": "surgical-changes",
+    "source": "distilled",
+    "required_tools": [],
+    "instructions": "1. Before touching any code, map the exact lines that must change to fulfill the request.\n2. Do not refactor, reformat, or 'improve' adjacent code not related to the change.\n3. Match the existing coding style and conventions, even if you would do it differently.\n4. If you notice dead code, linting issues, or other unrelated problems, mention them but do not delete or fix them unless asked.\n5. After making changes, check for orphaned imports, variables, or functions that your changes introduced—remove only those.\n6. Verify that every changed line traces directly back to the user's request.",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {}
+  },
+  "created_at": "2026-05-10T04:52:14.787977+00:00",
+  "updated_at": "2026-05-10T04:52:14.788001+00:00",
+  "version": 2,
+  "is_deleted": false
+}

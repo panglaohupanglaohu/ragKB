@@ -1,0 +1,26 @@
+{
+  "skill_id": "271def4c",
+  "schema_version": 1,
+  "idempotency_key": "271def4c:v1",
+  "snapshot": {
+    "skill_id": "271def4c",
+    "name": "多步任务验证节点拆解",
+    "description": "将长链条任务切割为带独立验证点的微步骤，确保关键路径上的每个决策点都可控。适用于复杂项目推进、自动化流程设计及SOP执行。",
+    "category": "automation",
+    "required": false,
+    "enabled": true,
+    "icon": "🔗",
+    "slug": "multi-step-verification-breakdown",
+    "source": "distilled",
+    "required_tools": [],
+    "instructions": "TEST INSTRUCTIONS",
+    "config_schema": {},
+    "config": {},
+    "is_default": false,
+    "metadata": {}
+  },
+  "created_at": "2026-05-11T15:12:15.388704+00:00",
+  "updated_at": "2026-05-11T15:12:15.388715+00:00",
+  "version": 2,
+  "is_deleted": false
+}
