@@ -52,6 +52,11 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .topbar-right{display:flex;align-items:center;gap:10px}
 .topbar-right select{background:#21272D;border:1px solid #4A535C60;\n  color:#D7DEE4;padding:6px 12px;font-size:12px;font-family:var(--font-sans);cursor:pointer;outline:none}
 .topbar-right select:focus{border-color:var(--koke)}
+.topbar-right .team-chips{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.topbar-right .team-chip{padding:4px 12px;font-size:11px;background:#21272D;border:1px solid #4A535C60;
+  color:#D7DEE4;cursor:pointer;transition:.2s;font-family:var(--font-sans)}
+.topbar-right .team-chip:hover{border-color:var(--koke);color:var(--shironeri)}
+.topbar-right .team-chip.active{border-color:var(--koke);color:var(--shironeri);background:oklch(0.52 0.04 160/.15)}
 .topbar-nav{display:flex;gap:4px}
 .topbar-nav a{padding:6px 14px;font-size:12px;color:oklch(0.65 0.005 110);cursor:pointer;
   border:1px solid transparent;transition:.2s;text-decoration:none}
@@ -476,7 +481,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <a href="system-evolution.html">演进</a>
     </div>
     <div class="topbar-right">
-      <select id="team-select" title="选择团队"></select>
+      <div class="team-chips" id="team-chips"></div>
     </div>
   </div>
 
@@ -589,8 +594,9 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   <div class="taxonomy-bar" id="taxonomy-bar">
     <div class="taxonomy-header">
       <div style="display:flex;gap:2px">
-        <button class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--koke);color:var(--shironeri);cursor:pointer;font-family:var(--font-sans)">🔬 特质技能</button>
-        <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌐 公共技能</button>
+        <button class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--koke);color:var(--shironeri);cursor:pointer;font-family:var(--font-sans)">🎯 特质技能</button>
+        <button class="taxonomy-tab" data-tab="reserve" onclick="switchTaxonomyTab(this,'reserve')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">📦 储备技能</button>
+        <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌍 公共技能</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <span style="font-size:10px;color:var(--atomic-green)">◉ <b id="count-atomic">0</b></span>
@@ -940,9 +946,21 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <div>
         <button class="btn btn-reject" onclick="rejectItem()">❌ 拒绝</button>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn" onclick="saveEdits()">💾 保存编辑</button>
-        <button class="btn btn-approve" onclick="approveItem()">✅ 批准入库</button>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="approve-agent-select" style="display:none;background:#21272D;border:1px solid oklch(0.62 0.10 70/.4);color:#D7DEE4;padding:5px 8px;font-size:11px;font-family:var(--font-sans);outline:none;max-width:140px">
+          </select>
+          <button class="btn btn-approve" onclick="approveAs('trait')" style="background:oklch(0.62 0.10 70/.2);border-color:oklch(0.62 0.10 70/.4);color:oklch(0.82 0.08 70)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            特质技能</button>
+        </div>
+        <button class="btn btn-approve" onclick="approveAs('public')" style="background:oklch(0.55 0.10 250/.2);border-color:oklch(0.55 0.10 250/.4);color:oklch(0.78 0.08 250)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          公共技能</button>
+        <button class="btn btn-approve" onclick="approveAs('reserve')" style="background:oklch(0.52 0.04 160/.2);border-color:oklch(0.52 0.04 160/.4);color:oklch(0.72 0.06 160)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+          储备技能</button>
       </div>
     </div>
   </div>
@@ -1079,6 +1097,10 @@ let extractParticleGeo, extractParticleData = [];
 const EXTRACT_PARTICLE_COUNT = 80;
 const myceliumColor = new THREE.Color(0xD4A574);
 
+// ── Team/Agent data ─────────────────────────────────────────────
+let allTeams = [];
+let teamAgents = {}; // { team_id: [{agent_id, name, role}, ...] }
+
 // ── API ─────────────────────────────────────────────────────────
 const API_BASE = '/api/v1/agent-config';
 let currentTeamId = '';
@@ -1107,30 +1129,35 @@ async function api(path, opts = {}) {
 async function loadTeams() {
   const teams = await api('/teams');
   if (!teams) return;
-  const sel = document.getElementById('team-select');
-  sel.innerHTML = '';
-  teams.forEach(t => {
-    const o = document.createElement('option');
-    o.value = t.team_id;
-    o.textContent = `${t.name} (${t.agent_count}人)`;
-    sel.appendChild(o);
-  });
+  allTeams = teams;
+
+  // Check for participant teams from plaza (via sessionStorage)
+  let participantTeamIds = null;
+  const storedTeams = sessionStorage.getItem('extract_teams');
+  if (storedTeams) {
+    try { participantTeamIds = JSON.parse(storedTeams); } catch(e) {}
+    sessionStorage.removeItem('extract_teams');
+  }
+
+  // Render team chips
+  const container = document.getElementById('team-chips');
+  const displayTeams = participantTeamIds
+    ? teams.filter(t => participantTeamIds.includes(t.team_id))
+    : teams;
+  if (!displayTeams.length && teams.length) displayTeams.push(...teams);
+
+  container.innerHTML = displayTeams.map(t =>
+    `<span class="team-chip" data-tid="${t.team_id}" onclick="selectTeamChip(this,'${t.team_id}')">${t.name}</span>`
+  ).join('');
+
   // Check URL params for team_id
   const params = new URLSearchParams(location.search);
-  if (params.get('team_id') && teams.find(t => t.team_id === params.get('team_id'))) {
-    sel.value = params.get('team_id');
-  }
-  currentTeamId = sel.value;
-  sel.addEventListener('change', () => {
-    currentTeamId = sel.value;
-    connectSSE();
-    loadQueue();
-    loadSkills();
-  });
-  if (currentTeamId) {
-    connectSSE();
-    loadQueue();
-    loadSkills();
+  const urlTeam = params.get('team_id');
+  if (urlTeam && displayTeams.find(t => t.team_id === urlTeam)) {
+    selectTeamChip(container.querySelector(`[data-tid="${urlTeam}"]`), urlTeam);
+  } else if (displayTeams.length) {
+    const first = displayTeams[0];
+    selectTeamChip(container.querySelector(`[data-tid="${first.team_id}"]`), first.team_id);
   }
 
   // Pre-fill source text from URL params or sessionStorage (for plaza jump)
@@ -1149,11 +1176,37 @@ async function loadTeams() {
     document.getElementById('source-text').value = decodeURIComponent(params.get('source_text'));
     document.getElementById('source-title').value = decodeURIComponent(params.get('source_title') || '');
     document.getElementById('source-type').value = params.get('source_type') || 'chat';
-    // Expand knowledge input section so user can see it
     document.getElementById('knowledge-input-section').classList.remove('collapsed');
-    // Auto-trigger extraction after a short delay
     setTimeout(() => startExtraction(), 500);
   }
+}
+
+window.selectTeamChip = function(el, teamId) {
+  if (!el) return;
+  document.querySelectorAll('.team-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  currentTeamId = teamId;
+  loadTeamAgents(teamId);
+  connectSSE();
+  loadQueue();
+  loadSkills();
+};
+
+async function loadTeamAgents(teamId) {
+  const agents = await api(`/teams/${teamId}/agents`);
+  if (agents) {
+    teamAgents[teamId] = agents;
+    updateAgentSelect();
+  }
+}
+
+function updateAgentSelect() {
+  const sel = document.getElementById('approve-agent-select');
+  if (!sel) return;
+  const agents = teamAgents[currentTeamId] || [];
+  sel.innerHTML = agents.map(a =>
+    `<option value="${a.agent_id}">${a.name || a.agent_id}${a.role ? ' (' + a.role + ')' : ''}</option>`
+  ).join('');
 }
 
 // ── SSE Connection ──────────────────────────────────────────────
@@ -1315,10 +1368,13 @@ function renderQueue() {
   }
 
   el.innerHTML = filtered.map(item => {
-    const scopeIs = item.draft_scope || 'personal';
-    const scopeBadge = scopeIs === 'public'
-      ? '<span style="font-size:9px;padding:1px 5px;background:oklch(0.55 0.12 250/.2);color:oklch(0.7 0.1 250);border-radius:3px;margin-left:6px">🌐 公共</span>'
-      : '<span style="font-size:9px;padding:1px 5px;background:oklch(0.56 0.05 70/.15);color:oklch(0.7 0.04 70);border-radius:3px;margin-left:6px">🔒 私有</span>';
+    const scopeIs = item.skill_type || item.draft_scope || 'pending';
+    const scopeBadges = {
+      trait: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.62 0.10 70/.15);color:oklch(0.78 0.08 70);border-radius:3px;margin-left:6px">🎯 特质</span>',
+      public: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.55 0.10 250/.15);color:oklch(0.78 0.08 250);border-radius:3px;margin-left:6px">🌍 公共</span>',
+      reserve: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.52 0.04 160/.15);color:oklch(0.72 0.06 160);border-radius:3px;margin-left:6px">📦 储备</span>',
+    };
+    const scopeBadge = scopeBadges[scopeIs] || '';
     const stageMap = { pending:'①采集', llm_prefilling:'①采集', ready_for_review:'②补全', approved:'④发布', rejected:'①采集' };
     const stageTag = stageMap[item.status] || '①采集';
     return `
@@ -1334,8 +1390,10 @@ function renderQueue() {
         </div>
       </div>
       <div class="qi-actions">
-        ${item.status === 'ready_for_review' ? `<button class="btn btn-sm" onclick="event.stopPropagation();window._quickApprove('${item.item_id}')" title="批准为特质技能">✅</button>` : ''}
-        ${item.status === 'ready_for_review' && scopeIs === 'public' ? `<button class="btn btn-sm" onclick="event.stopPropagation();window._approveAndPublish('${item.item_id}')" title="批准并发布到公共库" style="font-size:11px">🌐</button>` : ''}
+        ${item.status === 'ready_for_review' ? `
+          <button class="btn btn-sm" onclick="event.stopPropagation();window._quickApprove('${item.item_id}','reserve')" title="储备技能" style="font-size:11px">📦</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();window._quickApprove('${item.item_id}','public')" title="公共技能" style="font-size:11px">🌍</button>
+        ` : ''}
         <button class="btn btn-sm" onclick="event.stopPropagation();window._deleteItem('${item.item_id}')" title="删除" style="color:var(--shu);opacity:0.5">🗑️</button>
       </div>
     </div>
@@ -1429,9 +1487,18 @@ window._openDetail = async function(itemId) {
   const scopeEl = document.getElementById('edit-scope-badge');
   if (scopeEl) {
     const sc = detail.draft_scope || 'personal';
-    scopeEl.innerHTML = sc === 'public'
-      ? '<span style="display:inline-block;font-size:10px;padding:2px 8px;background:oklch(0.55 0.12 250/.2);color:oklch(0.7 0.1 250);border-radius:3px">🌐 建议公开发布</span>'
-      : '<span style="display:inline-block;font-size:10px;padding:2px 8px;background:oklch(0.56 0.05 70/.15);color:oklch(0.7 0.04 70);border-radius:3px">🔒 建议作为私有技能</span>';
+    const scopeLabels = {
+      public: '<span style="display:inline-block;font-size:10px;padding:2px 8px;background:oklch(0.55 0.10 250/.15);color:oklch(0.78 0.08 250);border-radius:3px">🌍 建议公共技能</span>',
+      personal: '<span style="display:inline-block;font-size:10px;padding:2px 8px;background:oklch(0.62 0.10 70/.15);color:oklch(0.78 0.08 70);border-radius:3px">🎯 建议特质技能</span>',
+    };
+    scopeEl.innerHTML = scopeLabels[sc] || scopeLabels.personal;
+  }
+
+  // Show agent select for trait skill
+  const agentSel = document.getElementById('approve-agent-select');
+  if (agentSel) {
+    updateAgentSelect();
+    agentSel.style.display = '';
   }
 
   document.getElementById('modal-detail').classList.add('open');
@@ -1994,7 +2061,7 @@ window.saveEdits = async function() {
   if (r) { showToast('已保存'); loadQueue(); }
 };
 
-window.approveItem = async function() {
+window.approveAs = async function(skillType) {
   if (!selectedItemId) return;
   const edits = {
     name: document.getElementById('edit-name').value,
@@ -2005,20 +2072,43 @@ window.approveItem = async function() {
     instructions: document.getElementById('edit-instructions').value,
     required_tools: document.getElementById('edit-tools').value.split(',').map(s => s.trim()).filter(Boolean),
   };
+  const body = { reviewer: 'human', edited_fields: edits, skill_type: skillType };
+  if (skillType === 'trait') {
+    const agentSel = document.getElementById('approve-agent-select');
+    if (!agentSel || !agentSel.value) { showToast('请先选择目标智能体'); agentSel.style.display = ''; return; }
+    body.target_agent_id = agentSel.value;
+  }
   const r = await api(`/teams/${currentTeamId}/skill-extract/${selectedItemId}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ reviewer: 'human', edited_fields: edits }),
+    body: JSON.stringify(body),
   });
-  if (r) { 
-    showToast('✅ 技能已批准入库'); 
-    // Update local queue item with approve response data
-    const idx = queueItems.findIndex(q => q.item_id === selectedItemId);
-    if (idx >= 0) Object.assign(queueItems[idx], r);
-    // Refresh skills list so resolveSkillId can find by slug
-    await loadSkills();
-    renderQueue();
-    showToast('✅ 已入库，现在可以使用演化/验证功能');
+  if (!r) return;
+  const typeLabels = { trait: '特质技能', public: '公共技能', reserve: '储备技能' };
+  const typeIcons = { trait: '🎯', public: '🌍', reserve: '📦' };
+  if (skillType === 'public') {
+    const skillId = r.draft_slug;
+    if (skillId) {
+      const pr = await api('/skill-library/publish', {
+        method: 'POST',
+        body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+      });
+      if (pr && !pr.error) {
+        addMessage('system', `🌍 技能「${r.draft_name}」已发布为公共技能，所有智能体已获得此技能`);
+      }
+    }
   }
+  showToast(`${typeIcons[skillType]} 已批准为${typeLabels[skillType]}`);
+  if (skillType === 'trait') {
+    const agents = teamAgents[currentTeamId] || [];
+    const agent = agents.find(a => a.agent_id === body.target_agent_id);
+    addMessage('system', `🎯 技能「${r.draft_name}」已赋予智能体「${agent?.name || body.target_agent_id}」`);
+  } else if (skillType === 'reserve') {
+    addMessage('system', `📦 技能「${r.draft_name}」已入库储备，未赋予任何智能体`);
+  }
+  const idx = queueItems.findIndex(q => q.item_id === selectedItemId);
+  if (idx >= 0) Object.assign(queueItems[idx], r);
+  await loadSkills();
+  renderQueue();
 };
 
 window.rejectItem = async function() {
@@ -2031,35 +2121,27 @@ window.rejectItem = async function() {
   if (r) { showToast('❌ 已拒绝'); closeDetail(); loadQueue(); }
 };
 
-window._quickApprove = async function(itemId) {
+window._quickApprove = async function(itemId, skillType = 'reserve') {
+  const body = { reviewer: 'human', skill_type: skillType };
   const r = await api(`/teams/${currentTeamId}/skill-extract/${itemId}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ reviewer: 'human' }),
+    body: JSON.stringify(body),
   });
-  if (r) { showToast('✅ 已批准为特质技能'); loadQueue(); loadSkills(); }
-};
-
-window._approveAndPublish = async function(itemId) {
-  const r = await api(`/teams/${currentTeamId}/skill-extract/${itemId}/approve`, {
-    method: 'POST',
-    body: JSON.stringify({ reviewer: 'human' }),
-  });
-  if (!r) return;
-  // Chain publish using the skill slug as skill_id
-  const skillId = r.draft_slug;
-  if (skillId) {
-    const pr = await api('/skill-library/publish', {
-      method: 'POST',
-      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-    });
-    if (pr && !pr.error) {
-      showToast('🌐 已批准并发布到公共库');
-      addMessage('system', `🌐 技能「${r.draft_name}」已批准并发布为公共技能`);
-    } else {
-      showToast('✅ 已批准，但发布失败');
+  const labels = { trait: '特质技能', public: '公共技能', reserve: '储备技能' };
+  const icons = { trait: '🎯', public: '🌍', reserve: '📦' };
+  if (r) {
+    if (skillType === 'public') {
+      const skillId = r.draft_slug;
+      if (skillId) {
+        await api('/skill-library/publish', {
+          method: 'POST',
+          body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+        });
+      }
     }
+    showToast(`${icons[skillType]} 已批准为${labels[skillType]}`);
+    loadQueue(); loadSkills();
   }
-  loadQueue(); loadSkills();
 };
 
 window._deleteItem = async function(itemId) {
@@ -2612,7 +2694,8 @@ function addMessage(type, content, itemId) {
     div.innerHTML = `
       <div class="sc-inline-name">${content}</div>
       <div class="sc-inline-actions">
-        <button class="btn-inline-approve" onclick="window._quickApprove('${itemId}');this.closest('.msg').style.opacity='0.5'">✅ 批准</button>
+        <button class="btn-inline-approve" onclick="window._quickApprove('${itemId}','reserve');this.closest('.msg').style.opacity='0.5'">📦 储备</button>
+        <button class="btn-inline-approve" onclick="window._quickApprove('${itemId}','public');this.closest('.msg').style.opacity='0.5'" style="border-color:oklch(0.55 0.10 250/.3);color:oklch(0.7 0.08 250)">🌍 公共</button>
         <button onclick="window._openDetail('${itemId}')">✏️ 编辑</button>
         <button class="btn-inline-reject" onclick="window._inlineReject('${itemId}');this.closest('.msg').style.opacity='0.5'">❌ 拒绝</button>
       </div>
@@ -3053,7 +3136,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (e.key === 'a' || e.key === 'A') {
     // Quick approve focused/selected item
-    if (selectedItemId) { window._quickApprove(selectedItemId); }
+    if (selectedItemId) { window._quickApprove(selectedItemId, 'reserve'); }
   }
   if (e.key === 'r' || e.key === 'R') {
     if (selectedItemId) { window.rejectItem(); }

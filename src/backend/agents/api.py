@@ -1076,7 +1076,12 @@ async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any]
     engine = get_skill_extractor_engine()
     reviewer = body.get("reviewer", "")
     edited_fields = body.get("edited_fields")
-    result = await engine.approve_item(team_id, item_id, reviewer=reviewer, edited_fields=edited_fields)
+    skill_type = body.get("skill_type", "reserve")
+    target_agent_id = body.get("target_agent_id", "")
+    result = await engine.approve_item(
+        team_id, item_id, reviewer=reviewer, edited_fields=edited_fields,
+        skill_type=skill_type, target_agent_id=target_agent_id,
+    )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     return result
@@ -1092,6 +1097,16 @@ async def skill_extract_reject(team_id: str, item_id: str, body: Dict[str, Any] 
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     return result
+
+
+@router.delete("/teams/{team_id}/skill-extract/{item_id}", summary="Delete extraction item")
+async def skill_extract_delete(team_id: str, item_id: str) -> Dict[str, Any]:
+    from .skill_extractor import get_skill_extractor_engine
+    engine = get_skill_extractor_engine()
+    deleted = await engine.delete_item(team_id, item_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return {"ok": True, "item_id": item_id}
 
 
 @router.get("/skills/{skill_id}/tools", summary="Get tools required by skill")

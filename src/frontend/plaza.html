@@ -62,6 +62,10 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   color:var(--dim);cursor:pointer;font-size:14px;line-height:1;opacity:0;transition:opacity 0.2s;display:flex;align-items:center;justify-content:center;border-radius:50%}
 .plaza-card:hover .btn-del{opacity:0.6}
 .plaza-card .btn-del:hover{opacity:1;color:#E25555;background:#E2555515}
+.plaza-card .btn-edit{position:absolute;top:8px;right:30px;width:20px;height:20px;border:none;background:transparent;
+  color:var(--dim);cursor:pointer;font-size:12px;line-height:1;opacity:0;transition:opacity 0.2s;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.plaza-card:hover .btn-edit{opacity:0.6}
+.plaza-card .btn-edit:hover{opacity:1;color:var(--slit-glow);background:rgba(166,176,186,0.1)}
 .btn-new{margin:10px 8px;padding:9px 14px;background:transparent;border:1px solid var(--line);
   color:var(--muted);font-size:10px;cursor:pointer;letter-spacing:1px;transition:all 0.3s;font-family:var(--font-mono)}
 .btn-new:hover{border-color:var(--slit-glow);color:var(--slit-glow)}
@@ -290,6 +294,17 @@ textarea.fi{resize:vertical;min-height:45px}
       <select class="chair-select" id="inp-chair"><option value="">— 请先勾选智能体 —</option></select>
     </div>
     <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-plaza')">取消</button><button class="btn-primary" onclick="doCreatePlaza()">创建</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="m-edit-plaza" onclick="if(event.target===this)closeM(this.id)">
+  <div class="modal" style="width:520px">
+    <h3 id="edit-plaza-title">编辑广场</h3>
+    <div class="fg">
+      <label class="fl">选择智能体 <span id="edit-agent-sel-count" style="color:var(--slit-glow)"></span></label>
+      <div class="agent-tree" id="edit-agent-tree"><div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div></div>
+    </div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-edit-plaza')">取消</button><button class="btn-primary" onclick="doSaveEditPlaza()">保存</button></div>
   </div>
 </div>
 
@@ -1164,6 +1179,7 @@ async function loadPlazas() {
     `<div class="plaza-card ${p.id === curPlaza ? 'active' : ''}" onclick="selectPlaza('${esc(p.id)}')">
       <div class="nm">${esc(p.name)}</div>
       <div class="mt"><span>${p.participant_count} 人</span><span>${p.discussion_count} 题</span></div>
+      <button class="btn-edit" title="编辑广场" onclick="event.stopPropagation();openEditPlaza('${esc(p.id)}')">✎</button>
       <button class="btn-del" title="删除广场" onclick="event.stopPropagation();deletePlaza('${esc(p.id)}','${esc(p.name)}')">×</button>
     </div>`
   ).join('');
@@ -1290,6 +1306,116 @@ window.doCreatePlaza = async function() {
   };
   const r = await api(`${API}/plaza`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (r) { closeM('m-plaza'); toast('广场已创建'); await loadPlazas(); selectPlaza(r.id); }
+};
+
+/* ═══════════ EDIT PLAZA ═══════════ */
+let _editPlazaId = null;
+let _editAgentTreeData = [];
+let _editOriginalAgentIds = new Set();
+
+function renderEditAgentTree(teams, currentParticipants) {
+  _editAgentTreeData = teams;
+  const currentIds = new Set((currentParticipants || []).map(p => p.agent_id));
+  _editOriginalAgentIds = new Set(currentIds);
+  const el = $('edit-agent-tree');
+  if (!teams.length) { el.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">无团队</div>'; return; }
+  el.innerHTML = teams.map((t, ti) => {
+    const agents = t.agents.map((a, ai) => {
+      const checked = currentIds.has(a.agent_id) ? 'checked' : '';
+      return `<div class="tree-agent">
+        <input type="checkbox" id="ecb-a-${ti}-${ai}" data-team="${esc(t.team_id)}" data-aid="${esc(a.agent_id)}" data-aname="${esc(a.name)}" data-arole="${esc(a.role)}" ${checked} onchange="onEditAgentCheck()">
+        <label for="ecb-a-${ti}-${ai}">${esc(a.name)}</label>
+        <span class="agent-role">${esc(a.role)}</span>
+      </div>`;
+    }).join('');
+    const allChecked = t.agents.every(a => currentIds.has(a.agent_id));
+    const someChecked = t.agents.some(a => currentIds.has(a.agent_id));
+    return `<div class="tree-team">
+      <div class="tree-team-header" onclick="toggleEditTreeTeam(this)">
+        <span class="tree-arrow">▶</span>
+        <input type="checkbox" id="ecb-t-${ti}" ${allChecked ? 'checked' : ''} onclick="event.stopPropagation();toggleEditTeamAll(${ti},this.checked)" data-ti="${ti}">
+        <label for="ecb-t-${ti}" onclick="event.stopPropagation()">${esc(t.name)}</label>
+        <span class="tree-count">${t.agents.length}</span>
+      </div>
+      <div class="tree-agents ${someChecked ? 'open' : ''}" id="edit-tree-agents-${ti}">${agents}</div>
+    </div>`;
+  }).join('');
+  onEditAgentCheck();
+}
+
+window.toggleEditTreeTeam = function(header) {
+  const arrow = header.querySelector('.tree-arrow');
+  const agents = header.nextElementSibling;
+  const open = agents.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+};
+
+window.toggleEditTeamAll = function(ti, checked) {
+  document.querySelectorAll(`#edit-tree-agents-${ti} input[type="checkbox"]`).forEach(cb => cb.checked = checked);
+  onEditAgentCheck();
+};
+
+window.onEditAgentCheck = function() {
+  const cbs = document.querySelectorAll('#edit-agent-tree input[type="checkbox"][data-aid]:checked');
+  $('edit-agent-sel-count').textContent = cbs.length ? `(${cbs.length} 已选)` : '';
+  _editAgentTreeData.forEach((t, ti) => {
+    const teamCbs = document.querySelectorAll(`#edit-tree-agents-${ti} input[type="checkbox"]`);
+    const hdr = document.querySelector(`#ecb-t-${ti}`);
+    if (hdr) {
+      const all = teamCbs.length;
+      const chk = [...teamCbs].filter(c => c.checked).length;
+      hdr.checked = chk === all && all > 0;
+      hdr.indeterminate = chk > 0 && chk < all;
+    }
+  });
+};
+
+function getEditSelectedAgents() {
+  const cbs = document.querySelectorAll('#edit-agent-tree input[type="checkbox"][data-aid]:checked');
+  return [...cbs].map(cb => ({
+    agent_id: cb.dataset.aid,
+    agent_name: cb.dataset.aname,
+    role: cb.dataset.arole,
+    team_id: cb.dataset.team,
+  }));
+}
+
+window.openEditPlaza = async function(plazaId) {
+  _editPlazaId = plazaId;
+  openM('m-edit-plaza');
+  $('edit-agent-sel-count').textContent = '';
+  $('edit-agent-tree').innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div>';
+  const [tree, plaza] = await Promise.all([
+    api(`${API}/teams-tree`),
+    api(`${API}/plaza/${plazaId}`)
+  ]);
+  $('edit-plaza-title').textContent = `编辑广场 — ${plaza?.name || ''}`;
+  renderEditAgentTree(tree || [], plaza?.participants || []);
+};
+
+window.doSaveEditPlaza = async function() {
+  if (!_editPlazaId) return;
+  const selected = getEditSelectedAgents();
+  if (!selected.length) { toast('请至少保留一个智能体'); return; }
+  const newIds = new Set(selected.map(a => a.agent_id));
+  // Remove agents no longer selected
+  const toRemove = [..._editOriginalAgentIds].filter(id => !newIds.has(id));
+  // Add newly selected agents
+  const toAdd = selected.filter(a => !_editOriginalAgentIds.has(a.agent_id));
+  let ok = true;
+  for (const aid of toRemove) {
+    const r = await api(`${API}/plaza/${_editPlazaId}/participants/${aid}`, { method: 'DELETE' });
+    if (!r) ok = false;
+  }
+  if (toAdd.length) {
+    const batch = toAdd.map(a => ({ agent_id: a.agent_id, agent_name: a.agent_name, role: a.role, team_id: a.team_id, seat_tier: 'middle', niche_role: 'panelist' }));
+    const r = await api(`${API}/plaza/${_editPlazaId}/participants/batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch) });
+    if (!r) ok = false;
+  }
+  closeM('m-edit-plaza');
+  toast(ok ? '广场参与者已更新' : '部分操作失败');
+  await loadPlazas();
+  if (curPlaza === _editPlazaId) selectPlaza(_editPlazaId);
 };
 
 window.deletePlaza = async function(id, name) {
@@ -1606,24 +1732,25 @@ window.extractFromDisc = async function(event, discId) {
   event?.stopPropagation();
   const id = discId || curDisc;
   if (!curPlaza || !id) return;
-  toast('正在创建萃取管线…');
+  toast('正在准备萃取…');
   const disc = await api(`${API}/plaza/${curPlaza}/discussions/${id}`);
   if (!disc) { toast('获取讨论失败'); return; }
-  const rawText = (disc.messages || []).map(m => `[${m.agent_name}] ${m.content}`).join('\n\n');
-  const name = disc.topic || '讨论萃取';
-  const r = await api('/api/v1/extraction/pipelines', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: `萃取: ${name}`, description: disc.summary || disc.topic, tags: ['plaza', 'discussion'] })
-  });
-  const pid = r && (r.pipeline_id || r.id);
-  if (pid) {
-    await api(`/api/v1/extraction/pipelines/${pid}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: { raw_text: rawText, source: 'plaza_discussion', discussion_id: id, plaza_id: curPlaza } })
-    });
-    toast('萃取管线已创建');
-    window.open(`/skill-extract.html#${pid}`, '_blank');
-  } else { toast('创建萃取管线失败'); }
+  const planText = disc.plan?.content || disc.summary || '';
+  if (!planText) { toast('暂无执行计划可萃取'); return; }
+  const title = disc.topic || '讨论萃取';
+  sessionStorage.setItem('extract_source', JSON.stringify({
+    source_text: planText,
+    source_title: title,
+    source_type: 'document'
+  }));
+  // Pass participating teams to extract page
+  const plaza = await api(`${API}/plaza/${curPlaza}`);
+  if (plaza?.participants) {
+    const teamIds = [...new Set(plaza.participants.map(p => p.team_id).filter(Boolean))];
+    if (teamIds.length) sessionStorage.setItem('extract_teams', JSON.stringify(teamIds));
+  }
+  toast('正在跳转萃取页面…');
+  window.location.href = '/skill-extract.html';
 };
 
 window.exportDiscPDF = async function(event, discId) {
@@ -1645,6 +1772,7 @@ window.exportDiscPDF = async function(event, discId) {
     body += `<div style="margin-bottom:12px"><div style="font-weight:600;font-size:12px;color:#333;margin-bottom:2px">${esc(m.agent_name)}${label}</div><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(m.content)}</div></div>`;
   });
   if (disc.summary) { body += `<hr style="border:none;border-top:1px solid #ddd;margin:12px 0"><h2 style="font-size:14px;margin-bottom:6px">总结</h2><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(disc.summary)}</div>`; }
+  if (disc.plan?.content) { body += `<hr style="border:none;border-top:1px solid #ddd;margin:12px 0"><h2 style="font-size:14px;margin-bottom:6px">执行计划</h2><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(disc.plan.content)}</div>`; }
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}@media print{body{margin:20px}}</style></head><body>${body}</body></html>`;
   const w = window.open('', '_blank');
   if (w) { w.document.write(html); w.document.close(); w.document.title = title; setTimeout(() => { w.print(); }, 500); }

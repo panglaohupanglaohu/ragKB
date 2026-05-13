@@ -1,0 +1,60 @@
+{
+  "pipeline_id": "3c5225d69f72",
+  "name": "Pending状态成本追踪与标签化",
+  "description": "萃取管线 — e454761d",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 2,
+      "required_identities": [
+        "peer",
+        "senior"
+      ],
+      "min_approvals": 2,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "lead"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "architect"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [],
+  "payload": {},
+  "tags": [
+    "item:e454761d"
+  ],
+  "version": 1,
+  "created_at": "2026-05-12T23:55:28.585003+00:00",
+  "updated_at": "2026-05-12T23:55:28.585019+00:00"
+}

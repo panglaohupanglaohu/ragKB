@@ -5,7 +5,7 @@
   "diameter": 60.0,
   "height": 30.0,
   "oculus_diameter": 9.0,
-  "niche_count": 17,
+  "niche_count": 28,
   "seat_tiers": 3,
   "visual_mode": "modern",
   "created_at": "2026-05-05T00:49:22.660417+00:00",
@@ -180,6 +180,116 @@
       "niche_role": "observer",
       "niche_index": 16,
       "joined_at": "2026-05-05T00:49:22.703248+00:00"
+    },
+    "cb97b829": {
+      "agent_id": "cb97b829",
+      "agent_name": "云平台运维运营负责人",
+      "role": "cloud_ops_finops_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 17,
+      "joined_at": "2026-05-12T23:21:56.917609+00:00"
+    },
+    "9d918cef": {
+      "agent_id": "9d918cef",
+      "agent_name": "平台SRE架构师",
+      "role": "platform_sre_architect",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 18,
+      "joined_at": "2026-05-12T23:21:56.920321+00:00"
+    },
+    "d63ec895": {
+      "agent_id": "d63ec895",
+      "agent_name": "自动化与平台工程师",
+      "role": "automation_platform_engineer",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 19,
+      "joined_at": "2026-05-12T23:21:56.920923+00:00"
+    },
+    "ca42e6b2": {
+      "agent_id": "ca42e6b2",
+      "agent_name": "安全与合规工程师",
+      "role": "security_compliance_engineer",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 20,
+      "joined_at": "2026-05-12T23:21:56.921415+00:00"
+    },
+    "4d6471e8": {
+      "agent_id": "4d6471e8",
+      "agent_name": "值班与事件指挥官",
+      "role": "incident_commander",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 21,
+      "joined_at": "2026-05-12T23:21:56.921950+00:00"
+    },
+    "6b35819a": {
+      "agent_id": "6b35819a",
+      "agent_name": "FinOps分析师",
+      "role": "finops_analyst",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 22,
+      "joined_at": "2026-05-12T23:21:56.922455+00:00"
+    },
+    "5fb183a8": {
+      "agent_id": "5fb183a8",
+      "agent_name": "AWS云服务负责人",
+      "role": "aws_service_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 23,
+      "joined_at": "2026-05-12T23:21:56.922925+00:00"
+    },
+    "1c638624": {
+      "agent_id": "1c638624",
+      "agent_name": "Azure云服务负责人",
+      "role": "azure_service_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 24,
+      "joined_at": "2026-05-12T23:21:56.923299+00:00"
+    },
+    "a1eb1b3c": {
+      "agent_id": "a1eb1b3c",
+      "agent_name": "Aliyun云服务负责人",
+      "role": "aliyun_service_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 25,
+      "joined_at": "2026-05-12T23:21:56.923651+00:00"
+    },
+    "08638b79": {
+      "agent_id": "08638b79",
+      "agent_name": "GCP云服务负责人",
+      "role": "gcp_service_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 26,
+      "joined_at": "2026-05-12T23:21:56.924152+00:00"
+    },
+    "ff11e906": {
+      "agent_id": "ff11e906",
+      "agent_name": "国内云服务负责人",
+      "role": "domestic_cloud_service_owner",
+      "team_id": "d083a568",
+      "seat_tier": "middle",
+      "niche_role": "observer",
+      "niche_index": 27,
+      "joined_at": "2026-05-12T23:21:56.924581+00:00"
     }
   },
   "discussions": {}

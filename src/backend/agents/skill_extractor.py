@@ -638,8 +638,10 @@ Output ONLY valid JSON."""
         item_id: str,
         reviewer: str = "",
         edited_fields: Optional[Dict[str, Any]] = None,
+        skill_type: str = "reserve",
+        target_agent_id: str = "",
     ) -> Optional[Dict[str, Any]]:
-        """Approve a skill item: apply any edits, write to registry + team, fire SkillApproved."""
+        """Approve a skill item with type: trait (assign to one agent), public (all agents), reserve (store only)."""
         queue = self._queues.get(team_id, {})
         item = queue.get(item_id)
         if item is None:
@@ -670,17 +672,44 @@ Output ONLY valid JSON."""
         if not already_registered:
             await self._write_skill_to_tables(team_id, skill_def)
 
+        # Assign skill to agents based on skill_type
+        try:
+            from .api import _team_manager
+            if _team_manager:
+                team = _team_manager.get_team(team_id)
+                if team:
+                    skill_id = skill_def.skill_id or skill_def.slug
+                    if skill_type == "trait" and target_agent_id:
+                        agent = team.agents.get(target_agent_id)
+                        if agent and skill_id not in agent.skills:
+                            agent.skills.append(skill_id)
+                            logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {target_agent_id}")
+                    elif skill_type == "public":
+                        for agent in team.agents.values():
+                            if skill_id not in agent.skills:
+                                agent.skills.append(skill_id)
+                        logger.info(f"🌍 公共技能 {skill_id} 已赋予团队 {team_id} 全部 {len(team.agents)} 个智能体")
+                    else:
+                        logger.info(f"📦 储备技能 {skill_id} 已入库，未赋予任何智能体")
+        except Exception as e:
+            logger.warning(f"Could not assign skill to agents: {e}")
+
         # Fire SkillApproved event
         await self._broadcast(team_id, "skill_approved", {
             "item_id": item_id,
             "skill_id": skill_def.skill_id,
             "skill_name": skill_def.name,
             "approved_by": reviewer,
+            "skill_type": skill_type,
+            "target_agent_id": target_agent_id,
             "skill": skill_def.to_dict(),
         })
         self._persist_queue(team_id)
 
-        return item.to_dict()
+        result = item.to_dict()
+        result["skill_type"] = skill_type
+        result["target_agent_id"] = target_agent_id
+        return result
 
     async def reject_item(
         self,
