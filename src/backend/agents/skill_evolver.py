@@ -31,6 +31,7 @@ class SkillEvolver:
         team_id: str,
         skill_id: str,
         evidence_sessions: Optional[List[str]] = None,
+        user_feedback: Optional[str] = None,
     ) -> Dict[str, Any]:
         """收集证据 → LLM改进 instructions → version+1.
 
@@ -49,18 +50,24 @@ class SkillEvolver:
         evidence_text += f"使用次数: {skill.usage_count}, 成功率: {skill.effectiveness * 100:.0f}%\n"
         if evidence:
             evidence_text += f"\n关联会话ID: {', '.join(evidence[:10])}\n"
+        if user_feedback:
+            evidence_text += f"\n用户反馈: {user_feedback}\n"
 
         # LLM improve
         improved_instructions = skill.instructions  # fallback
+        prompt_text = f"请改进以下技能指令，使其更有效。\n\n{evidence_text}"
+        if user_feedback:
+            prompt_text = f"请根据以下用户反馈改进技能指令：\n\n用户反馈: {user_feedback}\n\n{evidence_text}"
         if self._chat_harness:
             try:
                 result = await self._chat_harness.chat(
-                    prompt=f"请改进以下技能指令，使其更有效。\n\n{evidence_text}",
+                    prompt=prompt_text,
                     system_prompt=EVOLVE_SYSTEM_PROMPT,
                     agent_id="skill_evolver",
                 )
-                if result and result.get("response"):
-                    improved_instructions = result["response"]
+                # chat() returns TurnResult object with .response attribute
+                if result and getattr(result, 'response', None):
+                    improved_instructions = result.response
             except Exception as e:
                 logger.error("LLM evolve failed: %s", e)
                 return {"error": f"llm_failed: {e}"}

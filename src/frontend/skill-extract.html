@@ -821,28 +821,76 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:oklch(0.2 0.005 110)">
           <div style="background:oklch(0.1 0.005 60)">
             <div style="padding:6px 12px;font-size:10px;font-weight:600;color:oklch(0.5 0.02 20);border-bottom:1px solid oklch(0.2 0.005 110)">📦 萃取时 (初始状态)</div>
-            <div id="usage-before" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.6 0.005 110);max-height:260px;overflow-y:auto"></div>
+            <div id="usage-before" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.6 0.005 110);max-height:200px;overflow-y:auto"></div>
           </div>
           <div style="background:oklch(0.1 0.005 60)">
             <div style="padding:6px 12px;font-size:10px;font-weight:600;color:oklch(0.55 0.04 140);border-bottom:1px solid oklch(0.2 0.005 110)">🧬 当前状态 (使用后)</div>
-            <div id="usage-after" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.75 0.005 110);max-height:260px;overflow-y:auto"></div>
+            <div id="usage-after" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.75 0.005 110);max-height:200px;overflow-y:auto"></div>
           </div>
         </div>
       </div>
       <!-- Effectiveness timeline -->
       <div style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
         <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110)">📈 效果趋势</div>
-        <div id="usage-timeline" style="padding:12px;font-size:11px;color:oklch(0.5 0.005 110);min-height:60px">
+        <div id="usage-timeline" style="padding:12px;font-size:11px;color:oklch(0.5 0.005 110);min-height:40px">
           暂无使用记录
+        </div>
+      </div>
+      <!-- Chat: Interactive Skill Optimization -->
+      <div style="border:1px solid oklch(0.55 0.1 250/.2);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.01 250);font-size:11px;color:oklch(0.65 0.08 250);display:flex;justify-content:space-between;align-items:center">
+          <span>💬 对话优化技能</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="usageChatSuggest('improve')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">💡 改进建议</button>
+            <button class="btn btn-sm" onclick="usageChatSuggest('simplify')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">✂️ 精简指令</button>
+            <button class="btn btn-sm" onclick="usageChatSuggest('edge')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">🔀 边界场景</button>
+          </div>
+        </div>
+        <div id="usage-chat-log" style="max-height:200px;overflow-y:auto;padding:8px 12px;font-size:11px;line-height:1.6">
+          <div style="color:oklch(0.45 0.005 110);text-align:center;padding:8px 0">在下方输入你对技能的改进想法，AI 将帮你优化指令</div>
+        </div>
+        <div style="display:flex;gap:6px;padding:8px 12px;border-top:1px solid oklch(0.2 0.005 110)">
+          <textarea id="usage-chat-input" rows="1" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(0.55 0.1 250/.2);color:oklch(0.88 0.003 110);padding:6px 10px;font-size:11px;font-family:var(--font-sans);resize:none;outline:none;line-height:1.5;min-height:32px;max-height:60px" placeholder="例：加强异常处理逻辑 / 添加回滚步骤 / 简化前置检查…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();usageChatSend()}"></textarea>
+          <button onclick="usageChatSend()" style="flex-shrink:0;padding:6px 12px;font-size:11px;background:oklch(0.55 0.1 250/.2);color:oklch(0.78 0.08 250);border:1px solid oklch(0.55 0.1 250/.3);cursor:pointer;font-family:var(--font-sans);font-weight:600;transition:.2s" onmouseover="this.style.background='oklch(0.55 0.1 250/.3)'" onmouseout="this.style.background='oklch(0.55 0.1 250/.2)'">发送</button>
         </div>
       </div>
     </div>
     <!-- Tab: Version -->
     <div class="modal-body modal-tab-content" id="tab-version" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h4 style="margin:0">📜 版本历史</h4>
-        <span id="version-current" style="font-size:10px;font-family:var(--font-mono);color:oklch(0.5 0.005 110)"></span>
+        <h4 style="margin:0">📜 版本管理</h4>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="version-current" style="font-size:13px;font-family:var(--font-mono);color:oklch(0.75 0.08 70);font-weight:700"></span>
+          <button class="btn btn-sm" onclick="createNewVersion()" style="font-size:10px;padding:3px 10px;border-color:oklch(0.55 0.1 250/.3);color:oklch(0.7 0.08 250)">+ 创建新版本</button>
+        </div>
       </div>
+      <!-- Version info card -->
+      <div id="version-info-card" style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:oklch(0.2 0.005 110)">
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">当前版本</div>
+            <div id="ver-current-num" style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:oklch(0.85 0.06 70)">v1</div>
+          </div>
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">生命周期</div>
+            <div id="ver-lifecycle" style="font-size:12px;font-weight:600;color:oklch(0.65 0.06 155)">draft</div>
+          </div>
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">总演化次数</div>
+            <div id="ver-evolve-count" style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:oklch(0.65 0.08 250)">0</div>
+          </div>
+        </div>
+      </div>
+      <!-- Version changelog input -->
+      <div id="version-create-form" style="display:none;border:1px solid oklch(0.55 0.1 250/.2);border-radius:8px;padding:12px;background:oklch(0.12 0.008 250/.3)">
+        <div style="font-size:11px;color:oklch(0.65 0.08 250);margin-bottom:8px;font-weight:600">📝 新版本变更说明</div>
+        <textarea id="version-changelog" rows="3" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(0.55 0.1 250/.2);color:oklch(0.88 0.003 110);padding:8px 10px;font-size:11px;font-family:var(--font-sans);resize:vertical;outline:none;line-height:1.5" placeholder="描述本次版本变更内容，如：改进了异常处理逻辑，增加了回滚步骤…"></textarea>
+        <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="cancelNewVersion()" style="font-size:10px;padding:3px 10px">取消</button>
+          <button class="btn btn-sm" onclick="confirmNewVersion()" style="font-size:10px;padding:3px 10px;background:oklch(0.55 0.1 250/.15);border-color:oklch(0.55 0.1 250/.3);color:oklch(0.78 0.08 250)">✅ 保存为 v<span id="ver-next-num">2</span></button>
+        </div>
+      </div>
+      <!-- Version history timeline -->
       <div id="version-timeline" style="font-size:11px;color:oklch(0.5 0.005 110);max-height:280px;overflow-y:auto">
         暂无版本历史
       </div>
@@ -851,37 +899,38 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
     <!-- Tab: Pipeline -->
     <div class="modal-body modal-tab-content" id="tab-pipeline" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h4 style="margin:0">🔄 萃取管线</h4>
+        <h4 style="margin:0">🔄 演化管线</h4>
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="gate-badge locked" id="pipe-current-stage">草稿</span>
-          <button class="btn btn-sm" onclick="advancePipeline()" id="btn-advance-pipe" disabled>⏭ 推进阶段</button>
+          <span class="gate-badge locked" id="pipe-current-stage">日志采集</span>
+          <button class="btn btn-sm" onclick="advancePipeline()" id="btn-advance-pipe">⏭ 推进阶段</button>
         </div>
+      </div>
+      <!-- Purpose explanation -->
+      <div style="font-size:11px;color:oklch(0.55 0.005 110);padding:8px 12px;background:oklch(0.12 0.005 60);border-left:3px solid oklch(0.55 0.1 250/.4);line-height:1.6">
+        管线将技能从「日志采集」逐步推进到「发布」。每个阶段可添加上下文、复核确认后推进。单人即可操作。
       </div>
       <!-- SkillClaw Workflow: Evidence → Attribution → Evolution → Distribution -->
       <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden;margin-bottom:4px">
-        <div style="padding:6px 12px;background:oklch(0.12 0.008 200);font-size:10px;color:oklch(0.6 0.06 200);display:flex;align-items:center;gap:6px">
-          工作流
-        </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:oklch(0.15 0.005 110)">
           <div class="skillclaw-phase" data-claw-phase="evidence" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
             <div style="font-size:16px">🔍</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">Evidence</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">分析轨迹</div>
+            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">日志采集</div>
+            <div style="font-size:8px;color:oklch(0.45 0.005 110)">收集原始经验</div>
           </div>
           <div class="skillclaw-phase" data-claw-phase="attribution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
             <div style="font-size:16px">🏷️</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">Attribution</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">归因诊断</div>
+            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">上下文补全</div>
+            <div style="font-size:8px;color:oklch(0.45 0.005 110)">补充场景细节</div>
           </div>
           <div class="skillclaw-phase" data-claw-phase="evolution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
             <div style="font-size:16px">🧬</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">Evolution</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">技能变异</div>
+            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">情境验证</div>
+            <div style="font-size:8px;color:oklch(0.45 0.005 110)">确认可行性</div>
           </div>
           <div class="skillclaw-phase" data-claw-phase="distribution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
             <div style="font-size:16px">📦</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">Distribution</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">技能分发</div>
+            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">技能发布</div>
+            <div style="font-size:8px;color:oklch(0.45 0.005 110)">上线可用</div>
           </div>
         </div>
       </div>
@@ -903,21 +952,58 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
           <span class="pipe-num">4</span><span class="pipe-label">技能发布</span>
         </div>
       </div>
-      <!-- Gate Requirements -->
+      <!-- Quick Approve Section (replaces complex gate) -->
       <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
-        <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between">
-          <span>🔐 阶段门禁要求</span>
-          <button class="btn btn-sm" onclick="checkGate()" style="padding:2px 8px;font-size:9px">🔍 检查门禁</button>
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between;align-items:center">
+          <span>✅ 快速确认</span>
+          <span class="gate-badge" id="gate-status-badge">🔒 未确认</span>
         </div>
-        <div id="pipe-gate-details" style="padding:12px;font-size:11px;color:oklch(0.55 0.005 110)">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div>最少复核人: <b id="pipe-min-reviewers">2</b></div>
-            <div>最少同意票: <b id="pipe-min-approvals">1</b></div>
-            <div>禁止自审: <b id="pipe-forbid-self">✅</b></div>
-            <div>跨团队复核: <b id="pipe-cross-team">—</b></div>
+        <div style="padding:12px;font-size:11px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span id="gate-reviewer-count" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 复核</span>
+            <span id="gate-approval-count" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 同意</span>
+          </div>
+          <div class="gate-progress" style="margin-bottom:8px">
+            <div class="gate-progress-bar"><div class="gate-progress-fill" id="gate-progress-fill" style="width:0"></div></div>
+          </div>
+          <div id="reviewer-list" class="reviewer-list" style="margin-bottom:8px">
+            <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:4px">尚无确认记录</div>
+          </div>
+          <button class="btn btn-sm" id="btn-show-review-form" onclick="toggleReviewForm()" style="width:100%;justify-content:center;border-style:dashed">+ 确认推进</button>
+          <div id="review-inline-form" style="display:none;margin-top:8px;padding:10px;border:1px solid oklch(1 0 0/.08);background:oklch(0.1 0.005 60/.5)">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <input id="review-name" placeholder="你的名字" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+              <select id="review-identity" style="background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+                <option value="peer">同事</option>
+                <option value="senior">上级</option>
+                <option value="lead">负责人</option>
+              </select>
+            </div>
+            <textarea id="review-comment" rows="2" placeholder="确认说明（可选）" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none;resize:vertical;margin-bottom:6px"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button class="btn btn-sm" onclick="submitReviewAction('approve')" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 确认</button>
+              <button class="btn btn-sm" onclick="submitReviewAction('reject')" style="border-color:oklch(0.5 0.08 18/.3);color:oklch(0.65 0.08 18)">❌ 退回</button>
+            </div>
           </div>
         </div>
       </div>
+      <!-- Gate Requirements (collapsed by default) -->
+      <details style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
+        <summary style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.45 0.005 110);cursor:pointer;user-select:none">
+          🔐 门禁详情（单人即可推进）
+        </summary>
+        <div id="pipe-gate-details" style="padding:12px;font-size:11px;color:oklch(0.55 0.005 110)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>最少确认人: <b id="pipe-min-reviewers">1</b></div>
+            <div>最少同意票: <b id="pipe-min-approvals">1</b></div>
+            <div>允许自审: <b id="pipe-forbid-self">✅</b></div>
+            <div>跨团队复核: <b id="pipe-cross-team">—</b></div>
+          </div>
+        </div>
+        <div style="padding:0 12px 8px">
+          <button class="btn btn-sm" onclick="checkGate()" style="padding:2px 8px;font-size:9px;width:100%;justify-content:center">🔍 检查门禁状态</button>
+        </div>
+      </details>
       <!-- Gate Check Result -->
       <div id="pipe-gate-result" style="display:none;border:1px solid oklch(1 0 0/.08);padding:12px;font-size:11px"></div>
       <!-- Pipeline Todos -->
@@ -1870,6 +1956,95 @@ function escHtml(s) {
 
 window.refreshUsageTab = function() { loadUsageTab(); showToast('🔄 已刷新'); };
 
+// ── Usage Chat: Interactive Skill Optimization ─────────────────
+let _usageChatHistory = [];
+
+function _addUsageChatMsg(role, text) {
+  const log = document.getElementById('usage-chat-log');
+  const div = document.createElement('div');
+  div.style.cssText = role === 'user'
+    ? 'padding:6px 10px;margin:4px 0;background:oklch(0.18 0.01 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.85 0.003 110);max-width:85%;margin-left:auto;font-size:11px;line-height:1.5'
+    : 'padding:6px 10px;margin:4px 0;background:oklch(0.14 0.008 250/.3);border:1px solid oklch(0.55 0.1 250/.15);color:oklch(0.78 0.005 110);max-width:90%;font-size:11px;line-height:1.5;white-space:pre-wrap';
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+window.usageChatSend = async function() {
+  const input = document.getElementById('usage-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  const item = queueItems.find(q => q.item_id === selectedItemId);
+  if (!item) { showToast('请先选择一个技能'); return; }
+  const skillId = resolveSkillId(item);
+  const skillName = item.draft_name || '';
+  const instructions = item.draft_instructions || '';
+
+  _addUsageChatMsg('user', text);
+  _addUsageChatMsg('system', '⏳ 思考中...');
+
+  const result = await api('/skill-library/evolve', {
+    method: 'POST',
+    body: JSON.stringify({
+      team_id: currentTeamId,
+      skill_id: skillId || item.draft_slug,
+      user_feedback: text,
+    }),
+  });
+
+  // Remove "thinking" message
+  const log = document.getElementById('usage-chat-log');
+  log.lastChild?.remove();
+
+  if (result && !result.error && result.improved_instructions) {
+    _addUsageChatMsg('assistant', `💡 改进建议:\n\n${result.improved_instructions.slice(0, 500)}${result.improved_instructions.length > 500 ? '…' : ''}`);
+    // Offer apply button
+    const applyDiv = document.createElement('div');
+    applyDiv.style.cssText = 'display:flex;gap:6px;padding:4px 0;justify-content:flex-end';
+    applyDiv.innerHTML = `<button class="btn btn-sm" onclick="applyUsageChatEvolution()" style="font-size:9px;padding:2px 8px;background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 应用改进</button>
+      <button class="btn btn-sm" onclick="this.parentElement.remove()" style="font-size:9px;padding:2px 8px">忽略</button>`;
+    log.appendChild(applyDiv);
+    log.scrollTop = log.scrollHeight;
+    window._lastChatEvolution = result;
+  } else {
+    _addUsageChatMsg('assistant', `⚠️ ${result?.error || '无法生成改进建议，请重试'}`);
+  }
+};
+
+window.applyUsageChatEvolution = async function() {
+  const result = window._lastChatEvolution;
+  if (!result) return;
+  const item = queueItems.find(q => q.item_id === selectedItemId);
+  const skillId = resolveSkillId(item);
+  if (!skillId) return;
+
+  const applyResult = await api('/skill-library/apply-evolution', {
+    method: 'POST',
+    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: result.improved_instructions }),
+  });
+  if (applyResult && !applyResult.error) {
+    _addUsageChatMsg('system', `✅ 已应用改进，版本更新为 v${applyResult.version}`);
+    showToast(`✅ 技能已优化到 v${applyResult.version}`);
+    window._lastChatEvolution = null;
+    loadSkills();
+    loadUsageTab();
+  } else {
+    _addUsageChatMsg('system', `❌ 应用失败: ${applyResult?.error || 'unknown'}`);
+  }
+};
+
+window.usageChatSuggest = function(type) {
+  const prompts = {
+    improve: '请分析这个技能的薄弱环节，给出具体的改进建议',
+    simplify: '请精简这个技能的指令，去掉冗余步骤，保留核心逻辑',
+    edge: '请为这个技能补充边界场景和异常处理的指导',
+  };
+  document.getElementById('usage-chat-input').value = prompts[type] || '';
+  usageChatSend();
+};
+
 function loadVerifyTab() {
   // Reset to initial state
   document.getElementById('verify-results').style.display = 'none';
@@ -1980,11 +2155,21 @@ async function loadVersionTab() {
   const diffEl = document.getElementById('version-diff');
   const curEl = document.getElementById('version-current');
   diffEl.style.display = 'none';
+  
+  // Populate version info card
+  const curVer = item.draft_version || 1;
+  document.getElementById('ver-current-num').textContent = `v${curVer}`;
+  document.getElementById('ver-next-num').textContent = curVer + 1;
+  document.getElementById('ver-lifecycle').textContent = item.status || 'draft';
+
   if (!skillId) { el.innerHTML = '暂无版本历史'; curEl.textContent = ''; return; }
-  curEl.textContent = `v${item.draft_version || 1}`;
+  curEl.textContent = `v${curVer}`;
   const data = await api(`/skill-library/${skillId}/evolution-history?team_id=${currentTeamId}`);
+  const evolveCount = data?.lineage ? Object.keys(data.lineage).length : 0;
+  document.getElementById('ver-evolve-count').textContent = evolveCount;
+
   if (!data || !data.lineage || Object.keys(data.lineage).length === 0) {
-    el.innerHTML = `<div style="padding:12px 0;text-align:center;color:oklch(0.4 0.005 110)">📌 当前版本 v${item.draft_version || 1} · 暂无演化历史</div>`;
+    el.innerHTML = `<div style="padding:12px 0;text-align:center;color:oklch(0.4 0.005 110)">📌 当前版本 v${curVer} · 暂无演化历史</div>`;
     return;
   }
   // Build timeline from lineage entries
@@ -2041,6 +2226,47 @@ window.showVersionDiff = function(idxA, idxB) {
 window.rollbackVersion = async function(versionKey) {
   if (!confirm(`确认回滚到版本 ${versionKey}？`)) return;
   showToast(`ℹ️ 回滚功能待后端支持`, 'info');
+};
+
+// ── Version Creation Functions ─────────────────────────────────
+window.createNewVersion = function() {
+  document.getElementById('version-create-form').style.display = 'block';
+  document.getElementById('version-changelog').focus();
+};
+window.cancelNewVersion = function() {
+  document.getElementById('version-create-form').style.display = 'none';
+  document.getElementById('version-changelog').value = '';
+};
+window.confirmNewVersion = async function() {
+  const item = queueItems.find(q => q.item_id === selectedItemId);
+  if (!item) return;
+  const skillId = resolveSkillId(item);
+  if (!skillId) { showToast('技能尚未入库'); return; }
+  const changelog = document.getElementById('version-changelog').value.trim();
+  
+  // Apply current instructions as a new version via evolve + apply
+  const result = await api('/skill-library/evolve', {
+    method: 'POST',
+    body: JSON.stringify({
+      team_id: currentTeamId,
+      skill_id: skillId,
+      user_feedback: changelog || '创建新版本快照',
+    }),
+  });
+  if (result && result.improved_instructions) {
+    const applyResult = await api('/skill-library/apply-evolution', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: result.improved_instructions }),
+    });
+    if (applyResult && !applyResult.error) {
+      showToast(`✅ 版本已更新到 v${applyResult.version}`);
+      cancelNewVersion();
+      loadVersionTab();
+      loadSkills();
+      return;
+    }
+  }
+  showToast('❌ 版本创建失败', 'error');
 };
 
 window.saveEdits = async function() {
@@ -2836,12 +3062,12 @@ function _renderStarModal() {
   // Question & hint
   document.getElementById('star-modal-question').textContent = `${step.key}. ${step.question}`;
   document.getElementById('star-modal-hint').textContent = step.hint;
-  document.getElementById('star-modal-example').textContent = step.placeholder;
+  document.getElementById('star-modal-example').innerHTML = `<span style="color:oklch(0.5 0.04 70);cursor:pointer;text-decoration:underline" onclick="fillStarExample()">💡 点击使用示例填充</span> ${step.placeholder}`;
 
-  // Input
+  // Input — pre-fill with saved answer if user navigated back
   const input = document.getElementById('star-modal-input');
   input.value = _starModalAnswers[step.key] || '';
-  input.placeholder = step.placeholder;
+  input.placeholder = '请在此输入您的经验描述…';
   setTimeout(() => input.focus(), 100);
 
   // Buttons
@@ -2856,6 +3082,21 @@ function _renderStarModal() {
   // Step hint
   document.getElementById('star-modal-step-hint').textContent = `第 ${_starModalStep + 1} 步 / 共 ${total} 步`;
 }
+
+// Fill example text into STAR textarea
+window.fillStarExample = function() {
+  const step = STAR_MODAL_STEPS[_starModalStep];
+  const input = document.getElementById('star-modal-input');
+  if (!input.value.trim()) {
+    input.value = step.placeholder.replace(/^例[：:]?\s*/, '');
+    showToast('💡 示例已填入，请根据实际情况修改');
+  } else {
+    if (confirm('当前已有内容，是否用示例替换？')) {
+      input.value = step.placeholder.replace(/^例[：:]?\s*/, '');
+    }
+  }
+  input.focus();
+};
 
 window.starModalNext = function() {
   const step = STAR_MODAL_STEPS[_starModalStep];
@@ -3271,15 +3512,41 @@ async function loadPipelineTab() {
   // Gate requirements
   const gate = p.gate_requirements || {};
   const currentGate = gate[p.current_stage] || gate.review || {};
-  document.getElementById('pipe-min-reviewers').textContent = currentGate.min_reviewers ?? 2;
+  document.getElementById('pipe-min-reviewers').textContent = currentGate.min_reviewers ?? 1;
   document.getElementById('pipe-min-approvals').textContent = currentGate.min_approvals ?? 1;
-  document.getElementById('pipe-forbid-self').textContent = currentGate.forbid_self_review !== false ? '✅' : '—';
+  document.getElementById('pipe-forbid-self').textContent = currentGate.forbid_self_review ? '❌' : '✅';
   document.getElementById('pipe-cross-team').textContent = currentGate.require_cross_team ? '✅' : '—';
   document.getElementById('pipe-current-stage').textContent = STAGE_LABELS[p.current_stage] || p.current_stage;
 
-  // Enable/disable advance button
+  // Enable advance button (always enabled except published)
   const advBtn = document.getElementById('btn-advance-pipe');
   advBtn.disabled = p.current_stage === 'published';
+
+  // Update reviewer/approval counts
+  const reviews = p.reviews?.[p.current_stage] || [];
+  const approvals = reviews.filter(r => r.decision === 'approve');
+  const reqReviewers = currentGate.min_reviewers ?? 1;
+  const reqApprovals = currentGate.min_approvals ?? 1;
+  const revCountEl = document.getElementById('gate-reviewer-count');
+  const appCountEl = document.getElementById('gate-approval-count');
+  const progressFill = document.getElementById('gate-progress-fill');
+  const gateBadge = document.getElementById('gate-status-badge');
+  if (revCountEl) revCountEl.textContent = `${reviews.length}/${reqReviewers} 复核`;
+  if (appCountEl) appCountEl.textContent = `${approvals.length}/${reqApprovals} 同意`;
+  const progress = Math.min(100, Math.round((approvals.length / reqApprovals) * 100));
+  if (progressFill) progressFill.style.width = progress + '%';
+  if (gateBadge) gateBadge.textContent = approvals.length >= reqApprovals ? '🔓 可推进' : '🔒 未确认';
+
+  // Render reviewer list
+  const reviewerListEl = document.getElementById('reviewer-list');
+  if (reviewerListEl && reviews.length > 0) {
+    reviewerListEl.innerHTML = reviews.map(r => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px;border-bottom:1px solid oklch(1 0 0/.04)">
+      <span>${r.decision === 'approve' ? '✅' : '❌'}</span>
+      <span style="color:oklch(0.7 0.005 110)">${escHtml(r.reviewer_name || 'anonymous')}</span>
+      <span style="color:oklch(0.4 0.005 110);font-family:var(--font-mono)">${r.identity || 'peer'}</span>
+      ${r.comment ? `<span style="color:oklch(0.5 0.005 110);margin-left:auto;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.comment)}</span>` : ''}
+    </div>`).join('');
+  }
 
   // Update SkillClaw phase indicators
   const clawMap = { draft: 'evidence', review: 'attribution', approval: 'evolution', published: 'distribution' };

@@ -7707,9 +7707,10 @@ def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
 async def skill_library_evolve(body: Dict[str, Any] = {}) -> Dict[str, Any]:
     team_id = body.get("team_id", "")
     skill_id = body.get("skill_id", "")
+    user_feedback = body.get("user_feedback", "")
     if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return await _get_skill_evolver().evolve_skill(team_id, skill_id)
+    return await _get_skill_evolver().evolve_skill(team_id, skill_id, user_feedback=user_feedback or None)
 
 
 @router.post("/skill-library/apply-evolution", summary="应用演化结果")

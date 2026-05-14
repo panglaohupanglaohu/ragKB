@@ -126,10 +126,12 @@ class SkillVerifier:
                 system_prompt=VERIFY_PROMPT,
                 agent_id="skill_verifier",
             )
-            if result and result.get("response"):
+            # chat() returns TurnResult object with .response attribute
+            response_text = getattr(result, 'response', '') if result else ''
+            if response_text:
                 import json
                 try:
-                    tests = json.loads(result["response"])
+                    tests = json.loads(response_text)
                     if isinstance(tests, list):
                         return tests[:5]
                 except json.JSONDecodeError:
@@ -151,9 +153,10 @@ class SkillVerifier:
                 system_prompt="你是一个技能测试执行器。执行给定的技能指令，输出 PASS 或 FAIL。",
                 agent_id="skill_verifier",
             )
-            if result and result.get("response"):
-                response = result["response"].strip().upper()
-                return "PASS" in response
+            # chat() returns TurnResult object with .response attribute
+            response_text = getattr(result, 'response', '') if result else ''
+            if response_text:
+                return "PASS" in response_text.strip().upper()
         except Exception as e:
             logger.error("Test execution failed: %s", e)
 

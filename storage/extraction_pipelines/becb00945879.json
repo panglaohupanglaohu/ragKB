@@ -1,0 +1,90 @@
+{
+  "pipeline_id": "becb00945879",
+  "name": "紧急变更的异步同步机制",
+  "description": "萃取管线 — af954f15",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [
+    {
+      "todo_id": "b79f64b302df",
+      "pipeline_id": "becb00945879",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 peer 身份复核人",
+      "description": "需要 peer 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-14T06:00:45.629034+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "998785b06503",
+      "pipeline_id": "becb00945879",
+      "stage": "review",
+      "title": "[门禁缺口] 还需要 1 位复核人",
+      "description": "当前 0/1 人",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-14T06:00:45.629034+00:00",
+      "completed_at": null,
+      "metadata": {}
+    }
+  ],
+  "payload": {},
+  "tags": [
+    "item:af954f15"
+  ],
+  "version": 3,
+  "created_at": "2026-05-14T05:58:53.722731+00:00",
+  "updated_at": "2026-05-14T06:00:45.629531+00:00"
+}

@@ -1,0 +1,106 @@
+{
+  "pipeline_id": "49151ee9dd4a",
+  "name": "实例预热状态量化与SLO对齐",
+  "description": "萃取管线 — 5278c5de",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 2,
+      "required_identities": [
+        "peer",
+        "senior"
+      ],
+      "min_approvals": 2,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "lead"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "architect"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 0,
+      "require_cross_team": false,
+      "forbid_self_review": true,
+      "auto_advance": false,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [
+    {
+      "todo_id": "c2d61e0bdc55",
+      "pipeline_id": "49151ee9dd4a",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 peer 身份复核人",
+      "description": "需要 peer 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-13T16:41:17.294597+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "bfdb78d765e3",
+      "pipeline_id": "49151ee9dd4a",
+      "stage": "review",
+      "title": "[门禁缺口] 缺少 senior 身份复核人",
+      "description": "需要 senior 身份的复核才能推进到 review 阶段",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-13T16:41:17.294597+00:00",
+      "completed_at": null,
+      "metadata": {}
+    },
+    {
+      "todo_id": "d3b1ad9b6024",
+      "pipeline_id": "49151ee9dd4a",
+      "stage": "review",
+      "title": "[门禁缺口] 还需要 2 位复核人",
+      "description": "当前 0/2 人",
+      "assignee_id": "",
+      "assignee_name": "",
+      "status": "pending",
+      "required_identity": null,
+      "due_by": null,
+      "created_at": "2026-05-13T16:41:17.294597+00:00",
+      "completed_at": null,
+      "metadata": {}
+    }
+  ],
+  "payload": {},
+  "tags": [
+    "item:5278c5de"
+  ],
+  "version": 4,
+  "created_at": "2026-05-13T16:32:21.636757+00:00",
+  "updated_at": "2026-05-13T16:41:17.297259+00:00"
+}

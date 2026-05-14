@@ -237,36 +237,39 @@ class ExtractionPipeline(BaseModel):
 # ═══════════════════════════════════════════════════════
 
 def default_gate_requirements() -> Dict[PipelineStage, GateRequirement]:
-    """返回默认的四阶段门禁配置."""
+    """返回默认的四阶段门禁配置.
+
+    简化版: 单人即可推进，降低使用门槛。
+    """
     return {
         PipelineStage.REVIEW: GateRequirement(
             stage=PipelineStage.REVIEW,
-            min_reviewers=2,
-            required_identities=[ReviewerIdentity.PEER, ReviewerIdentity.SENIOR],
-            min_approvals=2,
-            max_rejections=0,
+            min_reviewers=1,
+            required_identities=[ReviewerIdentity.PEER],
+            min_approvals=1,
+            max_rejections=1,
             require_cross_team=False,
-            forbid_self_review=True,
-            auto_advance=False,
+            forbid_self_review=False,
+            auto_advance=True,
         ),
         PipelineStage.APPROVAL: GateRequirement(
             stage=PipelineStage.APPROVAL,
             min_reviewers=1,
-            required_identities=[ReviewerIdentity.LEAD],
+            required_identities=[ReviewerIdentity.PEER],
             min_approvals=1,
-            max_rejections=0,
+            max_rejections=1,
             require_cross_team=False,
-            forbid_self_review=True,
-            auto_advance=False,
+            forbid_self_review=False,
+            auto_advance=True,
         ),
         PipelineStage.PUBLISHED: GateRequirement(
             stage=PipelineStage.PUBLISHED,
             min_reviewers=1,
-            required_identities=[ReviewerIdentity.ARCHITECT],
+            required_identities=[ReviewerIdentity.PEER],
             min_approvals=1,
-            max_rejections=0,
+            max_rejections=1,
             require_cross_team=False,
-            forbid_self_review=True,
-            auto_advance=False,
+            forbid_self_review=False,
+            auto_advance=True,
         ),
     }

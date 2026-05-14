@@ -1432,7 +1432,7 @@ window.deletePlaza = async function(id, name) {
 function renderDiscList(ds) {
   $('disc-list').innerHTML = ds.map(d =>
     `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" onclick="selectDisc('${esc(d.id)}')">
-      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">PDF</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
+      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
       <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
     </div>`
   ).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
@@ -1757,7 +1757,7 @@ window.exportDiscPDF = async function(event, discId) {
   event?.stopPropagation();
   const id = discId || curDisc;
   if (!curPlaza || !id) return;
-  toast('正在生成 PDF…');
+  toast('正在生成网页…');
   const disc = await api(`${API}/plaza/${curPlaza}/discussions/${id}`);
   if (!disc) { toast('获取讨论失败'); return; }
   const title = disc.topic || '讨论记录';
@@ -1774,9 +1774,12 @@ window.exportDiscPDF = async function(event, discId) {
   if (disc.summary) { body += `<hr style="border:none;border-top:1px solid #ddd;margin:12px 0"><h2 style="font-size:14px;margin-bottom:6px">总结</h2><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(disc.summary)}</div>`; }
   if (disc.plan?.content) { body += `<hr style="border:none;border-top:1px solid #ddd;margin:12px 0"><h2 style="font-size:14px;margin-bottom:6px">执行计划</h2><div style="font-size:12px;line-height:1.8;color:#444;white-space:pre-wrap">${esc(disc.plan.content)}</div>`; }
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}@media print{body{margin:20px}}</style></head><body>${body}</body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); w.document.title = title; setTimeout(() => { w.print(); }, 500); }
-  toast('PDF 预览已打开，请在弹出的打印窗口中选择「存储为 PDF」');
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${title}.html`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('已下载网页文件');
 };
 
 window.refreshPlan = async function() {
