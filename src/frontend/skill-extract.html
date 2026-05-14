@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>萃取技能 — AgentsGroup2026</title>
+<title>技能萃取 — AgentsGroup2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
 
@@ -57,11 +57,11 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   color:#D7DEE4;cursor:pointer;transition:.2s;font-family:var(--font-sans)}
 .topbar-right .team-chip:hover{border-color:var(--koke);color:var(--shironeri)}
 .topbar-right .team-chip.active{border-color:var(--koke);color:var(--shironeri);background:oklch(0.52 0.04 160/.15)}
-.topbar-nav{display:flex;gap:4px}
-.topbar-nav a{padding:6px 14px;font-size:12px;color:oklch(0.65 0.005 110);cursor:pointer;
-  border:1px solid transparent;transition:.2s;text-decoration:none}
-.topbar-nav a:hover{color:oklch(0.85 0.005 110);background:oklch(1 0 0/.04)}
-.topbar-nav a.active{color:var(--shironeri);border-bottom:2px solid var(--koke)}
+.topbar-nav{display:flex;gap:2px;margin-left:auto;margin-right:16px}
+.topbar-nav a{padding:8px 16px;font-size:11px;color:#A2ABB4;cursor:pointer;
+  border:none;border-bottom:1px solid transparent;transition:all .25s;text-decoration:none;letter-spacing:0.5px;font-weight:400}
+.topbar-nav a:hover{color:#EEF2F5;background:rgba(166,176,186,0.06)}
+.topbar-nav a.active{color:#CFD6DD;border-bottom:1px solid #CFD6DD}
 
 /* ── Left Panel: Submission + Message Flow ────────────────────────── */
 .panel-left{grid-column:1;grid-row:2/4;display:flex;flex-direction:column;
@@ -251,7 +251,11 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   border:1px solid oklch(1 0 0/.06);cursor:pointer;transition:.2s;position:relative}
 .queue-item:hover{background:oklch(1 0 0/.04);border-color:oklch(1 0 0/.12)}
 .queue-item.selected{border-color:var(--koke);background:oklch(0.52 0.04 160/.06)}
-.queue-item .status-dot{font-size:18px;flex-shrink:0;line-height:1}
+.queue-item .status-dot{font-size:14px;flex-shrink:0;line-height:1;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.queue-item .status-dot.st-approved{color:#8CBEB2;background:rgba(140,190,178,0.1);border:1px solid rgba(140,190,178,0.3)}
+.queue-item .status-dot.st-rejected{color:#D4928B;background:rgba(212,146,139,0.1);border:1px solid rgba(212,146,139,0.3)}
+.queue-item .status-dot.st-review{color:#6BB5D9;background:rgba(107,181,217,0.1);border:1px solid rgba(107,181,217,0.3)}
+.queue-item .status-dot.st-pending{color:#E8B87A;background:rgba(232,184,122,0.1);border:1px solid rgba(232,184,122,0.3)}
 .queue-item .qi-body{flex:1;min-width:0}
 .queue-item .qi-name{font-size:13px;font-weight:600;color:oklch(0.85 0.003 110);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -322,9 +326,19 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .modal-footer{display:flex;justify-content:space-between;padding:14px 20px;border-top:1px solid #4A535C40}
 .modal-footer .btn-approve{background:var(--koke);color:var(--shironeri);border-color:transparent}
 .modal-footer .btn-reject{color:var(--shu);border-color:oklch(0.48 0.07 22/.3)}
-.modal-tab{background:none;border:none;color:oklch(0.5 0.005 110);font-size:11px;padding:8px 16px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;transition:all .2s}
-.modal-tab:hover{color:oklch(0.7 0.005 110)}
-.modal-tab.active{color:oklch(0.85 0.03 80);border-bottom-color:oklch(0.7 0.06 80)}
+.modal-tab{background:none;border:none;color:#7C8792;font-size:11px;padding:10px 14px;cursor:pointer;
+  border-bottom:2px solid transparent;font-family:inherit;transition:all .25s;letter-spacing:0.3px;
+  display:inline-flex;align-items:center;gap:5px;position:relative}
+.modal-tab:hover{color:#D7DEE4;background:rgba(166,176,186,0.06)}
+.modal-tab.active{color:#EEF2F5;border-bottom-color:#A6B0BA}
+.modal-tab .tab-icon{font-size:13px;opacity:0.7;transition:opacity .2s}
+.modal-tab:hover .tab-icon,.modal-tab.active .tab-icon{opacity:1}
+.modal-tab[data-tab="edit"] .tab-icon{color:#8CBEB2}
+.modal-tab[data-tab="evolve"] .tab-icon{color:#B89FD4}
+.modal-tab[data-tab="verify"] .tab-icon{color:#6BB5D9}
+.modal-tab[data-tab="usage"] .tab-icon{color:#E8B87A}
+.modal-tab[data-tab="version"] .tab-icon{color:#A2C4A8}
+.modal-tab[data-tab="pipeline"] .tab-icon{color:#D4928B}
 .modal-tab-content{display:none}
 .modal-tab-content.active{display:flex}
 .confidence-bar{height:6px;background:oklch(1 0 0/.08);margin-top:4px;position:relative;overflow:hidden}
@@ -472,13 +486,12 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   <div class="topbar">
     <div class="topbar-left">
       <span class="seal">萃</span>
-      <h1>萃取技能</h1>
+      <h1>技能萃取</h1>
     </div>
     <div class="topbar-nav">
-      <a href="plaza.html">议事厅</a>
-      <a href="agent-team-config.html">智能体</a>
-      <a href="skill-extract.html" class="active">萃取</a>
-      <a href="system-evolution.html">演进</a>
+      <a href="plaza.html">议事广场</a>
+      <a href="agent-team-config.html">智能体团队</a>
+      <a href="system-evolution.html">系统演进</a>
     </div>
     <div class="topbar-right">
       <div class="team-chips" id="team-chips"></div>
@@ -599,9 +612,9 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
         <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌍 公共技能</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:10px;color:var(--atomic-green)">◉ <b id="count-atomic">0</b></span>
-        <span style="font-size:10px;color:var(--trait-amber)">◈ <b id="count-trait">0</b></span>
-        <span style="font-size:10px;color:var(--composite-violet)">◇ <b id="count-composite">0</b></span>
+        <span style="font-size:10px;color:#8CBEB2">● <b id="count-atomic">0</b></span>
+        <span style="font-size:10px;color:#E8B87A">◆ <b id="count-trait">0</b></span>
+        <span style="font-size:10px;color:#B89FD4">◇ <b id="count-composite">0</b></span>
         <button onclick="toggleViewMode()" id="btn-view-mode" style="padding:3px 8px;font-size:10px;background:none;border:1px solid oklch(1 0 0/.1);color:oklch(0.55 0.005 110);cursor:pointer;font-family:var(--font-sans)" title="切换萃取视角/全景视角">🔬</button>
         <span id="taxonomy-toggle" onclick="toggleTaxonomy()" style="font-size:10px;color:oklch(0.4 0.005 110);cursor:pointer">▼</span>
       </div>
@@ -619,13 +632,13 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <button class="close-btn" onclick="closeDetail()">✕</button>
     </div>
     <!-- Modal tabs -->
-    <div style="display:flex;gap:0;border-bottom:1px solid oklch(0.3 0.005 110);margin:0 24px">
-      <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')">📝 编辑</button>
-      <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')">🧬 演化</button>
-      <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')">🔬 验证</button>
-      <button class="modal-tab" data-tab="usage" onclick="switchModalTab('usage')">📊 效果</button>
-      <button class="modal-tab" data-tab="version" onclick="switchModalTab('version')">📜 版本</button>
-      <button class="modal-tab" data-tab="pipeline" onclick="switchModalTab('pipeline')">🔄 管线</button>
+    <div style="display:flex;gap:2px;border-bottom:1px solid #4A535C;margin:0 24px;padding-top:4px">
+      <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')"><span class="tab-icon">✎</span>编辑</button>
+      <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')"><span class="tab-icon">⟳</span>演化</button>
+      <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')"><span class="tab-icon">◈</span>验证</button>
+      <button class="modal-tab" data-tab="usage" onclick="switchModalTab('usage')"><span class="tab-icon">▤</span>效果</button>
+      <button class="modal-tab" data-tab="version" onclick="switchModalTab('version')"><span class="tab-icon">⊟</span>版本</button>
+      <button class="modal-tab" data-tab="pipeline" onclick="switchModalTab('pipeline')"><span class="tab-icon">⋯</span>智线</button>
     </div>
     <!-- Tab: Edit (default) -->
     <div class="modal-body modal-tab-content active" id="tab-edit">
@@ -1366,7 +1379,7 @@ function handleSSE(data) {
       }
       break;
     case 'skill_approved':
-      updateQueueItemStatus({ item_id: data.item_id, status: 'approved', status_icon: '✅', status_label: '已通过' });
+      updateQueueItemStatus({ item_id: data.item_id, status: 'approved', status_icon: '◎', status_label: '已通过' });
       loadSkills();
       updatePipelineStepper('published');
       spawnSkillNodeAnimated(data.skill);  // Use animated version
@@ -1375,7 +1388,7 @@ function handleSSE(data) {
       if (viewMode === 'panorama') buildPanoramaView();
       break;
     case 'skill_rejected':
-      updateQueueItemStatus({ item_id: data.item_id, status: 'rejected', status_icon: '❌', status_label: '已拒绝' });
+      updateQueueItemStatus({ item_id: data.item_id, status: 'rejected', status_icon: '✕', status_label: '已拒绝' });
       addMessage('system', `❌ 已拒绝「${escHtml(data.draft_name || '')}」${data.reason ? '，原因：' + escHtml(data.reason) : ''}`);
       break;
     case 'item_edited':
@@ -1466,7 +1479,7 @@ function renderQueue() {
     return `
     <div class="queue-item${selectedItemId === item.item_id ? ' selected' : ''}"
          onclick="window._openDetail('${item.item_id}')" data-id="${item.item_id}">
-      <span class="status-dot">${item.status_icon || '🔴'}</span>
+      <span class="status-dot ${item.status === 'approved' ? 'st-approved' : item.status === 'rejected' ? 'st-rejected' : item.status === 'ready_for_review' ? 'st-review' : 'st-pending'}">${item.status === 'approved' ? '◎' : item.status === 'rejected' ? '✕' : item.status === 'ready_for_review' ? '◈' : '○'}</span>
       <div class="qi-body">
         <div class="qi-name">${item.draft_name || item.source_title || '未命名'}${scopeBadge}</div>
         <div class="qi-meta">
@@ -3585,7 +3598,7 @@ function renderPipelineTodos(todos) {
   const el = document.getElementById('pipe-todos');
   if (!todos.length) { el.innerHTML = '<div style="text-align:center;padding:8px;font-size:10px;color:oklch(0.4 0.005 110)">暂无待办</div>'; return; }
   el.innerHTML = todos.map(t => {
-    const statusIcon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '🔄' : '⬜';
+    const statusIcon = t.status === 'completed' ? '<span style="color:#8CBEB2">◉</span>' : t.status === 'in_progress' ? '<span style="color:#6BB5D9">◎</span>' : '<span style="color:#4A535C">○</span>';
     const stageLabel = STAGE_LABELS[t.stage] || t.stage;
     return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid oklch(1 0 0/.04)">
       <span style="cursor:pointer" onclick="togglePipelineTodo('${t.todo_id}')">${statusIcon}</span>
@@ -3849,9 +3862,9 @@ function updateStepperForItem(item) {
 
 function initScene() {
   const canvas = document.getElementById('three-canvas');
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setClearColor(0x1A2026);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.85;
