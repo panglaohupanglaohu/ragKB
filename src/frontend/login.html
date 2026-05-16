@@ -355,13 +355,17 @@
       }
 
       // Call backend login API
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
       fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password }),
+        signal: ctrl.signal
       })
       .then(res => {
-        if (!res.ok) return res.json().then(d => Promise.reject(d));
+        clearTimeout(timer);
+        if (!res.ok) return res.json().catch(() => ({})).then(d => Promise.reject(d));
         return res.json();
       })
       .then(data => {
@@ -372,7 +376,9 @@
         window.location.href = '/agent-team-config.html';
       })
       .catch(err => {
-        errorEl.textContent = err.detail || '登录失败，请检查用户名和密码';
+        clearTimeout(timer);
+        const msg = err.name === 'AbortError' ? '连接超时，请检查后端服务' : (err.detail || '登录失败，请检查用户名和密码');
+        errorEl.textContent = msg;
         errorEl.classList.add('show');
       });
 
@@ -400,13 +406,17 @@
         return false;
       }
 
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
       fetch('/api/v1/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password }),
+        signal: ctrl.signal
       })
       .then(res => {
-        if (!res.ok) return res.json().then(d => Promise.reject(d));
+        clearTimeout(timer);
+        if (!res.ok) return res.json().catch(() => ({})).then(d => Promise.reject(d));
         return res.json();
       })
       .then(data => {
@@ -417,7 +427,9 @@
         window.location.href = '/agent-team-config.html';
       })
       .catch(err => {
-        errorEl.textContent = err.detail || '注册失败，请稍后重试';
+        clearTimeout(timer);
+        const msg = err.name === 'AbortError' ? '连接超时，请检查后端服务' : (err.detail || '注册失败，请稍后重试');
+        errorEl.textContent = msg;
         errorEl.classList.add('show');
       });
 

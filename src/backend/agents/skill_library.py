@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from .domain_events import DomainEvent, EventType, SkillSnapshot
 from .event_bus import get_event_bus
-from .models import SkillDefinition, SkillLifecycleStage
+from .models import SkillCategory, SkillDefinition, SkillLifecycleStage
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ class SkillLibrary:
     # ── Helpers ──────────────────────────────────────────────────
 
     def _find_skill(self, team_id: str, skill_id: str) -> Optional[SkillDefinition]:
-        """Find skill in team-local first, then registry. Matches by skill_id or slug."""
+        """Find skill in team-local first, then skill store, then registry. Matches by skill_id or slug."""
         if self._team_manager:
             team = self._team_manager.get_team(team_id)
             if team:
@@ -292,6 +292,30 @@ class SkillLibrary:
                 for s in team.skills.values():
                     if s.slug == skill_id:
                         return s
+        # Layer 2: SkillStore (persistent JSON files)
+        if self._skill_store:
+            record = self._skill_store.get(skill_id)
+            if record and record.snapshot:
+                snap = record.snapshot
+                # Convert string category to SkillCategory enum
+                try:
+                    cat = SkillCategory(snap.category) if isinstance(snap.category, str) else snap.category
+                except (ValueError, KeyError):
+                    cat = SkillCategory.GENERAL
+                return SkillDefinition(
+                    skill_id=snap.skill_id,
+                    name=snap.name,
+                    description=snap.description,
+                    category=cat,
+                    instructions=snap.instructions,
+                    slug=snap.slug,
+                    source=snap.source,
+                    icon=snap.icon,
+                    required_tools=list(snap.required_tools) if snap.required_tools else [],
+                    enabled=snap.enabled,
+                    required=snap.required,
+                    is_default=snap.is_default,
+                )
         if self._skill_registry:
             found = self._skill_registry.get(skill_id)
             if found:
@@ -319,14 +343,20 @@ class SkillLibrary:
             if team:
                 team.skills[skill.skill_id] = skill
                 # Persist via TeamManager's internal method
-                if hasattr(self._team_manager, '_persist'):
-                    self._team_manager._persist()
+                try:
+                    if hasattr(self._team_manager, '_persist'):
+                        self._team_manager._persist()
+                except Exception as e:
+                    logger.error("TeamManager._persist() failed: %s", e)
         if self._skill_store:
-            from .skill_store import SkillRecord
-            from .domain_events import SkillSnapshot
-            snapshot = SkillSnapshot.from_skill_definition(skill)
-            record = SkillRecord(skill_id=skill.skill_id, snapshot=snapshot)
-            self._skill_store.upsert(record)
+            try:
+                from .skill_store import SkillRecord
+                from .domain_events import SkillSnapshot
+                snapshot = SkillSnapshot.from_skill_definition(skill)
+                record = SkillRecord(skill_id=skill.skill_id, snapshot=snapshot)
+                self._skill_store.upsert(record)
+            except Exception as e:
+                logger.error("SkillStore.upsert() failed for %s: %s", skill.skill_id, e)
 
     @staticmethod
     def _text_similarity(a: str, b: str) -> float:

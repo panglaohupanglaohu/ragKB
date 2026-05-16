@@ -26,13 +26,13 @@
   "tts": {
     "engine": "edge-tts",
     "api_url": "http://127.0.0.1:9880",
-    "ref_audio_path": "/Users/panglaohu/GPT-SoVITS/ref_audio/rocko_male_zh.wav",
+    "ref_audio_path": "",
     "prompt_text": "大家好，我是一名沉稳清晰的男性播报员。下面开始正式讨论。",
     "prompt_lang": "zh",
     "text_lang": "zh",
     "speed_factor": 1.0,
     "edge_voice": "zh-CN-YunxiNeural",
     "edge_rate": "+8%",
-    "gpt_sovits_dir": "/Users/panglaohu/GPT-SoVITS"
+    "gpt_sovits_dir": ""
   }
 }

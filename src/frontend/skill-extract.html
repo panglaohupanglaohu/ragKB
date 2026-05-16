@@ -57,6 +57,16 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   color:#D7DEE4;cursor:pointer;transition:.2s;font-family:var(--font-sans)}
 .topbar-right .team-chip:hover{border-color:var(--koke);color:var(--shironeri)}
 .topbar-right .team-chip.active{border-color:var(--koke);color:var(--shironeri);background:oklch(0.52 0.04 160/.15)}
+.topbar-right .team-chip .chip-close{margin-left:6px;font-size:10px;opacity:0.5;cursor:pointer;transition:opacity .2s}
+.topbar-right .team-chip .chip-close:hover{opacity:1;color:oklch(0.7 0.15 25)}
+.topbar-right .chip-add{padding:4px 10px;font-size:13px;background:transparent;border:1px dashed #4A535C80;
+  color:#A2ABB4;cursor:pointer;transition:.2s;line-height:1}
+.topbar-right .chip-add:hover{border-color:var(--koke);color:var(--shironeri)}
+.topbar-right .chip-dropdown{position:absolute;top:100%;left:0;min-width:140px;background:#1A1F25;border:1px solid #4A535C60;
+  padding:4px 0;z-index:100;display:none;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
+.topbar-right .chip-dropdown.open{display:block}
+.topbar-right .chip-dropdown-item{padding:6px 12px;font-size:11px;color:#D7DEE4;cursor:pointer;transition:background .15s}
+.topbar-right .chip-dropdown-item:hover{background:oklch(0.52 0.04 160/.15)}
 .topbar-nav{display:flex;gap:2px;margin-left:auto;margin-right:16px}
 .topbar-nav a{padding:8px 16px;font-size:11px;color:#A2ABB4;cursor:pointer;
   border:none;border-bottom:1px solid transparent;transition:all .25s;text-decoration:none;letter-spacing:0.5px;font-weight:400}
@@ -475,6 +485,170 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:oklch(1 0 0/.1)}
 ::-webkit-scrollbar-track{background:transparent}
+
+/* ═══ SKILL ROUTER MODE ═══════════════════════════════════════════ */
+.mode-toggle{display:flex;gap:2px;margin-left:16px}
+.mode-toggle button{padding:6px 14px;font-size:11px;background:transparent;border:1px solid oklch(1 0 0/.08);
+  color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans);font-weight:500;transition:.2s}
+.mode-toggle button:hover{background:oklch(1 0 0/.04);color:oklch(0.8 0.005 110)}
+.mode-toggle button.active{background:oklch(0.62 0.10 200/.12);border-color:oklch(0.62 0.10 200/.3);color:oklch(0.88 0.06 200)}
+
+/* Router panels — hidden by default */
+.router-left,.router-right{display:none}
+body.mode-router .router-left{display:flex;flex-direction:column}
+body.mode-router .router-right{display:flex;flex-direction:column}
+body.mode-router .extract-left{display:none}
+body.mode-router .extract-right{display:none}
+body.mode-router .taxonomy-bar{display:none}
+
+/* Router left panel content */
+.router-left{grid-column:1;grid-row:2/4;background:#2A3037E8;backdrop-filter:blur(14px);
+  border-right:1px solid #4A535C;overflow:hidden}
+.router-query{padding:16px 18px;border-bottom:1px solid #4A535C40}
+.router-query h3{font-size:13px;font-weight:600;margin-bottom:10px;color:oklch(0.75 0.005 110);
+  display:flex;align-items:center;gap:8px}
+.router-query textarea{width:100%;height:72px;background:#21272D;border:1px solid #4A535C60;
+  color:#D7DEE4;padding:10px;font-size:12px;font-family:var(--font-sans);resize:none;outline:none;line-height:1.6}
+.router-query textarea:focus{border-color:oklch(0.62 0.10 200)}
+.router-query textarea::placeholder{color:#7C8792}
+.router-query-row{display:flex;gap:8px;margin-top:8px;align-items:center}
+.router-query-row label{font-size:10px;color:oklch(0.5 0.005 110)}
+.router-query-row input[type="number"]{width:50px;background:#21272D;border:1px solid #4A535C60;
+  color:#D7DEE4;padding:5px 8px;font-size:11px;font-family:var(--font-mono);outline:none;text-align:center}
+.btn-router{background:oklch(0.62 0.10 200);color:#fff;border-color:transparent;padding:7px 14px;font-size:11px}
+.btn-router:hover{background:oklch(0.68 0.10 200)}
+.btn-runtime-sim{background:oklch(0.52 0.10 300);color:#fff;border-color:transparent;padding:7px 14px;font-size:11px}
+.btn-runtime-sim:hover{background:oklch(0.58 0.10 300)}
+
+/* Router pipeline */
+.router-pipeline{display:flex;align-items:center;padding:10px 14px;gap:0;
+  background:oklch(0.1 0.005 60/.6);border-bottom:1px solid oklch(1 0 0/.06)}
+.rp-step{display:flex;align-items:center;gap:5px;padding:6px 10px;font-size:10px;
+  color:oklch(0.4 0.005 110);flex:1;justify-content:center;border:1px solid oklch(1 0 0/.06);transition:.25s;position:relative}
+.rp-step .rp-num{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:8px;font-weight:700;font-family:var(--font-mono);border:1px solid oklch(1 0 0/.12);background:oklch(0.12 0.005 60);flex-shrink:0;transition:.25s}
+.rp-step .rp-timing{font-size:8px;font-family:var(--font-mono);color:oklch(0.4 0.005 110);margin-left:2px;opacity:0;transition:opacity .3s}
+.rp-step.done .rp-timing{opacity:1;color:oklch(0.58 0.04 160)}
+.rp-step.active .rp-timing{opacity:1;color:oklch(0.7 0.08 200)}
+.rp-step.active{color:oklch(0.88 0.08 200);border-color:oklch(0.62 0.1 200/.4);background:oklch(0.62 0.1 200/.08)}
+.rp-step.active .rp-num{background:oklch(0.62 0.10 200);color:#fff;border-color:oklch(0.62 0.10 200);animation:rpPulse 1.5s ease-in-out infinite}
+.rp-step.done{color:oklch(0.65 0.06 155);border-color:oklch(0.52 0.04 160/.3);background:oklch(0.52 0.04 160/.05)}
+.rp-step.done .rp-num{background:oklch(0.52 0.04 160);color:#fff}
+/* Animated dotted connector between steps */
+.rp-connector{flex:0 0 28px;height:2px;position:relative;margin:0 2px;overflow:hidden}
+.rp-connector::before{content:'';position:absolute;top:0;left:0;width:200%;height:100%;
+  background:repeating-linear-gradient(90deg,oklch(0.3 0.005 110) 0 4px,transparent 4px 8px);}
+.rp-connector.flowing::before{animation:rpFlow .8s linear infinite}
+.rp-connector.done::before{background:repeating-linear-gradient(90deg,oklch(0.52 0.04 160) 0 4px,transparent 4px 8px)}
+.rp-arrow{font-size:10px;color:oklch(0.3 0.005 110);margin:0 1px;display:none}
+
+/* Router log */
+.router-log{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px;min-height:0}
+.rlog{padding:8px 12px;font-size:11px;line-height:1.5;animation:msgFadeIn .3s ease}
+.rlog.sys{background:oklch(0.14 0.005 60);border:1px solid oklch(1 0 0/.05);color:oklch(0.65 0.005 110)}
+.rlog.route{background:oklch(0.14 0.01 200/.5);border:1px solid oklch(0.62 0.10 200/.15);color:oklch(0.78 0.06 200)}
+.rlog.assign{background:oklch(0.14 0.01 80/.5);border:1px solid oklch(0.62 0.10 80/.15);color:oklch(0.8 0.06 80)}
+.rlog .rlog-time{font-size:9px;color:oklch(0.35 0.005 110);margin-top:3px;font-family:var(--font-mono)}
+
+/* Router right panel */
+.router-right{grid-column:3;grid-row:2/4;background:#2A3037E8;backdrop-filter:blur(14px);
+  border-left:1px solid #4A535C;overflow:hidden}
+.ragent-section{padding:12px 14px;border-bottom:1px solid #4A535C40}
+.ragent-section h4{font-size:11px;font-weight:600;color:oklch(0.65 0.005 110);margin-bottom:8px;
+  display:flex;align-items:center;gap:6px}
+.ragent-list{display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto}
+.ragent-item{display:flex;align-items:center;gap:8px;padding:7px 10px;
+  border:1px solid oklch(1 0 0/.05);cursor:pointer;transition:.15s;font-size:11px}
+.ragent-item:hover{background:oklch(1 0 0/.04);border-color:oklch(1 0 0/.1)}
+.ragent-item.selected{border-color:oklch(0.62 0.10 200/.4);background:oklch(0.62 0.10 200/.06)}
+.ragent-item .ra-icon{font-size:14px}
+.ragent-item .ra-name{flex:1;color:oklch(0.82 0.003 110);font-weight:500}
+.ragent-item .ra-badge{font-size:9px;font-family:var(--font-mono);color:oklch(0.45 0.005 110);
+  padding:1px 5px;border:1px solid oklch(1 0 0/.08)}
+
+/* Route results */
+.rresults-header{padding:8px 14px;border-bottom:1px solid #4A535C40;display:none;align-items:center;justify-content:space-between}
+.rresults-header h4{font-size:11px;font-weight:600;color:oklch(0.65 0.005 110)}
+.rresults-header .rr-stats{font-size:9px;font-family:var(--font-mono);color:oklch(0.45 0.005 110)}
+.rresults{flex:1;overflow-y:auto;padding:6px}
+.rr-item{display:flex;align-items:flex-start;gap:8px;padding:10px;margin:4px 6px;
+  border:1px solid oklch(1 0 0/.05);cursor:pointer;transition:.15s;position:relative}
+.rr-item:hover{background:oklch(1 0 0/.03);border-color:oklch(1 0 0/.1)}
+.rr-item.sel{border-color:oklch(0.68 0.12 80/.4);background:oklch(0.68 0.12 80/.05)}
+.rr-item.assigned{border-color:oklch(0.52 0.04 160/.4);background:oklch(0.52 0.04 160/.05);
+  animation:rrInject .6s ease forwards;box-shadow:inset 0 0 0 1px oklch(0.52 0.04 160/.15)}
+.rr-item.assigned::after{content:'';position:absolute;inset:-1px;border:1px solid oklch(0.52 0.04 160/.25);
+  animation:rrInjectGlow 2s ease-in-out infinite;pointer-events:none}
+.rr-item .rr-icon{font-size:16px;flex-shrink:0}
+.rr-item .rr-body{flex:1;min-width:0}
+.rr-item .rr-name{font-size:11px;font-weight:600;color:oklch(0.82 0.003 110)}
+.rr-item .rr-desc{font-size:9px;color:oklch(0.48 0.005 110);margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rr-item .rr-tags{margin-top:3px;display:flex;flex-wrap:wrap;gap:2px}
+.rr-item .rr-tag{font-size:8px;padding:1px 4px;background:oklch(0.62 0.10 200/.08);
+  border:1px solid oklch(0.62 0.10 200/.15);color:oklch(0.6 0.06 200)}
+/* Color-coded match reasons */
+.rr-item .rr-tag[data-reason="name"]{background:oklch(0.68 0.12 80/.1);border-color:oklch(0.68 0.12 80/.25);color:oklch(0.72 0.1 80)}
+.rr-item .rr-tag[data-reason="desc"]{background:oklch(0.62 0.10 200/.1);border-color:oklch(0.62 0.10 200/.25);color:oklch(0.68 0.08 200)}
+.rr-item .rr-tag[data-reason="category"]{background:oklch(0.52 0.04 160/.1);border-color:oklch(0.52 0.04 160/.25);color:oklch(0.6 0.06 160)}
+.rr-item .rr-tag[data-reason="semantic"]{background:oklch(0.55 0.08 300/.1);border-color:oklch(0.55 0.08 300/.25);color:oklch(0.62 0.08 300)}
+/* Dual score bars */
+.rr-scores{position:absolute;top:6px;right:8px;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.rr-scores .rr-score-row{display:flex;align-items:center;gap:3px}
+.rr-scores .rr-score-label{font-size:7px;font-family:var(--font-mono);color:oklch(0.4 0.005 110);width:14px;text-align:right}
+.rr-scores .rr-score-bar{width:36px;height:3px;background:oklch(1 0 0/.06);overflow:hidden}
+.rr-scores .rr-score-fill{height:100%;transition:width .4s ease}
+.rr-scores .rr-score-fill.retrieve{background:oklch(0.62 0.10 200)}
+.rr-scores .rr-score-fill.rerank{background:oklch(0.55 0.08 300)}
+.rr-scores .rr-score-val{font-size:8px;font-family:var(--font-mono);color:oklch(0.55 0.005 110);min-width:18px}
+.rr-item .rr-score{position:absolute;top:6px;right:8px;font-size:9px;font-family:var(--font-mono);
+  color:oklch(0.62 0.10 200);font-weight:600;display:none}
+.rr-item .rr-check{position:absolute;top:6px;left:8px;font-size:12px;display:none;color:oklch(0.68 0.12 80)}
+.rr-item.sel .rr-check{display:block}
+.rr-item.assigned .rr-check{display:block;color:oklch(0.6 0.06 155)}
+
+.rassign-bar{display:none;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #4A535C;
+  background:#21272DE8;flex-shrink:0}
+.rassign-bar.visible{display:flex}
+.rassign-bar.always-show{display:flex}
+.rassign-bar .ra-count{font-size:10px;color:oklch(0.5 0.005 110);font-family:var(--font-mono);flex:1}
+.rassign-bar .btn-assign-go:disabled{opacity:0.35;cursor:not-allowed;background:oklch(0.45 0.04 80)}
+.btn-assign-go{background:oklch(0.68 0.12 80);color:#1a1a1a;border-color:transparent;padding:7px 14px;font-size:11px;font-weight:600}
+.btn-assign-go:hover{background:oklch(0.74 0.12 80)}
+.injection-suggest{position:relative;background:oklch(0.18 0.02 145/.9);border:1px solid oklch(0.55 0.12 145/.3);border-radius:6px;padding:10px 14px;margin:6px 0}
+.injection-suggest .suggest-alt{display:inline-block;padding:2px 8px;margin:0 3px;font-size:10px;background:oklch(0.25 0.02 110);border:1px solid oklch(0.4 0.02 110);border-radius:3px;cursor:pointer;color:oklch(0.7 0.02 110);transition:all .2s}
+.injection-suggest .suggest-alt:hover{background:oklch(0.35 0.04 145);border-color:oklch(0.55 0.08 145);color:oklch(0.85 0.06 145)}
+.rassigned-tag{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;background:oklch(0.22 0.02 110);border:1px solid oklch(0.4 0.02 110);border-radius:4px;margin:3px 4px;transition:opacity .3s}
+.tag-feedback{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
+.tag-stars .star{cursor:pointer;font-size:11px;color:oklch(0.5 0.01 80);transition:color .15s}
+.tag-stars .star:hover,.tag-stars .star.filled{color:oklch(0.75 0.12 80)}
+.tag-revoke{cursor:pointer;font-size:12px;color:oklch(0.45 0.05 20);margin-left:4px;opacity:0.5;transition:opacity .2s}
+.tag-revoke:hover{opacity:1;color:oklch(0.65 0.15 20)}
+.agent-profile-panel{padding:10px 12px;border-top:1px solid oklch(0.3 0.01 110);margin-top:8px}
+.skill-dashboard{border-bottom:1px solid oklch(0.3 0.01 110);overflow:hidden}
+.skill-dashboard.collapsed .dash-body{display:none}
+.skill-dashboard.collapsed .dash-toggle{transform:rotate(-90deg)}
+.dash-header{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;cursor:pointer;font-size:11px;color:oklch(0.65 0.03 110)}
+.dash-header:hover{background:oklch(0.2 0.01 110)}
+.dash-toggle{transition:transform .2s}
+.dash-body{padding:6px 14px 10px}
+.dash-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.dash-metric{text-align:center;padding:4px 2px;background:oklch(0.18 0.01 110);border-radius:4px}
+.dm-val{display:block;font-size:14px;font-weight:600;color:oklch(0.8 0.06 145);font-family:var(--font-mono)}
+.dm-label{display:block;font-size:8px;color:oklch(0.5 0.01 110);margin-top:2px}
+
+/* Assigned skills display */
+.rassigned{padding:8px 12px;border-top:1px solid #4A535C40;max-height:100px;overflow-y:auto;display:none}
+.rassigned.visible{display:block}
+.rassigned h5{font-size:9px;color:oklch(0.45 0.005 110);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.rassigned-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;margin:2px;
+  font-size:9px;background:oklch(0.52 0.04 160/.1);border:1px solid oklch(0.52 0.04 160/.2);color:oklch(0.68 0.04 160)}
+
+/* Router keyframes */
+@keyframes rpPulse{0%,100%{box-shadow:0 0 0 0 oklch(0.62 0.10 200/.3)}50%{box-shadow:0 0 0 4px oklch(0.62 0.10 200/.0)}}
+@keyframes rpFlow{0%{transform:translateX(0)}100%{transform:translateX(-8px)}}
+@keyframes rrInject{0%{box-shadow:inset 0 0 0 1px oklch(0.52 0.04 160/.0)}100%{box-shadow:inset 0 0 0 1px oklch(0.52 0.04 160/.15)}}
+@keyframes rrInjectGlow{0%,100%{border-color:oklch(0.52 0.04 160/.15)}50%{border-color:oklch(0.52 0.04 160/.35)}}
 </style>
 </head>
 
@@ -485,8 +659,12 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   <!-- ── Topbar ──────────────────────────────────────────────── -->
   <div class="topbar">
     <div class="topbar-left">
-      <span class="seal">萃</span>
-      <h1>技能萃取</h1>
+      <span class="seal" id="mode-seal">萃</span>
+      <h1 id="mode-title">技能萃取</h1>
+      <div class="mode-toggle">
+        <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">🩸 萃取</button>
+        <button data-mode="router" onclick="window._switchPageMode('router')">🧭 赋予</button>
+      </div>
     </div>
     <div class="topbar-nav">
       <a href="plaza.html">议事广场</a>
@@ -494,12 +672,12 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <a href="system-evolution.html">系统演进</a>
     </div>
     <div class="topbar-right">
-      <div class="team-chips" id="team-chips"></div>
+      <div class="team-chips" id="team-chips" style="position:relative"></div>
     </div>
   </div>
 
   <!-- ── Left Panel: Message Flow + Submission ────────────────────── -->
-  <div class="panel-left" id="panel-left">
+  <div class="panel-left extract-left" id="panel-left">
     <div class="panel-section collapsed" id="knowledge-input-section">
       <h3 onclick="toggleKnowledgeInput()"><span class="icon">📎</span> 知识投入<span class="collapse-arrow">▼</span></h3>
       <div class="submit-form">
@@ -560,7 +738,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   </div>
 
   <!-- ── Right Panel: Review Queue ───────────────────────────── -->
-  <div class="panel-right" id="panel-right">
+  <div class="panel-right extract-right" id="panel-right">
     <div class="panel-section" style="padding-bottom:0">
       <h3><span class="icon">📋</span> 审核队列</h3>
     </div>
@@ -600,6 +778,85 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <div style="text-align:center;padding:40px 20px;color:oklch(0.4 0.005 110);font-size:12px">
         暂无萃取项目<br><span style="font-size:10px;margin-top:4px;display:block">提交知识文本后，萃取结果将出现在此</span>
       </div>
+    </div>
+  </div>
+
+  <!-- ═══ Router Left Panel ═══════════════════════════════════════ -->
+  <div class="panel-left router-left" id="router-left">
+    <div class="router-pipeline" id="router-pipeline">
+      <div class="rp-step" data-rp="retrieve"><span class="rp-num">1</span>Retrieve<span class="rp-timing"></span></div>
+      <div class="rp-connector" data-after="retrieve"></div>
+      <div class="rp-step" data-rp="rerank"><span class="rp-num">2</span>Rerank<span class="rp-timing"></span></div>
+      <div class="rp-connector" data-after="rerank"></div>
+      <div class="rp-step" data-rp="assign"><span class="rp-num">3</span>Assign<span class="rp-timing"></span></div>
+    </div>
+    <div class="router-query">
+      <h3>🧭 技能路由查询</h3>
+      <textarea id="router-query-input" placeholder="描述需要的能力，例如：&#10;• 需要处理客户投诉的沟通技能&#10;• 数据分析与可视化能力&#10;• 跨部门协作与项目管理"></textarea>
+      <div class="router-query-row">
+        <label>Top-K</label>
+        <input type="number" id="router-topk" value="5" min="1" max="20"/>
+        <button class="btn btn-router" onclick="window._executeRoute()">🔍 路由</button>
+        <button class="btn btn-runtime-sim" onclick="window._executeRuntimeSim()" title="模拟运行时路由">⚡ 模拟</button>
+      </div>
+    </div>
+    <!-- ── Skill Pool Dashboard ── -->
+    <div class="skill-dashboard" id="skill-dashboard" style="display:none">
+      <div class="dash-header" onclick="document.getElementById('skill-dashboard').classList.toggle('collapsed')">
+        <span>📊 技能池仪表盘</span>
+        <span class="dash-toggle">▾</span>
+      </div>
+      <div class="dash-body">
+        <div class="dash-metrics">
+          <div class="dash-metric"><span class="dm-val" id="dash-pool-size">0</span><span class="dm-label">技能总数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-categories">0</span><span class="dm-label">类别数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-routes">0</span><span class="dm-label">路由次数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-assigns">0</span><span class="dm-label">注入次数</span></div>
+        </div>
+        <div class="dash-metrics" style="margin-top:6px">
+          <div class="dash-metric"><span class="dm-val" id="dash-top1">—</span><span class="dm-label">Top-1 精度</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-latency">—</span><span class="dm-label">平均延迟</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-success">—</span><span class="dm-label">成功率</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-avg-rating">—</span><span class="dm-label">平均评分</span></div>
+        </div>
+        <div id="dash-category-bars" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="router-log" id="router-log">
+      <div class="rlog sys">🧭 SkillRouter就绪 — 输入能力需求，检索最匹配的技能<div class="rlog-time">系统</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ Router Right Panel ══════════════════════════════════════ -->
+  <div class="panel-right router-right" id="router-right">
+    <div class="ragent-section">
+      <h4>👤 目标智能体</h4>
+      <div class="ragent-list" id="ragent-list">
+        <div class="ragent-item selected" data-agent-id="default" onclick="window._selectRouterAgent(this)">
+          <span class="ra-icon">🤖</span>
+          <span class="ra-name">默认智能体</span>
+          <span class="ra-badge">通用</span>
+        </div>
+      </div>
+    </div>
+    <!-- Agent Skill Profile Radar -->
+    <div class="agent-profile-panel" id="agent-profile-panel" style="display:none">
+      <h5 style="font-size:11px;color:oklch(0.65 0.02 110);margin:0 0 8px">📊 技能画像</h5>
+      <canvas id="agent-radar-canvas" width="180" height="180" style="display:block;margin:0 auto"></canvas>
+      <div id="agent-profile-skills" style="margin-top:8px;font-size:10px;color:oklch(0.55 0.01 110)"></div>
+    </div>
+    <div class="rresults-header" id="rresults-header">
+      <h4>🎯 路由结果</h4>
+      <span class="rr-stats" id="rr-stats"></span>
+    </div>
+    <div class="rresults" id="rresults"></div>
+    <div class="rassigned" id="rassigned-section">
+      <h5>💉 Injected Skills</h5>
+      <div id="rassigned-tags"></div>
+    </div>
+    <div class="rassign-bar" id="rassign-bar">
+      <span class="ra-count" id="rassign-count">已选 0 项</span>
+      <button class="btn btn-assign-go" onclick="window._executeAssign()">💉 注入</button>
     </div>
   </div>
 
@@ -1013,8 +1270,9 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
             <div>跨团队复核: <b id="pipe-cross-team">—</b></div>
           </div>
         </div>
-        <div style="padding:0 12px 8px">
-          <button class="btn btn-sm" onclick="checkGate()" style="padding:2px 8px;font-size:9px;width:100%;justify-content:center">🔍 检查门禁状态</button>
+        <div style="padding:0 12px 8px;display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="checkGate()" style="padding:2px 8px;font-size:9px;flex:1;justify-content:center">🔍 检查门禁状态</button>
+          <button class="btn btn-sm" onclick="advancePipeline()" style="padding:2px 8px;font-size:9px;flex:1;justify-content:center;background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 通过并推进</button>
         </div>
       </details>
       <!-- Gate Check Result -->
@@ -1224,6 +1482,21 @@ async function api(path, opts = {}) {
   }
 }
 
+// Skill-router API uses a different base path
+async function routerApi(path, opts = {}) {
+  try {
+    const r = await fetch('/api/v1/skill-router' + path, {
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
+      ...opts,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return await r.json();
+  } catch (e) {
+    console.error('[RouterAPI]', path, e);
+    return null;
+  }
+}
+
 // ── Team Loading ────────────────────────────────────────────────
 async function loadTeams() {
   const teams = await api('/teams');
@@ -1238,16 +1511,16 @@ async function loadTeams() {
     sessionStorage.removeItem('extract_teams');
   }
 
-  // Render team chips
+  // Render team chips — dynamic add/remove
   const container = document.getElementById('team-chips');
-  const displayTeams = participantTeamIds
+  let displayTeams = participantTeamIds
     ? teams.filter(t => participantTeamIds.includes(t.team_id))
     : teams;
   if (!displayTeams.length && teams.length) displayTeams.push(...teams);
 
-  container.innerHTML = displayTeams.map(t =>
-    `<span class="team-chip" data-tid="${t.team_id}" onclick="selectTeamChip(this,'${t.team_id}')">${t.name}</span>`
-  ).join('');
+  // Store active team IDs for add/remove
+  window._activeTeamIds = displayTeams.map(t => t.team_id);
+  renderTeamChips();
 
   // Check URL params for team_id
   const params = new URLSearchParams(location.search);
@@ -1291,6 +1564,72 @@ window.selectTeamChip = function(el, teamId) {
   loadSkills();
 };
 
+// ── Dynamic team chip rendering ─────────────────────────────────
+function renderTeamChips() {
+  const container = document.getElementById('team-chips');
+  const activeIds = window._activeTeamIds || [];
+  const chips = activeIds.map(tid => {
+    const t = allTeams.find(x => x.team_id === tid);
+    if (!t) return '';
+    return `<span class="team-chip" data-tid="${t.team_id}"><span onclick="selectTeamChip(this.parentElement,'${t.team_id}')">${t.name}</span><span class="chip-close" onclick="event.stopPropagation();window._removeTeamChip('${t.team_id}')">✕</span></span>`;
+  }).join('');
+  // Add button + dropdown
+  const addBtn = `<span class="chip-add" onclick="window._toggleChipDropdown()">＋</span>`;
+  const dropdown = `<div class="chip-dropdown" id="chip-dropdown"></div>`;
+  container.innerHTML = chips + addBtn + dropdown;
+  // Re-activate current
+  if (currentTeamId) {
+    const el = container.querySelector(`[data-tid="${currentTeamId}"]`);
+    if (el) el.classList.add('active');
+  }
+}
+
+window._removeTeamChip = function(teamId) {
+  window._activeTeamIds = (window._activeTeamIds || []).filter(id => id !== teamId);
+  renderTeamChips();
+  // If removed the active team, switch to first remaining
+  if (currentTeamId === teamId && window._activeTeamIds.length) {
+    const container = document.getElementById('team-chips');
+    const first = window._activeTeamIds[0];
+    selectTeamChip(container.querySelector(`[data-tid="${first}"]`), first);
+  }
+};
+
+window._toggleChipDropdown = function() {
+  const dd = document.getElementById('chip-dropdown');
+  dd.classList.toggle('open');
+  if (dd.classList.contains('open')) {
+    // Show teams not already active
+    const activeIds = new Set(window._activeTeamIds || []);
+    const available = allTeams.filter(t => !activeIds.has(t.team_id));
+    if (!available.length) {
+      dd.innerHTML = '<div class="chip-dropdown-item" style="color:oklch(0.4 0.005 110)">所有团队已添加</div>';
+    } else {
+      dd.innerHTML = available.map(t =>
+        `<div class="chip-dropdown-item" onclick="window._addTeamChip('${t.team_id}')">${t.name}</div>`
+      ).join('');
+    }
+    // Close on outside click
+    setTimeout(() => document.addEventListener('click', _closeChipDropdown, { once: true }), 0);
+  }
+};
+
+function _closeChipDropdown() {
+  const dd = document.getElementById('chip-dropdown');
+  if (dd) dd.classList.remove('open');
+}
+
+window._addTeamChip = function(teamId) {
+  if (!window._activeTeamIds.includes(teamId)) {
+    window._activeTeamIds.push(teamId);
+  }
+  renderTeamChips();
+  // Select the newly added team
+  const container = document.getElementById('team-chips');
+  selectTeamChip(container.querySelector(`[data-tid="${teamId}"]`), teamId);
+  _closeChipDropdown();
+};
+
 async function loadTeamAgents(teamId) {
   const agents = await api(`/teams/${teamId}/agents`);
   if (agents) {
@@ -1309,21 +1648,33 @@ function updateAgentSelect() {
 }
 
 // ── SSE Connection ──────────────────────────────────────────────
+let _sseReconnectAttempts = 0;
+const _SSE_MAX_RECONNECT = 20;
+const _SSE_BASE_DELAY = 3000;
+
 function connectSSE() {
   if (sseSource) { sseSource.close(); sseSource = null; }
   if (!currentTeamId) return;
   sseSource = new EventSource(`${API_BASE}/teams/${currentTeamId}/skill-extract/stream`);
+  sseSource.onopen = () => { _sseReconnectAttempts = 0; };
   sseSource.onmessage = (e) => {
     try {
       const d = JSON.parse(e.data);
       handleSSE(d);
-    } catch {}
+    } catch(err) { console.warn('[SSE] parse error:', err.message); }
   };
   sseSource.onerror = () => {
-    console.warn('[SSE] connection error, reconnecting in 5s');
     if (sseSource) { sseSource.close(); sseSource = null; }
+    _sseReconnectAttempts++;
+    if (_sseReconnectAttempts > _SSE_MAX_RECONNECT) {
+      console.error('[SSE] Max reconnection attempts reached, stopping');
+      return;
+    }
+    // Exponential backoff: 3s, 6s, 12s, 24s... capped at 60s
+    const delay = Math.min(_SSE_BASE_DELAY * Math.pow(2, _sseReconnectAttempts - 1), 60000);
+    console.warn(`[SSE] connection error, reconnecting in ${delay/1000}s (attempt ${_sseReconnectAttempts}/${_SSE_MAX_RECONNECT})`);
     clearTimeout(window._sseReconnectTimer);
-    window._sseReconnectTimer = setTimeout(() => connectSSE(), 5000);
+    window._sseReconnectTimer = setTimeout(() => { if (!document.hidden) connectSSE(); }, delay);
   };
 }
 
@@ -2169,30 +2520,45 @@ async function loadVersionTab() {
   const curEl = document.getElementById('version-current');
   diffEl.style.display = 'none';
   
-  // Populate version info card
-  const curVer = item.draft_version || 1;
+  // Get actual version from team skill (not queue item which has no version)
+  const teamSkill = allSkills?.find(s => s.skill_id === skillId || s.slug === (item?.draft_slug || ''));
+  const curVer = teamSkill?.version || item?.draft_version || 1;
   document.getElementById('ver-current-num').textContent = `v${curVer}`;
   document.getElementById('ver-next-num').textContent = curVer + 1;
-  document.getElementById('ver-lifecycle').textContent = item.status || 'draft';
+  document.getElementById('ver-lifecycle').textContent = teamSkill?.lifecycle_stage || item?.status || 'draft';
 
   if (!skillId) { el.innerHTML = '暂无版本历史'; curEl.textContent = ''; return; }
   curEl.textContent = `v${curVer}`;
   const data = await api(`/skill-library/${skillId}/evolution-history?team_id=${currentTeamId}`);
-  const evolveCount = data?.lineage ? Object.keys(data.lineage).length : 0;
-  document.getElementById('ver-evolve-count').textContent = evolveCount;
 
-  if (!data || !data.lineage || Object.keys(data.lineage).length === 0) {
+  // Parse lineage response: { skill_id, lineage: { ancestors: [], current: {}, children: [] } }
+  const lineage = data?.lineage || {};
+  const ancestors = lineage.ancestors || [];
+  const current = lineage.current;
+  const evolveCount = ancestors.length + (current ? 1 : 0);
+  document.getElementById('ver-evolve-count').textContent = Math.max(0, evolveCount - 1);
+
+  if (!current && ancestors.length === 0) {
     el.innerHTML = `<div style="padding:12px 0;text-align:center;color:oklch(0.4 0.005 110)">📌 当前版本 v${curVer} · 暂无演化历史</div>`;
     return;
   }
-  // Build timeline from lineage entries
-  const entries = Object.entries(data.lineage);
-  el.innerHTML = entries.map(([vKey, vData], idx) => {
-    const isCurrent = idx === entries.length - 1;
+
+  // Build timeline: ancestors (oldest first) + current
+  const timelineItems = [...ancestors];
+  if (current) timelineItems.push(current);
+  // If only current exists (no ancestors), show single version
+  if (timelineItems.length <= 1 && curVer <= 1) {
+    el.innerHTML = `<div style="padding:12px 0;text-align:center;color:oklch(0.4 0.005 110)">📌 当前版本 v${curVer} · 暂无演化历史</div>`;
+    return;
+  }
+
+  el.innerHTML = timelineItems.map((vData, idx) => {
+    const isCurrent = idx === timelineItems.length - 1;
+    const verNum = vData.version || (idx + 1);
     const dotColor = isCurrent ? 'oklch(0.7 0.1 140)' : 'oklch(0.5 0.03 80)';
-    const lineColor = idx < entries.length - 1 ? 'oklch(0.25 0.02 80)' : 'transparent';
-    const ts = vData.timestamp ? new Date(vData.timestamp).toLocaleString('zh-CN', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
-    const reason = vData.reason || vData.change || vData.type || '';
+    const lineColor = idx < timelineItems.length - 1 ? 'oklch(0.25 0.02 80)' : 'transparent';
+    const ts = vData.last_used_at ? new Date(vData.last_used_at).toLocaleString('zh-CN', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+    const stage = vData.lifecycle_stage || '';
     return `<div style="display:flex;gap:10px;position:relative">
       <div style="display:flex;flex-direction:column;align-items:center;min-width:12px">
         <div style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px"></div>
@@ -2200,19 +2566,19 @@ async function loadVersionTab() {
       </div>
       <div style="padding-bottom:12px;flex:1">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-weight:600;color:${isCurrent ? 'oklch(0.82 0.003 110)' : 'oklch(0.6 0.005 110)'}">${vKey}${isCurrent ? ' ← 当前' : ''}</span>
-          <span style="font-size:9px;color:oklch(0.4 0.005 110)">${ts}</span>
+          <span style="font-weight:600;color:${isCurrent ? 'oklch(0.82 0.003 110)' : 'oklch(0.6 0.005 110)'}">v${verNum}${isCurrent ? ' ← 当前' : ''}</span>
+          <span style="font-size:9px;color:oklch(0.4 0.005 110)">${ts} ${stage}</span>
         </div>
-        ${reason ? `<div style="font-size:10px;color:oklch(0.5 0.005 110);margin-top:2px">${reason}</div>` : ''}
+        ${vData.name ? `<div style="font-size:10px;color:oklch(0.5 0.005 110);margin-top:2px">${escHtml(vData.name)}</div>` : ''}
         <div style="margin-top:4px;display:flex;gap:6px">
           ${idx > 0 ? `<button class="btn" style="font-size:9px;padding:2px 8px" onclick="showVersionDiff(${idx}, ${idx - 1})">diff</button>` : ''}
-          ${!isCurrent ? `<button class="btn" style="font-size:9px;padding:2px 8px" onclick="rollbackVersion('${vKey}')">rollback</button>` : ''}
+          ${!isCurrent ? `<button class="btn" style="font-size:9px;padding:2px 8px" onclick="rollbackVersion('v${verNum}')">rollback</button>` : ''}
         </div>
       </div>
     </div>`;
   }).join('');
   // Store entries for diff
-  window._versionEntries = entries;
+  window._versionEntries = timelineItems.map((v, i) => [`v${v.version || i + 1}`, v]);
 }
 window.showVersionDiff = function(idxA, idxB) {
   const entries = window._versionEntries;
@@ -2348,6 +2714,13 @@ window.approveAs = async function(skillType) {
   if (idx >= 0) Object.assign(queueItems[idx], r);
   await loadSkills();
   renderQueue();
+
+  // ── Closed-loop: suggest best agent for auto-injection ──
+  const skillId = r.draft_slug || r.skill_id;
+  if (skillId && skillType !== 'trait') {
+    // trait already assigned to specific agent; for public/reserve, suggest
+    _showInjectionSuggestion(skillId, r.draft_name || edits.name);
+  }
 };
 
 window.rejectItem = async function() {
@@ -2630,7 +3003,7 @@ window.toggleViewMode = function() {
       panoramaGroup = null;
     }
     // Restore main scene
-    if (humanFigure) humanFigure.visible = true;
+    if (humanFigure) humanFigure.visible = document.body.classList.contains('mode-router');
     if (myceliumGroup) myceliumGroup.visible = true;
     extractionGroup.visible = true;
     camera.position.set(0, 10, 22);
@@ -3896,8 +4269,9 @@ function initScene() {
   // Ground — hexagonal platform
   buildPlatform();
 
-  // Human figure (center) — digital twin of the user
+  // Human figure (center) — used in router/赋予 mode as selected agent
   humanFigure = createAgentFigure('智能体', 0xD4A574);
+  humanFigure.visible = false; // Hidden in extraction mode by default
   scene.add(humanFigure);
 
   // Extraction group (vessels + nerves + skill nodes)
@@ -4442,6 +4816,7 @@ function spawnSkillNodeAnimated(skill) {
   const scaleX = 2 * (labelCanvas.width / 256);
   label.scale.set(scaleX, 0.5, 1);
   extractionGroup.add(label);
+  mesh.userData._label = label;
 }
 
 // ── Delete shatter animation ────────────────────────────────────
@@ -4621,6 +4996,7 @@ function spawnSkillNode(skill) {
   const scaleX = 2 * (labelCanvas.width / 256);
   label.scale.set(scaleX, 0.5, 1);
   extractionGroup.add(label);
+  mesh.userData._label = label;
 }
 
 function makeSkillLabel(icon, name) {
@@ -4654,8 +5030,8 @@ function rebuildSkillNodes() {
     extractionGroup.remove(child);
   }
   skillNodes = [];
-  // Only show current session queue items as crystals (not all historical skills)
   const seenSlugs = new Set();
+  // Show queue items as crystals (draft / approved)
   queueItems.forEach(q => {
     if (q.status !== 'ready_for_review' && q.status !== 'approved') return;
     const slug = q.draft_slug || q.item_id;
@@ -4675,6 +5051,25 @@ function rebuildSkillNodes() {
       _from_queue: true,
     });
   });
+  // Also show registered team skills not from queue
+  if (allSkills && allSkills.length) {
+    allSkills.forEach(s => {
+      const slug = s.slug || s.skill_id;
+      if (seenSlugs.has(slug)) return;
+      seenSlugs.add(slug);
+      spawnSkillNodeAnimated({
+        skill_id: s.skill_id || slug,
+        name: s.name || '未命名',
+        icon: s.icon || '⚡',
+        category: s.category || 'general',
+        slug: slug,
+        lifecycle_stage: s.lifecycle_stage || 'team_local',
+        required_tools: s.required_tools || [],
+        description: s.description || '',
+        visibility: s.visibility || 'team',
+      });
+    });
+  }
   // Draw lineage lines
   buildLineageLines();
 }
@@ -4872,6 +5267,23 @@ function animate() {
 
   // Skill node lifecycle animation
   skillNodes.forEach(node => {
+    // Router mode: orbit animation
+    if (node.userData._orbit) {
+      const orb = node.userData._orbit;
+      orb.angle += orb.speed * 0.016; // ~60fps
+      node.position.x = Math.cos(orb.angle) * orb.radius;
+      node.position.z = Math.sin(orb.angle) * orb.radius;
+      node.position.y = orb.baseY + Math.sin(animTime * 0.8 + orb.angle) * 0.15;
+      if (node.userData._glowRing) node.userData._glowRing.position.copy(node.position);
+      if (node.userData._label) {
+        node.userData._label.position.set(node.position.x, node.position.y + 0.8, node.position.z);
+      }
+      return; // skip lifecycle animation for routed nodes
+    }
+
+    // Skip lifecycle for nodes currently in fly animation
+    if (node.userData._flying) return;
+
     const age = animTime - (node.userData.spawnTime || 0);
     const g = Math.sin(age * 0.5) * 0.5 + 0.5;
     const baseY = node.userData.lifecycle?.sphereR || node.geometry?.parameters?.radius || 0.3;
@@ -5038,6 +5450,16 @@ function animate() {
     }
   });
 
+  // Animate injected skill rings orbiting agent head
+  if (humanFigure?.userData?._injectedRings) {
+    humanFigure.userData._injectedRings.forEach(ring => {
+      const d = ring.userData._injectedRing;
+      if (!d) return;
+      if (d.axis === 'y') ring.rotation.y += d.speed * 0.016;
+      else ring.rotation.z += d.speed * 0.016;
+    });
+  }
+
   renderer.render(scene, camera);
 }
 
@@ -5179,6 +5601,880 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   e.stopPropagation();
   showCtxMenu(e, hoveredNode.userData.skill);
 });
+
+// ═══ SKILL ROUTER MODE ═══════════════════════════════════════════════════
+(function initRouterMode() {
+  let currentPageMode = 'extract';
+  let routerSelectedSkills = new Set();
+  let routerResults = [];
+  let selectedAgentId = 'default';
+
+  // Mode switching
+  window._switchPageMode = function(mode) {
+    currentPageMode = mode;
+    document.body.classList.toggle('mode-router', mode === 'router');
+    // Update toggle buttons
+    document.querySelectorAll('.mode-toggle button').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    // Update seal + title
+    const seal = document.getElementById('mode-seal');
+    const title = document.getElementById('mode-title');
+    if (mode === 'router') {
+      seal.textContent = '赋';
+      title.textContent = '技能赋予';
+      // Show agent figure in router mode
+      if (humanFigure) humanFigure.visible = true;
+      // Show assign bar immediately
+      updateAssignBar();
+    } else {
+      seal.textContent = '萃';
+      title.textContent = '技能萃取';
+      // Hide agent figure in extraction mode — skill nodes stay visible
+      if (humanFigure) humanFigure.visible = false;
+      // Hide assign bar
+      const bar = document.getElementById('rassign-bar');
+      if (bar) bar.classList.remove('always-show', 'visible');
+      // Rebuild extraction 3D view
+      rebuildSkillNodes();
+    }
+    // Load agents list when entering router mode
+    if (mode === 'router') { loadRouterAgents(); _loadDashboard(); }
+  };
+
+  // Load agents
+  async function loadRouterAgents() {
+    try {
+      const agents = await api(`/teams/${currentTeamId || 'default'}/agents`);
+      if (!agents || agents.length === 0) return;
+      const list = document.getElementById('ragent-list');
+      list.innerHTML = agents.map((a, i) => `
+        <div class="ragent-item${i === 0 ? ' selected' : ''}" data-agent-id="${a.agent_id || a.id || a.name}" data-agent-name="${a.name}" data-agent-color="${a.color || ''}" onclick="window._selectRouterAgent(this)">
+          <span class="ra-icon">${a.avatar || '🤖'}</span>
+          <span class="ra-name">${a.name}</span>
+          <span class="ra-badge">${a.role || '通用'}</span>
+        </div>
+      `).join('');
+      selectedAgentId = agents[0]?.agent_id || agents[0]?.id || agents[0]?.name || 'default';
+      // Update 3D figure to match first agent
+      updateAgentFigure3D(agents[0]?.name || '智能体', agents[0]?.color || '#D4A574');
+    } catch(e) { /* keep default */ }
+  }
+
+  window._selectRouterAgent = function(el) {
+    document.querySelectorAll('.ragent-item').forEach(x => x.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedAgentId = el.dataset.agentId;
+    // Update 3D figure to represent selected agent
+    const name = el.dataset.agentName || el.querySelector('.ra-name')?.textContent || '智能体';
+    const color = el.dataset.agentColor || '#D4A574';
+    updateAgentFigure3D(name, color);
+    // Load agent skill profile
+    _loadAgentProfile(selectedAgentId);
+  };
+
+  async function _loadAgentProfile(agentId) {
+    const panel = document.getElementById('agent-profile-panel');
+    if (!agentId || agentId === 'default') { panel.style.display = 'none'; return; }
+    try {
+      const data = await routerApi(`/agent-profile/${currentTeamId}/${agentId}`);
+      if (!data || data.error) { panel.style.display = 'none'; return; }
+      panel.style.display = 'block';
+      // Draw radar chart
+      _drawRadarChart(data.radar || []);
+      // Show skill list
+      const skillsDiv = document.getElementById('agent-profile-skills');
+      if (data.skills && data.skills.length > 0) {
+        skillsDiv.innerHTML = data.skills.map(s =>
+          `<span style="display:inline-block;padding:2px 6px;margin:2px;background:oklch(0.22 0.02 110);border:1px solid oklch(0.35 0.02 110);border-radius:3px">${s.icon} ${s.name}${s.avg_rating ? ` ⭐${s.avg_rating}` : ''}</span>`
+        ).join('');
+      } else {
+        skillsDiv.innerHTML = '<span style="opacity:0.5">暂无注入技能</span>';
+      }
+    } catch(e) { panel.style.display = 'none'; }
+  }
+
+  function _drawRadarChart(radarData) {
+    const canvas = document.getElementById('agent-radar-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const cx = W / 2, cy = H / 2, R = 70;
+    ctx.clearRect(0, 0, W, H);
+
+    if (!radarData || radarData.length < 3) {
+      ctx.fillStyle = 'oklch(0.4 0.01 110)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('需要3+类别才能生成雷达图', cx, cy);
+      return;
+    }
+
+    const n = radarData.length;
+    const maxVal = Math.max(...radarData.map(d => d.value), 1);
+    const angleStep = (2 * Math.PI) / n;
+
+    // Draw grid circles
+    for (let ring = 1; ring <= 3; ring++) {
+      const r = R * ring / 3;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const a = i * angleStep - Math.PI / 2;
+        const x = cx + r * Math.cos(a);
+        const y = cy + r * Math.sin(a);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'oklch(0.3 0.01 110)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Draw axes and labels
+    radarData.forEach((d, i) => {
+      const a = i * angleStep - Math.PI / 2;
+      const x = cx + R * Math.cos(a);
+      const y = cy + R * Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(x, y);
+      ctx.strokeStyle = 'oklch(0.35 0.01 110)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+      // Label
+      const lx = cx + (R + 14) * Math.cos(a);
+      const ly = cy + (R + 14) * Math.sin(a);
+      ctx.fillStyle = 'oklch(0.6 0.02 110)';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(d.axis, lx, ly);
+    });
+
+    // Draw data polygon
+    ctx.beginPath();
+    radarData.forEach((d, i) => {
+      const a = i * angleStep - Math.PI / 2;
+      const r = R * (d.value / maxVal);
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = 'oklch(0.55 0.12 145 / 0.25)';
+    ctx.fill();
+    ctx.strokeStyle = 'oklch(0.65 0.12 145)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Draw data points
+    radarData.forEach((d, i) => {
+      const a = i * angleStep - Math.PI / 2;
+      const r = R * (d.value / maxVal);
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'oklch(0.75 0.12 145)';
+      ctx.fill();
+    });
+  }
+
+  // ── Skill Pool Dashboard ──
+  async function _loadDashboard() {
+    if (!currentTeamId) return;
+    const panel = document.getElementById('skill-dashboard');
+    try {
+      const data = await routerApi(`/dashboard/${currentTeamId}`);
+      if (!data || data.error) { panel.style.display = 'none'; return; }
+      panel.style.display = 'block';
+
+      document.getElementById('dash-pool-size').textContent = data.pool_size || 0;
+      document.getElementById('dash-categories').textContent = data.category_count || 0;
+      const rm = data.router_metrics || {};
+      document.getElementById('dash-routes').textContent = rm.total_routes || 0;
+      document.getElementById('dash-assigns').textContent = rm.total_assigns || 0;
+      document.getElementById('dash-top1').textContent = rm.avg_top1_score ? (rm.avg_top1_score * 100).toFixed(1) + '%' : '—';
+      document.getElementById('dash-latency').textContent = rm.avg_latency_ms ? rm.avg_latency_ms.toFixed(0) + 'ms' : '—';
+      document.getElementById('dash-success').textContent = rm.success_rate ? (rm.success_rate * 100).toFixed(0) + '%' : '—';
+      const fb = data.feedback || {};
+      document.getElementById('dash-avg-rating').textContent = fb.avg_rating ? fb.avg_rating.toFixed(1) + '⭐' : '—';
+
+      // Category bar chart
+      const catDist = data.category_distribution || {};
+      const maxCat = Math.max(...Object.values(catDist), 1);
+      const barsEl = document.getElementById('dash-category-bars');
+      barsEl.innerHTML = Object.entries(catDist).slice(0, 6).map(([cat, count]) => `
+        <div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <span style="font-size:9px;color:oklch(0.55 0.02 110);width:50px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cat}</span>
+          <div style="flex:1;height:8px;background:oklch(0.2 0.01 110);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${(count/maxCat*100).toFixed(0)}%;background:oklch(0.55 0.10 145);border-radius:4px;transition:width .3s"></div>
+          </div>
+          <span style="font-size:9px;color:oklch(0.5 0.02 110);width:16px">${count}</span>
+        </div>
+      `).join('');
+    } catch(e) { panel.style.display = 'none'; }
+  }
+
+  // Update the 3D humanFigure to represent the selected agent
+  function updateAgentFigure3D(name, hexColor) {
+    if (!humanFigure) return;
+    // Remove old figure, create new one
+    const pos = humanFigure.position.clone();
+    const visible = humanFigure.visible;
+    scene.remove(humanFigure);
+    // Dispose old geometry/materials
+    humanFigure.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    });
+    // Parse color
+    let colorHex = 0xD4A574;
+    if (hexColor) {
+      if (hexColor.startsWith('#')) colorHex = parseInt(hexColor.slice(1), 16);
+      else if (typeof hexColor === 'number') colorHex = hexColor;
+    }
+    humanFigure = createAgentFigure(name, colorHex);
+    humanFigure.position.copy(pos);
+    humanFigure.visible = visible;
+    scene.add(humanFigure);
+  }
+
+  // Pipeline step animation
+  function setPipelineStep(step, timingMs) {
+    const steps = document.querySelectorAll('#router-pipeline .rp-step');
+    const connectors = document.querySelectorAll('#router-pipeline .rp-connector');
+    const order = ['retrieve','rerank','assign'];
+    const idx = order.indexOf(step);
+    steps.forEach((s, i) => {
+      s.classList.remove('active','done');
+      if (i < idx) s.classList.add('done');
+      else if (i === idx) {
+        s.classList.add('active');
+        if (timingMs !== undefined) {
+          const t = s.querySelector('.rp-timing');
+          if (t) t.textContent = timingMs < 1 ? `${(timingMs*1000).toFixed(0)}μs` : `${timingMs.toFixed(1)}ms`;
+        }
+      }
+    });
+    connectors.forEach((c, i) => {
+      c.classList.remove('flowing','done');
+      if (i < idx) c.classList.add('done');
+      else if (i === idx - 1 || i === idx) c.classList.add('flowing');
+    });
+  }
+
+  function setPipelineStepTiming(step, ms) {
+    const el = document.querySelector(`#router-pipeline .rp-step[data-rp="${step}"] .rp-timing`);
+    if (el) el.textContent = ms < 1 ? `${(ms*1000).toFixed(0)}μs` : `${ms.toFixed(1)}ms`;
+  }
+
+  function clearPipelineTimings() {
+    document.querySelectorAll('#router-pipeline .rp-timing').forEach(t => t.textContent = '');
+    document.querySelectorAll('#router-pipeline .rp-connector').forEach(c => c.classList.remove('flowing','done'));
+  }
+
+  // Add log entry
+  function addRouterLog(type, text) {
+    const log = document.getElementById('router-log');
+    const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const div = document.createElement('div');
+    div.className = `rlog ${type}`;
+    div.innerHTML = `${text}<div class="rlog-time">${now}</div>`;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // Route
+  window._executeRoute = async function() {
+    const query = document.getElementById('router-query-input').value.trim();
+    if (!query) return;
+    const topK = parseInt(document.getElementById('router-topk').value) || 5;
+
+    addRouterLog('sys', `🔍 路由查询: "${query}" (top-${topK})`);
+    clearPipelineTimings();
+    setPipelineStep('retrieve');
+
+    try {
+      const resp = await fetch('/api/v1/skill-router/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, team_id: currentTeamId || 'default', agent_id: selectedAgentId, top_k: topK, mode: 'assign' })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      setPipelineStep('rerank', data.stage1_ms);
+      if (data.stage1_ms) setPipelineStepTiming('retrieve', data.stage1_ms);
+      await new Promise(r => setTimeout(r, 300));
+
+      routerResults = data.results || [];
+      routerSelectedSkills.clear();
+      renderRouterResults(routerResults);
+      visualizeRoutedSkills(routerResults);
+
+      if (data.stage2_ms) setPipelineStepTiming('rerank', data.stage2_ms);
+      setPipelineStep('assign', data.stage2_ms);
+      const s1 = data.stage1_ms ? `S1:${data.stage1_ms}ms` : '';
+      const s2 = data.stage2_ms ? `S2:${data.stage2_ms}ms` : '';
+      const pool = data.pool_size ? `pool:${data.pool_size}` : '';
+      addRouterLog('route', `✅ 检索到 ${routerResults.length} 项匹配技能 (${data.duration_ms || '?'}ms ${s1} ${s2} ${pool})`);
+      if (routerResults.length > 0) {
+        const top = routerResults[0];
+        addRouterLog('route', `🏆 最佳匹配: <b>${top.name}</b> (分数: ${(top.score * 100).toFixed(1)}%)`);
+      }
+    } catch(e) {
+      addRouterLog('sys', `❌ 路由失败: ${e.message}`);
+      setPipelineStep('retrieve');
+    }
+  };
+
+  // Runtime simulation — FULL end-to-end demo (route → select all → assign → animate)
+  window._executeRuntimeSim = async function() {
+    const queries = [
+      '需要快速分析数据异常并生成报告',
+      '客户沟通与情绪管理',
+      '代码审查和质量把控',
+      '跨团队项目协调'
+    ];
+    const q = queries[Math.floor(Math.random() * queries.length)];
+    document.getElementById('router-query-input').value = q;
+    addRouterLog('sys', `⚡ 运行时模拟: ${q}`);
+    await window._executeRoute();
+
+    // Auto-select top 3 results after a short delay for visual effect
+    await new Promise(r => setTimeout(r, 800));
+    const items = document.querySelectorAll('#rresults .rr-item');
+    const autoSelectCount = Math.min(3, items.length);
+    for (let i = 0; i < autoSelectCount; i++) {
+      items[i].click(); // triggers _toggleRouterResult
+    }
+    addRouterLog('sys', `🎯 自动选择 ${autoSelectCount} 项最佳匹配`);
+
+    // Auto-assign after another delay
+    await new Promise(r => setTimeout(r, 600));
+    window._executeAssign();
+  };
+
+  // Render results
+  function renderRouterResults(results) {
+    const container = document.getElementById('rresults');
+    const header = document.getElementById('rresults-header');
+    const stats = document.getElementById('rr-stats');
+
+    header.style.display = 'flex';
+    stats.textContent = `${results.length} results`;
+
+    container.innerHTML = results.map((r, i) => {
+      const rs = r.retrieval_score != null ? r.retrieval_score : r.score;
+      const rk = r.rerank_score != null ? r.rerank_score : r.score;
+      const reasonTag = (t) => {
+        const lo = t.toLowerCase();
+        let reason = 'semantic';
+        if (lo.includes('name') || lo.includes('名称')) reason = 'name';
+        else if (lo.includes('desc') || lo.includes('描述')) reason = 'desc';
+        else if (lo.includes('categ') || lo.includes('类别')) reason = 'category';
+        return `<span class="rr-tag" data-reason="${reason}">${t}</span>`;
+      };
+      return `
+      <div class="rr-item" data-idx="${i}" onclick="window._toggleRouterResult(this, ${i})">
+        <span class="rr-check">✓</span>
+        <span class="rr-icon">${r.icon || '⚡'}</span>
+        <div class="rr-body">
+          <div class="rr-name">${r.name}</div>
+          <div class="rr-desc">${r.description || r.match_reasons?.join(', ') || ''}</div>
+          <div class="rr-tags">${(r.match_reasons || []).slice(0, 3).map(t => reasonTag(t)).join('')}</div>
+        </div>
+        <div class="rr-scores">
+          <div class="rr-score-row"><span class="rr-score-label">R1</span><div class="rr-score-bar"><div class="rr-score-fill retrieve" style="width:${(rs*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rs*100).toFixed(0)}</span></div>
+          <div class="rr-score-row"><span class="rr-score-label">R2</span><div class="rr-score-bar"><div class="rr-score-fill rerank" style="width:${(rk*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rk*100).toFixed(0)}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+    updateAssignBar();
+  }
+
+  // Visualize routed skills in 3D scene — orbit around humanFigure
+  function visualizeRoutedSkills(results) {
+    // Clear existing skill nodes and rebuild with routed skills
+    while (extractionGroup.children.length > 0) {
+      const child = extractionGroup.children[0];
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) { if (child.material.map) child.material.map.dispose(); child.material.dispose(); }
+      extractionGroup.remove(child);
+    }
+    skillNodes.length = 0;
+
+    if (!results.length) return;
+
+    // Spawn routed skills as orbit nodes around the figure
+    const radius = 3.5;
+    results.forEach((r, i) => {
+      const angle = (i / results.length) * Math.PI * 2;
+      const skill = {
+        skill_id: r.skill_id || r.name,
+        name: r.name,
+        icon: r.icon || '⚡',
+        category: r.category || 'general',
+        description: r.description || '',
+        lifecycle_stage: 'published',
+        score: r.score,
+        _routed: true,
+      };
+      spawnSkillNodeAnimated(skill);
+      // Position the last spawned node in orbit
+      const node = skillNodes[skillNodes.length - 1];
+      if (node) {
+        const y = 1.5 + Math.sin(i * 0.7) * 0.5;
+        node.position.set(
+          Math.cos(angle) * radius,
+          y,
+          Math.sin(angle) * radius
+        );
+        // IMPORTANT: Cancel old flat lifecycle animation — orbit nodes appear upright immediately
+        node.userData._animating = false;
+        node.rotation.x = 0;
+        node.scale.set(1, 1, 1);
+        node.material.opacity = node.userData._targetOpacity || 0.8;
+        // Glow ring also upright and visible immediately
+        if (node.userData._glowRing) {
+          node.userData._glowRing.position.copy(node.position);
+          node.userData._glowRing.rotation.x = 0;
+          node.userData._glowRing.scale.set(1, 1, 1);
+          node.userData._glowRing.material.opacity = node.userData._glowTargetOpacity || 0.25;
+        }
+        // Color by score (higher = more cyan, lower = more gray)
+        if (node.material) {
+          const hue = 0.48 + r.score * 0.12; // cyan range
+          node.material.color.setHSL(hue, 0.6, 0.4 + r.score * 0.2);
+          node.material.opacity = 0.5 + r.score * 0.5;
+        }
+        // Store orbit data for animation
+        node.userData._orbit = { angle, radius, speed: 0.15 + i * 0.02, baseY: y };
+        // Sync label position to orbit start
+        if (node.userData._label) {
+          node.userData._label.position.set(node.position.x, node.position.y + 0.8, node.position.z);
+        }
+      }
+    });
+  }
+
+  window._toggleRouterResult = function(el, idx) {
+    const skillId = routerResults[idx]?.skill_id || routerResults[idx]?.name;
+    if (routerSelectedSkills.has(skillId)) {
+      routerSelectedSkills.delete(skillId);
+      el.classList.remove('sel');
+    } else {
+      routerSelectedSkills.add(skillId);
+      el.classList.add('sel');
+    }
+    updateAssignBar();
+  };
+
+  function updateAssignBar() {
+    const bar = document.getElementById('rassign-bar');
+    const count = document.getElementById('rassign-count');
+    const btn = bar.querySelector('.btn-assign-go');
+    // Always visible in router mode
+    bar.classList.add('always-show');
+    if (routerSelectedSkills.size > 0) {
+      count.textContent = `已选 ${routerSelectedSkills.size} 项`;
+      btn.disabled = false;
+    } else {
+      count.textContent = '点击上方结果选择技能';
+      btn.disabled = true;
+    }
+  }
+
+  // ── Closed-loop: Post-approval injection suggestion ──
+  async function _showInjectionSuggestion(skillId, skillName) {
+    try {
+      const result = await routerApi('/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, top_k: 3 }),
+      });
+      if (!result || result.error || !result.suggestions || result.suggestions.length === 0) return;
+
+      const suggestions = result.suggestions.filter(s => !s.already_has && s.affinity > 0.1);
+      if (suggestions.length === 0) return;
+
+      // Build suggestion toast with inject buttons
+      const top = suggestions[0];
+      const othersHtml = suggestions.slice(1).map(s =>
+        `<span class="suggest-alt" data-agent="${s.agent_id}" data-skill="${skillId}" onclick="_quickInject('${s.agent_id}','${skillId}')" title="${s.match_reasons.join(', ')}">${s.agent_name} (${Math.round(s.affinity * 100)}%)</span>`
+      ).join(' ');
+
+      const html = `
+        <div class="injection-suggest" id="injection-suggest-${skillId}">
+          <div style="font-size:11px;color:oklch(0.65 0.02 110);margin-bottom:6px">
+            🎯 智能赋予建议 — 「${skillName}」
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <button class="btn btn-approve" onclick="_quickInject('${top.agent_id}','${skillId}')" style="font-size:11px;padding:4px 12px;background:oklch(0.55 0.12 145/.2);border-color:oklch(0.55 0.12 145/.4);color:oklch(0.8 0.08 145)">
+              💉 注入 → ${top.agent_name} <span style="opacity:.6">(${Math.round(top.affinity * 100)}% 匹配)</span>
+            </button>
+            <span style="font-size:10px;color:oklch(0.45 0.01 110)">${top.match_reasons[0] || ''}</span>
+          </div>
+          ${othersHtml ? `<div style="font-size:10px;color:oklch(0.5 0.01 110)">其他: ${othersHtml}</div>` : ''}
+          <button onclick="this.parentElement.remove()" style="position:absolute;top:4px;right:6px;background:none;border:none;color:oklch(0.5 0.01 110);cursor:pointer;font-size:12px">✕</button>
+        </div>
+      `;
+      // Insert into message log
+      addMessage('system', html, true);
+    } catch (e) {
+      console.warn('Injection suggestion failed:', e);
+    }
+  }
+
+  window._quickInject = async function(agentId, skillId) {
+    const result = await routerApi('/assign', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, agent_id: agentId, skill_ids: [skillId] }),
+    });
+    if (result && result.status === 'ok') {
+      showToast(`💉 已注入`);
+      addMessage('system', `💉 技能已自动注入到「${agentId}」`);
+      // Remove suggestion card
+      const card = document.getElementById(`injection-suggest-${skillId}`);
+      if (card) card.remove();
+      // Trigger animation if in router mode
+      if (typeof animateSkillsToHead === 'function' && currentPageMode === 'router') {
+        const targets = skillNodes.filter(n => n.userData?.skill_id === skillId);
+        if (targets.length > 0) animateSkillsToHead(targets);
+      }
+    }
+  };
+
+  // ── Feedback: Rate + Revoke ──
+  window._rateStar = async function(skillId, rating) {
+    const agentId = document.querySelector('#rassign-bar')?.closest('.rrightpanel')?.querySelector('[data-agent-id].active')?.dataset?.agentId
+      || routerSelectedAgent || '';
+    const result = await routerApi('/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, agent_id: agentId, skill_id: skillId, action: 'rate', rating }),
+    });
+    if (result && result.status === 'ok') {
+      // Update star display
+      const stars = document.querySelectorAll(`.tag-stars[data-skill="${skillId}"] .star`);
+      stars.forEach((s, i) => { s.textContent = i < rating ? '★' : '☆'; s.classList.toggle('filled', i < rating); });
+      showToast(`⭐ 评分 ${rating}/5`);
+    }
+  };
+
+  window._revokeSkill = async function(skillId) {
+    const agentId = routerSelectedAgent || '';
+    const result = await routerApi('/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, agent_id: agentId, skill_id: skillId, action: 'revoke' }),
+    });
+    if (result && result.status === 'ok') {
+      // Remove tag from UI
+      const tag = document.querySelector(`.rassigned-tag[data-skill-id="${skillId}"]`);
+      if (tag) { tag.style.opacity = '0'; setTimeout(() => tag.remove(), 300); }
+      showToast('🗑️ 已撤销注入');
+      addRouterLog('feedback', `🗑️ 技能 ${skillId} 已从智能体撤销`);
+    }
+  };
+
+  // Assign
+  window._executeAssign = async function() {
+    if (routerSelectedSkills.size === 0) return;
+    const skillIds = [...routerSelectedSkills];
+
+    addRouterLog('assign', `⚡ 注入 ${skillIds.length} 项技能 → ${selectedAgentId}`);
+
+    try {
+      const resp = await fetch('/api/v1/skill-router/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: selectedAgentId, team_id: currentTeamId || 'default', skill_ids: skillIds })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      // Mark assigned (injected) in UI
+      document.querySelectorAll('#rresults .rr-item.sel').forEach(el => {
+        el.classList.remove('sel');
+        el.classList.add('assigned');
+        el.querySelector('.rr-check').textContent = '💉';
+      });
+
+      // Show injected tags with feedback controls
+      const tagsEl = document.getElementById('rassigned-tags');
+      const section = document.getElementById('rassigned-section');
+      const assigned = routerResults.filter(r => skillIds.includes(r.skill_id || r.name));
+      tagsEl.innerHTML += assigned.map(r => `
+        <span class="rassigned-tag" data-skill-id="${r.skill_id}">
+          ${r.icon || '⚡'} ${r.name}
+          <span class="tag-feedback">
+            <span class="tag-stars" data-skill="${r.skill_id}">${[1,2,3,4,5].map(n => `<span class="star" data-n="${n}" onclick="_rateStar('${r.skill_id}',${n})">☆</span>`).join('')}</span>
+            <span class="tag-revoke" onclick="_revokeSkill('${r.skill_id}')" title="撤销注入">✕</span>
+          </span>
+        </span>
+      `).join('');
+      section.classList.add('visible');
+
+      routerSelectedSkills.clear();
+      updateAssignBar();
+
+      addRouterLog('assign', `✅ 注入完成！${data.assigned_count || skillIds.length} 项技能已融入智能体`);
+
+      // Show inject_prompt in log
+      if (data.inject_prompt) {
+        addRouterLog('inject', `📋 Inject Prompt 已生成 (${data.inject_prompt.length} chars)`);
+        addRouterLog('inject', `<pre style="font-size:9px;max-height:80px;overflow:auto;background:#1a1f25;padding:6px;border-radius:4px;margin-top:4px;white-space:pre-wrap">${data.inject_prompt.slice(0, 300)}${data.inject_prompt.length > 300 ? '...' : ''}</pre>`);
+      }
+
+      // 3D animation — skill nodes fly to agent head and merge (injection)
+      animateSkillsToHead(skillIds, assigned.length);
+    } catch(e) {
+      addRouterLog('sys', `❌ 注入失败: ${e.message}`);
+    }
+  };
+
+  function animateSkillsToHead(skillIds, count) {
+    if (!humanFigure) { console.warn('animateSkillsToHead: no humanFigure'); return; }
+
+    // Force world matrix update to get accurate head position
+    humanFigure.updateMatrixWorld(true);
+    
+    // Get head world position — with explicit fallback
+    const headWorldPos = new THREE.Vector3();
+    const headObj = humanFigure.userData.head;
+    if (headObj) {
+      headObj.getWorldPosition(headWorldPos);
+    } else {
+      // Fallback: humanFigure center + head offset (y=2.0)
+      humanFigure.getWorldPosition(headWorldPos);
+      headWorldPos.y += 2.0;
+    }
+    console.log('animateSkillsToHead: headWorldPos =', headWorldPos.x.toFixed(2), headWorldPos.y.toFixed(2), headWorldPos.z.toFixed(2));
+
+    // Find matching skill nodes — try by skill_id first, fallback to ALL orbit nodes
+    let targets = skillNodes.filter(n => {
+      const sid = n.userData.skill?.skill_id || n.userData.skill?.name || '';
+      return skillIds.includes(sid);
+    });
+    // Fallback: if no ID match, grab nodes that are currently in orbit
+    if (!targets.length) {
+      targets = skillNodes.filter(n => n.userData._orbit);
+      console.warn('animateSkillsToHead: ID match failed, using', targets.length, 'orbit nodes');
+    }
+    if (!targets.length) { console.warn('animateSkillsToHead: no targets found'); return; }
+    console.log('animateSkillsToHead: animating', targets.length, 'nodes to head');
+
+    // Disable orbit animation for flying nodes
+    targets.forEach(node => { node.userData._orbit = null; node.userData._flying = true; });
+
+    const duration = 2200; // ms total — slower for drama
+    const startTime = performance.now();
+
+    // Store start state — use CURRENT node world position (orbit position is accurate)
+    const ringData = targets.map(node => {
+      const glow = node.userData._glowRing;
+      // Use node.position (local to extractionGroup) as the true orbit position
+      const pos = node.position.clone();
+      // Sync glow to current orbit position if not already
+      if (glow) glow.position.copy(pos);
+      return {
+        node,
+        glow,
+        startPos: pos,
+        startRotX: 0, // orbit nodes are already upright (rotation.x=0)
+        startRotY: glow ? glow.rotation.y : 0,
+        startRotZ: glow ? glow.rotation.z : 0,
+      };
+    });
+
+    function flyFrame(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+
+      ringData.forEach(({ node, glow, startPos, startRotX, startRotY, startRotZ }, i) => {
+        if (!glow) return;
+
+        // ═══ Phase 1 (0~20%): STAND UP — ring rotates from flat to vertical facing camera ═══
+        if (t < 0.20) {
+          const p = t / 0.20;
+          const ease = p * p * (3 - 2 * p); // smoothstep
+          
+          // Rotate from flat (XZ plane, rotation.x=-PI/2) to vertical (XY plane, rotation.x=0)
+          // Plus rotate Y to face the agent head
+          const faceAngle = Math.atan2(headWorldPos.x - startPos.x, headWorldPos.z - startPos.z);
+          glow.rotation.x = startRotX + (0 - startRotX) * ease;
+          glow.rotation.y = startRotY + (faceAngle - startRotY) * ease;
+          glow.rotation.z = ease * 0.4; // dramatic tilt
+          
+          // Scale pulse — grows bigger as it stands
+          glow.scale.setScalar(1.0 + ease * 0.5);
+          
+          // Brighten significantly
+          if (glow.material) {
+            glow.material.opacity = 0.3 + ease * 0.7;
+            glow.material.color.setHSL(0.5, 0.8, 0.4 + ease * 0.3); // cyan glow
+          }
+          
+          // Position stays at startPos
+          glow.position.copy(startPos);
+
+        // ═══ Phase 2 (20~40%): RISE + SPIN — ring floats up while spinning ═══
+        } else if (t < 0.40) {
+          const p = (t - 0.20) / 0.20;
+          const ease = p * p * (3 - 2 * p);
+          
+          // Vertical ring, spinning on Y axis
+          glow.rotation.x = Math.sin(p * Math.PI * 2) * 0.2; // wobble
+          glow.rotation.y += 0.12; // continuous spin
+          glow.rotation.z = 0.4 * (1 - p); // settle tilt
+          
+          // Rise up 5 units
+          glow.position.set(
+            startPos.x,
+            startPos.y + ease * 5.0,
+            startPos.z
+          );
+          
+          // Scale settles
+          glow.scale.setScalar(1.5 - ease * 0.3);
+          if (glow.material) glow.material.opacity = 1.0;
+
+        // ═══ Phase 3 (40~100%): FLY TO HEAD — arc trajectory with spin ═══
+        } else {
+          const p = (t - 0.40) / 0.60;
+          const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; // easeInOutQuad
+          
+          // Start position = risen position
+          const riseEnd = new THREE.Vector3(startPos.x, startPos.y + 5.0, startPos.z);
+          
+          // Lerp toward head with arc
+          const pos = riseEnd.clone().lerp(headWorldPos, ease);
+          // Add arc height in the middle
+          const arcHeight = Math.sin(p * Math.PI) * 2.5;
+          pos.y += arcHeight * (1 - ease * 0.5);
+          glow.position.copy(pos);
+          
+          // Continuous spin during flight
+          glow.rotation.x = Math.sin(p * Math.PI * 3) * 0.3;
+          glow.rotation.y += 0.1;
+          glow.rotation.z += 0.07;
+          
+          // Shrink as approaching head
+          const scale = 1.2 * (1 - ease * 0.7);
+          glow.scale.setScalar(Math.max(scale, 0.2));
+          
+          // Fade slightly near end
+          if (glow.material) {
+            glow.material.opacity = 1.0 - ease * 0.6;
+            // Color shifts to white near head
+            const hue = 0.5 * (1 - ease);
+            glow.material.color.setHSL(hue, 0.8 * (1 - ease), 0.5 + ease * 0.4);
+          }
+        }
+
+        // Fade out the main crystal mesh
+        if (node.material) {
+          const fadeT = Math.min(t / 0.4, 1);
+          node.material.opacity = (1 - fadeT) * (node.userData._targetOpacity || 0.8);
+          node.scale.setScalar(1 - fadeT * 0.7);
+        }
+        // Fade out and move label with glow ring
+        if (node.userData._label) {
+          const lbl = node.userData._label;
+          lbl.position.set(glow.position.x, glow.position.y + 0.6, glow.position.z);
+          lbl.material.opacity = Math.max(0, 1 - t * 2); // fade out in first half
+        }
+      });
+
+      if (t < 1) {
+        requestAnimationFrame(flyFrame);
+      } else {
+        // Merge flash
+        flashAgentHead();
+        // Cleanup
+        targets.forEach(node => {
+          const glow = node.userData._glowRing;
+          if (glow) { extractionGroup.remove(glow); if (glow.geometry) glow.geometry.dispose(); if (glow.material) glow.material.dispose(); }
+          const lbl = node.userData._label;
+          if (lbl) { extractionGroup.remove(lbl); if (lbl.material) { if (lbl.material.map) lbl.material.map.dispose(); lbl.material.dispose(); } }
+          extractionGroup.remove(node);
+          if (node.geometry) node.geometry.dispose();
+          if (node.material) node.material.dispose();
+        });
+        // Remove from skillNodes array
+        skillIds.forEach(sid => {
+          const idx = skillNodes.findIndex(n => (n.userData.skill?.skill_id || n.userData.skill?.name) === sid);
+          if (idx >= 0) skillNodes.splice(idx, 1);
+        });
+        // Add persistent injected rings
+        addInjectedRings(skillIds);
+      }
+    }
+    requestAnimationFrame(flyFrame);
+  }
+
+  // Persistent mini-rings around agent head representing injected skills
+  function addInjectedRings(skillIds) {
+    if (!humanFigure) return;
+    if (!humanFigure.userData._injectedRings) humanFigure.userData._injectedRings = [];
+    const existing = humanFigure.userData._injectedRings.length;
+    const headY = humanFigure.userData.head ? humanFigure.userData.head.position.y : 2.0;
+
+    skillIds.forEach((sid, i) => {
+      const idx = existing + i;
+      const ringR = 0.38 + idx * 0.08;
+      const color = new THREE.Color().setHSL(0.48 + idx * 0.07, 0.7, 0.55);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(ringR, 0.012, 8, 32),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 })
+      );
+      ring.position.y = headY;
+      ring.rotation.x = Math.PI / 2 + idx * 0.25;
+      ring.rotation.z = idx * 0.4;
+      ring.userData._injectedRing = { speed: 0.3 + idx * 0.1, axis: idx % 2 === 0 ? 'y' : 'z' };
+      humanFigure.add(ring);
+      humanFigure.userData._injectedRings.push(ring);
+    });
+  }
+
+  function flashAgentHead() {
+    if (!humanFigure) return;
+    const head = humanFigure.userData.head;
+    if (!head || !head.material) return;
+    // Bright flash
+    const origColor = head.material.color.clone();
+    const origEmissive = head.material.emissive ? head.material.emissive.clone() : null;
+    head.material.color.setHex(0xffffff);
+    if (head.material.emissive) head.material.emissive.setHex(0x88ffcc);
+
+    // Expand ring briefly
+    const origScale = head.scale.clone();
+    head.scale.setScalar(1.6);
+
+    // Glow ring flash
+    const glowRing = humanFigure.userData.glowRing;
+    if (glowRing && glowRing.material) glowRing.material.opacity = 0.8;
+
+    // Fade back
+    let frame = 0;
+    const fadeBack = () => {
+      frame++;
+      const t = frame / 30;
+      if (t >= 1) {
+        head.material.color.copy(origColor);
+        if (origEmissive && head.material.emissive) head.material.emissive.copy(origEmissive);
+        head.scale.copy(origScale);
+        if (glowRing && glowRing.material) glowRing.material.opacity = 0.22;
+        return;
+      }
+      head.scale.setScalar(1.6 - t * 0.6);
+      if (glowRing && glowRing.material) glowRing.material.opacity = 0.8 - t * 0.58;
+      requestAnimationFrame(fadeBack);
+    };
+    requestAnimationFrame(fadeBack);
+  }
+})();
 
 // ── Init ────────────────────────────────────────────────────────
 initScene();

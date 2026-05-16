@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -155,24 +155,24 @@ async def startup():
             from agents.teams.ai_coding_team import create_ai_coding_team
             ai_coding_obj = create_ai_coding_team()
             _team_manager._teams[ai_coding_obj.team_id] = ai_coding_obj
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ AI Coding team not loaded: {e}")
 
         # Try energy team (optional)
         try:
             from agents.teams.energy_team import create_energy_team
             energy_team_obj = create_energy_team()
             _team_manager._teams[energy_team_obj.team_id] = energy_team_obj
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Energy team not loaded: {e}")
 
         # 公有云 xOPs 团队 (optional)
         try:
             from agents.teams.xops_team import create_xops_team
             xops_team_obj = create_xops_team()
             _team_manager._teams[xops_team_obj.team_id] = xops_team_obj
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ xOPs team not loaded: {e}")
 
         init_agent_config(_team_manager)
         app.include_router(agent_config_router)
@@ -233,6 +233,17 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ Extraction Pipeline API failed: {e}")
 
+        # 4d. SkillRouter 技能路由 API
+        try:
+            from agents.skill_library import get_skill_library
+            from agents.skill_router import init_skill_router
+            from agents.skill_router_routes import router as skill_router_api
+            init_skill_router(skill_library=get_skill_library(), team_manager=_team_manager)
+            app.include_router(skill_router_api)
+            logger.info("✅ SkillRouter API mounted (/api/v1/skill-router)")
+        except Exception as e:
+            logger.warning(f"⚠️ SkillRouter API failed: {e}")
+
     except Exception as e:
         logger.warning(f"⚠️ Agent Config API failed: {e}")
 
@@ -267,12 +278,44 @@ async def startup():
 
 import hashlib
 import secrets
+import time as _time
+import os as _os
 
 # Default users (in production, use a proper database)
+_default_pwd = _os.environ.get("ADMIN_PASSWORD", "admin123")
 _USERS = {
-    "admin": hashlib.sha256("admin123".encode()).hexdigest(),
+    "admin": hashlib.sha256(_default_pwd.encode()).hexdigest(),
 }
-_TOKENS: Dict[str, str] = {}
+# Token store: token -> {"username": str, "created_at": float}
+_TOKENS: Dict[str, dict] = {}
+_TOKEN_TTL = 86400 * 7  # 7 days
+
+
+def _clean_expired_tokens():
+    """Remove expired tokens."""
+    now = _time.time()
+    expired = [t for t, v in _TOKENS.items() if now - v.get("created_at", 0) > _TOKEN_TTL]
+    for t in expired:
+        del _TOKENS[t]
+
+
+def _create_token(username: str) -> str:
+    """Create a new token for a user."""
+    _clean_expired_tokens()
+    token = secrets.token_hex(32)
+    _TOKENS[token] = {"username": username, "created_at": _time.time()}
+    return token
+
+
+def _validate_token(token: str) -> str | None:
+    """Returns username if valid, None otherwise."""
+    entry = _TOKENS.get(token)
+    if not entry:
+        return None
+    if _time.time() - entry.get("created_at", 0) > _TOKEN_TTL:
+        del _TOKENS[token]
+        return None
+    return entry["username"]
 
 
 @app.post("/api/v1/auth/register")
@@ -286,8 +329,7 @@ async def register(req: RegisterRequest):
     if username in _USERS:
         raise HTTPException(status_code=409, detail="该用户名已被注册")
     _USERS[username] = hashlib.sha256(req.password.encode()).hexdigest()
-    token = secrets.token_hex(32)
-    _TOKENS[token] = username
+    token = _create_token(username)
     logger.info(f"✅ New user registered: {username}")
     return {"token": token, "username": username}
 
@@ -298,17 +340,17 @@ async def login(req: LoginRequest):
     pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
     if req.username not in _USERS or _USERS[req.username] != pwd_hash:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    token = secrets.token_hex(32)
-    _TOKENS[token] = req.username
+    token = _create_token(req.username)
     return {"token": token, "username": req.username}
 
 
 @app.get("/api/v1/auth/me")
-async def auth_me(authorization: str = ""):
+async def auth_me(authorization: str = Header(default="")):
     """Check current auth status."""
     token = authorization.replace("Bearer ", "") if authorization else ""
-    if token in _TOKENS:
-        return {"username": _TOKENS[token], "authenticated": True}
+    username = _validate_token(token)
+    if username:
+        return {"username": username, "authenticated": True}
     return {"username": "guest", "authenticated": False}
 
 

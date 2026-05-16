@@ -483,8 +483,226 @@ def _check_dc_whatif_simulation(channel):
     return True, "What-If 场景模拟功能就绪"
 
 
+# ── Skill Router / Extraction Audit Rules (SKILL domain) ──
+
+def _get_skill_router():
+    """Get SkillRouter instance via sys.modules (avoids relative import issues)."""
+    import sys
+    mod = sys.modules.get('agents.skill_router')
+    if mod and hasattr(mod, 'get_skill_router'):
+        return mod.get_skill_router()
+    return None
+
+
+def _get_team_manager():
+    """Get TeamManager instance via SkillRouter or main module."""
+    import sys
+    # Try via skill_router (which holds a reference)
+    sr = _get_skill_router()
+    if sr and hasattr(sr, '_team_manager') and sr._team_manager:
+        return sr._team_manager
+    # Fallback: try main module
+    main_mod = sys.modules.get('__main__')
+    if main_mod and hasattr(main_mod, '_team_manager'):
+        return main_mod._team_manager
+    # Fallback: agents.api module
+    api_mod = sys.modules.get('agents.api')
+    if api_mod and hasattr(api_mod, '_team_manager'):
+        return api_mod._team_manager
+    return None
+
+
+def _check_skill_pool_size(channel) -> Tuple[bool, str]:
+    """Check that skill pool has sufficient coverage for routing quality."""
+    try:
+        sr = _get_skill_router()
+        if not sr:
+            return False, "SkillRouter 未初始化"
+        skills = sr._get_skill_pool("") if sr._skill_library else []
+        if not skills:
+            skills = sr._get_skill_pool("build_system")
+        count = len(skills)
+        if count < 10:
+            return False, f"技能池仅 {count} 项，需 ≥10 以保证路由覆盖度"
+        return True, f"技能池 {count} 项，覆盖充足"
+    except Exception as e:
+        return False, f"技能池检查异常: {e}"
+
+
+def _check_skill_categories_coverage(channel) -> Tuple[bool, str]:
+    """Check that skills span at least 3 categories for diverse routing."""
+    try:
+        sr = _get_skill_router()
+        if not sr:
+            return False, "SkillRouter 未初始化"
+        skills = sr._get_skill_pool("") or sr._get_skill_pool("build_system")
+        categories = set(s.get("category", "general") for s in skills)
+        if len(categories) < 3:
+            return False, f"仅 {len(categories)} 个类别，需 ≥3 保证多样性"
+        return True, f"{len(categories)} 个技能类别，多样性良好"
+    except Exception as e:
+        return False, f"类别检查异常: {e}"
+
+
+def _check_agent_skill_assignment(channel) -> Tuple[bool, str]:
+    """Check that agents have skills assigned (not all empty)."""
+    try:
+        tm = _get_team_manager()
+        if not tm:
+            return False, "TeamManager 不可用"
+        teams = tm.list_teams() if hasattr(tm, 'list_teams') else []
+        total_agents = 0
+        agents_with_skills = 0
+        for team in teams:
+            t = tm.get_team(team.get("team_id", "")) if isinstance(team, dict) else team
+            if not t or not hasattr(t, 'agents'):
+                continue
+            for aid, agent in t.agents.items():
+                total_agents += 1
+                skills = getattr(agent, 'skills', None) or []
+                if skills:
+                    agents_with_skills += 1
+        if total_agents == 0:
+            return False, "无智能体注册"
+        coverage = agents_with_skills / total_agents
+        if coverage < 0.3:
+            return False, f"仅 {agents_with_skills}/{total_agents} 智能体有技能赋予 ({coverage:.0%})，需 ≥30%"
+        return True, f"{agents_with_skills}/{total_agents} 智能体已赋予技能 ({coverage:.0%})"
+    except Exception as e:
+        return False, f"技能赋予检查异常: {e}"
+
+
+def _check_skill_instructions_quality(channel) -> Tuple[bool, str]:
+    """Check that skills have non-empty instructions (body) for deep matching."""
+    try:
+        sr = _get_skill_router()
+        if not sr:
+            return False, "SkillRouter 未初始化"
+        skills = sr._get_skill_pool("") or sr._get_skill_pool("build_system")
+        if not skills:
+            return False, "技能池为空"
+        with_instructions = sum(1 for s in skills if s.get("has_instructions") or s.get("instructions", "").strip())
+        ratio = with_instructions / len(skills)
+        if ratio < 0.5:
+            return False, f"仅 {with_instructions}/{len(skills)} 技能有详细 instructions ({ratio:.0%})，影响深度匹配"
+        return True, f"{with_instructions}/{len(skills)} 技能含详细 instructions ({ratio:.0%})"
+    except Exception as e:
+        return False, f"instructions 质量检查异常: {e}"
+
+
+def _check_router_latency(channel) -> Tuple[bool, str]:
+    """Check that router performance is within acceptable bounds."""
+    try:
+        sr = _get_skill_router()
+        if not sr:
+            return False, "SkillRouter 未初始化"
+        sessions = list(sr._sessions.values())
+        if not sessions:
+            return True, "无路由历史，延迟基准待建立"
+        avg_ms = sum(s.duration_ms for s in sessions) / len(sessions)
+        if avg_ms > 500:
+            return False, f"平均路由延迟 {avg_ms:.0f}ms，超过 500ms 阈值"
+        return True, f"平均路由延迟 {avg_ms:.1f}ms，性能良好"
+    except Exception as e:
+        return False, f"延迟检查异常: {e}"
+
+
+def _check_routing_feedback_loop(channel) -> Tuple[bool, str]:
+    """Check that feedback mechanism is active and informing routing."""
+    try:
+        sr = _get_skill_router()
+        if not sr:
+            return False, "SkillRouter 未初始化"
+        total_feedback = sum(len(v) for v in sr._feedback.values())
+        if total_feedback == 0:
+            return False, "无反馈数据，路由质量无法闭环优化"
+        boosts = len(sr._affinity_boosts)
+        return True, f"已收集 {total_feedback} 条反馈，{boosts} 项亲和度调整生效"
+    except Exception as e:
+        return False, f"反馈检查异常: {e}"
+
+
 # 所有内置审查规则
 BUILTIN_AUDIT_RULES: List[AuditRule] = [
+    # ── Skill Router & Extraction Rules (SKILL domain) ──
+    AuditRule(
+        id="SKILL-POOL-050",
+        domain=AuditDomain.GENERAL.value,
+        title="技能池规模达标",
+        description="技能池需 ≥10 项以保证路由检索的召回率",
+        target_channel="system_evolution",
+        check_fn=_check_skill_pool_size,
+        reference="SkillRouter Paper §3.2 — Pool Size vs Recall",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=2.5,
+    ),
+    AuditRule(
+        id="SKILL-CAT-051",
+        domain=AuditDomain.GENERAL.value,
+        title="技能类别多样性",
+        description="技能须覆盖 ≥3 个类别，避免路由偏向单一领域",
+        target_channel="system_evolution",
+        check_fn=_check_skill_categories_coverage,
+        reference="Diversity Index for Skill Taxonomies",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="SKILL-ASSIGN-052",
+        domain=AuditDomain.GENERAL.value,
+        title="智能体技能赋予覆盖率",
+        description="≥30% 智能体应有至少 1 项技能赋予",
+        target_channel="system_evolution",
+        check_fn=_check_agent_skill_assignment,
+        reference="Agent Capability Matrix Coverage",
+        severity=Severity.HIGH.value,
+        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
+        checklist_level=ChecklistLevel.BOTH.value,
+        rating_weight=2.5,
+    ),
+    AuditRule(
+        id="SKILL-INST-053",
+        domain=AuditDomain.GENERAL.value,
+        title="技能 Instructions 充实度",
+        description="≥50% 技能须含详细 instructions 以支撑深度语义匹配",
+        target_channel="system_evolution",
+        check_fn=_check_skill_instructions_quality,
+        reference="SkillRouter Stage2 — Instructions Field Weight",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=2.0,
+    ),
+    AuditRule(
+        id="SKILL-PERF-054",
+        domain=AuditDomain.GENERAL.value,
+        title="路由引擎延迟达标",
+        description="平均路由延迟应 ≤500ms (Stage1+Stage2 合计)",
+        target_channel="system_evolution",
+        check_fn=_check_router_latency,
+        reference="SkillRouter SLA — P95 < 1s",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.ADVANCED_OPS.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=1.5,
+    ),
+    AuditRule(
+        id="SKILL-FDBK-055",
+        domain=AuditDomain.GENERAL.value,
+        title="路由质量反馈闭环",
+        description="需有反馈数据驱动路由亲和度学习",
+        target_channel="system_evolution",
+        check_fn=_check_routing_feedback_loop,
+        reference="Reinforcement from Human Feedback (RLHF)",
+        severity=Severity.MEDIUM.value,
+        operational_domain=OperationalDomain.DATA_DECISION.value,
+        checklist_level=ChecklistLevel.SHIP.value,
+        rating_weight=2.0,
+    ),
     # ── General System Health Rules (always checkable) ──
     AuditRule(
         id="GEN-SELF-001",
@@ -1222,6 +1440,13 @@ class SystemEvolutionChannel(MarineChannel):
         """一键运行完整的审查→派发→验证→关闭循环。"""
         audit_result = self.run_full_audit()
         dispatch_result = self.dispatch_all_pending()
+
+        # Auto-advance: DISPATCHED items → VERIFY_PENDING
+        # (self-evolution system: rules themselves serve as verification)
+        for item in self.evolution_items.values():
+            if item.status == EvolutionStatus.DISPATCHED.value:
+                item.status = EvolutionStatus.VERIFY_PENDING.value
+
         verify_result = self.verify_all_pending()
         closed = self.close_verified()
 

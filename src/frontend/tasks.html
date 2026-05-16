@@ -67,7 +67,7 @@ let allTeams = [];
 
 async function fetchJSON(url) {
   try { const r = await fetch(url); if (!r.ok) return null; return await r.json(); }
-  catch { return null; }
+  catch(e) { console.warn('fetch failed:', url, e.message); return null; }
 }
 
 async function loadTeams() {
@@ -149,17 +149,28 @@ function renderTasks() {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-async function startTask(teamId, taskId) {
-  await fetch(`${API}/teams/${teamId}/tasks/${taskId}/start`, { method: 'POST' });
+async function taskAction(url, method, label) {
+  try {
+    const r = await fetch(url, { method });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(`${label}失败: ${d.detail || r.status}`);
+      return;
+    }
+  } catch(e) {
+    alert(`${label}失败: 网络错误`);
+    return;
+  }
   loadTasks();
+}
+async function startTask(teamId, taskId) {
+  await taskAction(`${API}/teams/${teamId}/tasks/${taskId}/start`, 'POST', '启动任务');
 }
 async function completeTask(teamId, taskId) {
-  await fetch(`${API}/teams/${teamId}/tasks/${taskId}/complete`, { method: 'POST' });
-  loadTasks();
+  await taskAction(`${API}/teams/${teamId}/tasks/${taskId}/complete`, 'POST', '完成任务');
 }
 async function cancelTask(teamId, taskId) {
-  await fetch(`${API}/teams/${teamId}/tasks/${taskId}`, { method: 'DELETE' });
-  loadTasks();
+  await taskAction(`${API}/teams/${teamId}/tasks/${taskId}`, 'DELETE', '取消任务');
 }
 
 // Filters
@@ -169,8 +180,8 @@ document.getElementById('search-input').addEventListener('input', renderTasks);
 
 // Init
 loadTeams().then(loadTasks);
-// Auto-refresh every 10s
-setInterval(loadTasks, 10000);
+// Auto-refresh every 10s (skip when hidden)
+setInterval(() => { if (!document.hidden) loadTasks(); }, 10000);
 </script>
 </body>
 </html>

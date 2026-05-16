@@ -16,6 +16,7 @@
   --font-serif:'Noto Serif SC',serif;--font-sans:'Noto Sans SC',sans-serif;--font-mono:'JetBrains Mono',monospace;
   --lime:#6BC47F;--cyan:#6BC47F;--amber:#D4A44A;--red:#E07070;
   --muted:#7C8792;--dim:#7C8792;
+  --ash:#D7DEE4;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--font-sans);min-height:100vh;background:var(--shironeri);color:var(--sumi);position:relative}
@@ -131,6 +132,33 @@ a{color:var(--koke);text-decoration:none}
 .audit-entry .ae-time{font-family:var(--font-mono);color:var(--dim);font-size:11px;min-width:140px}
 .audit-entry .ae-type{font-weight:600;min-width:80px}
 .audit-entry .ae-detail{color:var(--sumi-2);flex:1}
+
+/* Diff styles */
+.diff-add{color:var(--koke);background:rgba(107,196,127,0.06)}
+.diff-del{color:var(--shu);background:rgba(224,112,112,0.06);text-decoration:line-through}
+.diff-ctx{color:var(--sumi-3)}
+
+/* Stepper styles */
+.step-dot{padding:4px 10px;font-size:11px;border-radius:12px;cursor:pointer;background:var(--ishi);color:var(--muted);border:1px solid var(--groove);transition:all .2s}
+.step-dot.active{background:var(--koke);color:#fff;border-color:var(--koke);font-weight:600}
+.step-dot.done{background:rgba(107,196,127,0.15);color:var(--koke);border-color:var(--koke)}
+.step-arrow{color:var(--muted);font-size:11px}
+.ev-step textarea{font-family:var(--font-mono)}
+.cand-card{padding:12px;margin-bottom:10px;background:var(--ishi);border:1px solid var(--groove);border-radius:4px}
+.cand-card.selected{border-color:var(--koke);box-shadow:0 0 6px rgba(107,196,127,0.2)}
+.cand-card .cand-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cand-card .cand-strategy{font-weight:600;font-size:12px;color:var(--kitsune)}
+.cand-card .cand-score{font-family:var(--font-mono);font-size:13px;font-weight:700}
+.cand-card .cand-body{font-size:11px;color:var(--shironeri);max-height:160px;overflow-y:auto;white-space:pre-wrap;font-family:var(--font-mono);line-height:1.6;padding:8px;background:var(--ash);border-radius:3px}
+.ds-row{display:flex;gap:8px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px;align-items:flex-start}
+.ds-row:hover{background:rgba(255,255,255,0.02)}
+.ds-row .ds-idx{color:var(--dim);min-width:24px;font-family:var(--font-mono)}
+.ds-row .ds-task{flex:1;color:var(--sumi)}
+.ds-row .ds-rubric{flex:1;color:var(--sumi-2)}
+.ds-row .ds-actions{min-width:50px;text-align:right}
+/* Textarea readability */
+.ev-step textarea,.ev-step input[type=text]{background:var(--kabe);color:var(--sumi);border:1px solid var(--groove)}
+.ev-step textarea:focus,.ev-step input[type=text]:focus{outline:none;border-color:var(--koke)}
 </style>
 </head>
 <body>
@@ -143,6 +171,7 @@ a{color:var(--koke);text-decoration:none}
     <div class="sb-nav">
       <a class="active" onclick="switchPanel('overview')"><span class="seal">览</span> 演进概览</a>
       <a onclick="switchPanel('ratchet')"><span class="seal seal-kitsune">锁</span> 达尔文棘轮</a>
+      <a onclick="switchPanel('evolve-lab')"><span class="seal seal-koke">🧬</span> 技能演化</a>
       <a onclick="switchPanel('rules')"><span class="seal">规</span> 审查规则</a>
       <a onclick="switchPanel('items')"><span class="seal seal-shu">项</span> 演进条目</a>
       <a onclick="switchPanel('zones')"><span class="seal seal-koke">域</span> 合规区域</a>
@@ -343,6 +372,184 @@ a{color:var(--koke);text-decoration:none}
         </div>
       </div>
 
+      <!-- ═══ Evolve Lab Panel (Interactive Stepper) ═══ -->
+      <div id="panel-evolve-lab" class="tab-panel">
+        <!-- Target Selection (Always visible) -->
+        <div class="section">
+          <div class="section-title">🧬 Qwen 反思式演化实验室</div>
+          <p style="font-size:12px;color:var(--sumi-2);margin-bottom:12px;line-height:1.7">
+            ① 构建数据集 → ② 评估 Baseline → ③ 反思分析 → ④ 变异择优 → ⑤ 对比锁定
+          </p>
+          <div class="filter-bar" style="margin-bottom:16px">
+            <select id="ev-team-select" onchange="loadEvolveSkills()" style="min-width:140px">
+            </select>
+            <select id="ev-skill-select" style="min-width:200px" onchange="onSkillSelected()">
+              <option value="">— 选择技能 —</option>
+            </select>
+            <button class="btn btn-sm" onclick="runAutoTriage()">🔍 自动诊断</button>
+          </div>
+          <!-- Skill info card -->
+          <div id="ev-skill-info" style="display:none;margin-bottom:16px;padding:10px 14px;background:var(--ishi);border:1px solid var(--groove);font-size:12px">
+            <div style="display:flex;gap:16px;align-items:flex-start">
+              <div style="flex:1">
+                <div style="font-weight:600;color:var(--koke);margin-bottom:4px" id="ev-skill-name"></div>
+                <div style="color:var(--sumi-2);font-size:11px;line-height:1.6" id="ev-skill-desc"></div>
+              </div>
+              <div style="text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--muted)">
+                <div id="ev-skill-meta"></div>
+              </div>
+            </div>
+            <details style="margin-top:8px">
+              <summary style="cursor:pointer;font-size:11px;color:var(--muted)">查看当前指令</summary>
+              <div id="ev-skill-instructions" style="margin-top:6px;padding:8px;background:var(--kabe);border:1px solid var(--groove);font-family:var(--font-mono);font-size:11px;color:var(--sumi-2);max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.7"></div>
+            </details>
+          </div>
+          <!-- Stepper indicator -->
+          <div id="ev-stepper" style="display:flex;gap:4px;margin-bottom:16px;align-items:center">
+            <span class="step-dot active" data-step="1" onclick="goToStep(1)">① 数据集</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="2" onclick="goToStep(2)">② Baseline</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="3" onclick="goToStep(3)">③ 反思</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="4" onclick="goToStep(4)">④ 变异</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="5" onclick="goToStep(5)">⑤ 锁定</span>
+          </div>
+        </div>
+
+        <!-- Auto-Triage Results -->
+        <div class="section" id="ev-triage-section" style="display:none">
+          <div class="section-title">🔍 自动诊断结果</div>
+          <div id="ev-triage-summary" class="card-grid"></div>
+          <div id="ev-triage-candidates" style="margin-top:12px"></div>
+        </div>
+
+        <!-- ═══ Step 1: Dataset Builder ═══ -->
+        <div class="section ev-step" id="ev-step-1">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📦 步骤1: 构建评估数据集</span>
+            <span id="ev-ds-status" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="evGenerateDataset()">🤖 AI 生成</button>
+            <button class="btn btn-sm" onclick="evImportKB()">📚 从知识库导入</button>
+            <button class="btn btn-sm" onclick="evShowManualInput()">✏️ 手动录入</button>
+          </div>
+          <!-- Manual input form -->
+          <div id="ev-manual-form" style="display:none;margin-bottom:12px;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">任务输入 (task_input)</label>
+              <textarea id="ev-manual-task" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="用户的任务描述..."></textarea>
+            </div>
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">评分标准 (rubric)</label>
+              <textarea id="ev-manual-rubric" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="好的执行应该: 1) ... 2) ..."></textarea>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="evAddManualExample()">➕ 添加</button>
+            <button class="btn btn-sm" onclick="el('ev-manual-form').style.display='none'">取消</button>
+          </div>
+          <!-- Dataset preview table -->
+          <div id="ev-dataset-table" style="max-height:300px;overflow-y:auto"></div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <span id="ev-ds-count" style="font-size:12px;color:var(--muted)"></span>
+            <button class="btn btn-sm btn-primary" id="ev-step1-next" onclick="goToStep(2)" style="margin-left:auto;display:none">下一步: 评估 Baseline →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 2: Baseline Evaluation ═══ -->
+        <div class="section ev-step" id="ev-step-2" style="display:none">
+          <div class="section-title">📊 步骤2: 评估 Baseline</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-sm btn-primary" onclick="evRunBaseline()">⚡ 评估当前技能</button>
+          </div>
+          <div id="ev-baseline-cards" class="card-grid"></div>
+          <div id="ev-baseline-failures" style="margin-top:12px"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(1)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step2-next" onclick="goToStep(3)" style="margin-left:auto;display:none">下一步: 反思分析 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 3: Reflection ═══ -->
+        <div class="section ev-step" id="ev-step-3" style="display:none">
+          <div class="section-title">🔍 步骤3: 反思分析</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+            <button class="btn btn-sm btn-primary" onclick="evRunReflect()">🤖 AI 反思</button>
+            <span style="font-size:11px;color:var(--muted)">或在下方手动编辑</span>
+          </div>
+          <!-- User hints -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">补充你的分析 (可选，AI 将参考)</label>
+            <textarea id="ev-user-hints" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="你观察到的问题方向..."></textarea>
+          </div>
+          <!-- Reflection results (editable) -->
+          <div id="ev-reflect-result" style="display:none;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <div style="margin-bottom:10px">
+              <label style="font-size:11px;color:var(--kitsune);font-weight:600;display:block;margin-bottom:4px">根因分析 (root_causes)</label>
+              <textarea id="ev-reflect-causes" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+            <div style="margin-bottom:10px">
+              <label style="font-size:11px;color:var(--shu);font-weight:600;display:block;margin-bottom:4px">具体缺陷 (defects)</label>
+              <textarea id="ev-reflect-defects" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--koke);font-weight:600;display:block;margin-bottom:4px">改进方向 (directions)</label>
+              <textarea id="ev-reflect-directions" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(2)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step3-next" onclick="goToStep(4)" style="margin-left:auto;display:none">下一步: 生成变异 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 4: Mutation Lab ═══ -->
+        <div class="section ev-step" id="ev-step-4" style="display:none">
+          <div class="section-title">🧪 步骤4: 变异实验室</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="evRunMutate()">🤖 生成候选</button>
+            <button class="btn btn-sm" onclick="evShowManualCandidate()">✏️ 手动写候选</button>
+            <button class="btn btn-sm" onclick="evEvalAllCandidates()">⚡ 全部评估</button>
+          </div>
+          <!-- Manual candidate input -->
+          <div id="ev-manual-candidate" style="display:none;margin-bottom:12px;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">自定义候选指令</label>
+            <textarea id="ev-candidate-text" rows="6" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="写入你改进后的技能指令..."></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn btn-sm btn-primary" onclick="evAddManualCandidate()">➕ 添加为候选</button>
+              <button class="btn btn-sm" onclick="el('ev-manual-candidate').style.display='none'">取消</button>
+            </div>
+          </div>
+          <!-- Candidates list -->
+          <div id="ev-candidates-list"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(3)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step4-next" onclick="goToStep(5)" style="margin-left:auto;display:none">下一步: 对比锁定 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 5: Compare & Lock ═══ -->
+        <div class="section ev-step" id="ev-step-5" style="display:none">
+          <div class="section-title">🔒 步骤5: 对比确认 & 棘轮锁定</div>
+          <div id="ev-final-compare"></div>
+          <div id="ev-final-diff" style="background:var(--ishi);border:1px solid var(--groove);padding:12px 16px;font-family:var(--font-mono);font-size:11px;max-height:300px;overflow-y:auto;line-height:1.8;margin-top:12px"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(4)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" onclick="evApplyEvolution()" style="margin-left:auto">✅ 批准并锁定到棘轮</button>
+          </div>
+        </div>
+
+        <!-- Run History -->
+        <div class="section" style="margin-top:20px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📜 优化历史</span>
+            <button class="btn btn-sm" onclick="loadEvolveHistory()">刷新</button>
+          </div>
+          <div id="ev-history-table"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -352,6 +559,8 @@ a{color:var(--koke);text-decoration:none}
 const EVP = '/api/v1/agent-teams/evolution';
 let _allRules = [];
 let _allItems = [];
+let _panelCache = {};  // Cache panel data to avoid re-fetching on tab switch
+let _panelLoaded = {};  // Track which panels have been loaded
 
 // ── Utilities ──
 function el(id) { return document.getElementById(id); }
@@ -359,6 +568,21 @@ function escapeHtml(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/
 function toast(m) {
   const e = el('toast'); e.textContent = m; e.classList.add('show');
   setTimeout(() => e.classList.remove('show'), 2500);
+}
+// Button loading state helper
+function btnLoading(btn, loading, originalText) {
+  if (typeof btn === 'string') btn = document.querySelector(btn);
+  if (!btn) return;
+  if (loading) {
+    btn._origText = btn.textContent;
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.textContent = '⏳ ' + (originalText || '处理中...');
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.textContent = btn._origText || originalText || btn.textContent;
+  }
 }
 async function api(p, o) {
   try {
@@ -379,18 +603,23 @@ function switchPanel(name) {
   const panel = el('panel-' + name);
   if (panel) panel.classList.add('active');
   const links = document.querySelectorAll('.sb-nav a');
-  const map = { overview: 0, ratchet: 1, rules: 2, items: 3, zones: 4, trail: 5, trend: 6 };
+  const map = { overview: 0, ratchet: 1, 'evolve-lab': 2, rules: 3, items: 4, zones: 5, trail: 6, trend: 7 };
   if (map[name] !== undefined && links[map[name]]) links[map[name]].classList.add('active');
-  const titles = { overview: '演进概览', ratchet: '达尔文棘轮', rules: '审查规则', items: '演进条目', zones: '合规区域', trail: '审计轨迹', trend: '趋势分析' };
+  const titles = { overview: '演进概览', ratchet: '达尔文棘轮', 'evolve-lab': '🧬 技能演化', rules: '审查规则', items: '演进条目', zones: '合规区域', trail: '审计轨迹', trend: '趋势分析' };
   el('panel-title').textContent = titles[name] || name;
-  // Load data for panel
-  if (name === 'overview') loadOverview();
-  else if (name === 'ratchet') loadHeritage();
-  else if (name === 'rules') loadRules();
-  else if (name === 'items') loadItems();
-  else if (name === 'zones') loadZones();
-  else if (name === 'trail') loadTrail();
-  else if (name === 'trend') loadTrend();
+  // Load data for panel (skip if already loaded, unless it's overview or evolve-lab)
+  const alwaysRefresh = ['overview'];
+  if (!_panelLoaded[name] || alwaysRefresh.includes(name)) {
+    _panelLoaded[name] = true;
+    if (name === 'overview') loadOverview();
+    else if (name === 'ratchet') loadHeritage();
+    else if (name === 'evolve-lab') loadEvolveLab();
+    else if (name === 'rules') loadRules();
+    else if (name === 'items') loadItems();
+    else if (name === 'zones') loadZones();
+    else if (name === 'trail') loadTrail();
+    else if (name === 'trend') loadTrend();
+  }
 }
 
 // ── Overview ──
@@ -745,8 +974,606 @@ function refreshCurrent() {
 
 function refreshAll() {
   _allRules = []; _allItems = [];
+  _panelLoaded = {};  // Clear panel cache on manual refresh
   refreshCurrent();
   toast('已刷新');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🧬 技能演化实验室 (Interactive Stepper)
+// ═══════════════════════════════════════════════════════════════════
+
+let _evolveSkills = [];
+let _evDataset = null;       // Current dataset object
+let _evBaseline = null;      // Baseline evaluation result
+let _evReflection = null;    // Reflection result
+let _evCandidates = [];      // Mutation candidates [{strategy, instructions, score?}]
+let _evSelectedCandidate = -1; // Index of selected candidate
+let _evCurrentStep = 1;
+
+async function loadEvolveLab() {
+  await loadEvolveTeams();
+  await loadEvolveSkills();
+  loadEvolveHistory();
+}
+
+async function loadEvolveTeams() {
+  const teams = await api('/api/v1/agent-config/teams');
+  const sel = el('ev-team-select');
+  sel.innerHTML = '';
+  (teams || []).forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.team_id;
+    opt.textContent = `${t.name || t.team_id}`;
+    sel.appendChild(opt);
+  });
+  if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+}
+
+async function loadEvolveSkills() {
+  const teamId = el('ev-team-select').value || 'build_system';
+  // Get skills from skill library browse endpoint
+  const r = await api(`/api/v1/skill-router/browse?team_id=${teamId}`);
+  const skills = r?.skills || [];
+  // Also try agent-config as fallback
+  if (!skills.length) {
+    const cfgSkills = await api(`/api/v1/agent-config/teams/${teamId}/skills`);
+    if (cfgSkills && cfgSkills.length) skills.push(...cfgSkills);
+  }
+  _evolveSkills = skills;
+  const sel = el('ev-skill-select');
+  sel.innerHTML = '<option value="">— 选择技能 —</option>';
+  // Deduplicate by skill_id
+  const seen = new Set();
+  _evolveSkills.forEach(s => {
+    if (seen.has(s.skill_id)) return;
+    seen.add(s.skill_id);
+    const opt = document.createElement('option');
+    opt.value = s.skill_id;
+    opt.textContent = `${s.name} (${s.category || s.skill_id?.slice(0,8)})`;
+    sel.appendChild(opt);
+  });
+}
+
+function onSkillSelected() {
+  // Reset state when skill changes
+  _evDataset = null;
+  _evBaseline = null;
+  _evReflection = null;
+  _evCandidates = [];
+  _evSelectedCandidate = -1;
+  goToStep(1);
+  renderDatasetTable();
+
+  // Show skill info card
+  const skillId = el('ev-skill-select').value;
+  const infoCard = el('ev-skill-info');
+  if (!skillId) {
+    infoCard.style.display = 'none';
+    return;
+  }
+  const skill = _evolveSkills.find(s => s.skill_id === skillId);
+  if (!skill) {
+    infoCard.style.display = 'none';
+    return;
+  }
+  infoCard.style.display = 'block';
+  el('ev-skill-name').textContent = `${skill.icon || '⚡'} ${skill.name}`;
+  el('ev-skill-desc').textContent = skill.description || '无描述';
+  const instructions = skill.instructions || skill.snapshot?.instructions || '';
+  el('ev-skill-meta').innerHTML = `
+    ${skill.category || 'general'}<br>
+    ${instructions.length} 字指令<br>
+    v${skill.version || 1}`;
+  el('ev-skill-instructions').textContent = instructions || '(无指令)';
+}
+
+// ── Stepper Navigation ──
+
+function goToStep(step) {
+  _evCurrentStep = step;
+  document.querySelectorAll('.ev-step').forEach(s => s.style.display = 'none');
+  const target = el(`ev-step-${step}`);
+  if (target) target.style.display = 'block';
+  // Update stepper dots
+  document.querySelectorAll('.step-dot').forEach(dot => {
+    const s = parseInt(dot.dataset.step);
+    dot.classList.remove('active', 'done');
+    if (s === step) dot.classList.add('active');
+    else if (s < step) dot.classList.add('done');
+  });
+}
+
+// ── Step 1: Dataset Builder ──
+
+async function evGenerateDataset() {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+
+  const btn = event?.target;
+  btnLoading(btn, true, 'AI 生成中...');
+  el('ev-ds-status').textContent = '⏳ AI 生成中...';
+  el('ev-ds-status').style.color = 'var(--amber)';
+  toast('正在生成评估数据集...');
+
+  const r = await api(`${EVP}/dataset/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill_id: skillId, team_id: teamId, count: 12 }),
+  });
+
+  if (r && r.examples) {
+    _evDataset = r;
+    el('ev-ds-status').textContent = `✓ 已生成 ${r.total_examples} 条`;
+    renderDatasetTable();
+    btnLoading(btn, false);
+    toast(`数据集就绪: ${r.total_examples} 条`);
+  } else {
+    el('ev-ds-status').textContent = '✗ 生成失败';
+    btnLoading(btn, false);
+    toast('数据集生成失败');
+  }
+}
+
+async function evImportKB() {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+
+  const skill = _evolveSkills.find(s => s.skill_id === skillId);
+  toast('从知识库抽取...');
+
+  const r = await api(`${EVP}/dataset/import-kb`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      skill_id: skillId,
+      skill_name: skill?.name || skillId,
+      dataset_id: _evDataset?.id || '',
+      max_examples: 20,
+    }),
+  });
+
+  if (r && r.dataset) {
+    _evDataset = r.dataset;
+    renderDatasetTable();
+    toast(`导入了 ${r.imported_count} 条知识库用例`);
+  } else {
+    toast('知识库导入失败或无相关数据');
+  }
+}
+
+function evShowManualInput() {
+  el('ev-manual-form').style.display = el('ev-manual-form').style.display === 'none' ? 'block' : 'none';
+}
+
+async function evAddManualExample() {
+  const task = el('ev-manual-task').value.trim();
+  const rubric = el('ev-manual-rubric').value.trim();
+  if (!task || !rubric) { toast('请填写任务和评分标准'); return; }
+
+  const skillId = el('ev-skill-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+
+  const skill = _evolveSkills.find(s => s.skill_id === skillId);
+
+  const r = await api(`${EVP}/dataset/manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      skill_id: skillId,
+      skill_name: skill?.name || skillId,
+      dataset_id: _evDataset?.id || '',
+      examples: [{ task_input: task, rubric }],
+    }),
+  });
+
+  if (r && r.examples) {
+    _evDataset = r;
+    renderDatasetTable();
+    el('ev-manual-task').value = '';
+    el('ev-manual-rubric').value = '';
+    toast('已添加用例');
+  } else {
+    toast('添加失败');
+  }
+}
+
+async function evDeleteExample(idx) {
+  if (!_evDataset) return;
+  const r = await api(`${EVP}/dataset/${_evDataset.id}/examples`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'delete', indices: [idx] }),
+  });
+  if (r && r.examples) {
+    _evDataset = r;
+    renderDatasetTable();
+  }
+}
+
+function renderDatasetTable() {
+  const container = el('ev-dataset-table');
+  const countEl = el('ev-ds-count');
+  const nextBtn = el('ev-step1-next');
+
+  if (!_evDataset || !_evDataset.examples || !_evDataset.examples.length) {
+    container.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px">暂无数据。请生成、导入或手动录入评估用例。</div>';
+    countEl.textContent = '';
+    nextBtn.style.display = 'none';
+    return;
+  }
+
+  const exs = _evDataset.examples;
+  countEl.textContent = `共 ${exs.length} 条 (train:${_evDataset.split?.train || '?'} / val:${_evDataset.split?.val || '?'} / holdout:${_evDataset.split?.holdout || '?'})`;
+  nextBtn.style.display = 'inline-block';
+
+  container.innerHTML = `<div style="display:flex;gap:8px;padding:6px 10px;border-bottom:1px solid var(--groove);font-size:10px;color:var(--muted);font-weight:600">
+    <span style="min-width:24px">#</span><span style="flex:1">任务</span><span style="flex:1">评分标准</span><span style="min-width:50px">操作</span>
+  </div>` + exs.map((ex, i) => `<div class="ds-row">
+    <span class="ds-idx">${i + 1}</span>
+    <span class="ds-task">${escapeHtml(ex.task_input?.slice(0, 80))}${ex.task_input?.length > 80 ? '...' : ''}</span>
+    <span class="ds-rubric">${escapeHtml(ex.rubric?.slice(0, 80))}${ex.rubric?.length > 80 ? '...' : ''}</span>
+    <span class="ds-actions"><button class="btn btn-sm" style="padding:1px 6px;font-size:10px;color:var(--shu)" onclick="evDeleteExample(${i})">✕</button></span>
+  </div>`).join('');
+}
+
+// ── Step 2: Baseline Evaluation ──
+
+async function evRunBaseline() {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+  if (!_evDataset) { toast('请先构建数据集 (步骤1)'); return; }
+
+  const btn = event?.target;
+  btnLoading(btn, true, '评估中...');
+  toast('正在评估 Baseline...');
+  el('ev-baseline-cards').innerHTML = '<div class="stat-card"><div class="value" style="font-size:14px;color:var(--amber)">⏳ 评估中...</div></div>';
+
+  const r = await api(`${EVP}/step/baseline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill_id: skillId, team_id: teamId, dataset_id: _evDataset.id }),
+  });
+
+  if (!r) { el('ev-baseline-cards').innerHTML = '<div class="stat-card"><div class="value" style="color:var(--shu)">评估失败</div></div>'; btnLoading(btn, false); return; }
+
+  _evBaseline = r;
+  const gc = r.mean_composite >= 0.8 ? 'var(--koke)' : r.mean_composite >= 0.6 ? 'var(--amber)' : 'var(--shu)';
+  el('ev-baseline-cards').innerHTML = `
+    <div class="stat-card"><div class="label">复合 Fitness</div><div class="value" style="color:${gc}">${(r.mean_composite * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">指令遵循</div><div class="value">${(r.mean_instruction_following * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">输出质量</div><div class="value">${(r.mean_output_quality * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">简洁度</div><div class="value">${(r.mean_conciseness * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">评估数</div><div class="value">${r.eval_count || r.total_examples}</div></div>
+    <div class="stat-card"><div class="label">失败案例</div><div class="value" style="color:${r.failure_count ? 'var(--shu)' : 'var(--koke)'}">${r.failure_count || 0}</div></div>`;
+
+  // Show failures
+  if (r.failures && r.failures.length) {
+    el('ev-baseline-failures').innerHTML = `<details open><summary style="cursor:pointer;font-size:12px;color:var(--muted)">失败案例 (${r.failures.length}) — 将作为反思输入</summary>
+      <div style="margin-top:8px">${r.failures.map(f => `<div style="padding:6px 10px;margin:4px 0;background:var(--ishi);border:1px solid var(--groove);font-size:11px">
+        <div style="color:var(--shu);font-weight:600">得分: ${(f.composite * 100).toFixed(0)}%</div>
+        <div style="color:var(--sumi-2);margin-top:2px">任务: ${escapeHtml(f.task_input)}</div>
+        <div style="color:var(--dim);margin-top:2px">原因: ${escapeHtml(f.reasoning)}</div>
+      </div>`).join('')}</div></details>`;
+  } else {
+    el('ev-baseline-failures').innerHTML = '<div style="color:var(--koke);font-size:12px;padding:8px">✓ 全部通过，无失败案例</div>';
+  }
+
+  el('ev-step2-next').style.display = 'inline-block';
+  btnLoading(btn, false);
+  toast(`Baseline: ${(r.mean_composite * 100).toFixed(1)}%`);
+}
+
+// ── Step 3: Reflection ──
+
+async function evRunReflect() {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+
+  const failures = _evBaseline?.failures || [];
+  const userHints = el('ev-user-hints').value.trim();
+
+  if (!failures.length && !userHints) {
+    toast('没有失败案例且未填写分析方向');
+    return;
+  }
+
+  const btn = event?.target;
+  btnLoading(btn, true, 'AI 反思中...');
+  toast('🤖 AI 反思中...');
+
+  const r = await api(`${EVP}/step/reflect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill_id: skillId, team_id: teamId, failures, user_hints: userHints }),
+  });
+
+  if (!r) { toast('反思分析失败'); btnLoading(btn, false); return; }
+
+  _evReflection = r;
+  el('ev-reflect-result').style.display = 'block';
+  el('ev-reflect-causes').value = (r.root_causes || []).join('\n');
+  el('ev-reflect-defects').value = (r.specific_defects || []).join('\n');
+  el('ev-reflect-directions').value = (r.improvement_directions || []).join('\n');
+  el('ev-step3-next').style.display = 'inline-block';
+  btnLoading(btn, false);
+  toast('反思分析完成 — 可编辑后继续');
+}
+
+function getEditedReflection() {
+  return {
+    root_causes: el('ev-reflect-causes').value.split('\n').filter(Boolean),
+    specific_defects: el('ev-reflect-defects').value.split('\n').filter(Boolean),
+    improvement_directions: el('ev-reflect-directions').value.split('\n').filter(Boolean),
+  };
+}
+
+// ── Step 4: Mutation Lab ──
+
+async function evRunMutate() {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!skillId) { toast('请先选择技能'); return; }
+
+  const reflection = getEditedReflection();
+  if (!reflection.root_causes.length && !reflection.improvement_directions.length) {
+    toast('请先完成反思分析 (步骤3)'); return;
+  }
+
+  const btn = event?.target;
+  btnLoading(btn, true, '生成变异中...');
+  toast('🤖 生成变异候选...');
+
+  const r = await api(`${EVP}/step/mutate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill_id: skillId, team_id: teamId, reflection }),
+  });
+
+  if (!r || !r.candidates || !r.candidates.length) {
+    toast('未生成有效候选'); btnLoading(btn, false); return;
+  }
+
+  _evCandidates = r.candidates.map(c => ({ ...c, score: null, evaluated: false }));
+  renderCandidates();
+  btnLoading(btn, false);
+  toast(`生成了 ${_evCandidates.length} 个候选`);
+}
+
+function evShowManualCandidate() {
+  el('ev-manual-candidate').style.display = el('ev-manual-candidate').style.display === 'none' ? 'block' : 'none';
+}
+
+function evAddManualCandidate() {
+  const text = el('ev-candidate-text').value.trim();
+  if (!text) { toast('请填写候选指令'); return; }
+  _evCandidates.push({ strategy: '手动', instructions: text, score: null, evaluated: false });
+  el('ev-candidate-text').value = '';
+  el('ev-manual-candidate').style.display = 'none';
+  renderCandidates();
+  toast('已添加手动候选');
+}
+
+async function evEvalCandidate(idx) {
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+  if (!_evDataset) { toast('需要数据集'); return; }
+
+  const cand = _evCandidates[idx];
+  toast(`评估候选 #${idx + 1}...`);
+
+  const r = await api(`${EVP}/step/evaluate-candidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      skill_id: skillId,
+      team_id: teamId,
+      dataset_id: _evDataset.id,
+      instructions: cand.instructions,
+    }),
+  });
+
+  if (r) {
+    _evCandidates[idx].score = r.score;
+    _evCandidates[idx].evaluated = true;
+    _evCandidates[idx].passed = r.passed_constraints;
+    _evCandidates[idx].details = r;
+    renderCandidates();
+    toast(`候选 #${idx + 1}: ${(r.score * 100).toFixed(1)}%`);
+  } else {
+    toast('评估失败');
+  }
+}
+
+async function evEvalAllCandidates() {
+  for (let i = 0; i < _evCandidates.length; i++) {
+    if (!_evCandidates[i].evaluated) {
+      await evEvalCandidate(i);
+    }
+  }
+}
+
+function evSelectCandidate(idx) {
+  _evSelectedCandidate = idx;
+  renderCandidates();
+  el('ev-step4-next').style.display = 'inline-block';
+}
+
+function renderCandidates() {
+  const container = el('ev-candidates-list');
+  if (!_evCandidates.length) {
+    container.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px">暂无候选。点击"生成候选"或手动添加。</div>';
+    return;
+  }
+
+  const baseline = _evBaseline?.mean_composite || 0;
+  container.innerHTML = _evCandidates.map((c, i) => {
+    const selected = i === _evSelectedCandidate;
+    const scoreColor = c.score > baseline ? 'var(--koke)' : c.score !== null ? 'var(--shu)' : 'var(--muted)';
+    const delta = c.score !== null ? ((c.score - baseline) * 100).toFixed(1) : '—';
+    return `<div class="cand-card ${selected ? 'selected' : ''}">
+      <div class="cand-header">
+        <span class="cand-strategy">${escapeHtml(c.strategy)} ${c.passed === false ? '⚠️ 约束违规' : ''}</span>
+        <span>
+          ${c.evaluated ? `<span class="cand-score" style="color:${scoreColor}">${(c.score * 100).toFixed(1)}% (${delta > 0 ? '+' : ''}${delta}%)</span>` : '<span style="font-size:11px;color:var(--muted)">未评估</span>'}
+          <button class="btn btn-sm" style="padding:2px 6px;font-size:10px;margin-left:6px" onclick="evEvalCandidate(${i})">⚡ 评估</button>
+          <button class="btn btn-sm ${selected ? 'btn-primary' : ''}" style="padding:2px 6px;font-size:10px;margin-left:4px" onclick="evSelectCandidate(${i})">✓ 选用</button>
+        </span>
+      </div>
+      <div class="cand-body">${escapeHtml(c.instructions?.slice(0, 500))}${c.instructions?.length > 500 ? '\n...' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Step 5: Compare & Lock ──
+
+function renderFinalCompare() {
+  if (_evSelectedCandidate < 0 || !_evCandidates[_evSelectedCandidate]) return;
+  const cand = _evCandidates[_evSelectedCandidate];
+  const baseline = _evBaseline?.mean_composite || 0;
+  const delta = cand.score !== null ? ((cand.score - baseline) * 100).toFixed(1) : '?';
+
+  el('ev-final-compare').innerHTML = `<div class="card-grid">
+    <div class="stat-card"><div class="label">Baseline</div><div class="value">${(baseline * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">候选 (${escapeHtml(cand.strategy)})</div><div class="value" style="color:var(--koke)">${cand.score !== null ? (cand.score * 100).toFixed(1) + '%' : '未评估'}</div></div>
+    <div class="stat-card"><div class="label">提升</div><div class="value" style="color:${delta > 0 ? 'var(--koke)' : 'var(--shu)'}">+${delta}%</div></div>
+    <div class="stat-card"><div class="label">长度</div><div class="value" style="font-size:14px">${cand.details?.length_candidate || cand.instructions?.length || '?'} 字</div></div>
+  </div>`;
+
+  // Simple text diff
+  const skill = _evolveSkills.find(s => s.skill_id === el('ev-skill-select').value);
+  // Side-by-side diff: original vs candidate
+  const origInstructions = skill?.instructions || skill?.snapshot?.instructions || '(原始指令不可用)';
+  el('ev-final-diff').innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div>
+      <div style="margin-bottom:6px;color:var(--shu);font-weight:600;font-size:12px">📄 原始指令 (${origInstructions.length} 字)</div>
+      <div style="white-space:pre-wrap;color:var(--sumi-2);font-size:11px;padding:8px;background:var(--ishi);border:1px solid var(--groove);max-height:250px;overflow-y:auto;line-height:1.7">${escapeHtml(origInstructions)}</div>
+    </div>
+    <div>
+      <div style="margin-bottom:6px;color:var(--koke);font-weight:600;font-size:12px">✨ 变异后指令 (${cand.instructions?.length || 0} 字)</div>
+      <div style="white-space:pre-wrap;color:var(--sumi);font-size:11px;padding:8px;background:var(--ishi);border:1px solid var(--groove);max-height:250px;overflow-y:auto;line-height:1.7">${escapeHtml(cand.instructions)}</div>
+    </div>
+  </div>`;
+}
+
+async function evApplyEvolution() {
+  if (_evSelectedCandidate < 0) { toast('请先选择一个候选'); return; }
+  const cand = _evCandidates[_evSelectedCandidate];
+  const baseline = _evBaseline?.mean_composite || 0;
+
+  if (!cand.score || cand.score <= baseline) {
+    toast('候选分数未超过 Baseline，无法应用'); return;
+  }
+
+  const skillId = el('ev-skill-select').value;
+  const teamId = el('ev-team-select').value;
+
+  const btn = event?.target;
+  btnLoading(btn, true, '应用中...');
+  toast('正在应用演化...');
+  const r = await api(`${EVP}/step/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      skill_id: skillId,
+      team_id: teamId,
+      instructions: cand.instructions,
+      baseline_score: baseline,
+      new_score: cand.score,
+    }),
+  });
+
+  if (r && !r.error) {
+    btnLoading(btn, false);
+    toast(`✓ 已锁定! ${r.skill_id} → v${r.new_version} (${r.score_improvement})`);
+    el('ev-final-compare').innerHTML += `<div style="margin-top:12px;color:var(--koke);font-weight:700;font-size:14px">🔒 已锁定到 Heritage Ledger — v${r.new_version}</div>`;
+    loadEvolveSkills();
+    loadEvolveHistory();
+  } else {
+    btnLoading(btn, false);
+    toast('应用失败: ' + (r?.detail || r?.error || '未知错误'));
+  }
+}
+
+// ── Auto-Triage ──
+
+async function runAutoTriage() {
+  const teamId = el('ev-team-select').value;
+  toast('正在自动诊断...');
+  el('ev-triage-section').style.display = 'block';
+
+  const r = await api(`${EVP}/auto-triage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_id: teamId, top_n: 5 }),
+  });
+
+  if (!r) { el('ev-triage-summary').innerHTML = '<div class="stat-card"><div class="value" style="color:var(--shu)">诊断失败</div></div>'; return; }
+
+  const s = r.summary || {};
+  el('ev-triage-summary').innerHTML = `
+    <div class="stat-card"><div class="label">总技能数</div><div class="value">${s.total_skills || 0}</div></div>
+    <div class="stat-card"><div class="label">平均效率</div><div class="value">${((s.mean_effectiveness || 0) * 100).toFixed(0)}%</div></div>
+    <div class="stat-card"><div class="label">⚠ 风险技能</div><div class="value" style="color:${s.at_risk ? 'var(--shu)' : 'var(--koke)'}">${s.at_risk || 0}</div><div class="sub">${s.at_risk_pct || 0}%</div></div>
+    <div class="stat-card"><div class="label">✓ 健康技能</div><div class="value" style="color:var(--koke)">${s.healthy || 0}</div></div>`;
+
+  const candidates = r.candidates || [];
+  if (candidates.length) {
+    el('ev-triage-candidates').innerHTML = `
+      <div style="font-size:12px;color:var(--kitsune);margin-bottom:8px;font-weight:600">💡 ${escapeHtml(r.recommendation || '')}</div>
+      <table class="tbl"><thead><tr><th>技能</th><th>效率</th><th>使用</th><th>影响力</th><th>原因</th><th>操作</th></tr></thead><tbody>
+      ${candidates.map(c => `<tr>
+        <td><b>${escapeHtml(c.skill_name)}</b></td>
+        <td style="color:${c.effectiveness < 0.7 ? 'var(--shu)' : 'var(--amber)'}">${(c.effectiveness * 100).toFixed(0)}%</td>
+        <td>${c.usage_count}</td>
+        <td style="font-family:var(--font-mono);font-weight:700">${c.impact_score.toFixed(1)}</td>
+        <td style="font-size:11px;color:var(--dim)">${escapeHtml(c.reasons.join('; '))}</td>
+        <td><button class="btn btn-sm" style="padding:2px 8px;font-size:10px" onclick="selectAndOptimize('${c.skill_id}')">🚀 选择</button></td>
+      </tr>`).join('')}</tbody></table>`;
+  } else {
+    el('ev-triage-candidates').innerHTML = '<div style="color:var(--koke);font-size:12px;padding:8px">所有技能表现良好 ✓</div>';
+  }
+  toast('诊断完成');
+}
+
+function selectAndOptimize(skillId) {
+  el('ev-skill-select').value = skillId;
+  onSkillSelected();
+}
+
+// ── Step 5 auto-render on enter ──
+const _origGoToStep = goToStep;
+goToStep = function(step) {
+  _origGoToStep(step);
+  if (step === 5) renderFinalCompare();
+};
+
+// ── History ──
+
+async function loadEvolveHistory() {
+  const runs = await api(`${EVP}/optimize/runs?limit=15`);
+  if (!runs || !runs.length) {
+    el('ev-history-table').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px">暂无优化记录</div>';
+    return;
+  }
+  el('ev-history-table').innerHTML = `<table class="tbl"><thead><tr><th>ID</th><th>类型</th><th>目标</th><th>状态</th><th>Baseline</th><th>Best</th><th>Δ</th><th>时间</th></tr></thead><tbody>
+    ${runs.map(r => {
+      const sc = r.improved ? 'var(--koke)' : r.status === 'failed' ? 'var(--shu)' : 'var(--muted)';
+      return `<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(r.run_id)}</td>
+        <td><span class="chip" style="font-size:10px">${escapeHtml(r.target_type)}</span></td>
+        <td style="font-size:12px">${escapeHtml(r.target_id?.slice(0, 12) || '')}</td>
+        <td style="color:${sc};font-weight:600;font-size:12px">${escapeHtml(r.status)}</td>
+        <td style="font-family:var(--font-mono)">${(r.baseline_score * 100).toFixed(0)}%</td>
+        <td style="font-family:var(--font-mono)">${(r.best_score * 100).toFixed(0)}%</td>
+        <td style="font-family:var(--font-mono);color:${r.score_delta > 0 ? 'var(--koke)' : 'var(--muted)'}">${r.score_delta > 0 ? '+' : ''}${(r.score_delta * 100).toFixed(1)}%</td>
+        <td style="font-size:11px;color:var(--dim)">${timeAgo(r.started_at)}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
 }
 
 // ── Init ──

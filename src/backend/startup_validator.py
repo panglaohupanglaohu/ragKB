@@ -144,23 +144,28 @@ class StartupValidator:
         """运行所有验证检查"""
         report = ValidationReport()
 
-        # 1. 基础服务检查
-        report.add(await self._check_health())
-        report.add(await self._check_info())
+        # Run all checks in parallel for faster startup
+        results = await asyncio.gather(
+            self._check_health(),
+            self._check_info(),
+            self._check_api_endpoints(),
+            self._check_evolution_engine(),
+            self._check_agent_config(),
+            self._check_bridge_chat(),
+            self._check_auth(),
+            self._check_frontend_pages(),
+            return_exceptions=True,
+        )
 
-        # 2. API 端点可用性
-        report.add(await self._check_api_endpoints())
-
-        # 3. 核心模块状态
-        report.add(await self._check_evolution_engine())
-        report.add(await self._check_agent_config())
-        report.add(await self._check_bridge_chat())
-
-        # 4. 认证系统
-        report.add(await self._check_auth())
-
-        # 5. 前端页面
-        report.add(await self._check_frontend_pages())
+        for r in results:
+            if isinstance(r, Exception):
+                report.add(CheckResult(
+                    name="unknown",
+                    status=CheckStatus.FAIL,
+                    error=str(r),
+                ))
+            elif isinstance(r, CheckResult):
+                report.add(r)
 
         return report
 

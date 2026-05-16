@@ -463,4 +463,543 @@ async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = 5
     return _evolution_engine.get_audit_trail(event_type=event_type, limit=limit)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 演化优化 API (Phase 1-5: Qwen 反思式演化)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/evolution/optimize")
+async def evolution_optimize(body: Dict[str, Any]):
+    """启动技能/规则/提示词优化 (Phase 1-3).
+
+    Body: {target_type: "skill"|"rule"|"prompt", target_id, team_id, iterations?}
+    """
+    from agents.evolution.optimizer import optimize_skill, optimize_rule_description, optimize_prompt_section
+    from agents.skill_library import get_skill_library
+
+    target_type = body.get("target_type", "skill")
+    target_id = body.get("target_id", "")
+    team_id = body.get("team_id", "build_system")
+    iterations = min(body.get("iterations", 5), 10)  # Cap at 10
+
+    if not target_id:
+        raise HTTPException(400, "target_id required")
+
+    if target_type == "skill":
+        lib = get_skill_library()
+        if not lib:
+            raise HTTPException(500, "Skill library not initialized")
+        skill = lib._find_skill(team_id, target_id)
+        if not skill:
+            raise HTTPException(404, f"Skill {target_id} not found")
+
+        import asyncio
+        run = await optimize_skill(
+            team_id=team_id,
+            skill_id=target_id,
+            skill_name=skill.name,
+            instructions=skill.instructions,
+            tags=skill.tags if hasattr(skill, 'tags') else [],
+            iterations=iterations,
+        )
+        return run.to_dict()
+
+    elif target_type == "rule":
+        if not _evolution_engine:
+            raise HTTPException(404, "Evolution engine not registered")
+        rules = _evolution_engine.get_rules()
+        rule = next((r for r in rules if r.get("id") == target_id), None)
+        if not rule:
+            raise HTTPException(404, f"Rule {target_id} not found")
+
+        run = await optimize_rule_description(
+            rule_id=target_id,
+            current_title=rule.get("title", ""),
+            current_description=rule.get("description", ""),
+            iterations=iterations,
+        )
+        return run.to_dict()
+
+    elif target_type == "prompt":
+        content = body.get("content", "")
+        if not content:
+            raise HTTPException(400, "content required for prompt optimization")
+        run = await optimize_prompt_section(
+            section_name=target_id,
+            current_content=content,
+            team_id=team_id,
+            iterations=iterations,
+        )
+        return run.to_dict()
+
+    raise HTTPException(400, f"Unknown target_type: {target_type}")
+
+
+@router.get("/evolution/optimize/runs")
+async def evolution_optimize_runs(target_type: Optional[str] = None, limit: int = 20):
+    """列出优化运行记录."""
+    from agents.evolution.optimizer import list_runs
+    return list_runs(target_type=target_type, limit=limit)
+
+
+@router.get("/evolution/optimize/{run_id}")
+async def evolution_optimize_result(run_id: str):
+    """获取单次优化运行的详细结果."""
+    from agents.evolution.optimizer import OptimizationRun
+    run = OptimizationRun.load(run_id)
+    if not run:
+        raise HTTPException(404, f"Run {run_id} not found")
+    return run.to_dict()
+
+
+@router.get("/evolution/optimize/{run_id}/compare")
+async def evolution_optimize_compare(run_id: str):
+    """获取 baseline vs evolved 对比视图."""
+    from agents.evolution.optimizer import OptimizationRun
+    from agents.evolution.comparator import compare_results
+    run = OptimizationRun.load(run_id)
+    if not run:
+        raise HTTPException(404, f"Run {run_id} not found")
+    return compare_results(
+        original_instructions=run.original_instructions,
+        evolved_instructions=run.best_instructions,
+        baseline_score=run.baseline_score,
+        evolved_score=run.best_score,
+        iteration_log=run.iteration_log,
+    )
+
+
+@router.post("/evolution/optimize/{run_id}/approve")
+async def evolution_optimize_approve(run_id: str):
+    """批准演化结果 — 应用到技能并走棘轮锁定.
+
+    照搬 Hermes: Deploy via PR (ratchet lock).
+    """
+    from agents.evolution.optimizer import OptimizationRun
+    from agents.skill_evolver import get_skill_evolver
+
+    run = OptimizationRun.load(run_id)
+    if not run:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if not run.improved:
+        raise HTTPException(400, "Run did not produce improvement (delta < 5%)")
+    if run.target_type != "skill":
+        raise HTTPException(400, "Only skill approval implemented")
+
+    evolver = get_skill_evolver()
+    result = evolver.apply_evolution(
+        team_id=run.team_id,
+        skill_id=run.target_id,
+        new_instructions=run.best_instructions,
+    )
+    if result.get("error"):
+        raise HTTPException(500, result["error"])
+
+    return {
+        "status": "approved_and_applied",
+        "skill_id": run.target_id,
+        "new_version": result.get("version"),
+        "score_improvement": f"+{run.score_delta * 100:.1f}%",
+    }
+
+
+@router.post("/evolution/fitness/skill/{skill_id}")
+async def evolution_skill_fitness(skill_id: str, team_id: str = "build_system"):
+    """评估单个技能的 fitness 分数 (Phase 1 核心)."""
+    from agents.evolution.dataset_builder import build_full_dataset
+    from agents.evolution.fitness import evaluate_skill
+    from agents.skill_library import get_skill_library
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    dataset = await build_full_dataset(
+        skill_name=skill.name,
+        skill_id=skill_id,
+        instructions=skill.instructions,
+        tags=skill.tags if hasattr(skill, 'tags') else [],
+        synthetic_count=8,
+    )
+
+    if len(dataset.val) < 2:
+        raise HTTPException(500, "Failed to generate sufficient eval examples")
+
+    report = await evaluate_skill(
+        skill_id=skill_id,
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        eval_examples=dataset.val,
+    )
+    return report.to_dict()
+
+
+@router.post("/evolution/auto-triage")
+async def evolution_auto_triage(body: Dict[str, Any] = None):
+    """自动诊断 — 识别最需要优化的技能 (Phase 5)."""
+    from agents.evolution.auto_triage import run_auto_triage
+    body = body or {}
+    team_id = body.get("team_id", "build_system")
+    top_n = min(body.get("top_n", 5), 10)
+    return await run_auto_triage(team_id=team_id, top_n=top_n)
+
+
+@router.post("/evolution/dataset/generate")
+async def evolution_generate_dataset(body: Dict[str, Any]):
+    """为指定技能生成评估数据集."""
+    from agents.evolution.dataset_builder import build_full_dataset
+    from agents.skill_library import get_skill_library
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    count = min(body.get("count", 15), 30)
+
+    if not skill_id:
+        raise HTTPException(400, "skill_id required")
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    dataset = await build_full_dataset(
+        skill_name=skill.name,
+        skill_id=skill_id,
+        instructions=skill.instructions,
+        tags=skill.tags if hasattr(skill, 'tags') else [],
+        synthetic_count=count,
+    )
+    dataset.save("skills")
+    return dataset.to_dict()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 交互式演化步骤 API (Step-by-Step)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _get_ds_dir():
+    """Get the evolution datasets directory path."""
+    from pathlib import Path
+    ds_dir = Path(__file__).resolve().parent / "agents" / ".." / ".." / "storage" / "evolution_datasets" / "skills"
+    ds_dir = ds_dir.resolve()
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    return ds_dir
+
+
+def _load_dataset(dataset_id: str):
+    """Load an EvalDataset by its ID."""
+    from agents.evolution.dataset_builder import EvalDataset
+    ds_dir = _get_ds_dir()
+    found = list(ds_dir.glob(f"*_{dataset_id}.json"))
+    if not found:
+        raise HTTPException(404, f"Dataset {dataset_id} not found")
+    return EvalDataset.load(str(found[0]))
+
+@router.post("/evolution/dataset/manual")
+async def evolution_dataset_manual(body: Dict[str, Any]):
+    """手动添加评估用例到数据集."""
+    from agents.evolution.dataset_builder import EvalDataset
+
+    dataset_id = body.get("dataset_id", "")
+    skill_id = body.get("skill_id", "")
+    examples = body.get("examples", [])  # [{task_input, rubric}]
+
+    if not examples:
+        raise HTTPException(400, "examples required")
+
+    # Load existing or create new
+    if dataset_id:
+        ds = _load_dataset(dataset_id)
+    else:
+        if not skill_id:
+            raise HTTPException(400, "skill_id required when creating new dataset")
+        ds = EvalDataset(skill_id=skill_id, skill_name=body.get("skill_name", skill_id))
+
+    # Add examples
+    for ex in examples:
+        if isinstance(ex, dict) and ex.get("task_input") and ex.get("rubric"):
+            ds.examples.append({"task_input": str(ex["task_input"]), "rubric": str(ex["rubric"])})
+
+    ds.split()
+    ds.save("skills")
+    return ds.to_dict()
+
+
+@router.post("/evolution/dataset/import-kb")
+async def evolution_dataset_import_kb(body: Dict[str, Any]):
+    """从知识库抽取评估用例."""
+    from agents.evolution.dataset_builder import EvalDataset, mine_knowledge_base
+
+    skill_id = body.get("skill_id", "")
+    skill_name = body.get("skill_name", skill_id)
+    dataset_id = body.get("dataset_id", "")
+    max_examples = min(body.get("max_examples", 20), 50)
+
+    if not skill_id:
+        raise HTTPException(400, "skill_id required")
+
+    mined = mine_knowledge_base(skill_id, skill_name, max_examples=max_examples)
+
+    if dataset_id:
+        try:
+            ds = _load_dataset(dataset_id)
+        except HTTPException:
+            ds = EvalDataset(skill_id=skill_id, skill_name=skill_name)
+    else:
+        ds = EvalDataset(skill_id=skill_id, skill_name=skill_name)
+
+    for ex in mined:
+        ds.examples.append({"task_input": ex["task_input"], "rubric": ex["rubric"]})
+
+    ds.split()
+    ds.save("skills")
+    return {"dataset": ds.to_dict(), "imported_count": len(mined)}
+
+
+@router.get("/evolution/dataset/{dataset_id}")
+async def evolution_get_dataset(dataset_id: str):
+    """获取数据集详情."""
+    ds = _load_dataset(dataset_id)
+    return ds.to_dict()
+
+
+@router.put("/evolution/dataset/{dataset_id}/examples")
+async def evolution_update_dataset_examples(dataset_id: str, body: Dict[str, Any]):
+    """编辑数据集中的用例."""
+    from agents.evolution.dataset_builder import EvalDataset
+
+    ds = _load_dataset(dataset_id)
+    action = body.get("action", "replace_all")  # replace_all, delete, update
+
+    if action == "replace_all":
+        ds.examples = [ex for ex in body.get("examples", []) if ex.get("task_input") and ex.get("rubric")]
+    elif action == "delete":
+        indices = sorted(body.get("indices", []), reverse=True)
+        for idx in indices:
+            if 0 <= idx < len(ds.examples):
+                ds.examples.pop(idx)
+    elif action == "update":
+        idx = body.get("index", -1)
+        example = body.get("example", {})
+        if 0 <= idx < len(ds.examples) and example.get("task_input") and example.get("rubric"):
+            ds.examples[idx] = {"task_input": example["task_input"], "rubric": example["rubric"]}
+
+    ds.split()
+    ds.save("skills")
+    return ds.to_dict()
+
+
+@router.post("/evolution/step/baseline")
+async def evolution_step_baseline(body: Dict[str, Any]):
+    """步骤2: 在已有数据集上评估 baseline."""
+    from agents.evolution.fitness import evaluate_skill
+    from agents.skill_library import get_skill_library
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    dataset_id = body.get("dataset_id", "")
+
+    if not skill_id or not dataset_id:
+        raise HTTPException(400, "skill_id and dataset_id required")
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    ds = _load_dataset(dataset_id)
+
+    eval_set = ds.val if ds.val else ds.examples[:5]
+    if len(eval_set) < 1:
+        raise HTTPException(400, "Dataset too small for evaluation")
+
+    report = await evaluate_skill(
+        skill_id=skill_id,
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        eval_examples=eval_set,
+    )
+    return {**report.to_dict(), "dataset_id": dataset_id, "eval_count": len(eval_set)}
+
+
+@router.post("/evolution/step/reflect")
+async def evolution_step_reflect(body: Dict[str, Any]):
+    """步骤3: 反思分析 — 可传入用户补充的 hints."""
+    from agents.evolution.mutator import reflect_on_failures
+    from agents.skill_library import get_skill_library
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    failures = body.get("failures", [])  # [{task_input, rubric, composite, reasoning}]
+    user_hints = body.get("user_hints", "")  # 用户补充的分析方向
+
+    if not skill_id:
+        raise HTTPException(400, "skill_id required")
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    instructions = skill.instructions
+    if user_hints:
+        # Inject user hints into the failures context
+        failures = failures or []
+        failures.append({
+            "task_input": f"[用户反馈] {user_hints}",
+            "rubric": "用户指出的问题方向",
+            "composite": 0.0,
+            "reasoning": user_hints,
+        })
+
+    if not failures:
+        raise HTTPException(400, "failures required (from baseline evaluation)")
+
+    reflection = await reflect_on_failures(instructions, failures)
+    return {
+        "root_causes": reflection.root_causes,
+        "specific_defects": reflection.specific_defects,
+        "improvement_directions": reflection.improvement_directions,
+    }
+
+
+@router.post("/evolution/step/mutate")
+async def evolution_step_mutate(body: Dict[str, Any]):
+    """步骤4: 生成变异候选."""
+    from agents.evolution.mutator import ReflectionResult, generate_candidates
+    from agents.skill_library import get_skill_library
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    reflection_data = body.get("reflection", {})  # {root_causes, specific_defects, improvement_directions}
+
+    if not skill_id or not reflection_data:
+        raise HTTPException(400, "skill_id and reflection required")
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    # Build ReflectionResult from data
+    reflection = ReflectionResult()
+    reflection.root_causes = reflection_data.get("root_causes", [])
+    reflection.specific_defects = reflection_data.get("specific_defects", [])
+    reflection.improvement_directions = reflection_data.get("improvement_directions", [])
+
+    candidates = await generate_candidates(skill.instructions, reflection)
+    return {
+        "candidates": [
+            {"strategy": c.strategy, "instructions": c.instructions, "summary": c.summary if hasattr(c, 'summary') else ""}
+            for c in candidates
+        ]
+    }
+
+
+@router.post("/evolution/step/evaluate-candidate")
+async def evolution_step_evaluate_candidate(body: Dict[str, Any]):
+    """步骤4b: 评估单个候选."""
+    from agents.evolution.constraints import validate_all
+    from agents.evolution.fitness import apply_length_penalty, evaluate_skill
+    from agents.skill_library import get_skill_library
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    dataset_id = body.get("dataset_id", "")
+    candidate_instructions = body.get("instructions", "")
+
+    if not skill_id or not candidate_instructions:
+        raise HTTPException(400, "skill_id and instructions required")
+
+    lib = get_skill_library()
+    if not lib:
+        raise HTTPException(500, "Skill library not initialized")
+    skill = lib._find_skill(team_id, skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    # Constraint check first
+    cv = validate_all(skill.instructions, candidate_instructions, "skill")
+    if not cv["passed"]:
+        return {"passed_constraints": False, "violations": cv["violations"], "score": 0}
+
+    # Load dataset for evaluation
+    eval_set = []
+    if dataset_id:
+        try:
+            ds = _load_dataset(dataset_id)
+            eval_set = ds.val if ds.val else ds.examples[:5]
+        except HTTPException:
+            pass
+
+    if not eval_set:
+        raise HTTPException(400, "dataset_id required or dataset too small")
+
+    report = await evaluate_skill(
+        skill_id=skill_id,
+        skill_name=skill.name,
+        instructions=candidate_instructions,
+        eval_examples=eval_set,
+    )
+
+    score = apply_length_penalty(
+        report.mean_composite,
+        len(skill.instructions),
+        len(candidate_instructions),
+    )
+
+    return {
+        "passed_constraints": True,
+        "score": round(score, 3),
+        "raw_score": round(report.mean_composite, 3),
+        "details": report.to_dict(),
+        "length_original": len(skill.instructions),
+        "length_candidate": len(candidate_instructions),
+    }
+
+
+@router.post("/evolution/step/apply")
+async def evolution_step_apply(body: Dict[str, Any]):
+    """步骤5: 应用选中的变异到技能 (棘轮锁定)."""
+    from agents.skill_evolver import get_skill_evolver
+
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    new_instructions = body.get("instructions", "")
+    baseline_score = body.get("baseline_score", 0)
+    new_score = body.get("new_score", 0)
+
+    if not skill_id or not new_instructions:
+        raise HTTPException(400, "skill_id and instructions required")
+
+    if new_score <= baseline_score:
+        raise HTTPException(400, "New score must be higher than baseline")
+
+    evolver = get_skill_evolver()
+    result = evolver.apply_evolution(
+        team_id=team_id,
+        skill_id=skill_id,
+        new_instructions=new_instructions,
+    )
+    if result.get("error"):
+        raise HTTPException(500, result["error"])
+
+    return {
+        "status": "applied",
+        "skill_id": skill_id,
+        "new_version": result.get("version"),
+        "score_improvement": f"+{(new_score - baseline_score) * 100:.1f}%",
+    }
+
+
 __all__ = ["router", "set_teams"]

@@ -136,7 +136,7 @@ async function loadOverview(){
     ...teamIds.map(id=>api(`${A}/teams/${id}`))
   ]);
   const sc=el('ov-stats');
-  const _teamIcons={'build_system':'🏗️','energy_first_principle':'⚡','ai_coding':'💻'};
+  const _teamIcons={'build_system':'🏗️','energy_first_principle':'⚡','ai_coding':'💻','d083a568':'☁️'};
   if(ov){const sh=ov.scheduler||{};const dt=dash||{};const ev=ov.evolution||{};const evs=ev.stats||{};
   const totalModels=allTeams.reduce((n,t)=>n+(t&&t.models?Object.keys(t.models).length:0),0);
   const totalAgents=allTeams.reduce((n,t)=>n+(t&&t.agents?(Array.isArray(t.agents)?t.agents.length:Object.keys(t.agents).length):0),0);

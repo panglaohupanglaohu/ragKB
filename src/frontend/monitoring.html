@@ -380,12 +380,14 @@ function startRefresh() {
   if (countdownTimer) clearInterval(countdownTimer);
 
   refreshTimer = setInterval(() => {
+    if (document.hidden) return; // skip polling when tab is hidden
     fetchAll();
     countdown = 5;
     updateCountdown();
   }, 5000);
 
   countdownTimer = setInterval(() => {
+    if (document.hidden) return;
     countdown--;
     updateCountdown();
     if (countdown <= 0) countdown = 5;
