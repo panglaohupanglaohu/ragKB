@@ -1755,42 +1755,83 @@ function buildExtraction(){
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
     sp.position.copy(node.position);sp.position.y+=0.6;sp.scale.set(2,0.5,1);scene.add(sp);
   });
-  // 萃取漏斗
-  const funnel=new THREE.Mesh(new THREE.ConeGeometry(2.5,4,16,1,true),
-    new THREE.MeshBasicMaterial({color:0x34d399,wireframe:true,transparent:true,opacity:0.15}));
-  funnel.position.y=4;funnel.userData.spin=true;scene.add(funnel);
   // 浮尘 (照搬 skill-extract: color 0x584838, size 0.1, opacity 0.3)
   dustMesh=buildDust(120,50,0x584838);scene.add(dustMesh);
 }
 
-// ── 工作坊 ──
+// ── 工作坊 (共享协作空间 + 三面透明屏幕) ──
 function buildWorkshop(){
-  _camGoal=new THREE.Vector3(0,12,16);_tgtGoal=new THREE.Vector3(0,1,0);
-  scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.012);renderer.setClearColor(0x111820);
-  scene.add(new THREE.AmbientLight(0xc8d4e0,0.4));
-  const dl=new THREE.DirectionalLight(0xe8f0ff,0.5);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
-  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.3));
-  dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
-  const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
-    new THREE.MeshStandardMaterial({color:0x131a22,roughness:0.9}));
+  _camGoal=new THREE.Vector3(0,10,18);_tgtGoal=new THREE.Vector3(0,2,0);
+  scene.background=new THREE.Color(0x0E1318);scene.fog=new THREE.FogExp2(0x0E1318,0.008);renderer.setClearColor(0x0E1318);
+  // 光照: 偏暖协作氛围
+  scene.add(new THREE.AmbientLight(0x8090A0,0.15));
+  const dl=new THREE.DirectionalLight(0xC0C8D0,0.35);dl.position.set(4,20,6);dl.castShadow=true;
+  dl.shadow.mapSize.set(1024,1024);scene.add(dl);
+  scene.add(new THREE.HemisphereLight(0x7088A0,0x1A1A20,0.12));
+  // 地面: 深色工业感
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(22,64),
+    new THREE.MeshStandardMaterial({color:0x141A20,roughness:0.92,metalness:0}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
-  // 工作台
-  const table=new THREE.Mesh(new THREE.BoxGeometry(5,0.15,2.5),
-    new THREE.MeshStandardMaterial({color:0x1e2836,roughness:0.6}));
-  table.position.y=1;table.castShadow=true;scene.add(table);
-  [[-2.3,0,-1.1],[2.3,0,-1.1],[-2.3,0,1.1],[2.3,0,1.1]].forEach(([x,,z])=>{
-    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1,6),
-      new THREE.MeshStandardMaterial({color:0x263040}));leg.position.set(x,0.5,z);scene.add(leg)});
-  // 显示器
-  [-1.2,0,1.2].forEach(x=>{
-    const mon=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.6,0.04),
-      new THREE.MeshPhongMaterial({color:0x111b28,emissive:0xfbbf24,emissiveIntensity:0.25}));
-    mon.position.set(x,1.5,0);mon.castShadow=true;scene.add(mon)});
-  // 白板
-  const board=new THREE.Mesh(new THREE.BoxGeometry(3.5,2,0.08),
-    new THREE.MeshStandardMaterial({color:0x1a2030,roughness:0.3}));
-  board.position.set(0,2.2,-6);scene.add(board);
-  scene.add(new THREE.PointLight(0xfbbf24,0.4,15).translateY(6));
+  // 地面参考环
+  [5,10,16].forEach(r=>{
+    const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,64),
+      new THREE.MeshBasicMaterial({color:0x2A3040,transparent:true,opacity:0.15}));
+    ring.rotation.x=-Math.PI/2;ring.position.y=0.003;scene.add(ring);
+  });
+  // ─── 三面透明全息屏幕 (120°间隔) ───
+  const screenTexts=['协作讨论区','任务看板','知识汇总'];
+  const screenColor=0x22d3ee;
+  for(let i=0;i<3;i++){
+    const angle=(Math.PI*2*i)/3-Math.PI/2;
+    const r=7;const x=r*Math.cos(angle),z=r*Math.sin(angle);
+    // 屏幕框架 (细边)
+    const frame=new THREE.Mesh(new THREE.BoxGeometry(4.5,3.2,0.04),
+      new THREE.MeshStandardMaterial({color:0x2A3540,roughness:0.4,metalness:0.6}));
+    frame.position.set(x,2.6,z);frame.lookAt(0,2.6,0);frame.castShadow=true;scene.add(frame);
+    // 透明玻璃面板
+    const glass=new THREE.Mesh(new THREE.PlaneGeometry(4.2,2.9),
+      new THREE.MeshPhongMaterial({color:0x0A1620,emissive:screenColor,emissiveIntensity:0.06,
+        transparent:true,opacity:0.35,side:THREE.DoubleSide}));
+    glass.position.set(x,2.6,z);glass.lookAt(0,2.6,0);
+    glass.position.x+=(glass.position.x>0?-0.03:0.03);
+    glass.position.z+=(glass.position.z>0?-0.03:0.03);
+    scene.add(glass);
+    // 屏幕发光边缘
+    const edgeGlow=new THREE.Mesh(new THREE.PlaneGeometry(4.4,3.1),
+      new THREE.MeshBasicMaterial({color:screenColor,transparent:true,opacity:0.08,side:THREE.DoubleSide}));
+    edgeGlow.position.copy(glass.position);edgeGlow.rotation.copy(glass.rotation);
+    edgeGlow.position.y+=0.01;scene.add(edgeGlow);
+    // 屏幕标题
+    const tex=new THREE.CanvasTexture(makeColorLabel(screenTexts[i],'#'+new THREE.Color(screenColor).getHexString()));
+    tex.minFilter=THREE.LinearFilter;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+    sp.position.set(x*0.92,4.5,z*0.92);sp.scale.set(2.5,0.6,1);scene.add(sp);
+    // 屏幕底部光带
+    const pl=new THREE.PointLight(screenColor,0.25,6);pl.position.set(x*0.9,1.0,z*0.9);scene.add(pl);
+  }
+  // ─── 中央圆桌 (协作焦点) ───
+  const table=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.2,0.08,32),
+    new THREE.MeshStandardMaterial({color:0x1E2830,roughness:0.5,metalness:0.3}));
+  table.position.y=0.9;table.castShadow=true;table.receiveShadow=true;scene.add(table);
+  // 桌腿
+  const tableLeg=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.2,0.9,16),
+    new THREE.MeshStandardMaterial({color:0x2A3540,roughness:0.6,metalness:0.4}));
+  tableLeg.position.y=0.45;scene.add(tableLeg);
+  // 桌面发光环
+  const tableRing=new THREE.Mesh(new THREE.RingGeometry(1.8,2.0,32),
+    new THREE.MeshBasicMaterial({color:screenColor,transparent:true,opacity:0.12,side:THREE.DoubleSide}));
+  tableRing.rotation.x=-Math.PI/2;tableRing.position.y=0.95;scene.add(tableRing);
+  // ─── 围坐的智能体 (5个协作者) ───
+  const wsAgentNames=['策划师','架构师','编码员','测试员','文档员'];
+  const wsAgentColors=[0x22d3ee,0x34d399,0xa78bfa,0xfbbf24,0xf472b6];
+  for(let i=0;i<5;i++){
+    const angle=(Math.PI*2*i)/5-Math.PI/2;const r=3.8;
+    const fig=createAgentFigure(wsAgentNames[i],wsAgentColors[i],i===0);
+    fig.position.set(r*Math.cos(angle),0,r*Math.sin(angle));
+    fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
+  }
+  // 浮尘
+  dustMesh=buildDust(100,40,0x556680);scene.add(dustMesh);
 }
 
 // ── 知识库 ──
