@@ -25,6 +25,9 @@
   - [4. 系统演进引擎](#4-系统演进引擎-system-evolution)
 - [四大模块如何协同运转](#四大模块如何协同运转)
 - [数字孪生与语音化身](#数字孪生与语音化身)
+  - [智能体数字孪生可视化系统](#智能体数字孪生可视化系统-digital-twin-cli)
+  - [核心算法](#核心算法)
+  - [使用方法](#使用方法)
 - [系统架构总览](#系统架构总览)
 - [核心算法与设计模式](#核心算法与设计模式)
 - [智能体团队一览](#智能体团队一览)
@@ -528,6 +531,398 @@ LLM 输出的 Markdown 格式文本在合成前会被智能口语化：
 - **会记住之前的讨论**（跨会话记忆）
 - **会相互质疑和补充**（多轮辩论机制）
 - **会产出可执行的结论**（执行计划表）
+
+### 智能体数字孪生可视化系统 (Digital Twin CLI)
+
+> **"观测即理解——将智能体运行状态、交互关系、编排管线全部可视化。"**
+
+#### 设计哲学
+
+数字孪生可视化系统采用 **NVIDIA Agent Orchestration** 参考架构（六层模型），将智能体系统从抽象概念转化为可交互的实时可视化：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ L1  用户界面层 (UI Layer)                                        │
+│     Web 对话接口 + CLI 结构化命令 + 拖拽交互                       │
+├─────────────────────────────────────────────────────────────────┤
+│ L2  智能体编排层 (Orchestrator)                                   │
+│     意图解析 · 多智能体协调 · 任务分配 · Handoff 交接               │
+├─────────────────────────────────────────────────────────────────┤
+│ L3  LLM 推理层 (Reasoning)                                       │
+│     Function Calling · 思维链推理 (CoT) · 意图分类                 │
+├─────────────────────────────────────────────────────────────────┤
+│ L4  记忆与上下文层 (Memory)                                       │
+│     技能库 · 知识图谱 · 会话历史 · 跨会话持久化记忆                  │
+├─────────────────────────────────────────────────────────────────┤
+│ L5  工具执行层 (Execution)                                        │
+│     Web 搜索 · 代码执行 · API 调用 · 文件操作                      │
+├─────────────────────────────────────────────────────────────────┤
+│ L6  环境模拟层 (Environment)                                      │
+│     虚拟空间拓扑 · 智能体定位移动 · 多智能体交互模拟                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 系统架构
+
+```
+                     ┌─────────────────────┐
+                     │   digital-twin-cli  │
+                     │      (前端 SPA)      │
+                     └──────────┬──────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              │                 │                 │
+    ┌─────────▼──┐    ┌────────▼───┐    ┌───────▼────────┐
+    │ Agent API  │    │  DT State  │    │  Plaza/Chat    │
+    │ /teams/    │    │  /digital- │    │  /plaza/       │
+    │ /agents/   │    │  twin/     │    │  /bridge-chat/ │
+    │ /skills/   │    │  state     │    │                │
+    │ /tools/    │    │  move      │    │                │
+    └────────────┘    │  interact  │    └────────────────┘
+                      └────────────┘
+```
+
+#### 五大视图模块
+
+| 视图 | 功能 | 核心算法 |
+|------|------|---------|
+| **架构总览** | 六层模型 + SVG 拓扑图 | 圆形布局 + 边权重计算 |
+| **交互流** | 实时消息时间线 + 类型过滤 + 统计条 | 滚动窗口 + 分类计数 |
+| **编排管线** | 5步任务流 + 动画执行 + 执行日志 | 有限状态机步进 |
+| **环境空间** | 房间网格 + 拖拽分配 + 创建空间 | 拖拽DOM + 后端同步 |
+| **CLI** | 终端界面 + 20+ 命令 + 命令历史 | 命令解析器 + API桥接 |
+
+#### 核心算法
+
+##### 1. 拓扑图布局算法 (Circular Layout + Edge Weighting)
+
+智能体拓扑图采用极坐标圆形布局，边权重反映交互频率：
+
+```javascript
+// 圆形布局：将 N 个智能体等分到圆周上
+for (i = 0; i < agents.length; i++) {
+    angle = (2π × i) / N - π/2          // 起始角偏移 -90°
+    x = cx + radius × cos(angle)
+    y = cy + radius × sin(angle)
+    nodeRadius = 16 + skills.length × 3  // 节点大小 ∝ 技能数量
+}
+
+// 边权重：从交互历史中统计双向连接强度
+edgeMap[sorted(a.id, b.id)] += 1        // 每次交互+1
+strokeWidth = min(4, 1 + count × 0.5)   // 线宽映射
+opacity = min(0.8, 0.1 + count × 0.1)   // 透明度映射
+```
+
+**复杂度：** O(N) 节点布局 + O(M) 边统计，N=智能体数，M=交互消息数
+
+##### 2. 管线状态机 (Pipeline FSM)
+
+任务编排管线采用5步有限状态机，每步 800ms 动画推进：
+
+```
+     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+     │ 输入解析  │────▶│ 意图识别  │────▶│ 任务路由  │────▶│ 工具调用  │────▶│ 结果聚合  │
+     │ (parse)  │     │ (intent) │     │ (route)  │     │ (exec)   │     │ (aggr)   │
+     └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
+         idle    ────▶   active   ────▶   done
+```
+
+状态转换规则：
+- `idle → active`: 定时器触发 (800ms interval)
+- `active → done`: 下一步激活时当前步标记完成
+- 进度条: `width = (step + 1) / totalSteps × 100%`
+
+##### 3. 交互流滚动窗口 (Sliding Window)
+
+采用定长滚动窗口维护交互消息历史：
+
+```
+消息存储策略:
+- 内存保留: 最近 200 条
+- 渲染窗口: 最近 50 条 (DOM 性能)
+- localStorage 持久化: 最近 100 条
+- 后端同步: 全量 interactions[]
+
+过滤算法:
+- 分类计数: O(N) 遍历统计 {tool-call, llm-call, handoff, broadcast, response}
+- 类型过滤: Array.filter(m => m.type === selectedType)
+```
+
+##### 4. 拖拽分配算法 (Drag-and-Drop Room Assignment)
+
+```
+onDragStart(agentId):
+    设置 dataTransfer = agentId
+    添加 .dragging 视觉反馈
+
+onDragOver(roomElement):
+    preventDefault()  // 允许放置
+    添加 .drag-over 高亮
+
+onDrop(roomId):
+    positions[agentId] = roomId    // 更新前端状态
+    persist() → localStorage       // 本地持久化
+    syncDtState() → PUT /state     // 后端同步
+    POST /digital-twin/move        // 记录移动事件
+    renderAgentList()              // 重绘左侧面板
+    renderEnvironment()            // 重绘环境网格
+    addMsg(type='handoff')         // 记录交互流
+```
+
+##### 5. 频率监控 (Frequency Chart)
+
+滑动窗口实时频率统计：
+
+```
+数据结构: freqData[30]  (30个时间槽, 每槽2秒)
+更新规则: 每2秒 push(isActive ? 1 : 0), shift()
+可视化:   barHeight = value / max(freqData) × 100%
+```
+
+##### 6. 模拟算法
+
+| 模式 | 策略 | 复杂度 |
+|------|------|--------|
+| `random` | 随机选取两个不同智能体，随机消息类型 | O(1) |
+| `chain` | 按智能体列表顺序，依次传递消息 | O(N) |
+| `stress` | 随机 min(20, N×3) 次交互，测试系统容量 | O(min(20,3N)) |
+
+#### 使用方法
+
+##### 访问页面
+
+```bash
+# 启动项目后访问:
+http://localhost:5173/digital-twin-cli.html
+
+# 或从团队管理页顶部导航栏点击「孪 数字孪生」
+```
+
+##### 键盘快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Cmd/Ctrl + K` | 聚焦 CLI 输入框 |
+| `Cmd/Ctrl + 1~5` | 切换视图（架构/交互/管线/环境/CLI）|
+| `Escape` | 清空 CLI 输入 |
+| `↑ / ↓` | CLI 历史命令导航 |
+
+##### CLI 命令一览
+
+**查询类：**
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `status` | 系统状态摘要 | `status` |
+| `agents` | 列出所有智能体 | `agents` |
+| `skills` | 列出已注册技能 | `skills` |
+| `tools` | 列出已注册工具 | `tools` |
+| `rooms` | 列出环境空间 | `rooms` |
+| `arch` | 显示六层架构 | `arch` |
+| `inspect <name>` | 查看智能体详情 | `inspect PM` |
+| `trace <name>` | 追踪智能体交互历史 | `trace Researcher` |
+
+**编排类：**
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `move <agent> <room>` | 移动智能体到空间 | `move PM 议事厅` |
+| `interact <a1> <a2>` | 触发两智能体交互 | `interact PM Developer` |
+| `broadcast <msg>` | 全局广播消息 | `broadcast 开始技能萃取` |
+| `pipeline show` | 查看管线状态 | `pipeline show` |
+| `pipeline run <task>` | 运行管线任务 | `pipeline run 需求分析` |
+| `simulate <mode>` | 模拟交互 (random/chain/stress) | `simulate stress` |
+| `discuss <topic>` | 创建广场讨论 | `discuss API设计评审` |
+| `delegate <a1> <a2> <task>` | 委派任务 | `delegate PM Dev 编写测试` |
+| `chat <msg>` | 与 AI 对话 | `chat 分析系统瓶颈` |
+
+**工具类：**
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `flow last <n>` | 最近 N 条交互 | `flow last 20` |
+| `export <type>` | 导出 (snapshot/agents/skills) | `export snapshot` |
+| `config show` | 查看配置 | `config show` |
+| `config set <k> <v>` | 设置配置 | `config set team build_system` |
+| `clear` | 清屏 | `clear` |
+
+##### 拖拽分配智能体
+
+1. 在左侧智能体列表中，**长按并拖动**任意智能体卡片
+2. 切换到「环境空间」视图
+3. 将智能体**放置到目标房间**卡片上
+4. 系统自动更新位置并同步到后端
+
+##### 导入/导出快照
+
+```bash
+# 导出：点击顶部「📤 导出」按钮，或在 CLI 中执行：
+export snapshot
+
+# 导入：点击顶部「📥 导入」按钮，选择之前导出的 JSON 文件
+# 导入会恢复：房间配置、智能体位置、交互消息历史
+```
+
+##### 压力测试
+
+```bash
+# 在 CLI 中执行：
+simulate stress
+# 生成 min(20, 智能体数×3) 次随机交互
+# 可在「交互流」视图实时观察消息涌入
+
+# 链式传递测试：
+simulate chain
+# 智能体 A→B→C→D... 依次传递消息
+```
+
+#### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/v1/agent-config/digital-twin/state` | 获取全局状态 |
+| `PUT` | `/api/v1/agent-config/digital-twin/state` | 更新房间/位置 |
+| `POST` | `/api/v1/agent-config/digital-twin/move` | 移动智能体 |
+| `POST` | `/api/v1/agent-config/digital-twin/interact` | 记录交互事件 |
+| `GET` | `/api/v1/agent-config/digital-twin/interactions` | 获取交互历史 |
+
+#### 状态持久化策略
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   localStorage   │────▶│   Backend API    │────▶│  Server Memory   │
+│  (即时响应)       │     │  (PUT /state)    │     │  (运行时缓存)     │
+│  rooms           │     │                  │     │  _dt_state{}     │
+│  positions       │     │  自动同步         │     │                  │
+│  messages[100]   │     │  每次 persist()   │     │                  │
+│  interactions    │     │  调用时触发        │     │                  │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+```
+
+#### 模块交互全景图
+
+数字孪生作为**统一观测面板 + 编排中枢 + 模块间工作流粘合剂**：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        数字孪生 (Digital Twin CLI)                               │
+│                     统一观测面板 · 编排中枢 · 工作流粘合剂                          │
+├──────────┬───────────┬───────────────┬──────────────┬──────────────────────────┤
+│ 架构总览  │  交互流    │   编排管线     │   环境空间    │        CLI              │
+│ +拓扑图   │  +SSE实时  │   +任务DAG    │   +房间管理   │    +工作流引擎           │
+└────┬─────┴─────┬─────┴──────┬────────┴──────┬───────┴──────────┬──────────────┘
+     │           │            │               │                  │
+     ▼           ▼            ▼               ▼                  ▼
+┌─────────┐ ┌─────────┐ ┌──────────┐ ┌───────────┐ ┌────────────────────────┐
+│智能体团队│ │议事广场  │ │技能萃取   │ │系统演进    │ │     任务引擎           │
+│Agents   │ │Plaza    │ │Extraction│ │Evolution  │ │     TaskEngine         │
+└─────────┘ └─────────┘ └──────────┘ └───────────┘ └────────────────────────┘
+```
+
+##### 与智能体团队 (Agents) 的交互
+
+| 方向 | 交互 | 实现 |
+|------|------|------|
+| 读取 | 实时加载智能体列表、状态、技能、工具 | `GET /teams/{tid}/agents` |
+| 写入 | 拖拽分配智能体到虚拟空间 | `POST /digital-twin/move` |
+| 观测 | 左侧面板显示活跃状态、详情抽屉展示完整信息 | 30s自动刷新 |
+| 编排 | CLI `inspect`/`trace` 深度审查单个智能体 | 交互历史追踪 |
+| 健康 | 智能体健康度仪表盘：调用频率、成功率、响应时间 | `health` 命令 |
+
+##### 与议事广场 (Plaza) 的交互
+
+| 方向 | 交互 | 实现 |
+|------|------|------|
+| 发起 | CLI `discuss <topic>` 直接创建讨论 | `POST /plaza/{id}/discussions` |
+| 观测 | 交互流视图订阅 SSE 实时消息流 | `GET .../discussions/{id}/stream` |
+| 注入 | CLI `interject <msg>` 人类介入讨论 | `POST .../interject` |
+| 转化 | 讨论结论 → 任务分派到管线视图 | `POST .../dispatch-and-execute` |
+| 空间 | 讨论参与者自动聚集到"议事厅"房间 | 自动移动 + 环境视图 |
+
+##### 与技能萃取 (Extraction) 的交互
+
+| 方向 | 交互 | 实现 |
+|------|------|------|
+| 触发 | CLI `extract <source>` 触发萃取 | `POST .../skill-extract/start` |
+| 观测 | 管线视图映射4阶段: DRAFT→REVIEW→APPROVAL→PUBLISHED | WebSocket |
+| 审查 | CLI `review <skill_id>` 快速审批/拒绝 | `POST /pipelines/{id}/advance` |
+| 验证 | 进度条反映 gate 通过状况 | `POST /pipelines/{id}/check-gate` |
+| 统计 | 萃取漏斗可视化 (pending/yellow/green/approved) | `extract status` |
+
+##### 与系统演进 (Evolution) 的交互
+
+| 方向 | 交互 | 实现 |
+|------|------|------|
+| 注入 | CLI `evolve <item>` 推入演进引擎 | `POST .../evolve` |
+| 观测 | 架构视图显示合规评级(A-E) + 演进项状态 | `GET /evolution/stats` |
+| 追踪 | 交互流显示演进事件链 | event sourcing |
+| 优化 | CLI `optimize <skill>` 触发 Hermes 循环 | `optimize_skill()` |
+| 可视 | 技能进化树：baseline→mutation→improved | fitness曲线 |
+
+##### 与任务引擎 (TaskEngine) 的交互
+
+| 方向 | 交互 | 实现 |
+|------|------|------|
+| 创建 | `delegate`/`discuss dispatch` 产生任务 | `POST /teams/{tid}/tasks` |
+| 观测 | 管线视图展示 DAG 依赖图 + 并发槽位 | `GET /task-engine/stats` |
+| 控制 | CLI `task start/cancel/complete <id>` | REST API |
+| 可视 | 甘特图/DAG图 + 并发度(semaphore=4) | `task dag` 命令 |
+
+#### 流程优化设计
+
+##### 优化 1: 议事厅讨论自动化闭环
+
+```
+CLI discuss ──▶ 议事广场(SSE多轮辩论) ──▶ 交互流(实时监控) ──▶ 管线(自动派发) ──▶ 任务执行
+                        ↑ interject (人类注入)
+```
+
+##### 优化 2: 技能萃取质量门控
+
+```
+CLI extract ──▶ 萃取管线(LLM预填充) ──▶ Gate可视化(通过/阻塞) ──▶ CLI review ──▶ 绑定智能体
+                        ↓ 漏斗统计: 待审N / 通过N / 拒绝N
+```
+
+##### 优化 3: 系统演进闭环加速
+
+```
+架构视图(合规仪表盘) ──▶ 演进引擎(审计规则) ──▶ 交互流(状态追踪) ──▶ 自动验证 ──▶ 评级更新
+                                                        ↓ optimize ──▶ Hermes优化 ──▶ 自动替换
+```
+
+##### 优化 4: 智能体工作空间编排
+
+```
+环境空间(6房间) ──▶ 空间规则(议事厅=讨论, 萃取室=萃取, 工作坊=编码, 演练场=测试)
+                        ↓ 任务开始时自动移动智能体到对应空间 → 上下文隔离 → 效率提升
+```
+
+#### 预定义工作流
+
+```bash
+# 工作流 1: 完整闭环 — 从讨论到代码
+workflow full-loop "优化登录性能"
+  → discuss → dispatch → task-execute → evolve-audit
+
+# 工作流 2: 技能进化 — 从萃取到优化
+workflow skill-evolve "API设计模式"
+  → extract → review → optimize → bind
+
+# 工作流 3: 质量巡检 — 全系统健康检查
+workflow health-check
+  → health → evolve-audit → extract-status → task-list → report
+```
+
+#### 演进路线图
+
+| 阶段 | 目标 | 关键变化 |
+|------|------|---------|
+| Phase 1 ✅ | 观测+CLI控制 | 5视图 + 拖拽 + 20命令 |
+| Phase 2 | SSE实时联动 | 接入Plaza SSE、Extraction WS |
+| Phase 3 | 任务DAG可视化 | 管线视图升级为DAG图 |
+| Phase 4 | 预定义工作流 | `workflow` 命令 + 编排器 |
+| Phase 5 | 智能编排 | 自动调度 + 瓶颈预测 + 推荐优化 |
 
 ---
 

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel, Field
 
 from .models import (
@@ -31,6 +31,8 @@ from .models import (
     AgentTemplateType,
     HermesAgentConfig,
     ModelConfig,
+    SkillCategory,
+    ToolCategory,
     ToolsetDistribution,
 )
 from .hermes_research import (
@@ -607,6 +609,47 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
     return tool.to_dict()
 
 
+@router.put(
+    "/teams/{team_id}/tools/{tool_id}",
+    summary="Edit tool properties",
+)
+def edit_tool(team_id: str, tool_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    team = _get_team_or_404(team_id)
+    tool = team.tools.get(tool_id)
+    if tool is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
+    # Update allowed fields
+    for field in ("name", "description", "icon", "requires_approval"):
+        if field in req:
+            setattr(tool, field, req[field])
+    if "category" in req:
+        try:
+            tool.category = ToolCategory(req["category"])
+        except ValueError:
+            pass
+    if "parameters" in req and isinstance(req["parameters"], dict):
+        tool.parameters = req["parameters"]
+    _tm()._persist()
+    return tool.to_dict()
+
+
+@router.delete(
+    "/teams/{team_id}/tools/{tool_id}",
+    summary="Delete tool from team",
+)
+def delete_tool(team_id: str, tool_id: str) -> Dict[str, str]:
+    team = _get_team_or_404(team_id)
+    if tool_id not in team.tools:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
+    del team.tools[tool_id]
+    # Remove from all agents in this team
+    for agent in team.agents:
+        if tool_id in agent.tools:
+            agent.tools.remove(tool_id)
+    _tm()._persist()
+    return {"status": "deleted", "tool_id": tool_id}
+
+
 # TAB 4 -- SKILLS
 
 
@@ -994,6 +1037,127 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
     return {"disabled": skill_id}
+
+
+@router.put(
+    "/teams/{team_id}/skills/{skill_id}",
+    summary="Edit skill properties",
+)
+def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    team = _get_team_or_404(team_id)
+    skill = team.skills.get(skill_id)
+    if skill is None:
+        # Also check skill store
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib:
+            skill = lib._find_skill(skill_id, team_id)
+        if skill is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
+        # Add to team for editing
+        team.skills[skill_id] = skill
+    # Update allowed fields
+    for field in ("name", "description", "icon", "instructions", "slug"):
+        if field in req:
+            setattr(skill, field, req[field])
+    if "category" in req:
+        try:
+            skill.category = SkillCategory(req["category"])
+        except ValueError:
+            pass
+    if "required_tools" in req and isinstance(req["required_tools"], list):
+        skill.required_tools = req["required_tools"]
+    # Bump version on instruction edit
+    if "instructions" in req:
+        skill.version = getattr(skill, "version", 0) + 1
+    _tm()._persist()
+    # Also update skill store if available
+    try:
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib:
+            lib._persist_skill(skill, team_id)
+    except Exception:
+        pass
+    return skill.to_dict()
+
+
+@router.delete(
+    "/teams/{team_id}/skills/{skill_id}",
+    summary="Delete skill from team",
+)
+def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
+    team = _get_team_or_404(team_id)
+    removed = team.skills.pop(skill_id, None)
+    if removed is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
+    # Remove from all agents in this team
+    for agent in team.agents:
+        if skill_id in agent.skills:
+            agent.skills.remove(skill_id)
+    _tm()._persist()
+    # Also remove from skill store
+    try:
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib and lib._skill_store:
+            lib._skill_store.delete(skill_id)
+    except Exception:
+        pass
+    return {"status": "deleted", "skill_id": skill_id}
+
+
+# ── Digital Twin Routes ──────────────────────────────────────────────────
+
+_dt_state: Dict[str, Any] = {
+    "rooms": [],
+    "positions": {},
+    "interactions": [],
+}
+
+
+@router.get("/digital-twin/state", summary="Get digital twin state")
+def dt_get_state() -> Dict[str, Any]:
+    return _dt_state
+
+
+@router.put("/digital-twin/state", summary="Update digital twin state")
+def dt_put_state(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    if "rooms" in req:
+        _dt_state["rooms"] = req["rooms"]
+    if "positions" in req:
+        _dt_state["positions"] = req["positions"]
+    return _dt_state
+
+
+@router.post("/digital-twin/move", summary="Move agent to room")
+def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    agent_id = req.get("agent_id", "")
+    room_id = req.get("room_id", "")
+    if not agent_id or not room_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
+    _dt_state["positions"][agent_id] = room_id
+    return {"status": "moved", "agent_id": agent_id, "room_id": room_id}
+
+
+@router.post("/digital-twin/interact", summary="Record agent interaction")
+def dt_interact(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    from_agent = req.get("from", "")
+    to_agent = req.get("to", "")
+    msg_type = req.get("type", "handoff")
+    content = req.get("content", "")
+    ts = datetime.now(timezone.utc).isoformat()
+    interaction = {"from": from_agent, "to": to_agent, "type": msg_type, "content": content, "time": ts}
+    _dt_state["interactions"].append(interaction)
+    # Keep last 200
+    if len(_dt_state["interactions"]) > 200:
+        _dt_state["interactions"] = _dt_state["interactions"][-100:]
+    return interaction
+
+
+@router.get("/digital-twin/interactions", summary="Get recent interactions")
+def dt_get_interactions(limit: int = 50) -> List[Dict[str, Any]]:
+    return _dt_state["interactions"][-limit:]
 
 
 # ── Skill Extraction Routes ──────────────────────────────────────────────

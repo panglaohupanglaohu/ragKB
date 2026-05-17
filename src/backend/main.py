@@ -244,6 +244,14 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ SkillRouter API failed: {e}")
 
+        # 4e. 技能萃取 WebSocket
+        try:
+            from agents.skill_extract_ws import skill_extract_ws_endpoint
+            app.add_api_websocket_route("/ws/skill-extract/{team_id}", skill_extract_ws_endpoint)
+            logger.info("✅ Skill Extract WebSocket mounted (/ws/skill-extract/{team_id})")
+        except Exception as e:
+            logger.warning(f"⚠️ Skill Extract WebSocket failed: {e}")
+
     except Exception as e:
         logger.warning(f"⚠️ Agent Config API failed: {e}")
 

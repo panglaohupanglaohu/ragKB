@@ -60,7 +60,9 @@
           "task_decomposition",
           "progress_tracking",
           "blocker_resolution",
-          "28c26119"
+          "ce90d55d",
+          "06acdbd1",
+          "378a58dc"
         ],
         "metadata": {
           "traits": [
@@ -73,7 +75,7 @@
             "delegate_only"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020018+00:00",
+        "created_at": "2026-05-16T07:48:06.140115+00:00",
         "is_hermes_agent": false
       },
       "build_researcher": {
@@ -141,7 +143,7 @@
             "report_findings"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020026+00:00",
+        "created_at": "2026-05-16T07:48:06.140123+00:00",
         "is_hermes_agent": false
       },
       "build_architect": {
@@ -209,7 +211,7 @@
             "no_implementation"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020032+00:00",
+        "created_at": "2026-05-16T07:48:06.140128+00:00",
         "is_hermes_agent": false
       },
       "build_developer": {
@@ -266,7 +268,10 @@
           "code_implementation",
           "debugging",
           "refactoring",
-          "testing"
+          "testing",
+          "ce90d55d",
+          "5bbb7e57",
+          "bec6887f"
         ],
         "metadata": {
           "traits": [
@@ -279,7 +284,7 @@
             "write_tests"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020037+00:00",
+        "created_at": "2026-05-16T07:48:06.140132+00:00",
         "is_hermes_agent": false
       },
       "build_tester": {
@@ -348,7 +353,7 @@
             "report_all_failures"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020042+00:00",
+        "created_at": "2026-05-16T07:48:06.140135+00:00",
         "is_hermes_agent": false
       },
       "build_deployer": {
@@ -417,7 +422,7 @@
             "rollback_ready"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020047+00:00",
+        "created_at": "2026-05-16T07:48:06.140139+00:00",
         "is_hermes_agent": false
       },
       "build_doc_writer": {
@@ -485,7 +490,7 @@
             "no_code_changes"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020052+00:00",
+        "created_at": "2026-05-16T07:48:06.140143+00:00",
         "is_hermes_agent": false
       }
     },
@@ -529,8 +534,39 @@
     },
     "tools": {},
     "skills": {
-      "50978e64": {
-        "skill_id": "50978e64",
+      "90586ade": {
+        "skill_id": "90586ade",
+        "name": "生命周期钩子超时回退机制配置",
+        "description": "为自动化伸缩的生命周期钩子配置严格的超时（WAIT_TIMEOUT）和默认回退动作（CONTINUE/EXPIRE）。防止因探针服务宕机或网络抖动导致实例长期处于“Pending”状态，从而造成实例卡死或资源浪费。",
+        "category": "automation",
+        "required": false,
+        "enabled": true,
+        "icon": "⏱️",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "lifecycle-hook-timeout-fallback",
+        "required_tools": [
+          "Auto Scaling Group",
+          "CloudWatch"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      },
+      "721da443": {
+        "skill_id": "721da443",
         "name": "实例预热状态量化与SLO对齐",
         "description": "定义并量化“实例就绪”的标准，将其与端到端预热延迟的SLO对齐。通过监控探针响应时间和实例标记时间，确保自动化伸缩不仅快，而且准确，减少用户感知的冷启动时间。",
         "category": "domain_knowledge",
@@ -560,8 +596,8 @@
         "origin_team_id": "",
         "lineage": ""
       },
-      "28c26119": {
-        "skill_id": "28c26119",
+      "e9d34bba": {
+        "skill_id": "e9d34bba",
         "name": "紧急变更的异步同步机制",
         "description": "针对“紧急故障”场景的例外管理技能。允许在极端情况下绕过标准流程（如直接控制台修改），但强制要求在规定时间内（如 1 小时）将变更同步回版本控制系统，消除“临时性”带来的长期债务。",
         "category": "domain_knowledge",
@@ -581,10 +617,106 @@
           "IaC Tool"
         ],
         "has_instructions": true,
-        "lifecycle_stage": "verified",
-        "quality_score": 1.0,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
         "visibility": "private",
-        "version": 2,
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      },
+      "c21c3e35": {
+        "skill_id": "c21c3e35",
+        "name": "生命周期钩子超时回退机制配置",
+        "description": "为自动化伸缩的生命周期钩子配置严格的超时（WAIT_TIMEOUT）和默认回退动作（CONTINUE/EXPIRE）。防止因探针服务宕机或网络抖动导致实例长期处于“Pending”状态，从而造成实例卡死或资源浪费。",
+        "category": "automation",
+        "required": false,
+        "enabled": true,
+        "icon": "⏱️",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "lifecycle-hook-timeout-fallback",
+        "required_tools": [
+          "Auto Scaling Group",
+          "CloudWatch"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      },
+      "280e6e09": {
+        "skill_id": "280e6e09",
+        "name": "实例预热状态量化与SLO对齐",
+        "description": "定义并量化“实例就绪”的标准，将其与端到端预热延迟的SLO对齐。通过监控探针响应时间和实例标记时间，确保自动化伸缩不仅快，而且准确，减少用户感知的冷启动时间。",
+        "category": "domain_knowledge",
+        "required": false,
+        "enabled": true,
+        "icon": "📊",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "quantify-warmup-slo",
+        "required_tools": [
+          "CloudWatch Metrics",
+          "Datadog"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      },
+      "9e4e7a8a": {
+        "skill_id": "9e4e7a8a",
+        "name": "紧急变更的异步同步机制",
+        "description": "针对“紧急故障”场景的例外管理技能。允许在极端情况下绕过标准流程（如直接控制台修改），但强制要求在规定时间内（如 1 小时）将变更同步回版本控制系统，消除“临时性”带来的长期债务。",
+        "category": "domain_knowledge",
+        "required": false,
+        "enabled": true,
+        "icon": "⚡",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "emergency-change-async-sync",
+        "required_tools": [
+          "Audit Log (e.g.",
+          "CloudTrail)",
+          "Ticketing System (e.g.",
+          "Jira)",
+          "IaC Tool"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
         "usage_count": 0,
         "success_count": 0,
         "fail_count": 0,
@@ -598,7 +730,7 @@
     "metadata": {
       "team_type": "build"
     },
-    "created_at": "2026-05-14T05:58:50.019728+00:00"
+    "created_at": "2026-05-16T07:48:06.139941+00:00"
   },
   "ai_coding": {
     "team_id": "ai_coding",
@@ -675,7 +807,7 @@
             "delegate_only"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020360+00:00",
+        "created_at": "2026-05-16T07:48:06.140303+00:00",
         "is_hermes_agent": false
       },
       "coding_researcher": {
@@ -745,7 +877,7 @@
             "report_findings"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020365+00:00",
+        "created_at": "2026-05-16T07:48:06.140306+00:00",
         "is_hermes_agent": false
       },
       "coding_developer": {
@@ -804,7 +936,10 @@
           "debugging",
           "refactoring",
           "code_review",
-          "api_development"
+          "api_development",
+          "ce90d55d",
+          "06acdbd1",
+          "378a58dc"
         ],
         "metadata": {
           "traits": [
@@ -817,7 +952,7 @@
             "write_tests"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020370+00:00",
+        "created_at": "2026-05-16T07:48:06.140310+00:00",
         "is_hermes_agent": false
       },
       "coding_tester": {
@@ -888,7 +1023,7 @@
             "report_all_failures"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020374+00:00",
+        "created_at": "2026-05-16T07:48:06.140313+00:00",
         "is_hermes_agent": false
       }
     },
@@ -919,11 +1054,74 @@
       }
     },
     "tools": {},
-    "skills": {},
+    "skills": {
+      "b69d0511": {
+        "skill_id": "b69d0511",
+        "name": "基于SLO的成本-质量权衡决策",
+        "description": "在成本优化过程中，始终以服务等级目标（SLO）为锚点，评估每一项降本措施对服务质量的影响。旨在解决“为了省钱而牺牲用户体验”的常见陷阱。",
+        "category": "general",
+        "required": false,
+        "enabled": true,
+        "icon": "⚖️",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "slo-driven-cost-quality-tradeoff",
+        "required_tools": [
+          "SLO Dashboard",
+          "Cost Monitoring Tool"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      },
+      "e81c6458": {
+        "skill_id": "e81c6458",
+        "name": "基于SLO的成本-质量权衡决策",
+        "description": "在成本优化过程中，始终以服务等级目标（SLO）为锚点，评估每一项降本措施对服务质量的影响。旨在解决“为了省钱而牺牲用户体验”的常见陷阱。",
+        "category": "general",
+        "required": false,
+        "enabled": true,
+        "icon": "⚖️",
+        "config_schema": {},
+        "config": {},
+        "is_default": false,
+        "source": "distilled",
+        "slug": "slo-driven-cost-quality-tradeoff",
+        "required_tools": [
+          "SLO Dashboard",
+          "Cost Monitoring Tool"
+        ],
+        "has_instructions": true,
+        "lifecycle_stage": "draft",
+        "quality_score": 0.0,
+        "visibility": "private",
+        "version": 1,
+        "usage_count": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "effectiveness": 0.0,
+        "last_used_at": "",
+        "adopted_by": [],
+        "origin_team_id": "",
+        "lineage": ""
+      }
+    },
     "metadata": {
       "team_type": "coding"
     },
-    "created_at": "2026-05-14T05:58:50.020347+00:00"
+    "created_at": "2026-05-16T07:48:06.140295+00:00"
   },
   "energy_first_principle": {
     "team_id": "energy_first_principle",
@@ -998,7 +1196,7 @@
           ],
           "kpi": "PUE reduction per evolution round"
         },
-        "created_at": "2026-05-14T05:58:50.020715+00:00",
+        "created_at": "2026-05-16T07:48:06.140458+00:00",
         "is_hermes_agent": false
       },
       "energy_thermal_sentinel": {
@@ -1068,7 +1266,7 @@
             "gradual_adjustment"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020719+00:00",
+        "created_at": "2026-05-16T07:48:06.140462+00:00",
         "is_hermes_agent": false
       },
       "energy_policy_engine": {
@@ -1131,7 +1329,7 @@
             "document_all_decisions"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020723+00:00",
+        "created_at": "2026-05-16T07:48:06.140465+00:00",
         "is_hermes_agent": false
       },
       "energy_darwin_ratchet": {
@@ -1202,7 +1400,7 @@
           ],
           "kpi": "cumulative_kwh_day_saved"
         },
-        "created_at": "2026-05-14T05:58:50.020727+00:00",
+        "created_at": "2026-05-16T07:48:06.140470+00:00",
         "is_hermes_agent": false
       },
       "energy_anomaly_watchdog": {
@@ -1271,7 +1469,7 @@
             "escalate_within_30s"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020731+00:00",
+        "created_at": "2026-05-16T07:48:06.140473+00:00",
         "is_hermes_agent": false
       },
       "energy_forecast_planner": {
@@ -1329,7 +1527,7 @@
             "no_point_estimates"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.020734+00:00",
+        "created_at": "2026-05-16T07:48:06.140476+00:00",
         "is_hermes_agent": false
       }
     },
@@ -1378,7 +1576,7 @@
       "domain": "datacenter_energy",
       "philosophy": "第一性原理: 质疑每一瓦功耗的必要性"
     },
-    "created_at": "2026-05-14T05:58:50.020704+00:00"
+    "created_at": "2026-05-16T07:48:06.140451+00:00"
   },
   "d083a568": {
     "team_id": "d083a568",
@@ -1444,7 +1642,7 @@
             "decisive"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021156+00:00",
+        "created_at": "2026-05-16T07:48:06.140625+00:00",
         "is_hermes_agent": false
       },
       "9d918cef": {
@@ -1499,7 +1697,7 @@
             "reliability_focused"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021159+00:00",
+        "created_at": "2026-05-16T07:48:06.140628+00:00",
         "is_hermes_agent": false
       },
       "d63ec895": {
@@ -1554,7 +1752,7 @@
             "efficiency_driven"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021162+00:00",
+        "created_at": "2026-05-16T07:48:06.140631+00:00",
         "is_hermes_agent": false
       },
       "ca42e6b2": {
@@ -1609,7 +1807,7 @@
             "risk_averse"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021167+00:00",
+        "created_at": "2026-05-16T07:48:06.140633+00:00",
         "is_hermes_agent": false
       },
       "4d6471e8": {
@@ -1664,7 +1862,7 @@
             "process_oriented"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021170+00:00",
+        "created_at": "2026-05-16T07:48:06.140636+00:00",
         "is_hermes_agent": false
       },
       "6b35819a": {
@@ -1718,7 +1916,7 @@
             "analytical"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021173+00:00",
+        "created_at": "2026-05-16T07:48:06.140638+00:00",
         "is_hermes_agent": false
       },
       "5fb183a8": {
@@ -1774,7 +1972,7 @@
             "service_oriented"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021176+00:00",
+        "created_at": "2026-05-16T07:48:06.140641+00:00",
         "is_hermes_agent": false
       },
       "1c638624": {
@@ -1829,7 +2027,7 @@
             "enterprise_focused"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021179+00:00",
+        "created_at": "2026-05-16T07:48:06.140643+00:00",
         "is_hermes_agent": false
       },
       "a1eb1b3c": {
@@ -1884,7 +2082,7 @@
             "localization"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021182+00:00",
+        "created_at": "2026-05-16T07:48:06.140646+00:00",
         "is_hermes_agent": false
       },
       "08638b79": {
@@ -1939,7 +2137,7 @@
             "ml_infrastructure"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021186+00:00",
+        "created_at": "2026-05-16T07:48:06.140649+00:00",
         "is_hermes_agent": false
       },
       "ff11e906": {
@@ -1993,7 +2191,7 @@
             "government_cloud"
           ]
         },
-        "created_at": "2026-05-14T05:58:50.021189+00:00",
+        "created_at": "2026-05-16T07:48:06.140651+00:00",
         "is_hermes_agent": false
       }
     },
@@ -2016,6 +2214,6 @@
     "metadata": {
       "team_type": "xops"
     },
-    "created_at": "2026-05-14T05:58:50.021148+00:00"
+    "created_at": "2026-05-16T07:48:06.140620+00:00"
   }
 }

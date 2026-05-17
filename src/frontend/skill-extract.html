@@ -851,12 +851,12 @@ body.mode-router .taxonomy-bar{display:none}
     </div>
     <div class="rresults" id="rresults"></div>
     <div class="rassigned" id="rassigned-section">
-      <h5>💉 Injected Skills</h5>
+      <h5>▷ Injected Skills</h5>
       <div id="rassigned-tags"></div>
     </div>
     <div class="rassign-bar" id="rassign-bar">
       <span class="ra-count" id="rassign-count">已选 0 项</span>
-      <button class="btn btn-assign-go" onclick="window._executeAssign()">💉 注入</button>
+      <button class="btn btn-assign-go" onclick="window._executeAssign()">▷ 注入</button>
     </div>
   </div>
 
@@ -6109,11 +6109,11 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const html = `
         <div class="injection-suggest" id="injection-suggest-${skillId}">
           <div style="font-size:11px;color:oklch(0.65 0.02 110);margin-bottom:6px">
-            🎯 智能赋予建议 — 「${skillName}」
+            ◎ 智能赋予建议 — 「${skillName}」
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <button class="btn btn-approve" onclick="_quickInject('${top.agent_id}','${skillId}')" style="font-size:11px;padding:4px 12px;background:oklch(0.55 0.12 145/.2);border-color:oklch(0.55 0.12 145/.4);color:oklch(0.8 0.08 145)">
-              💉 注入 → ${top.agent_name} <span style="opacity:.6">(${Math.round(top.affinity * 100)}% 匹配)</span>
+              ▷ 注入 → ${top.agent_name} <span style="opacity:.6">(${Math.round(top.affinity * 100)}% 匹配)</span>
             </button>
             <span style="font-size:10px;color:oklch(0.45 0.01 110)">${top.match_reasons[0] || ''}</span>
           </div>
@@ -6134,8 +6134,8 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       body: JSON.stringify({ team_id: currentTeamId, agent_id: agentId, skill_ids: [skillId] }),
     });
     if (result && result.status === 'ok') {
-      showToast(`💉 已注入`);
-      addMessage('system', `💉 技能已自动注入到「${agentId}」`);
+      showToast(`▷ 已注入`);
+      addMessage('system', `▷ 技能已自动注入到「${agentId}」`);
       // Remove suggestion card
       const card = document.getElementById(`injection-suggest-${skillId}`);
       if (card) card.remove();
@@ -6198,7 +6198,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       document.querySelectorAll('#rresults .rr-item.sel').forEach(el => {
         el.classList.remove('sel');
         el.classList.add('assigned');
-        el.querySelector('.rr-check').textContent = '💉';
+        el.querySelector('.rr-check').textContent = '▷';
       });
 
       // Show injected tags with feedback controls

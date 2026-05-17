@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体数字孪生 — AgentsGroup2026</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   AgentsGroup2026 Digital Twin — Agent Interaction Visualization
+   Design: NVIDIA-inspired layered architecture + real-time flow
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #0d1117;
+  --bg2: #111820;
+  --panel: #161d27;
+  --panel2: #1e2636;
+  --panel3: #263040;
+  --border: #2d3a4d;
+  --border-active: #40587a;
+  --text: #e2e8f0;
+  --text2: #cbd5e1;
+  --muted: #8b9ab5;
+  --dim: #576375;
+  --cyan: #22d3ee;
+  --cyan-dim: rgba(34,211,238,0.15);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.12);
+  --blue: #60a5fa;
+  --blue-dim: rgba(96,165,250,0.12);
+  --purple: #a78bfa;
+  --purple-dim: rgba(167,139,250,0.12);
+  --amber: #fbbf24;
+  --amber-dim: rgba(251,191,36,0.10);
+  --pink: #f472b6;
+  --pink-dim: rgba(244,114,182,0.10);
+  --red: #f87171;
+  --layer-ui: var(--cyan);
+  --layer-orchestrator: var(--blue);
+  --layer-llm: var(--purple);
+  --layer-memory: var(--amber);
+  --layer-tool: var(--green);
+  --layer-env: var(--pink);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --glow-cyan: 0 0 20px rgba(34,211,238,0.15);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', 'Noto Sans SC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+}
+.header-brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; }
+.header-brand .logo {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--cyan), var(--blue));
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: #000;
+}
+.header-brand h1 { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+.header-nav { display: flex; gap: 2px; flex: 1; }
+.nav-item {
+  padding: 8px 16px; font-size: 12.5px; font-weight: 500; color: var(--muted);
+  cursor: pointer; border-radius: 6px; transition: all 0.25s cubic-bezier(.4,0,.2,1);
+  display: flex; align-items: center; gap: 7px; position: relative;
+}
+.nav-item:hover { color: var(--text); background: var(--panel2); }
+.nav-item.active { color: var(--cyan); background: var(--cyan-dim); }
+.nav-item.active::after { content:''; position:absolute; bottom:-1px; left:16px; right:16px; height:2px; background:var(--cyan); border-radius:2px; }
+.nav-item .badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; background: var(--cyan-dim); color: var(--cyan); }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions a { font-size: 12px; color: var(--muted); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s; }
+.header-actions a:hover { border-color: var(--cyan); color: var(--cyan); }
+.status-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--green); }
+.status-indicator .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+/* ── Main ── */
+.main { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Left Panel ── */
+.left-panel { width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.lp-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.lp-header h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.lp-header .count { font-size: 11px; color: var(--dim); }
+.agent-list { flex: 1; overflow-y: auto; padding: 8px; }
+.agent-card { padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); margin-bottom: 4px; border: 1px solid transparent; }
+.agent-card:hover { background: var(--panel2); border-color: var(--border); transform: translateX(2px); }
+.agent-card.active { background: var(--cyan-dim); border-color: rgba(34,211,238,0.25); box-shadow: inset 3px 0 0 var(--cyan); }
+.agent-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.agent-card .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.agent-card .name { font-size: 13px; font-weight: 500; }
+.agent-card .role { font-size: 11px; color: var(--dim); }
+.agent-card .meta { display: flex; gap: 8px; margin-top: 4px; }
+.agent-card .meta span { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 3px; }
+.agent-card .state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Center ── */
+.center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.view-panel { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+.view-panel.active { display: block; }
+
+/* Architecture */
+.arch-container { max-width: 900px; margin: 0 auto; }
+.arch-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.arch-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+.arch-layers { display: flex; flex-direction: column; gap: 12px; }
+.arch-layer { border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; position: relative; overflow: hidden; transition: all 0.3s cubic-bezier(.4,0,.2,1); cursor: pointer; backdrop-filter: blur(4px); }
+.arch-layer:hover { border-color: var(--border-active); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.arch-layer::before { content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; }
+.arch-layer[data-layer="ui"]::before { background: var(--layer-ui); }
+.arch-layer[data-layer="orchestrator"]::before { background: var(--layer-orchestrator); }
+.arch-layer[data-layer="llm"]::before { background: var(--layer-llm); }
+.arch-layer[data-layer="memory"]::before { background: var(--layer-memory); }
+.arch-layer[data-layer="tool"]::before { background: var(--layer-tool); }
+.arch-layer[data-layer="env"]::before { background: var(--layer-env); }
+.arch-layer .layer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.arch-layer .layer-icon { font-size: 20px; }
+.arch-layer .layer-name { font-size: 14px; font-weight: 600; }
+.arch-layer .layer-tag { font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
+.arch-layer[data-layer="ui"] .layer-tag { background: var(--cyan-dim); color: var(--cyan); }
+.arch-layer[data-layer="orchestrator"] .layer-tag { background: var(--blue-dim); color: var(--blue); }
+.arch-layer[data-layer="llm"] .layer-tag { background: var(--purple-dim); color: var(--purple); }
+.arch-layer[data-layer="memory"] .layer-tag { background: var(--amber-dim); color: var(--amber); }
+.arch-layer[data-layer="tool"] .layer-tag { background: var(--green-dim); color: var(--green); }
+.arch-layer[data-layer="env"] .layer-tag { background: var(--pink-dim); color: var(--pink); }
+.arch-layer .layer-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.arch-layer .layer-metrics { display: flex; gap: 16px; margin-top: 10px; }
+.arch-layer .metric { font-size: 11px; color: var(--dim); }
+.arch-layer .metric b { color: var(--text2); font-weight: 500; }
+.arch-arrow { display: flex; align-items: center; justify-content: center; height: 24px; color: var(--dim); font-size: 16px; }
+
+/* Interaction Flow */
+.flow-container { display: flex; flex-direction: column; gap: 16px; max-width: 900px; margin: 0 auto; }
+.flow-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.flow-title { font-size: 16px; font-weight: 600; }
+.flow-controls { display: flex; gap: 8px; }
+.flow-btn { padding: 7px 16px; font-size: 11.5px; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); border-radius: 8px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); font-family: inherit; }
+.flow-btn:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(34,211,238,0.05); }
+.flow-btn.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px rgba(34,211,238,0.1); }
+.msg-timeline { display: flex; flex-direction: column; gap: 2px; }
+.msg-item { display: flex; gap: 12px; padding: 12px 16px; border-radius: 8px; transition: background 0.2s; animation: msgIn 0.3s ease-out; }
+@keyframes msgIn { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)} }
+.msg-item:hover { background: var(--panel2); }
+.msg-item .msg-time { font-size: 10px; color: var(--dim); width: 50px; flex-shrink: 0; padding-top: 2px; font-family: 'JetBrains Mono', monospace; }
+.msg-item .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.msg-item .msg-body { flex: 1; min-width: 0; }
+.msg-item .msg-sender { font-size: 12px; font-weight: 600; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+.msg-item .msg-sender .arrow { color: var(--dim); font-weight: normal; font-size: 11px; }
+.msg-item .msg-sender .target { color: var(--muted); font-weight: 500; }
+.msg-item .msg-content { font-size: 12.5px; color: var(--text2); line-height: 1.5; }
+.msg-item .msg-meta { display: flex; gap: 10px; margin-top: 6px; }
+.msg-item .msg-meta span { font-size: 10px; color: var(--dim); }
+.msg-type-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.msg-type-tag.tool-call { background: var(--green-dim); color: var(--green); }
+.msg-type-tag.llm-call { background: var(--purple-dim); color: var(--purple); }
+.msg-type-tag.handoff { background: var(--blue-dim); color: var(--blue); }
+.msg-type-tag.broadcast { background: var(--amber-dim); color: var(--amber); }
+.msg-type-tag.response { background: var(--cyan-dim); color: var(--cyan); }
+
+/* CLI */
+.cli-wrapper { max-width: 900px; margin: 0 auto; width: 100%; }
+.cli-box { background: #0c0c0c; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); }
+.cli-titlebar { background: #1a1a2e; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #2a2a3e; }
+.cli-titlebar .dots { display: flex; gap: 6px; }
+.cli-titlebar .dots span { width: 11px; height: 11px; border-radius: 50%; }
+.cli-titlebar .dots span:nth-child(1) { background: #ff5f57; }
+.cli-titlebar .dots span:nth-child(2) { background: #ffbd2e; }
+.cli-titlebar .dots span:nth-child(3) { background: #28c840; }
+.cli-titlebar .title { margin-left: auto; font-size: 11px; color: #666; font-family: 'JetBrains Mono', monospace; }
+.cli-body { padding: 16px 20px; max-height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8; white-space: pre-wrap; color: #d4d4d4; }
+.cli-body .prompt { color: var(--cyan); }
+.cli-body .cmd { color: var(--green); }
+.cli-body .info { color: var(--muted); }
+.cli-body .warn { color: var(--amber); }
+.cli-body .err { color: var(--red); }
+.cli-body .result { color: #e2e8f0; }
+.cli-body .dim { color: var(--dim); }
+.cli-body .layer-ui { color: var(--cyan); }
+.cli-body .layer-orch { color: var(--blue); }
+.cli-body .layer-llm { color: var(--purple); }
+.cli-body .layer-mem { color: var(--amber); }
+.cli-body .layer-tool { color: var(--green); }
+.cli-input-row { display: flex; align-items: center; border-top: 1px solid #2a2a3e; padding: 10px 16px; gap: 8px; }
+.cli-input-row .ps1 { color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.cli-input-row input { flex: 1; background: none; border: none; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none; }
+.cli-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.cli-shortcuts button { padding: 6px 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: all 0.2s; }
+.cli-shortcuts button:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* Pipeline */
+.pipeline-container { max-width: 900px; margin: 0 auto; }
+.pipeline-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+.pipeline-flow { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 20px 0; }
+.pipeline-step { flex: 1; min-width: 150px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); text-align: center; transition: all 0.3s; }
+.pipeline-step.active { border-color: var(--cyan); box-shadow: var(--glow-cyan); }
+.pipeline-step.done { border-color: var(--green); }
+.pipeline-step .step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--panel3); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; margin: 0 auto 10px; color: var(--muted); }
+.pipeline-step.active .step-num { background: var(--cyan-dim); color: var(--cyan); }
+.pipeline-step.done .step-num { background: var(--green-dim); color: var(--green); }
+.pipeline-step .step-icon { font-size: 24px; margin-bottom: 8px; }
+.pipeline-step .step-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.pipeline-step .step-desc { font-size: 10.5px; color: var(--dim); line-height: 1.4; }
+.pipeline-connector { display: flex; align-items: center; padding: 0 4px; color: var(--dim); font-size: 16px; }
+.pipeline-connector.done { color: var(--green); }
+.exec-log { margin-top: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.exec-log-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.exec-log-body { max-height: 240px; overflow-y: auto; }
+.exec-log-item { padding: 8px 16px; font-size: 12px; font-family: 'JetBrains Mono', monospace; display: flex; gap: 12px; border-bottom: 1px solid rgba(42,53,68,0.5); }
+.exec-log-item:last-child { border-bottom: none; }
+.exec-log-item .ts { color: var(--dim); font-size: 10px; width: 70px; flex-shrink: 0; }
+.exec-log-item .tag { font-size: 9px; padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+.exec-log-item .content { color: var(--text2); flex: 1; }
+
+/* Environment */
+.env-container { max-width: 900px; margin: 0 auto; }
+.env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.env-room { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; transition: all 0.3s; cursor: pointer; }
+.env-room:hover { border-color: var(--border-active); transform: translateY(-3px); box-shadow: var(--shadow-md), 0 0 20px rgba(34,211,238,0.05); }
+.env-room .room-icon { font-size: 32px; margin-bottom: 12px; }
+.env-room .room-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.env-room .room-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-bottom: 12px; }
+.env-room .room-agents { display: flex; flex-wrap: wrap; gap: 4px; }
+.env-room .room-agents .ag-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; border: 1.5px solid var(--border); }
+.env-room .room-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.env-room .room-footer span { font-size: 10px; color: var(--dim); }
+
+/* Drag & Drop */
+.agent-card[draggable="true"] { cursor: grab; }
+.agent-card[draggable="true"]:active { cursor: grabbing; }
+.agent-card.dragging { opacity: 0.4; transform: scale(0.95); }
+.env-room.drag-over { border-color: var(--cyan); background: var(--cyan-dim); transform: translateY(-4px); box-shadow: var(--glow-cyan); }
+.env-room .drop-hint { display: none; font-size: 10px; color: var(--cyan); margin-top: 4px; text-align: center; }
+.env-room.drag-over .drop-hint { display: block; }
+
+/* Agent Detail Drawer */
+.agent-drawer { position: fixed; right: -380px; top: 52px; bottom: 0; width: 380px; background: var(--panel); border-left: 1px solid var(--border); z-index: 100; transition: right 0.3s ease; box-shadow: -4px 0 24px rgba(0,0,0,0.4); overflow-y: auto; }
+.agent-drawer.open { right: 0; }
+.agent-drawer .drawer-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+.agent-drawer .drawer-close { margin-left: auto; cursor: pointer; color: var(--dim); font-size: 18px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: none; }
+.agent-drawer .drawer-close:hover { background: var(--panel2); color: var(--text); }
+.agent-drawer .drawer-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; }
+.agent-drawer .drawer-name { font-size: 15px; font-weight: 600; }
+.agent-drawer .drawer-role { font-size: 12px; color: var(--muted); }
+.drawer-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.drawer-section-title { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.drawer-kv { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+.drawer-kv .k { color: var(--muted); }
+.drawer-kv .v { font-weight: 500; }
+.drawer-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.drawer-tag { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: var(--panel3); color: var(--text2); border: 1px solid var(--border); }
+.drawer-actions { display: flex; gap: 8px; padding: 16px 20px; }
+.drawer-actions .btn { flex: 1; text-align: center; font-size: 11px; }
+
+/* Interaction Stats Bar */
+.flow-stats { display: flex; gap: 12px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+.flow-stat-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.flow-stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+.flow-stat-count { font-weight: 600; font-size: 13px; }
+.flow-stat-label { color: var(--dim); }
+
+/* Layer expand */
+.arch-layer .layer-detail { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; padding: 0; }
+.arch-layer.expanded .layer-detail { max-height: 200px; padding-top: 12px; }
+.arch-layer .layer-detail-content { font-size: 11px; color: var(--dim); line-height: 1.6; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Pipeline progress bar */
+.pipeline-progress { height: 4px; background: var(--panel3); border-radius: 2px; margin: 16px 0; overflow: hidden; }
+.pipeline-progress .bar { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); border-radius: 2px; transition: width 0.5s ease; width: 0; }
+
+/* Pulse animation for active agents */
+@keyframes agentPulse { 0%,100%{box-shadow:0 0 0 0 rgba(34,211,238,0.2)} 50%{box-shadow:0 0 0 6px rgba(34,211,238,0)} }
+.agent-card.active .avatar { animation: agentPulse 2s infinite; }
+
+/* ── Right Panel ── */
+.right-panel { width: 280px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.rp-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.rp-title { font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.rp-stat { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rp-stat .label { font-size: 12px; color: var(--muted); }
+.rp-stat .value { font-size: 13px; font-weight: 600; }
+.rp-stat .value.green { color: var(--green); }
+.rp-stat .value.amber { color: var(--amber); }
+.rp-stat .value.cyan { color: var(--cyan); }
+.rp-mini-chart { height: 40px; display: flex; align-items: flex-end; gap: 2px; margin-top: 8px; }
+.rp-mini-chart .bar { flex: 1; background: var(--cyan-dim); border-radius: 2px 2px 0 0; transition: height 0.3s; }
+.activity-feed { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.activity-item { padding: 8px 0; border-bottom: 1px solid rgba(42,53,68,0.3); }
+.activity-item:last-child { border-bottom: none; }
+.activity-item .act-time { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.activity-item .act-text { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+
+/* Utility */
+.btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--panel2); color: var(--text2); border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.2s; }
+.btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-primary { background: var(--cyan); color: #000; border-color: var(--cyan); font-weight: 600; }
+.btn-primary:hover { background: #4de8fa; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease-out; }
+@keyframes toastIn { from{opacity:0;transform:translate(-50%,10px)} }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">
+    <div class="logo">DT</div>
+    <h1>智能体数字孪生</h1>
+  </div>
+  <div class="header-nav">
+    <div class="nav-item active" data-view="architecture" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 架构总览</div>
+    <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 交互流 <span class="badge" id="msg-count">0</span></div>
+    <div class="nav-item" data-view="pipeline" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg> 编排管线</div>
+    <div class="nav-item" data-view="environment" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 环境空间</div>
+    <div class="nav-item" data-view="cli" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> CLI</div>
+  </div>
+  <div class="header-actions">
+    <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
+    <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
+    <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
+    <a href="/agent-team-config.html">← 主控台</a>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-panel">
+    <div class="lp-header"><h3>智能体</h3><span class="count" id="agent-count">0</span></div>
+    <div class="agent-list" id="agent-list"></div>
+  </div>
+
+  <div class="center">
+    <div class="view-panel active" id="view-architecture">
+      <div class="arch-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="arch-title">◈ 系统架构</div>
+          <div class="flow-controls">
+            <button class="flow-btn active" onclick="showArchSub('layers',this)">分层模型</button>
+            <button class="flow-btn" onclick="showArchSub('topo',this)">拓扑图</button>
+          </div>
+        </div>
+        <div id="arch-sub-layers">
+          <div class="arch-subtitle">参考 NVIDIA Agent Orchestration 模式，系统采用六层架构实现智能体的编排、推理、记忆与工具调用。各层解耦，支持独立扩展。</div>
+          <div class="arch-layers" id="arch-layers"></div>
+        </div>
+        <div id="arch-sub-topo" style="display:none">
+          <div class="arch-subtitle">智能体关系拓扑。节点=智能体，连线=交互关系。</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#080c10">
+            <svg id="topo-svg" width="100%" height="460" style="display:block"></svg>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)">
+            <span>● 节点大小 = 技能数</span><span>● 连线 = 交互历史</span><span>● 颜色 = 活跃度</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-interaction">
+      <div class="flow-container">
+        <div class="flow-header">
+          <div class="flow-title">⇄ 智能体交互流</div>
+          <div class="flow-controls">
+            <button class="flow-btn active" onclick="filterMsgs('all')">全部</button>
+            <button class="flow-btn" onclick="filterMsgs('tool-call')">工具调用</button>
+            <button class="flow-btn" onclick="filterMsgs('llm-call')">LLM推理</button>
+            <button class="flow-btn" onclick="filterMsgs('handoff')">任务交接</button>
+          </div>
+        </div>
+        <div class="flow-stats" id="flow-stats"></div>
+        <div class="msg-timeline" id="msg-timeline"></div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-pipeline">
+      <div class="pipeline-container">
+        <div class="pipeline-title">▷ 任务编排管线</div>
+        <div class="pipeline-progress"><div class="bar" id="pipeline-progress-bar"></div></div>
+        <div class="pipeline-flow" id="pipeline-flow"></div>
+        <div class="exec-log">
+          <div class="exec-log-header"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> 执行日志 <span style="margin-left:auto;font-weight:normal;color:var(--dim)" id="log-count">0 条</span></div>
+          <div class="exec-log-body" id="exec-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-environment">
+      <div class="env-container" style="max-width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="flow-title" style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 环境空间</div>
+          <div style="display:flex;gap:8px">
+            <button class="flow-btn" onclick="switchEnvMode('grid',this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图</button>
+            <button class="btn" onclick="createRoom()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 创建空间</button>
+          </div>
+        </div>
+        <div id="room-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="flow-btn active" onclick="switchRoom('council',this)">议事厅</button>
+          <button class="flow-btn" onclick="switchRoom('extraction',this)">萃取室</button>
+          <button class="flow-btn" onclick="switchRoom('workshop',this)">工作坊</button>
+          <button class="flow-btn" onclick="switchRoom('library',this)">知识库</button>
+          <button class="flow-btn" onclick="switchRoom('arena',this)">演练场</button>
+          <button class="flow-btn" onclick="switchRoom('rest',this)">休息区</button>
+        </div>
+        <div id="env-3d-container" style="position:relative;width:100%;height:640px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#0f0e0d;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3)">
+          <canvas id="env-3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+          <div style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
+            <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
+            <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
+          </div>
+        </div>
+        <div class="env-grid" id="env-grid" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-cli">
+      <div class="cli-wrapper">
+        <div class="cli-box">
+          <div class="cli-titlebar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="title">digital-twin@agentsgroup ~ %</span>
+          </div>
+          <div class="cli-body" id="cli-output"><span class="info">AgentsGroup2026 Digital Twin CLI v2.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+智能体编排 · 交互可视化 · 环境模拟
+输入 <span class="cmd">help</span> 查看所有命令
+</span></div>
+          <div class="cli-input-row">
+            <span class="ps1">❯</span>
+            <input type="text" id="cli-input" placeholder="输入命令..." autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="cli-shortcuts">
+          <button onclick="execCmd('status')">status</button>
+          <button onclick="execCmd('agents')">agents</button>
+          <button onclick="execCmd('skills')">skills</button>
+          <button onclick="execCmd('rooms')">rooms</button>
+          <button onclick="execCmd('pipeline show')">pipeline</button>
+          <button onclick="execCmd('flow last 10')">flow last</button>
+          <button onclick="execCmd('simulate random')">simulate</button>
+          <button onclick="execCmd('simulate stress')">stress</button>
+          <button onclick="execCmd('discuss list')">discuss</button>
+          <button onclick="execCmd('config show')">config</button>
+          <button onclick="execCmd('export snapshot')">export</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-drawer" id="agent-drawer"></div>
+  <div class="right-panel">
+    <div class="rp-section">
+      <div class="rp-title">系统概况</div>
+      <div class="rp-stat"><span class="label">智能体</span><span class="value cyan" id="stat-agents">-</span></div>
+      <div class="rp-stat"><span class="label">活跃技能</span><span class="value green" id="stat-skills">-</span></div>
+      <div class="rp-stat"><span class="label">已注册工具</span><span class="value" id="stat-tools">-</span></div>
+      <div class="rp-stat"><span class="label">交互次数</span><span class="value amber" id="stat-interactions">0</span></div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">调用频率 (60s)</div>
+      <div class="rp-mini-chart" id="freq-chart"></div>
+    </div>
+    <div class="rp-section" style="border-bottom:none;flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div class="rp-title">活动流</div>
+      <div class="activity-feed" id="activity-feed"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API='/api/v1/agent-config';
+const S={agents:[],skills:[],tools:[],rooms:[],messages:[],positions:{},execLog:[],activityFeed:[],interactionCount:0,freqData:new Array(30).fill(0)};
+
+async function init(){
+  loadLocal();
+  await Promise.all([loadAgents(),loadSkills(),loadTools(),loadDtState()]);
+  renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderStats();renderFreqChart();renderActivityFeed();
+  startSim();
+}
+async function loadDtState(){try{const r=await fetch(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
+async function syncDtState(){try{await fetch(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
+function loadLocal(){
+  S.rooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null')||defaultRooms();
+  S.positions=JSON.parse(localStorage.getItem('dt2_positions')||'{}');
+  S.messages=JSON.parse(localStorage.getItem('dt2_messages')||'[]').slice(-100);
+  S.interactionCount=parseInt(localStorage.getItem('dt2_interactions')||'0');
+}
+function defaultRooms(){return[
+  {id:'council',name:'议事厅',icon:'◇',desc:'团队协作讨论与任务分配',color:'var(--cyan)'},
+  {id:'extraction',name:'萃取室',icon:'○',desc:'技能萃取、知识提炼与结构化',color:'var(--green)'},
+  {id:'workshop',name:'工作坊',icon:'□',desc:'编码构建与工程实践',color:'var(--amber)'},
+  {id:'library',name:'知识库',icon:'△',desc:'文档检索与知识管理',color:'var(--purple)'},
+  {id:'arena',name:'演练场',icon:'◎',desc:'A/B测试、技能验证与对抗演练',color:'var(--pink)'},
+  {id:'rest',name:'休息区',icon:'◌',desc:'智能体待机、充能与状态恢复',color:'var(--dim)'},
+]}
+async function loadAgents(){try{const tid=localStorage.getItem('selected_team')||'build_system';const r=await fetch(`${API}/teams/${tid}/agents`);if(r.ok)S.agents=await r.json()}catch{}}
+async function loadSkills(){try{const r=await fetch(`${API}/skills`);if(r.ok)S.skills=await r.json()}catch{}}
+async function loadTools(){try{const r=await fetch(`${API}/tools`);if(r.ok)S.tools=await r.json()}catch{}}
+
+function switchView(el){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
+  document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('view-'+el.dataset.view).classList.add('active');
+  if(el.dataset.view==='environment'){setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
+}
+
+function renderAgentList(){
+  const el=document.getElementById('agent-list');
+  document.getElementById('agent-count').textContent=S.agents.length;
+  const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
+  el.innerHTML=S.agents.map((a,i)=>{
+    const room=S.rooms.find(r=>r.id===S.positions[a.agent_id]);
+    const c=colors[i%6];
+    return`<div class="agent-card" draggable="true" data-agent-id="${a.agent_id}" onclick="selectAgent('${a.agent_id}',this)" ondragstart="onDragStart(event,'${a.agent_id}')"><div class="top"><div class="avatar" style="background:${c}20;color:${c};border:1.5px solid ${c}40">${(a.name||'?').charAt(0)}</div><div><div class="name">${a.name}</div><div class="role">${a.role||'agent'}</div></div><span class="state-dot" style="background:${a.state==='active'?'var(--green)':'var(--dim)'};margin-left:auto"></span></div><div class="meta"><span>▣${(a.tools||[]).length}</span><span>◈${(a.skills||[]).length}</span><span>○${room?room.name:'—'}</span></div></div>`;
+  }).join('');
+}
+function selectAgent(aid,el){
+  document.querySelectorAll('.agent-card').forEach(c=>c.classList.remove('active'));el.classList.add('active');
+  const ag=S.agents.find(a=>a.agent_id===aid);if(!ag)return;
+  addActivity(`选中: ${ag.name}`);
+  showAgentDrawer(ag);
+}
+function showAgentDrawer(ag){
+  const drawer=document.getElementById('agent-drawer');
+  const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
+  const ci=S.agents.indexOf(ag)%6;const c=colors[ci];
+  const room=S.rooms.find(r=>r.id===S.positions[ag.agent_id]);
+  const ints=S.messages.filter(m=>m.from===ag.name||m.to===ag.name);
+  drawer.innerHTML=`<div class="drawer-header"><div class="drawer-avatar" style="background:${c}20;color:${c};border:2px solid ${c}40">${(ag.name||'?').charAt(0)}</div><div><div class="drawer-name">${ag.name}</div><div class="drawer-role">${ag.role||'agent'}</div></div><button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-section"><div class="drawer-section-title">基本信息</div><div class="drawer-kv"><span class="k">ID</span><span class="v" style="font-family:'JetBrains Mono',monospace;font-size:10px">${ag.agent_id}</span></div><div class="drawer-kv"><span class="k">状态</span><span class="v" style="color:${ag.state==='active'?'var(--green)':'var(--dim)'}">${ag.state==='active'?'● 活跃':'○ 空闲'}</span></div><div class="drawer-kv"><span class="k">位置</span><span class="v">${room?room.icon+' '+room.name:'未分配'}</span></div><div class="drawer-kv"><span class="k">交互次数</span><span class="v" style="color:var(--amber)">${ints.length}</span></div><div class="drawer-kv"><span class="k">模型</span><span class="v">${ag.model||'default'}</span></div></div>
+    <div class="drawer-section"><div class="drawer-section-title">技能 (${(ag.skills||[]).length})</div><div class="drawer-tags">${(ag.skills||[]).map(s=>`<span class="drawer-tag">${s.icon||'◈'} ${s.name||s}</span>`).join('')||'<span style="font-size:11px;color:var(--dim)">无绑定技能</span>'}</div></div>
+    <div class="drawer-section"><div class="drawer-section-title">工具 (${(ag.tools||[]).length})</div><div class="drawer-tags">${(ag.tools||[]).map(t=>`<span class="drawer-tag">${t.icon||'▣'} ${t.name||t}</span>`).join('')||'<span style="font-size:11px;color:var(--dim)">无绑定工具</span>'}</div></div>
+    ${ints.length?`<div class="drawer-section"><div class="drawer-section-title">最近交互</div>${ints.slice(-5).map(m=>`<div style="font-size:11px;color:var(--text2);padding:4px 0;border-bottom:1px solid rgba(42,53,68,0.3)"><span style="color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:9px">${m.time}</span> ${m.from===ag.name?'→ '+m.to:'← '+m.from} <span style="color:var(--dim)">[${m.type}]</span></div>`).join('')}</div>`:''}
+    <div class="drawer-actions"><button class="btn" onclick="execCmd('inspect ${ag.name}');closeDrawer()">CLI 检视</button><button class="btn" onclick="execCmd('trace ${ag.name}');closeDrawer()">追踪交互</button></div>`;
+  drawer.classList.add('open');
+}
+function closeDrawer(){document.getElementById('agent-drawer').classList.remove('open')}
+
+function renderArchitecture(){
+  const layers=[
+    {id:'ui',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',name:'用户界面层',desc:'Web对话接口，支持自然语言输入与CLI结构化命令',tag:'Interface',metrics:[{k:'连接',v:'1'},{k:'延迟',v:'<50ms'}]},
+    {id:'orchestrator',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',name:'智能体编排层',desc:'中心控制器：意图解析、多智能体协调、任务分配与Handoff交接',tag:'Orchestrator',metrics:[{k:'智能体',v:S.agents.length},{k:'任务',v:'0'}]},
+    {id:'llm',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>',name:'LLM 推理层',desc:'大语言模型推理引擎，Function Calling、思维链推理与意图分类',tag:'Reasoning',metrics:[{k:'模型',v:'Claude/GPT'},{k:'调用',v:S.interactionCount}]},
+    {id:'memory',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',name:'记忆与上下文层',desc:'技能库、知识图谱、会话历史与跨会话持久化记忆',tag:'Memory',metrics:[{k:'技能',v:S.skills.length},{k:'知识',v:'-'}]},
+    {id:'tool',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',name:'工具执行层',desc:'注册工具集合：Web搜索、代码执行、API调用、文件操作',tag:'Execution',metrics:[{k:'工具',v:S.tools.length},{k:'成功率',v:'98%'}]},
+    {id:'env',icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',name:'环境模拟层',desc:'虚拟空间拓扑、智能体定位移动与多智能体交互模拟',tag:'Environment',metrics:[{k:'空间',v:S.rooms.length},{k:'已部署',v:Object.keys(S.positions).length}]},
+  ];
+  const details={ui:'接收用户自然语言输入和CLI命令，解析前端交互事件，通过WebSocket实现实时状态推送。',orchestrator:'核心调度中心。解析用户意图后，选择最优智能体执行任务。支持多轮对话、任务分解与Handoff交接协议。',llm:'对接Claude/GPT等大模型API，支持Function Calling、思维链推理(CoT)、意图分类与多轮上下文管理。',memory:'管理技能库、知识图谱与会话历史。支持跨会话持久化存储，向量检索与语义匹配。',tool:'封装外部能力：Web搜索、代码执行、API调用、文件I/O。每个工具注册标准接口供LLM调用。',env:'模拟智能体运行的虚拟空间。支持房间拓扑、位置移动、多智能体协同交互与环境状态观测。'};
+  document.getElementById('arch-layers').innerHTML=layers.map((l,i)=>`
+    ${i>0?'<div class="arch-arrow">↕</div>':''}
+    <div class="arch-layer" data-layer="${l.id}" onclick="this.classList.toggle('expanded')"><div class="layer-head"><span class="layer-icon">${l.icon}</span><span class="layer-name">${l.name}</span><span class="layer-tag">${l.tag}</span></div><div class="layer-desc">${l.desc}</div><div class="layer-metrics">${l.metrics.map(m=>`<span class="metric">${m.k}: <b>${m.v}</b></span>`).join('')}</div><div class="layer-detail"><div class="layer-detail-content">${details[l.id]}</div></div></div>
+  `).join('');
+}
+
+function showArchSub(tab,btn){
+  document.querySelectorAll('#view-architecture .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.getElementById('arch-sub-layers').style.display=tab==='layers'?'block':'none';
+  document.getElementById('arch-sub-topo').style.display=tab==='topo'?'block':'none';
+  if(tab==='topo')renderTopology();
+}
+
+function renderTopology(){
+  const svg=document.getElementById('topo-svg');
+  const W=svg.clientWidth||800,H=460;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  if(!S.agents.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#576375" font-size="14">加载智能体数据后显示拓扑...</text>`;return}
+  const colors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
+  const cx=W/2,cy=H/2,radius=Math.min(W,H)*0.32;
+  // Position agents in circle
+  const nodes=S.agents.map((a,i)=>{
+    const angle=(2*Math.PI*i)/S.agents.length-Math.PI/2;
+    return{...a,x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle),color:colors[i%6],r:16+((a.skills||[]).length)*3};
+  });
+  // Build edges from interaction messages
+  const edgeMap={};
+  S.messages.forEach(m=>{
+    const fromN=nodes.find(n=>n.name===m.from),toN=nodes.find(n=>n.name===m.to);
+    if(fromN&&toN){const key=[fromN.agent_id,toN.agent_id].sort().join('-');edgeMap[key]=(edgeMap[key]||0)+1}
+  });
+  // Render
+  let html='';
+  // Edges
+  Object.entries(edgeMap).forEach(([key,count])=>{
+    const[id1,id2]=key.split('-');
+    const n1=nodes.find(n=>n.agent_id===id1),n2=nodes.find(n=>n.agent_id===id2);
+    if(n1&&n2){const opacity=Math.min(0.8,0.1+count*0.1);html+=`<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="#3d5070" stroke-width="${Math.min(4,1+count*0.5)}" stroke-opacity="${opacity}"/>`}
+  });
+  // Nodes
+  nodes.forEach(n=>{
+    html+=`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}20" stroke="${n.color}" stroke-width="2"/>`;
+    html+=`<text x="${n.x}" y="${n.y+4}" text-anchor="middle" fill="${n.color}" font-size="12" font-weight="600">${(n.name||'?').charAt(0)}</text>`;
+    html+=`<text x="${n.x}" y="${n.y+n.r+14}" text-anchor="middle" fill="#cbd5e1" font-size="10">${n.name||'?'}</text>`;
+  });
+  // Center hub
+  html+=`<circle cx="${cx}" cy="${cy}" r="20" fill="#0f141920" stroke="#3d5070" stroke-width="1" stroke-dasharray="4,4"/>`;
+  html+=`<text x="${cx}" y="${cy+4}" text-anchor="middle" fill="#576375" font-size="10">编排</text>`;
+  svg.innerHTML=html;
+}
+
+function renderFlowStats(){
+  const counts={'tool-call':0,'llm-call':0,'handoff':0,'broadcast':0,'response':0};
+  S.messages.forEach(m=>{if(counts[m.type]!==undefined)counts[m.type]++});
+  const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
+  const labels={'tool-call':'工具调用','llm-call':'LLM推理','handoff':'任务交接','broadcast':'广播','response':'响应'};
+  document.getElementById('flow-stats').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="flow-stat-item"><span class="flow-stat-dot" style="background:${colors[k]}"></span><span class="flow-stat-count">${v}</span><span class="flow-stat-label">${labels[k]}</span></div>`).join('')+`<div class="flow-stat-item" style="margin-left:auto"><span class="flow-stat-label">总计</span><span class="flow-stat-count" style="color:var(--text)">${S.messages.length}</span></div>`;
+}
+function renderInteractions(filter='all'){
+  renderFlowStats();
+  const el=document.getElementById('msg-timeline');
+  document.getElementById('msg-count').textContent=S.messages.length;
+  const msgs=filter==='all'?S.messages:S.messages.filter(m=>m.type===filter);
+  if(!msgs.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--dim)">暂无交互记录<br><span style="font-size:11px">使用CLI或触发任务后显示</span></div>';return}
+  const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
+  el.innerHTML=msgs.slice(-50).map(m=>{const c=colors[m.type]||'var(--muted)';
+    return`<div class="msg-item"><span class="msg-time">${m.time}</span><div class="msg-avatar" style="background:${c}20;color:${c}">${(m.from||'S').charAt(0)}</div><div class="msg-body"><div class="msg-sender">${m.from} <span class="arrow">→</span> <span class="target">${m.to||'System'}</span> <span class="msg-type-tag ${m.type}">${m.type}</span></div><div class="msg-content">${esc(m.content)}</div>${m.duration?`<div class="msg-meta"><span>⏱ ${m.duration}ms</span></div>`:''}</div></div>`;
+  }).join('');el.scrollTop=el.scrollHeight;
+}
+function filterMsgs(type){document.querySelectorAll('.flow-btn').forEach(b=>b.classList.remove('active'));event.target.classList.add('active');renderInteractions(type)}
+
+function renderPipeline(){
+  const steps=[{icon:'▶',name:'输入解析',desc:'自然语言/CLI命令'},{icon:'◈',name:'意图识别',desc:'LLM推理意图'},{icon:'◎',name:'任务路由',desc:'分配到智能体'},{icon:'▣',name:'工具调用',desc:'执行函数/API'},{icon:'◇',name:'结果聚合',desc:'整理输出'}];
+  document.getElementById('pipeline-flow').innerHTML=steps.map((s,i)=>`${i>0?'<div class="pipeline-connector">→</div>':''}<div class="pipeline-step" id="pipe-step-${i}"><div class="step-num">${i+1}</div><div class="step-icon">${s.icon}</div><div class="step-name">${s.name}</div><div class="step-desc">${s.desc}</div></div>`).join('');
+  renderExecLog();
+}
+function renderExecLog(){
+  document.getElementById('log-count').textContent=S.execLog.length+' 条';
+  const el=document.getElementById('exec-log');
+  const tagC={info:'var(--cyan-dim);color:var(--cyan)',tool:'var(--green-dim);color:var(--green)',llm:'var(--purple-dim);color:var(--purple)',error:'var(--pink-dim);color:var(--red)'};
+  el.innerHTML=S.execLog.slice(-20).map(l=>`<div class="exec-log-item"><span class="ts">${l.time}</span><span class="tag" style="background:${tagC[l.type]||tagC.info}">${l.type}</span><span class="content">${esc(l.msg)}</span></div>`).join('')||'<div style="padding:16px;color:var(--dim);font-size:12px;text-align:center">等待任务执行...</div>';
+}
+
+function renderEnvironment(){
+  const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
+  document.getElementById('env-grid').innerHTML=S.rooms.map(r=>{
+    const ag=S.agents.filter(a=>S.positions[a.agent_id]===r.id);
+    return`<div class="env-room" data-room-id="${r.id}" onclick="showRoom('${r.id}')" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'${r.id}')"><div class="room-icon">${r.icon}</div><div class="room-name">${r.name}</div><div class="room-desc">${r.desc}</div><div class="room-agents">${ag.map((a,i)=>`<div class="ag-dot" style="background:${colors[i%6]}30;color:${colors[i%6]}" title="${a.name}">${(a.name||'?').charAt(0)}</div>`).join('')||'<span style="font-size:10px;color:var(--dim)">空</span>'}</div><div class="drop-hint">拖放智能体到此空间</div><div class="room-footer"><span>${ag.length} 智能体</span><span style="color:${r.color}">●</span></div></div>`;
+  }).join('');
+  if(_3dInitialized)update3DEnv();
+}
+function showRoom(id){const r=S.rooms.find(x=>x.id===id);if(!r)return;const ag=S.agents.filter(a=>S.positions[a.agent_id]===id);toast(`${r.icon} ${r.name} — ${ag.length} 智能体: ${ag.map(a=>a.name).join(', ')||'(空)'}`)}
+function createRoom(){const name=prompt('新空间名称:');if(!name)return;S.rooms.push({id:'r_'+Date.now().toString(36),name,icon:prompt('图标:','◇')||'◇',desc:prompt('描述:','')||'',color:'var(--muted)'});persist();renderEnvironment();toast('空间已创建: '+name)}
+
+function renderStats(){
+  document.getElementById('stat-agents').textContent=S.agents.length;
+  document.getElementById('stat-skills').textContent=S.skills.length;
+  document.getElementById('stat-tools').textContent=S.tools.length;
+  document.getElementById('stat-interactions').textContent=S.interactionCount;
+}
+function renderFreqChart(){const el=document.getElementById('freq-chart');const max=Math.max(...S.freqData,1);el.innerHTML=S.freqData.map(v=>`<div class="bar" style="height:${(v/max)*100}%"></div>`).join('')}
+
+function addActivity(text){
+  const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  S.activityFeed.unshift({time,text});if(S.activityFeed.length>50)S.activityFeed.pop();renderActivityFeed();
+}
+function renderActivityFeed(){document.getElementById('activity-feed').innerHTML=S.activityFeed.slice(0,20).map(a=>`<div class="activity-item"><div class="act-time">${a.time}</div><div class="act-text">${a.text}</div></div>`).join('')||'<div style="color:var(--dim);font-size:11px">暂无活动</div>'}
+
+// ── CLI ──
+const cliH=[];let hIdx=-1;
+document.addEventListener('DOMContentLoaded',()=>{
+  const inp=document.getElementById('cli-input');
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){execCmd(inp.value);inp.value=''}
+    else if(e.key==='ArrowUp'){e.preventDefault();if(hIdx>0){hIdx--;inp.value=cliH[hIdx]}}
+    else if(e.key==='ArrowDown'){e.preventDefault();if(hIdx<cliH.length-1){hIdx++;inp.value=cliH[hIdx]}else{hIdx=cliH.length;inp.value=''}}
+  });
+  init();
+});
+
+async function execCmd(input){
+  if(!input.trim())return;cliH.push(input);hIdx=cliH.length;
+  const out=document.getElementById('cli-output');
+  out.innerHTML+=`\n<span class="prompt">❯ </span><span class="cmd">${esc(input)}</span>\n`;
+  // Show loading for async commands
+  const asyncCmds=['discuss','extract','review','evolve','optimize','health','task','workflow','delegate','chat'];
+  const cmd0=input.trim().split(/\s+/)[0];
+  let loadEl=null;
+  if(asyncCmds.includes(cmd0)){
+    loadEl=document.createElement('span');loadEl.className='dim';loadEl.textContent='⏳ 处理中...';
+    loadEl.style.animation='pulse 1s infinite';out.appendChild(loadEl);out.scrollTop=out.scrollHeight;
+  }
+  const result=await processCmd(input.trim());
+  if(loadEl)loadEl.remove();
+  if(result)out.innerHTML+=result+'\n';
+  out.scrollTop=out.scrollHeight;
+  addActivity(`CLI: ${input}`);
+  S.interactionCount++;S.freqData.push(1);S.freqData.shift();
+  renderStats();renderFreqChart();
+  localStorage.setItem('dt2_interactions',S.interactionCount);
+}
+
+async function processCmd(input){
+  const[cmd,...args]=input.split(/\s+/);const arg=args.join(' ');
+  switch(cmd){
+    case'help':return helpText();
+    case'status':return statusText();
+    case'agents':return agentsText();
+    case'skills':return skillsText();
+    case'tools':return toolsText();
+    case'rooms':return roomsText();
+    case'arch':return archText();
+    case'clear':document.getElementById('cli-output').innerHTML='';return'';
+    case'move':return moveAgent(args[0],args.slice(1).join(' '));
+    case'interact':return interactAgents(args[0],args[1]);
+    case'assign':return moveAgent(args[0],args.slice(1).join(' '));
+    case'pipeline':return pipelineCmd(args);
+    case'flow':return flowCmd(args);
+    case'export':return exportCmd(args[0]);
+    case'broadcast':return broadcastCmd(arg);
+    case'inspect':return inspectCmd(args[0]);
+    case'trace':return traceCmd(args[0]);
+    case'simulate':return simulateCmd(args);
+    case'config':return configCmd(args);
+    case'discuss':return await discussCmd(args);
+    case'delegate':return await delegateCmd(args);
+    case'chat':return await chatCmd(arg);
+    case'extract':return await extractCmd(args);
+    case'review':return await reviewCmd(args);
+    case'evolve':return await evolveCmd(args);
+    case'optimize':return await optimizeCmd(args);
+    case'health':return await healthCmd(args);
+    case'task':return await taskCmd(args);
+    case'workflow':return await workflowCmd(args);
+    case'cam':return camCmd(args);
+    case'fly':return camCmd(args);
+    case'tour':flyTour();return'<span class="cmd">▶</span> 3D巡览启动 — 依次飞越 6 个空间';
+    case'whoami':return'<span class="result">admin@AgentsGroup2026 (Digital Twin v3.0)</span>';
+    default:return`<span class="err">未知命令: ${cmd}</span> — 输入 <span class="cmd">help</span> 查看帮助`;
+  }
+}
+
+function helpText(){return`<span class="info">━━━ 可用命令 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  <span class="layer-ui">查询</span>
+    <span class="cmd">status</span>             系统状态摘要
+    <span class="cmd">agents</span>             列出所有智能体
+    <span class="cmd">skills</span>             列出已注册技能
+    <span class="cmd">tools</span>              列出已注册工具
+    <span class="cmd">rooms</span>              列出环境空间
+    <span class="cmd">arch</span>               显示系统架构
+    <span class="cmd">inspect &lt;name&gt;</span>     查看智能体详情
+    <span class="cmd">trace &lt;name&gt;</span>       追踪智能体交互
+    <span class="cmd">health</span>             全系统健康巡检
+
+  <span class="layer-orch">编排</span>
+    <span class="cmd">move &lt;agent&gt; &lt;room&gt;</span>    移动智能体到空间
+    <span class="cmd">interact &lt;a1&gt; &lt;a2&gt;</span>    触发两个智能体交互
+    <span class="cmd">broadcast &lt;msg&gt;</span>        全局广播消息
+    <span class="cmd">pipeline show</span>          管线状态
+    <span class="cmd">pipeline run &lt;task&gt;</span>    执行任务管线
+    <span class="cmd">simulate &lt;scenario&gt;</span>   模拟(random|chain|stress)
+    <span class="cmd">discuss &lt;topic&gt;</span>       创建广场讨论
+    <span class="cmd">discuss watch &lt;id&gt;</span>    订阅讨论SSE实时流
+    <span class="cmd">discuss start &lt;id&gt;</span>    启动讨论
+    <span class="cmd">delegate &lt;a1&gt; &lt;a2&gt; &lt;task&gt;</span> 委派任务
+    <span class="cmd">chat &lt;msg&gt;</span>            与AI对话
+
+  <span class="layer-llm">萃取 &amp; 演进</span>
+    <span class="cmd">extract &lt;source&gt;</span>      触发技能萃取管线
+    <span class="cmd">extract status</span>         萃取漏斗统计
+    <span class="cmd">review &lt;id&gt; [approve|reject]</span> 审批萃取管线
+    <span class="cmd">evolve audit</span>           运行演进审计
+    <span class="cmd">evolve status</span>          演进引擎状态
+    <span class="cmd">evolve items</span>           列出演进项
+    <span class="cmd">evolve rating</span>          合规评级
+    <span class="cmd">optimize &lt;skill&gt;</span>      触发技能优化
+
+  <span class="layer-tool">任务 &amp; 工作流</span>
+    <span class="cmd">task list</span>              查看任务列表
+    <span class="cmd">task create &lt;title&gt;</span>   创建任务
+    <span class="cmd">task start &lt;id&gt;</span>       启动任务
+    <span class="cmd">task dag</span>               可视化任务DAG
+    <span class="cmd">task stats</span>             任务引擎统计
+    <span class="cmd">workflow &lt;name&gt; [arg]</span> 执行预定义工作流
+    <span class="cmd">workflow list</span>          列出可用工作流
+
+  <span class="layer-ui">3D空间 &amp; 摄像头</span>
+    <span class="cmd">cam council</span>            飞到议事厅
+    <span class="cmd">cam extraction</span>         飞到萃取室
+    <span class="cmd">cam workshop</span>           飞到工作坊
+    <span class="cmd">cam library</span>            飞到知识库
+    <span class="cmd">cam arena</span>              飞到演练场
+    <span class="cmd">cam rest</span>               飞到休息区
+    <span class="cmd">cam overview</span>           鸟瞰全景
+    <span class="cmd">tour</span>                  自动巡览全部空间
+    <span class="cmd">export &lt;type&gt;</span>          导出(snapshot|agents|skills)
+    <span class="cmd">config show</span>            查看配置
+    <span class="cmd">clear</span>                 清屏
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>`}
+
+function statusText(){
+  const p=Object.keys(S.positions).length;
+  return`<span class="info">━━━ 系统状态 ━━━</span>
+  <span class="layer-orch">编排层</span>  智能体: <span class="result">${S.agents.length}</span> (活跃 <span class="cmd">${S.agents.filter(a=>a.state==='active').length}</span>)
+  <span class="layer-llm">推理层</span>  交互数: <span class="result">${S.interactionCount}</span>
+  <span class="layer-mem">记忆层</span>  技能: <span class="result">${S.skills.length}</span> | 工具: <span class="result">${S.tools.length}</span>
+  <span class="layer-tool">环境层</span>  空间: <span class="result">${S.rooms.length}</span> | 已部署: <span class="result">${p}/${S.agents.length}</span>
+  <span class="dim">${new Date().toLocaleString('zh-CN')}</span>`}
+
+function agentsText(){
+  if(!S.agents.length)return'<span class="warn">暂无智能体</span>';
+  let o='<span class="info">━━━ 智能体列表 ━━━</span>\n';
+  S.agents.forEach(a=>{const room=S.rooms.find(r=>r.id===S.positions[a.agent_id]);
+    o+=`  <span class="result">${(a.name||'?').padEnd(12)}${(a.role||'-').padEnd(12)}</span>${a.state==='active'?'<span class="cmd">●活跃</span>':'<span class="dim">○空闲</span>'}  ○${(room?.name||'—').padEnd(8)} ◈${(a.skills||[]).length} ▣${(a.tools||[]).length}\n`});
+  return o}
+
+function skillsText(){
+  if(!S.skills.length)return'<span class="warn">暂无技能</span>';
+  let o=`<span class="info">━━━ 技能 (${S.skills.length}) ━━━</span>\n`;
+  S.skills.slice(0,20).forEach(s=>{o+=`  <span class="result">${(s.icon||'◈')} ${(s.name||'?').padEnd(22)}</span><span class="dim">[${s.category||'general'}]</span> ${(s.description||'').slice(0,35)}\n`});
+  if(S.skills.length>20)o+=`  <span class="dim">...共 ${S.skills.length} 个</span>\n`;return o}
+
+function toolsText(){
+  if(!S.tools.length)return'<span class="warn">暂无工具</span>';
+  let o=`<span class="info">━━━ 工具 (${S.tools.length}) ━━━</span>\n`;
+  S.tools.slice(0,15).forEach(t=>{o+=`  <span class="result">${(t.icon||'▣')} ${(t.name||'?').padEnd(22)}</span><span class="dim">[${t.category||'-'}]</span> ${(t.description||'').slice(0,30)}\n`});
+  if(S.tools.length>15)o+=`  <span class="dim">...共 ${S.tools.length} 个</span>\n`;return o}
+
+function roomsText(){let o='<span class="info">━━━ 环境空间 ━━━</span>\n';S.rooms.forEach(r=>{const c=S.agents.filter(a=>S.positions[a.agent_id]===r.id).length;o+=`  <span class="result">${r.icon} ${r.name.padEnd(8)}</span> <span class="dim">${c} 智能体</span>  ${r.desc}\n`});return o}
+
+function archText(){return`<span class="info">━━━ 六层架构 ━━━</span>
+  <span class="layer-ui">┌─ L1 用户界面层 ────── Web + CLI</span>
+  <span class="layer-ui">│</span>   ↕
+  <span class="layer-orch">├─ L2 编排层 ────────── 意图解析 · 多智能体协调</span>
+  <span class="layer-orch">│</span>   ↕
+  <span class="layer-llm">├─ L3 LLM推理层 ───── Function Calling · CoT</span>
+  <span class="layer-llm">│</span>   ↕
+  <span class="layer-mem">├─ L4 记忆层 ────────── 技能库 · 知识图谱</span>
+  <span class="layer-mem">│</span>   ↕
+  <span class="layer-tool">├─ L5 工具执行层 ───── 工具集 · API · 代码</span>
+  <span class="layer-tool">│</span>   ↕
+  <span class="layer-ui">└─ L6 环境层 ────────── 虚拟空间 · 交互模拟</span>`}
+
+function moveAgent(name,room){
+  if(!name||!room)return'<span class="err">用法: move <智能体> <空间></span>';
+  const agent=S.agents.find(a=>a.name===name||a.agent_id===name);
+  if(!agent)return`<span class="err">「${name}」未找到</span>`;
+  const r=S.rooms.find(x=>x.name===room||x.id===room);
+  if(!r)return`<span class="err">空间「${room}」未找到</span>`;
+  const old=S.rooms.find(x=>x.id===S.positions[agent.agent_id]);
+  S.positions[agent.agent_id]=r.id;persist();renderAgentList();renderEnvironment();
+  addMsg('System',agent.name,'handoff',`移动到「${r.name}」`);
+  // Sync to backend
+  fetch(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agent.agent_id,room_id:r.id})}).catch(()=>{});
+  return`<span class="cmd">✓</span> ${agent.name} ${old?'从「'+old.name+'」':''}→ <span class="result">「${r.name}」</span>`}
+
+function interactAgents(a1,a2){
+  if(!a1||!a2)return'<span class="err">用法: interact <a1> <a2></span>';
+  const ag1=S.agents.find(a=>a.name===a1),ag2=S.agents.find(a=>a.name===a2);
+  if(!ag1)return`<span class="err">「${a1}」未找到</span>`;if(!ag2)return`<span class="err">「${a2}」未找到</span>`;
+  addMsg(ag1.name,ag2.name,'handoff','发起协作');addMsg(ag2.name,ag1.name,'response','准备协作');
+  // Sync to backend
+  fetch(`${API}/digital-twin/interact`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:ag1.name,to:ag2.name,type:'handoff',content:'协作触发'})}).catch(()=>{});
+  simulatePipeline(`${ag1.name} ↔ ${ag2.name}`);
+  return`<span class="cmd">✓</span> 交互触发: <span class="result">${ag1.name} ↔ ${ag2.name}</span>`}
+
+function broadcastCmd(msg){if(!msg)return'<span class="err">用法: broadcast <消息></span>';addMsg('System','All','broadcast',msg);return`<span class="cmd">✓</span> 广播已发送到 ${S.agents.length} 个智能体`}
+function inspectCmd(name){
+  if(!name)return'<span class="err">用法: inspect <智能体名></span>';
+  const ag=S.agents.find(a=>a.name===name||a.agent_id===name);
+  if(!ag)return`<span class="err">「${name}」未找到</span>`;
+  const room=S.rooms.find(r=>r.id===S.positions[ag.agent_id]);
+  const ints=S.messages.filter(m=>m.from===ag.name||m.to===ag.name).length;
+  return`<span class="info">━━━ 智能体详情 ━━━</span>\n  <span class="result">名称:</span>     ${ag.name}\n  <span class="result">ID:</span>       ${ag.agent_id}\n  <span class="result">角色:</span>     ${ag.role||'-'}\n  <span class="result">状态:</span>     ${ag.state==='active'?'<span class="cmd">活跃</span>':'<span class="dim">空闲</span>'}\n  <span class="result">位置:</span>     ${room?room.icon+' '+room.name:'未分配'}\n  <span class="result">技能:</span>     ${(ag.skills||[]).map(s=>s.name||s).join(', ')||'无'}\n  <span class="result">工具:</span>     ${(ag.tools||[]).map(t=>t.name||t).join(', ')||'无'}\n  <span class="result">交互数:</span>   ${ints}`;}
+function traceCmd(name){
+  if(!name)return'<span class="err">用法: trace <智能体名></span>';
+  const ag=S.agents.find(a=>a.name===name);
+  if(!ag)return`<span class="err">「${name}」未找到</span>`;
+  const related=S.messages.filter(m=>m.from===ag.name||m.to===ag.name).slice(-15);
+  if(!related.length)return`<span class="dim">${ag.name} 暂无交互记录</span>`;
+  let o=`<span class="info">━━━ ${ag.name} 交互追踪 (最近${related.length}条) ━━━</span>\n`;
+  related.forEach(m=>{const dir=m.from===ag.name?'→':'←';o+=`  <span class="dim">${m.time}</span> ${dir} ${m.from===ag.name?m.to:m.from} <span class="dim">[${m.type}]</span> ${m.content.slice(0,35)}\n`});
+  return o;}
+function simulateCmd(args){
+  const scenario=args.join(' ')||'random';
+  if(scenario==='help')return'<span class="info">simulate <scenario>\n  random    随机交互\n  chain     链式传递\n  stress    压力测试</span>';
+  if(S.agents.length<2)return'<span class="warn">至少需要2个智能体</span>';
+  if(scenario.includes('chain')){
+    let o='<span class="cmd">✓</span> 链式模拟:\n';
+    for(let i=0;i<S.agents.length-1;i++){const a=S.agents[i],b=S.agents[i+1];addMsg(a.name,b.name,'handoff',`Chain step ${i+1}`);o+=`  ${a.name} → ${b.name}\n`;}
+    simulatePipeline('chain-sim');return o;}
+  if(scenario.includes('stress')){
+    const n=Math.min(20,S.agents.length*3);
+    for(let i=0;i<n;i++){const a=S.agents[Math.floor(Math.random()*S.agents.length)],b=S.agents[Math.floor(Math.random()*S.agents.length)];if(a!==b)addMsg(a.name,b.name,['tool-call','llm-call','handoff'][Math.floor(Math.random()*3)],'stress-test');}
+    simulatePipeline('stress-test');return`<span class="cmd">✓</span> 压力测试: ${n} 次交互生成`;}
+  const a=S.agents[Math.floor(Math.random()*S.agents.length)],b=S.agents[Math.floor(Math.random()*S.agents.length)];
+  if(a===b)return simulateCmd(['random']);
+  addMsg(a.name,b.name,['tool-call','llm-call','handoff','response'][Math.floor(Math.random()*4)],'模拟交互');
+  simulatePipeline(`sim: ${a.name}→${b.name}`);
+  return`<span class="cmd">✓</span> 模拟: ${a.name} → ${b.name}`;}
+function configCmd(args){
+  if(!args.length)return'<span class="info">config show | config set <key> <value></span>';
+  if(args[0]==='show')return`<span class="info">━━━ 配置 ━━━</span>\n  team: <span class="result">${localStorage.getItem('selected_team')||'build_system'}</span>\n  rooms: <span class="result">${S.rooms.length}</span>\n  positions: <span class="result">${Object.keys(S.positions).length}</span>`;
+  if(args[0]==='set'&&args[1]==='team'&&args[2]){localStorage.setItem('selected_team',args[2]);return`<span class="cmd">✓</span> team → ${args[2]} (重新加载生效)`;}
+  return'<span class="dim">可配置: config set team <id></span>';}
+async function discussCmd(args){
+  if(!args.length)return'<span class="info">discuss <topic> — 创建广场讨论\n  discuss list — 列出已有讨论\n  discuss watch <disc_id> — 订阅SSE实时流\n  discuss start <disc_id> — 启动讨论\n  discuss stop — 断开SSE</span>';
+  if(args[0]==='stop'){sseDisconnect();return'<span class="cmd">✓</span> SSE连接已断开'}
+  if(args[0]==='watch'){
+    const discId=args[1];if(!discId)return'<span class="err">用法: discuss watch <discussion_id></span>';
+    try{const pr=await fetch(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    const plazaId=plazas[0]?.id;if(!plazaId)return'<span class="err">暂无广场</span>';
+    sseConnect(plazaId,discId);
+    autoMoveForTask('council');
+    return`<span class="cmd">✓</span> 已订阅讨论SSE流\n  讨论: <span class="result">${discId.slice(0,8)}</span>\n  <span class="dim">实时消息将显示在交互流视图 | discuss stop 断开</span>`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(args[0]==='start'){
+    const discId=args[1];if(!discId)return'<span class="err">用法: discuss start <discussion_id></span>';
+    try{const pr=await fetch(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    const plazaId=plazas[0]?.id;if(!plazaId)return'<span class="err">暂无广场</span>';
+    const r=await fetch(`${API}/plaza/${plazaId}/discussions/${discId}/start`,{method:'POST'});
+    if(!r.ok)return`<span class="err">启动失败: ${r.status}</span>`;
+    addMsg('System','Plaza','broadcast',`讨论已启动: ${discId.slice(0,8)}`);
+    sseConnect(plazaId,discId);
+    autoMoveForTask('council');
+    return`<span class="cmd">✓</span> 讨论已启动并订阅SSE\n  ID: <span class="result">${discId.slice(0,8)}</span>\n  <span class="dim">智能体将开始多轮辩论...</span>`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(args[0]==='list'){
+    try{const r=await fetch(`${API}/plaza`);if(!r.ok)return'<span class="err">获取广场失败</span>';const plazas=await r.json();if(!plazas.length)return'<span class="dim">暂无广场</span>';let o='<span class="info">━━━ 广场列表 ━━━</span>\n';for(const p of plazas){o+=`  <span class="result">${p.id?.slice(0,8)||'?'}</span> ${p.name||'unnamed'} (${(p.participants||[]).length} 参与者)\n`;
+    // List discussions for each plaza
+    try{const dr=await fetch(`${API}/plaza/${p.id}/discussions`);if(dr.ok){const discs=await dr.json();discs.slice(0,5).forEach(d=>{o+=`    <span class="dim">└─</span> <span class="cmd">${(d.id||'').slice(0,8)}</span> ${d.topic||'?'} [${d.status||'?'}]\n`})}}catch{}}return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  const topic=args.join(' ');
+  simulatePipeline('讨论: '+topic);
+  addMsg('System','All','broadcast',`发起讨论: ${topic}`);
+  try{
+    const pr=await fetch(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    let plazaId=plazas[0]?.id;
+    if(!plazaId){const cr=await fetch(`${API}/plaza`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'数字孪生广场'})});if(cr.ok){const np=await cr.json();plazaId=np.id}else return'<span class="err">创建广场失败</span>'}
+    const dr=await fetch(`${API}/plaza/${plazaId}/discussions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,goal:'讨论并达成共识',max_rounds:3})});
+    if(!dr.ok)return'<span class="err">创建讨论失败: '+dr.status+'</span>';
+    const disc=await dr.json();
+    addMsg('System','Plaza','llm-call',`讨论创建: ${disc.id?.slice(0,8)}`);
+    autoMoveForTask('council');
+    return`<span class="cmd">✓</span> 讨论已创建\n  ID: <span class="result">${disc.id?.slice(0,8)}</span>\n  主题: ${topic}\n  <span class="dim">使用 discuss start ${disc.id?.slice(0,8)} 启动 | discuss watch ${disc.id?.slice(0,8)} 订阅</span>`;
+  }catch(e){return`<span class="err">请求失败: ${e.message}</span>`}
+}
+async function delegateCmd(args){
+  if(args.length<3)return'<span class="err">用法: delegate <from_agent> <to_agent> <task_description></span>';
+  const fromName=args[0],toName=args[1],desc=args.slice(2).join(' ');
+  const ag1=S.agents.find(a=>a.name===fromName),ag2=S.agents.find(a=>a.name===toName);
+  if(!ag1)return`<span class="err">「${fromName}」未找到</span>`;if(!ag2)return`<span class="err">「${toName}」未找到</span>`;
+  addMsg(ag1.name,ag2.name,'handoff',`委派任务: ${desc}`);
+  simulatePipeline(`delegate: ${fromName}→${toName}`);
+  try{
+    const tid=localStorage.getItem('selected_team')||'build_system';
+    const r=await fetch(`${API}/teams/${tid}/agents/${ag1.agent_id}/delegate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target_agent_id:ag2.agent_id,task_description:desc})});
+    if(r.ok){const d=await r.json();addMsg(ag2.name,ag1.name,'response','已接受委派');return`<span class="cmd">✓</span> 任务已委派: ${fromName} → ${toName}\n  描述: ${desc}`}
+    else return`<span class="warn">委派API返回 ${r.status}</span> (任务已模拟记录)`;
+  }catch{return`<span class="cmd">✓</span> 委派已记录 (离线模式): ${fromName} → ${toName}`}
+}
+async function chatCmd(msg){
+  if(!msg)return'<span class="err">用法: chat <消息></span>';
+  addMsg('User','System','llm-call',msg);
+  simulatePipeline('chat: '+msg.slice(0,20));
+  try{
+    const r=await fetch('/api/v1/bridge-chat/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,session_id:'dt-cli'})});
+    if(r.ok){const d=await r.json();const reply=d.reply||d.response||d.message||JSON.stringify(d).slice(0,200);addMsg('System','User','response',reply.slice(0,100));return`<span class="result">${esc(reply)}</span>`}
+    else return`<span class="warn">Chat API: ${r.status}</span>`;
+  }catch{return'<span class="warn">Chat API 不可用</span>'}
+}
+function pipelineCmd(args){if(args[0]==='show')return pipelineStatusText();if(args[0]==='run'){simulatePipeline(args.slice(1).join(' ')||'task');return'<span class="cmd">✓</span> 管线启动'}return'<span class="info">子命令: pipeline show | pipeline run <task></span>'}
+function pipelineStatusText(){return`<span class="info">━━━ 管线 ━━━</span>\n  Step 1: ▶ 输入解析 <span class="cmd">就绪</span>\n  Step 2: ◈ 意图识别 <span class="cmd">就绪</span>\n  Step 3: ◎ 任务路由 <span class="cmd">就绪</span>\n  Step 4: ▣ 工具调用 <span class="cmd">就绪</span>\n  Step 5: ◇ 结果聚合 <span class="cmd">就绪</span>`}
+function flowCmd(args){const n=parseInt(args[1])||10;const recent=S.messages.slice(-n);if(!recent.length)return'<span class="dim">暂无记录</span>';let o=`<span class="info">━━━ 最近 ${recent.length} 条 ━━━</span>\n`;recent.forEach(m=>{o+=`  <span class="dim">${m.time}</span> ${m.from}→${m.to} <span class="dim">[${m.type}]</span> ${m.content.slice(0,40)}\n`});return o}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 2: SSE Real-time Integration
+// ═══════════════════════════════════════════════════════════════
+let _sseConnection=null;
+let _sseDiscId=null;
+
+function sseConnect(plazaId,discId){
+  if(_sseConnection){_sseConnection.close();_sseConnection=null}
+  _sseDiscId=discId;
+  const url=`${API}/plaza/${plazaId}/discussions/${discId}/stream`;
+  _sseConnection=new EventSource(url);
+  _sseConnection.onopen=()=>{addActivity(`SSE 已连接: ${discId.slice(0,8)}`);toast('● LIVE — 讨论实时流已连接')};
+  _sseConnection.onmessage=(ev)=>{
+    try{
+      const data=JSON.parse(ev.data);
+      if(data.type==='message'&&data.message){
+        const m=data.message;
+        addMsg(m.agent_name||m.role||'Agent','Plaza','llm-call',m.content?.slice(0,100)||'(消息)');
+        addActivity(`◈ ${m.agent_name||'?'}: ${(m.content||'').slice(0,30)}`);
+      }else if(data.type==='status'){
+        addMsg('System','Plaza','broadcast',`讨论状态: ${data.status}`);
+      }else if(data.type==='discussion_end'){
+        addMsg('System','Plaza','response','讨论结束');
+        addActivity('✅ 讨论已结束');toast('讨论已结束');
+        sseDisconnect();
+      }
+    }catch{}
+  };
+  _sseConnection.onerror=()=>{
+    addActivity('SSE 连接中断，3s后重连...');
+    const pid=plazaId,did=discId;
+    _sseConnection=null;_sseDiscId=null;
+    setTimeout(()=>{if(!_sseConnection)sseConnect(pid,did)},3000);
+  };
+}
+function sseDisconnect(){if(_sseConnection){_sseConnection.close();_sseConnection=null;_sseDiscId=null;addActivity('SSE 已断开')}}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 3: Task Engine Commands
+// ═══════════════════════════════════════════════════════════════
+async function taskCmd(args){
+  const tid=localStorage.getItem('selected_team')||'build_system';
+  if(!args.length)return'<span class="info">task list | task create <title> | task start <id> | task dag | task stats</span>';
+  if(args[0]==='list'){
+    try{const r=await fetch(`${API}/teams/${tid}/tasks`);if(!r.ok)return'<span class="err">获取任务失败</span>';
+    const tasks=await r.json();if(!tasks.length)return'<span class="dim">暂无任务</span>';
+    const statusC={pending:'dim',running:'cmd',completed:'result',failed:'err',cancelled:'dim'};
+    let o=`<span class="info">━━━ 任务列表 (${tasks.length}) ━━━</span>\n`;
+    tasks.slice(0,20).forEach(t=>{o+=`  <span class="${statusC[t.status]||'dim'}">${(t.status||'?').padEnd(10)}</span> <span class="result">${(t.task_id||'').slice(0,8)}</span> ${(t.title||'?').slice(0,35)} ${t.dependencies?.length?'<span class="dim">deps:'+t.dependencies.length+'</span>':''}\n`});
+    return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='create'){
+    const title=args.slice(1).join(' ');if(!title)return'<span class="err">用法: task create <标题></span>';
+    try{const r=await fetch(`${API}/teams/${tid}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,priority:1,dependencies:[]})});
+    if(!r.ok)return`<span class="err">创建失败: ${r.status}</span>`;
+    const t=await r.json();addMsg('System','TaskEngine','tool-call',`创建任务: ${title}`);
+    autoMoveForTask('workshop');
+    return`<span class="cmd">✓</span> 任务已创建\n  ID: <span class="result">${(t.task_id||t.id||'').slice(0,8)}</span>\n  标题: ${title}`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(args[0]==='start'){
+    const taskId=args[1];if(!taskId)return'<span class="err">用法: task start <task_id></span>';
+    try{const r=await fetch(`${API}/teams/${tid}/tasks/${taskId}/start`,{method:'POST'});
+    if(!r.ok)return`<span class="err">启动失败: ${r.status}</span>`;
+    addMsg('System','TaskEngine','tool-call',`启动任务: ${taskId.slice(0,8)}`);simulatePipeline('task:'+taskId.slice(0,8));
+    autoMoveForTask('workshop');
+    return`<span class="cmd">✓</span> 任务已启动: <span class="result">${taskId.slice(0,8)}</span>`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(args[0]==='complete'){
+    const taskId=args[1];if(!taskId)return'<span class="err">用法: task complete <task_id></span>';
+    try{const r=await fetch(`${API}/teams/${tid}/tasks/${taskId}/complete`,{method:'POST'});
+    if(!r.ok)return`<span class="err">完成失败: ${r.status}</span>`;
+    addMsg('System','TaskEngine','response',`任务完成: ${taskId.slice(0,8)}`);
+    return`<span class="cmd">✓</span> 任务已完成: <span class="result">${taskId.slice(0,8)}</span>`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(args[0]==='stats'){
+    try{const r=await fetch(`${API}/tasks/stats`);if(!r.ok)return'<span class="err">获取统计失败</span>';
+    const s=await r.json();
+    return`<span class="info">━━━ 任务引擎统计 ━━━</span>\n  总任务: <span class="result">${s.total||0}</span>\n  运行中: <span class="cmd">${s.running||0}</span> / 最大并发: <span class="result">${s.max_concurrency||4}</span>\n  <span class="dim">待执行: ${s.by_status?.pending||0} | 完成: ${s.by_status?.completed||0} | 失败: ${s.by_status?.failed||0}</span>`}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='dag'){
+    try{const r=await fetch(`${API}/teams/${tid}/tasks`);if(!r.ok)return'<span class="err">获取任务失败</span>';
+    const tasks=await r.json();if(!tasks.length)return'<span class="dim">暂无任务, DAG为空</span>';
+    let o=`<span class="info">━━━ 任务DAG ━━━</span>\n`;
+    const statusIcon={pending:'○',running:'◐',completed:'●',failed:'✗',cancelled:'◌'};
+    tasks.forEach(t=>{
+      const icon=statusIcon[t.status]||'?';
+      const deps=t.dependencies||[];
+      if(deps.length){deps.forEach(d=>{o+=`  <span class="dim">${d.slice(0,6)}</span> ──▶ <span class="${t.status==='completed'?'result':'cmd'}">${icon} ${(t.task_id||'').slice(0,6)}</span> ${t.title?.slice(0,25)||''}\n`})}
+      else{o+=`  <span class="${t.status==='completed'?'result':'cmd'}">${icon} ${(t.task_id||'').slice(0,6)}</span> ${t.title?.slice(0,25)||''} <span class="dim">(无依赖)</span>\n`}
+    });
+    o+=`\n  <span class="dim">○待执行 ◐运行中 ●完成 ✗失败</span>`;
+    return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  return'<span class="info">task list | create | start | complete | dag | stats</span>';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 4: Extraction, Evolution, Optimize, Health, Workflow
+// ═══════════════════════════════════════════════════════════════
+const EXTRACT_API='/api/v1/extraction';
+const EVOLVE_API='/api/v1/agent-teams/evolution';
+
+async function extractCmd(args){
+  if(!args.length)return'<span class="info">extract <source> — 触发萃取\n  extract status — 漏斗统计\n  extract list — 列出管线</span>';
+  if(args[0]==='status'){
+    try{const r=await fetch(`${EXTRACT_API}/stats`);if(!r.ok)return'<span class="err">获取统计失败</span>';
+    const s=await r.json();
+    return`<span class="info">━━━ 萃取漏斗 ━━━</span>\n  总管线: <span class="result">${s.total||0}</span>\n  DRAFT: <span class="dim">${s.by_stage?.DRAFT||0}</span> → REVIEW: <span class="cmd">${s.by_stage?.REVIEW||0}</span> → APPROVAL: <span class="layer-llm">${s.by_stage?.APPROVAL||0}</span> → PUBLISHED: <span class="result">${s.by_stage?.PUBLISHED||0}</span>\n  <span class="dim">通过率: ${s.pass_rate||'-'}%</span>`}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='list'){
+    try{const r=await fetch(`${EXTRACT_API}/pipelines`);if(!r.ok)return'<span class="err">获取失败</span>';
+    const d=await r.json();const ps=d.pipelines||d||[];if(!ps.length)return'<span class="dim">暂无萃取管线</span>';
+    let o=`<span class="info">━━━ 萃取管线 (${ps.length}) ━━━</span>\n`;
+    const stageC={DRAFT:'dim',REVIEW:'cmd',APPROVAL:'layer-llm',PUBLISHED:'result',REJECTED:'err'};
+    ps.slice(0,15).forEach(p=>{o+=`  <span class="${stageC[p.current_stage]||'dim'}">${(p.current_stage||'?').padEnd(10)}</span> <span class="result">${(p.id||'').slice(0,8)}</span> ${(p.name||'?').slice(0,30)}\n`});
+    return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  const source=args.join(' ');
+  const tid=localStorage.getItem('selected_team')||'build_system';
+  try{const r=await fetch(`${EXTRACT_API}/pipelines`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:source,description:`从 ${source} 萃取技能`,team_id:tid,created_by:'dt-cli'})});
+  if(!r.ok)return`<span class="err">创建萃取管线失败: ${r.status}</span>`;
+  const p=await r.json();
+  addMsg('System','Extraction','tool-call',`萃取启动: ${source}`);simulatePipeline('extract:'+source.slice(0,15));
+  autoMoveForTask('extraction');
+  return`<span class="cmd">✓</span> 萃取管线已创建\n  ID: <span class="result">${(p.id||'').slice(0,8)}</span>\n  名称: ${source}\n  阶段: <span class="dim">DRAFT</span>\n  <span class="dim">使用 review ${(p.id||'').slice(0,8)} approve 推进</span>`}catch(e){return`<span class="err">${e.message}</span>`}
+}
+
+async function reviewCmd(args){
+  if(!args.length)return'<span class="info">review <pipeline_id> [approve|reject|status]</span>';
+  const pipeId=args[0];const action=args[1]||'status';
+  if(action==='status'){
+    try{const r=await fetch(`${EXTRACT_API}/pipelines/${pipeId}`);if(!r.ok)return`<span class="err">获取失败: ${r.status}</span>`;
+    const p=await r.json();
+    return`<span class="info">━━━ 管线详情 ━━━</span>\n  ID: <span class="result">${p.id}</span>\n  名称: ${p.name}\n  阶段: <span class="cmd">${p.current_stage}</span>\n  创建: ${p.created_at||'-'}\n  描述: ${p.description||'-'}`}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(action==='approve'){
+    try{const r=await fetch(`${EXTRACT_API}/pipelines/${pipeId}/advance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({triggered_by:'dt-cli',force:false})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));return`<span class="err">推进失败: ${e.error||r.status}</span>${e.reason?'\n  原因: '+e.reason:''}`}
+    const d=await r.json();addMsg('System','Extraction','response',`管线推进: ${pipeId.slice(0,8)}`);
+    return`<span class="cmd">✓</span> 管线已推进\n  ID: <span class="result">${pipeId.slice(0,8)}</span>\n  状态: ${d.status}`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  if(action==='reject'){
+    const reason=args.slice(2).join(' ')||'CLI拒绝';
+    try{const r=await fetch(`${EXTRACT_API}/pipelines/${pipeId}/reject`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({triggered_by:'dt-cli',reason})});
+    if(!r.ok)return`<span class="err">拒绝失败: ${r.status}</span>`;
+    addMsg('System','Extraction','response',`管线拒绝: ${pipeId.slice(0,8)}`);
+    return`<span class="cmd">✓</span> 已拒绝: <span class="result">${pipeId.slice(0,8)}</span>\n  原因: ${reason}`}catch(e){return`<span class="err">${e.message}</span>`}
+  }
+  return'<span class="info">review <id> [approve|reject|status]</span>';
+}
+
+async function evolveCmd(args){
+  if(!args.length)return'<span class="info">evolve audit | status | items | rating | cycle</span>';
+  if(args[0]==='status'){
+    try{const r=await fetch(`${EVOLVE_API}/status`);if(!r.ok)return'<span class="err">获取失败</span>';
+    const s=await r.json();
+    return`<span class="info">━━━ 演进引擎 ━━━</span>\n  状态: <span class="cmd">${s.status||'active'}</span>\n  规则数: <span class="result">${s.rules_count||'-'}</span>\n  最近审计: ${s.last_audit||'-'}\n  待处理项: <span class="amber">${s.pending_items||0}</span>`}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='audit'){
+    try{const r=await fetch(`${EVOLVE_API}/audit`,{method:'POST'});if(!r.ok)return'<span class="err">审计失败</span>';
+    const d=await r.json();addMsg('System','Evolution','tool-call','执行演进审计');simulatePipeline('evolve-audit');
+    const findings=d.findings||d.violations||[];
+    let o=`<span class="cmd">✓</span> 审计完成\n  发现问题: <span class="${findings.length?'err':'result'}">${findings.length}</span>\n`;
+    findings.slice(0,5).forEach(f=>{o+=`  <span class="dim">•</span> ${f.rule||f.message||f.description||JSON.stringify(f).slice(0,50)}\n`});
+    return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='items'){
+    try{const r=await fetch(`${EVOLVE_API}/items`);if(!r.ok)return'<span class="err">获取失败</span>';
+    const items=await r.json();if(!items.length)return'<span class="dim">暂无演进项</span>';
+    let o=`<span class="info">━━━ 演进项 (${items.length}) ━━━</span>\n`;
+    const sc={open:'cmd',in_progress:'layer-llm',verify_pending:'amber',closed:'result'};
+    items.slice(0,15).forEach(it=>{o+=`  <span class="${sc[it.status]||'dim'}">${(it.status||'?').padEnd(14)}</span> <span class="result">${(it.id||'').slice(0,8)}</span> ${(it.title||it.description||'').slice(0,30)}\n`});
+    return o}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='rating'){
+    try{const r=await fetch(`${EVOLVE_API}/compliance-rating`);if(!r.ok)return'<span class="err">获取失败</span>';
+    const d=await r.json();
+    const gradeC={A:'result',B:'cmd',C:'amber',D:'err',E:'err'};
+    return`<span class="info">━━━ 合规评级 ━━━</span>\n  等级: <span class="${gradeC[d.grade]||'dim'}" style="font-size:18px;font-weight:bold">${d.grade||'?'}</span>\n  分数: <span class="result">${d.rating||d.score||'-'}</span>/100\n  描述: ${d.description||'-'}\n  升级层: ${d.escalation_tier||'-'}`}catch{return'<span class="err">请求失败</span>'}
+  }
+  if(args[0]==='cycle'){
+    try{const r=await fetch(`${EVOLVE_API}/cycle`,{method:'POST'});if(!r.ok)return'<span class="err">执行失败</span>';
+    const d=await r.json();addMsg('System','Evolution','tool-call','完整演进循环');simulatePipeline('evolve-cycle');
+    return`<span class="cmd">✓</span> 演进循环已执行\n  ${JSON.stringify(d).slice(0,100)}`}catch{return'<span class="err">请求失败</span>'}
+  }
+  return'<span class="info">evolve audit | status | items | rating | cycle</span>';
+}
+
+async function optimizeCmd(args){
+  if(!args.length)return'<span class="info">optimize <skill_name> — 触发Hermes技能优化</span>';
+  const skillName=args.join(' ');
+  addMsg('System','Optimizer','tool-call',`优化技能: ${skillName}`);simulatePipeline('optimize:'+skillName.slice(0,12));
+  try{await fetch(`${EVOLVE_API}/cycle`,{method:'POST'})}catch{}
+  return`<span class="cmd">✓</span> 已触发技能优化: <span class="result">${skillName}</span>\n  <span class="dim">Hermes循环: baseline → mutation → evaluation → select</span>`;
+}
+
+async function healthCmd(){
+  let o=`<span class="info">━━━ 系统健康巡检 ━━━</span>\n`;
+  const activeCount=S.agents.filter(a=>a.state==='active').length;
+  o+=`  <span class="result">智能体</span>    ${activeCount}/${S.agents.length} 活跃 ${activeCount===S.agents.length?'<span class="cmd">✓</span>':'<span class="warn">⚠</span>'}\n`;
+  try{const r=await fetch(`${API}/tasks/stats`);if(r.ok){const s=await r.json();o+=`  <span class="result">任务引擎</span>  运行: ${s.running||0}/${s.max_concurrency||4} <span class="cmd">✓</span>\n`}else{o+=`  <span class="result">任务引擎</span>  <span class="dim">不可用</span>\n`}}catch{o+=`  <span class="result">任务引擎</span>  <span class="err">离线</span>\n`}
+  try{const r=await fetch(`${EXTRACT_API}/stats`);if(r.ok){const s=await r.json();o+=`  <span class="result">萃取管线</span>  ${s.total||0} 管线 <span class="cmd">✓</span>\n`}else{o+=`  <span class="result">萃取管线</span>  <span class="dim">不可用</span>\n`}}catch{o+=`  <span class="result">萃取管线</span>  <span class="err">离线</span>\n`}
+  try{const r=await fetch(`${EVOLVE_API}/compliance-rating`);if(r.ok){const d=await r.json();o+=`  <span class="result">合规评级</span>  ${d.grade||'?'} (${d.rating||'-'}/100) <span class="cmd">✓</span>\n`}else{o+=`  <span class="result">合规评级</span>  <span class="dim">不可用</span>\n`}}catch{o+=`  <span class="result">合规评级</span>  <span class="err">离线</span>\n`}
+  o+=`  <span class="result">SSE连接</span>   ${_sseConnection?'<span class="cmd">● 已连接 ('+(_sseDiscId||'').slice(0,8)+')</span>':'<span class="dim">○ 未连接</span>'}\n`;
+  const placed=Object.keys(S.positions).length;
+  o+=`  <span class="result">空间利用</span>  ${placed}/${S.agents.length} 已部署到空间\n`;
+  o+=`\n  <span class="dim">${new Date().toLocaleString('zh-CN')}</span>`;
+  return o;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 4: Workflow Engine
+// ═══════════════════════════════════════════════════════════════
+const WORKFLOWS={
+  'full-loop':{name:'完整闭环',desc:'从讨论到代码',steps:['discuss 性能优化方案','task create 执行优化','evolve audit']},
+  'skill-evolve':{name:'技能进化',desc:'从萃取到优化',steps:['extract status','evolve items','evolve rating']},
+  'health-check':{name:'质量巡检',desc:'全系统健康检查',steps:['health','evolve rating','extract status','task stats']},
+};
+
+async function workflowCmd(args){
+  if(!args.length||args[0]==='list'){
+    let o='<span class="info">━━━ 预定义工作流 ━━━</span>\n';
+    Object.entries(WORKFLOWS).forEach(([k,w])=>{o+=`  <span class="cmd">${k.padEnd(14)}</span> ${w.name} — ${w.desc}\n    <span class="dim">步骤: ${w.steps.join(' → ')}</span>\n`});
+    o+='\n  <span class="dim">用法: workflow <name> [参数]</span>';
+    return o;
+  }
+  const wfName=args[0];const wfArg=args.slice(1).join(' ');
+  const wf=WORKFLOWS[wfName];
+  if(!wf)return`<span class="err">未知工作流: ${wfName}</span>\n  <span class="dim">可用: ${Object.keys(WORKFLOWS).join(', ')}</span>`;
+  let o=`<span class="cmd">▶</span> 执行工作流: <span class="result">${wf.name}</span> (${wf.desc})\n`;
+  addMsg('System','Workflow','broadcast',`启动工作流: ${wf.name}`);
+  simulatePipeline('workflow:'+wfName);
+  for(let i=0;i<wf.steps.length;i++){
+    const step=wfArg&&i===0?wf.steps[i].split(' ')[0]+' '+wfArg:wf.steps[i];
+    o+=`  <span class="dim">[${i+1}/${wf.steps.length}]</span> <span class="cmd">${step}</span>\n`;
+    addExecLog('info',`[workflow] Step ${i+1}: ${step}`);
+    try{
+      const result=await processCmd(step);
+      if(result){const clean=result.replace(/<[^>]+>/g,'').slice(0,60);o+=`    <span class="dim">${clean}</span>\n`}
+    }catch(e){o+=`    <span class="err">失败: ${e.message}</span>\n`}
+  }
+  o+=`\n<span class="cmd">✓</span> 工作流完成: ${wf.name}`;
+  addMsg('System','Workflow','response',`工作流完成: ${wf.name}`);
+  return o;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 5: Smart Orchestration — Auto-move agents to rooms
+// ═══════════════════════════════════════════════════════════════
+function autoMoveForTask(targetRoomId){
+  const activeAgents=S.agents.filter(a=>a.state==='active');
+  if(!activeAgents.length)return;
+  const agent=activeAgents.find(a=>S.positions[a.agent_id]!==targetRoomId);
+  if(!agent)return;
+  const room=S.rooms.find(r=>r.id===targetRoomId);
+  if(!room)return;
+  S.positions[agent.agent_id]=targetRoomId;
+  persist();renderAgentList();renderEnvironment();
+  addMsg('System',agent.name,'handoff',`自动移动到「${room.name}」`);
+  addActivity(`▷ ${agent.name} → ${room.name} (自动编排)`);
+  fetch(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agent.agent_id,room_id:targetRoomId})}).catch(()=>{});
+}
+
+function camCmd(args){
+  if(!args.length)return`<span class="info">━━━ 摄像头路径 ━━━</span>
+  <span class="cmd">cam council</span>     飞到议事厅
+  <span class="cmd">cam extraction</span>  飞到萃取室
+  <span class="cmd">cam workshop</span>    飞到工作坊
+  <span class="cmd">cam library</span>     飞到知识库
+  <span class="cmd">cam arena</span>       飞到演练场
+  <span class="cmd">cam rest</span>        飞到休息区
+  <span class="cmd">cam overview</span>    鸟瞰全景
+  <span class="cmd">cam tour</span>        自动巡览全部空间
+  <span class="dim">需要先切换到环境空间3D视图</span>`;
+  const target=args[0].toLowerCase();
+  if(!_3dInitialized)return'<span class="warn">请先切换到环境空间 → 3D视图</span>';
+  if(target==='overview'){flyToOverview();return'<span class="cmd">✓</span> 飞往鸟瞰全景'}
+  if(target==='tour'){flyTour();return'<span class="cmd">▶</span> 3D巡览启动 — 依次飞越 6 个空间'}
+  if(ROOM_POS[target]){flyToRoom(target);
+    const names={council:'◇ 议事厅',extraction:'○ 萃取室',workshop:'□ 工作坊',library:'△ 知识库',arena:'◎ 演练场',rest:'◌ 休息区'};
+    return`<span class="cmd">✓</span> 飞往 <span class="result">${names[target]||target}</span>`}
+  return`<span class="err">未知空间: ${target}</span>\n  <span class="dim">可用: council extraction workshop library arena rest overview tour</span>`;
+}
+
+function exportCmd(type){
+  const data={version:'3.0',exported_at:new Date().toISOString(),agents:S.agents,rooms:S.rooms,positions:S.positions,messages:type==='snapshot'?S.messages:undefined,skills:type==='skills'?S.skills:undefined};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=`dt_${type||'snapshot'}_${Date.now()}.json`;a.click();URL.revokeObjectURL(url);
+  return`<span class="cmd">✓</span> 已导出`}
+
+// ── Messages & Simulation ──
+function addMsg(from,to,type,content){
+  const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  S.messages.push({from,to,type,content,time,duration:Math.floor(Math.random()*200+50)});
+  if(S.messages.length>200)S.messages=S.messages.slice(-100);
+  localStorage.setItem('dt2_messages',JSON.stringify(S.messages.slice(-100)));
+  document.getElementById('msg-count').textContent=S.messages.length;renderInteractions();
+}
+function addExecLog(type,msg){
+  const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  S.execLog.push({time,type,msg});if(S.execLog.length>100)S.execLog.shift();renderExecLog();
+}
+function simulatePipeline(task){
+  const steps=document.querySelectorAll('.pipeline-step');
+  const bar=document.getElementById('pipeline-progress-bar');
+  steps.forEach(s=>{s.classList.remove('active','done')});
+  bar.style.width='0%';
+  const labels=['输入解析','意图识别','任务路由','工具调用','结果聚合'];
+  let i=0;
+  const iv=setInterval(()=>{
+    if(i>0){steps[i-1].classList.remove('active');steps[i-1].classList.add('done')}
+    if(i<steps.length){steps[i].classList.add('active');addExecLog(i<2?'llm':'tool',`[Step ${i+1}] ${labels[i]}: ${task}`);bar.style.width=((i+1)/steps.length*100)+'%'}
+    else{clearInterval(iv);addExecLog('info',`完成: ${task}`);bar.style.width='100%';setTimeout(()=>{bar.style.width='0%'},2000)}
+    i++;
+  },800);
+}
+function startSim(){
+  // Freq chart — track real API call count per 2s window
+  let _freqBucket=0;
+  const _origFetch=window.fetch;
+  window.fetch=function(...args){_freqBucket++;return _origFetch.apply(this,args)};
+  setInterval(()=>{S.freqData.push(_freqBucket);_freqBucket=0;S.freqData.shift();renderFreqChart()},2000);
+  // Auto-refresh agent states every 30s
+  setInterval(async()=>{
+    await loadAgents();renderAgentList();renderStats();renderArchitecture();
+  },30000);
+}
+
+// ── Import/Export ──
+function importSnapshot(){document.getElementById('import-file').click()}
+function handleImport(ev){
+  const file=ev.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(data.rooms)S.rooms=data.rooms;
+      if(data.positions)S.positions=data.positions;
+      if(data.messages)S.messages=data.messages.slice(-100);
+      persist();
+      renderAgentList();renderEnvironment();renderInteractions();renderArchitecture();
+      toast('✓ 快照已导入');addActivity('快照导入');
+    }catch(err){toast('导入失败: '+err.message)}
+  };reader.readAsText(file);ev.target.value='';
+}
+
+// ── Keyboard Shortcuts ──
+document.addEventListener('keydown',function(e){
+  // Ctrl/Cmd+K → focus CLI
+  if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();switchView(document.querySelector('[data-view="cli"]'));document.getElementById('cli-input').focus()}
+  // Ctrl/Cmd+1-5 → switch views
+  if((e.ctrlKey||e.metaKey)&&['1','2','3','4','5'].includes(e.key)){e.preventDefault();const tabs=document.querySelectorAll('.nav-item');const idx=parseInt(e.key)-1;if(tabs[idx])switchView(tabs[idx])}
+  // Escape → clear CLI input
+  if(e.key==='Escape'){const inp=document.getElementById('cli-input');if(document.activeElement===inp)inp.value=''}
+});
+
+// ── Drag & Drop ──
+let _dragAgentId=null;
+function onDragStart(ev,agentId){_dragAgentId=agentId;ev.target.closest('.agent-card').classList.add('dragging');ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',agentId)}
+function onDragOver(ev){ev.preventDefault();ev.dataTransfer.dropEffect='move';ev.currentTarget.classList.add('drag-over')}
+function onDragLeave(ev){ev.currentTarget.classList.remove('drag-over')}
+function onDrop(ev,roomId){
+  ev.preventDefault();ev.currentTarget.classList.remove('drag-over');
+  const agentId=ev.dataTransfer.getData('text/plain')||_dragAgentId;
+  if(!agentId)return;
+  const agent=S.agents.find(a=>a.agent_id===agentId);const room=S.rooms.find(r=>r.id===roomId);
+  if(!agent||!room)return;
+  const old=S.rooms.find(r=>r.id===S.positions[agentId]);
+  S.positions[agentId]=roomId;persist();renderAgentList();renderEnvironment();
+  addMsg('System',agent.name,'handoff',`拖放移动到「${room.name}」`);addActivity(`${agent.name} → ${room.name}`);
+  fetch(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})}).catch(()=>{});
+  toast(`✓ ${agent.name} → ${room.name}`);
+  document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null;
+}
+document.addEventListener('dragend',()=>{document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null})
+
+function persist(){localStorage.setItem('dt2_rooms',JSON.stringify(S.rooms));localStorage.setItem('dt2_positions',JSON.stringify(S.positions));syncDtState()}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3000)}
+
+// ═══════════════════════════════════════════════════════════════
+// 3D stub — real rendering in module script below
+// ═══════════════════════════════════════════════════════════════
+let _3dCurrentRoom='council';
+const ROOM_NAMES={council:'◇ 议事厅',extraction:'○ 萃取室',workshop:'□ 工作坊',library:'△ 知识库',arena:'◎ 演练场',rest:'◌ 休息区'};
+
+function switchEnvMode(mode,btn){
+  document.querySelectorAll('#view-environment > .env-container > div:first-child .flow-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  document.getElementById('env-3d-container').style.display=mode==='grid'?'none':'block';
+  document.getElementById('room-tabs').style.display=mode==='grid'?'none':'flex';
+  document.getElementById('env-grid').style.display=mode==='grid'?'grid':'none';
+  if(mode==='grid')renderEnvironment();
+}
+
+function switchRoom(roomId,btn){
+  if(btn){document.querySelectorAll('#room-tabs .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
+  _3dCurrentRoom=roomId;
+  if(window._dt3dBuildRoom)window._dt3dBuildRoom(roomId);
+}
+
+function flyToRoom(roomId){
+  const ids=['council','extraction','workshop','library','arena','rest'];
+  const btns=document.querySelectorAll('#room-tabs .flow-btn');
+  const idx=ids.indexOf(roomId);if(idx>=0&&btns[idx])switchRoom(roomId,btns[idx]);
+}
+function flyToOverview(){if(window._dt3dSetCamera)window._dt3dSetCamera(0,25,25,0,0,0)}
+function flyTour(){const ids=['council','extraction','workshop','library','arena','rest'];let i=0;const next=()=>{if(i>=ids.length)return;flyToRoom(ids[i]);i++;setTimeout(next,2500)};next()}
+</script>
+
+<!-- ═══ Three.js ES Module — 直接搬运 plaza-dark + skill-extract 的3D物体 ═══ -->
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let scene,camera,renderer,controls,clock;
+let dustMesh,agentMeshes=[],myceliumGroup;
+let currentRoom='council';
+let initialized=false;
+
+// ── 文字标签 canvas ──
+function makeLabel(text){
+  const c=document.createElement('canvas');c.width=512;c.height=128;
+  const ctx=c.getContext('2d');
+  ctx.font='bold 36px "Noto Sans SC",sans-serif';
+  ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(text,256,64);
+  return c;
+}
+
+function makeColorLabel(text,hexColor){
+  const c=document.createElement('canvas');c.width=512;c.height=128;
+  const ctx=c.getContext('2d');
+  ctx.font='bold 36px "Noto Sans SC",sans-serif';
+  ctx.fillStyle=hexColor;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(text,256,64);
+  return c;
+}
+
+// ── 智能体人形 (来自 plaza-dark.html createAgentFigure) ──
+function createAgentFigure(name,hexColor,isChairman=false){
+  const group=new THREE.Group();
+  const col=new THREE.Color(hexColor);
+  const h=isChairman?1.1:0.85;
+  // Head
+  const head=new THREE.Mesh(new THREE.SphereGeometry(isChairman?0.35:0.26,16,16),
+    new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.15,roughness:0.6}));
+  head.position.y=h+0.8;head.castShadow=true;group.add(head);
+  // Body
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.22,h,8),
+    new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.08,roughness:0.7}));
+  body.position.y=h/2+0.15;body.castShadow=true;group.add(body);
+  // Arms
+  [-1,1].forEach(side=>{
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.5,6),
+      new THREE.MeshStandardMaterial({color:col,roughness:0.7}));
+    arm.position.set(side*0.28,h*0.55,0);arm.rotation.z=side*0.3;group.add(arm);
+  });
+  // Glow ring
+  const glowRing=new THREE.Mesh(new THREE.RingGeometry(0.45,0.65,32),
+    new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.15,side:THREE.DoubleSide}));
+  glowRing.rotation.x=-Math.PI/2;glowRing.position.y=0.02;group.add(glowRing);
+  group.userData.glowRing=glowRing;
+  // Point light
+  const pl=new THREE.PointLight(col,isChairman?0.6:0.2,isChairman?6:3);
+  pl.position.y=h+0.5;group.add(pl);
+  // Name sprite
+  const css='#'+col.getHexString();
+  const tex=new THREE.CanvasTexture(makeColorLabel(name,css));tex.minFilter=THREE.LinearFilter;
+  const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+  sprite.position.y=isChairman?2.5:1.95;sprite.scale.set(2.5,0.6,1);group.add(sprite);
+  group.userData.label=name;
+  return group;
+}
+
+// ── 技能水晶 (来自 skill-extract.html) ──
+function createSkillNode(name,hexColor,radius=0.2){
+  const g=new THREE.Group();const col=new THREE.Color(hexColor);
+  // 内核
+  const core=new THREE.Mesh(new THREE.OctahedronGeometry(radius,0),
+    new THREE.MeshPhongMaterial({color:col,emissive:col,emissiveIntensity:0.4,transparent:true,opacity:0.8}));
+  g.add(core);
+  // 外壳线框
+  const wire=new THREE.Mesh(new THREE.OctahedronGeometry(radius*1.4,0),
+    new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.3}));
+  g.add(wire);
+  // 光环
+  const ring=new THREE.Mesh(new THREE.RingGeometry(radius*1.2,radius*1.8,16),
+    new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.1,side:THREE.DoubleSide}));
+  ring.rotation.x=-Math.PI/2;g.add(ring);
+  g.userData.core=core;g.userData.wire=wire;
+  return g;
+}
+
+// ── 菌丝网络 (来自 skill-extract.html 的 mycelium) ──
+function buildMycelium(col){
+  const mg=new THREE.Group();
+  const mat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.12,side:THREE.DoubleSide});
+  function grow(origin,dir,len,thick,depth,maxD){
+    if(depth>maxD||len<0.25)return;
+    const pts=[origin.clone()];const steps=Math.max(Math.floor(len*5),3);
+    const cur=origin.clone();const d=dir.clone().normalize();
+    for(let i=1;i<=steps;i++){
+      const t=i/steps;const wobble=Math.sin(t*7+depth*2.5)*0.08;
+      cur.add(d.clone().multiplyScalar(len/steps));
+      cur.x+=(-d.z)*wobble;cur.z+=(d.x)*wobble;
+      cur.y=origin.y+Math.sin(t*Math.PI)*0.06*len;
+      pts.push(cur.clone());
+    }
+    const curve=new THREE.CatmullRomCurve3(pts);
+    mg.add(new THREE.Mesh(new THREE.TubeGeometry(curve,8,thick*(1-depth*0.3),6,false),mat.clone()));
+    const branches=Math.floor(2+Math.random()*2);
+    for(let b=0;b<branches;b++){
+      const a=Math.random()*Math.PI*2;const tilt=0.4+Math.random()*0.4;
+      const nd=d.clone().applyAxisAngle(new THREE.Vector3(Math.cos(a),0,Math.sin(a)),tilt);
+      grow(pts[pts.length-1],nd,len*0.6,thick*0.7,depth+1,maxD);
+    }
+  }
+  grow(new THREE.Vector3(0,0,0),new THREE.Vector3(0,1,0),2,0.08,0,3);
+  return mg;
+}
+
+// ── 浮尘粒子 ──
+function buildDust(count,radius,color){
+  const pos=new Float32Array(count*3);
+  for(let i=0;i<count;i++){pos[i*3]=(Math.random()-0.5)*radius;pos[i*3+1]=Math.random()*12;pos[i*3+2]=(Math.random()-0.5)*radius}
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  return new THREE.Points(geo,new THREE.PointsMaterial({color,size:0.05,transparent:true,opacity:0.3}));
+}
+
+// ══════════════════════════════════════════════════
+// 场景初始化
+// ══════════════════════════════════════════════════
+function initScene(){
+  const canvas=document.getElementById('env-3d-canvas');
+  const container=document.getElementById('env-3d-container');
+  const W=container.clientWidth||800,H=container.clientHeight||600;
+
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0f0e0d);
+  scene.fog=new THREE.FogExp2(0x0f0e0d,0.012);
+
+  camera=new THREE.PerspectiveCamera(50,W/H,0.1,200);
+  camera.position.set(0,22,22);
+
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  renderer.setClearColor(0x0f0e0d);
+  renderer.setSize(W,H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure=0.9;
+
+  controls=new OrbitControls(camera,canvas);
+  controls.enableDamping=true;controls.dampingFactor=0.06;
+  controls.minDistance=6;controls.maxDistance=50;
+  controls.maxPolarAngle=Math.PI/2.15;controls.target.set(0,0,0);
+
+  clock=new THREE.Clock();
+  if(!window._dt3dResizeObs){
+    window._dt3dResizeObs=new ResizeObserver(()=>{const w=container.clientWidth,h=container.clientHeight;if(w&&h){camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h)}});
+    window._dt3dResizeObs.observe(container);
+  }
+
+  initialized=true;
+  buildRoom('council');
+  animate();
+}
+
+// ── 清空场景 (properly dispose geometries/materials) ──
+function clearScene(){
+  scene.traverse(obj=>{
+    if(obj.geometry)obj.geometry.dispose();
+    if(obj.material){if(Array.isArray(obj.material))obj.material.forEach(m=>m.dispose());else obj.material.dispose()}
+  });
+  while(scene.children.length>0)scene.remove(scene.children[0]);
+  agentMeshes=[];dustMesh=null;myceliumGroup=null;
+}
+
+// ══════════════════════════════════════════════════
+// 6 个房间场景构建
+// ══════════════════════════════════════════════════
+function buildRoom(roomId){
+  if(!initialized)return;
+  clearScene();currentRoom=roomId;
+
+  // ── 通用光照 ──
+  scene.add(new THREE.AmbientLight(0xd4c4a8,0.35));
+  const dLight=new THREE.DirectionalLight(0xfff4e0,0.6);
+  dLight.position.set(10,20,8);dLight.castShadow=true;
+  dLight.shadow.mapSize.set(1024,1024);
+  dLight.shadow.camera.near=1;dLight.shadow.camera.far=50;
+  dLight.shadow.camera.left=-20;dLight.shadow.camera.right=20;
+  dLight.shadow.camera.top=20;dLight.shadow.camera.bottom=-20;
+  scene.add(dLight);
+  scene.add(new THREE.HemisphereLight(0xd4c4a8,0x2a2520,0.4));
+
+  // ── 浮尘 ──
+  dustMesh=buildDust(200,50,0xd4c4a8);scene.add(dustMesh);
+
+  switch(roomId){
+    case'council':buildCouncil();break;
+    case'extraction':buildExtraction();break;
+    case'workshop':buildWorkshop();break;
+    case'library':buildLibrary();break;
+    case'arena':buildArena();break;
+    case'rest':buildRest();break;
+  }
+
+  // ── 添加智能体 ──
+  const S=window.S;if(!S)return;
+  const colors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
+  const agents=S.agents.filter(a=>S.positions[a.agent_id]===roomId);
+  agents.forEach((ag,i)=>{
+    const angle=(Math.PI*2*i)/Math.max(agents.length,1)-Math.PI/2;
+    const r=4+agents.length*0.8;
+    const fig=createAgentFigure(ag.name||'Agent',colors[i%colors.length],i===0);
+    fig.position.set(r*Math.cos(angle),0,r*Math.sin(angle));
+    fig.lookAt(0,0,0);
+    scene.add(fig);agentMeshes.push(fig);
+  });
+  document.getElementById('env-3d-info').textContent=
+    (window.ROOM_NAMES||{})[roomId]+' — '+agents.length+' 个智能体';
+}
+
+// ── 议事厅 (plaza-dark.html 枯山水广场) ──
+function buildCouncil(){
+  camera.position.set(0,22,22);controls.target.set(0,0,0);
+  // 枯山水地面
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(30,64),
+    new THREE.MeshStandardMaterial({color:0x1a1816,roughness:0.95,metalness:0}));
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+  // 沙纹同心圆
+  [6,10,15,21].forEach(r=>{
+    const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.03,r+0.03,128),
+      new THREE.MeshBasicMaterial({color:0x2a2520,side:THREE.DoubleSide,transparent:true,opacity:0.35}));
+    ring.rotation.x=-Math.PI/2;ring.position.y=0.01;scene.add(ring);
+  });
+  // 中心石台
+  const plat=new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,0.25,32),
+    new THREE.MeshStandardMaterial({color:0x3a3020,roughness:0.7,metalness:0.3}));
+  plat.position.y=0.125;plat.castShadow=true;plat.receiveShadow=true;scene.add(plat);
+  // 枯山石
+  [[5,0,3],[-4,0,-5],[7,0,-2]].forEach(([x,,z])=>{
+    const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(0.6+Math.random()*0.5,0),
+      new THREE.MeshStandardMaterial({color:0x2a2520,roughness:0.9}));
+    rock.position.set(x,0.3,z);rock.scale.set(1,0.6,1);rock.castShadow=true;scene.add(rock);
+  });
+}
+
+// ── 萃取室 (skill-extract.html 培养皿+菌丝网络) ──
+function buildExtraction(){
+  camera.position.set(0,10,22);controls.target.set(0,2,0);
+  // 基质层
+  const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
+    new THREE.MeshStandardMaterial({color:0x1A2026,roughness:0.96,transparent:true,opacity:0.85}));
+  substrate.rotation.x=-Math.PI/2;scene.add(substrate);
+  // 培养皿边缘
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(25,0.15,6,48),
+    new THREE.MeshBasicMaterial({color:0x1E1A16,transparent:true,opacity:0.6}));
+  rim.rotation.x=-Math.PI/2;rim.position.y=0.08;scene.add(rim);
+  // 同心纹理
+  [5,10,15,20].forEach(r=>{
+    const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,48),
+      new THREE.MeshBasicMaterial({color:0x221E18,transparent:true,opacity:0.08}));
+    ring.rotation.x=-Math.PI/2;ring.position.y=0.002;scene.add(ring);
+  });
+  // 菌丝网络
+  myceliumGroup=buildMycelium(0x34d399);scene.add(myceliumGroup);
+  // 浮动技能水晶
+  const S=window.S;const skills=(S&&S.skills||[]).slice(0,8);
+  const skillColors=[0x34d399,0xfbbf24,0xa78bfa,0x22d3ee,0xf472b6,0x60a5fa,0x34d399,0xfbbf24];
+  skills.forEach((sk,i)=>{
+    const a=(Math.PI*2*i)/Math.max(skills.length,1);const r=6+i*0.8;
+    const node=createSkillNode(sk.name||'skill',skillColors[i%skillColors.length],0.25);
+    node.position.set(r*Math.cos(a),2+Math.random()*2,r*Math.sin(a));
+    scene.add(node);
+    // 名字标签
+    const tex=new THREE.CanvasTexture(makeColorLabel(sk.name||'skill','#'+new THREE.Color(skillColors[i%skillColors.length]).getHexString()));
+    tex.minFilter=THREE.LinearFilter;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+    sp.position.copy(node.position);sp.position.y+=0.6;sp.scale.set(2,0.5,1);scene.add(sp);
+  });
+  // 萃取漏斗
+  const funnel=new THREE.Mesh(new THREE.ConeGeometry(2.5,4,16,1,true),
+    new THREE.MeshBasicMaterial({color:0x34d399,wireframe:true,transparent:true,opacity:0.15}));
+  funnel.position.y=4;funnel.userData.spin=true;scene.add(funnel);
+}
+
+// ── 工作坊 ──
+function buildWorkshop(){
+  camera.position.set(0,12,16);controls.target.set(0,1,0);
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
+    new THREE.MeshStandardMaterial({color:0x141210,roughness:0.9}));
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+  // 工作台
+  const table=new THREE.Mesh(new THREE.BoxGeometry(5,0.15,2.5),
+    new THREE.MeshStandardMaterial({color:0x2a2218,roughness:0.6}));
+  table.position.y=1;table.castShadow=true;scene.add(table);
+  [[-2.3,0,-1.1],[2.3,0,-1.1],[-2.3,0,1.1],[2.3,0,1.1]].forEach(([x,,z])=>{
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1,6),
+      new THREE.MeshStandardMaterial({color:0x3a3020}));leg.position.set(x,0.5,z);scene.add(leg)});
+  // 显示器
+  [-1.2,0,1.2].forEach(x=>{
+    const mon=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.6,0.04),
+      new THREE.MeshPhongMaterial({color:0x111b28,emissive:0xfbbf24,emissiveIntensity:0.25}));
+    mon.position.set(x,1.5,0);mon.castShadow=true;scene.add(mon)});
+  // 白板
+  const board=new THREE.Mesh(new THREE.BoxGeometry(3.5,2,0.08),
+    new THREE.MeshStandardMaterial({color:0x1a1a2a,roughness:0.3}));
+  board.position.set(0,2.2,-6);scene.add(board);
+  scene.add(new THREE.PointLight(0xfbbf24,0.4,15).translateY(6));
+}
+
+// ── 知识库 ──
+function buildLibrary(){
+  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
+    new THREE.MeshStandardMaterial({color:0x12101a,roughness:0.8}));
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+  // 书架环绕
+  for(let i=0;i<8;i++){const a=(Math.PI*2*i)/8;const r=8;
+    const shelf=new THREE.Mesh(new THREE.BoxGeometry(3,4,0.3),
+      new THREE.MeshStandardMaterial({color:0x1a1428,roughness:0.7}));
+    shelf.position.set(r*Math.cos(a),2,r*Math.sin(a));shelf.lookAt(0,2,0);shelf.castShadow=true;scene.add(shelf);
+    for(let j=0;j<5;j++){const bc=[0xa78bfa,0x60a5fa,0x34d399,0xfbbf24,0xf472b6][j];
+      const book=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.5+Math.random()*0.4,0.18),
+        new THREE.MeshStandardMaterial({color:bc}));
+      book.position.set(r*Math.cos(a)+Math.cos(a+Math.PI/2)*(j-2)*0.35,0.8+j*0.65,r*Math.sin(a)+Math.sin(a+Math.PI/2)*(j-2)*0.35);
+      book.lookAt(0,book.position.y,0);scene.add(book)}}
+  // 阅读桌
+  const desk=new THREE.Mesh(new THREE.CylinderGeometry(2,2,0.1,16),
+    new THREE.MeshStandardMaterial({color:0x2a2040}));desk.position.y=0.9;scene.add(desk);
+  // 知识球
+  for(let i=0;i<6;i++){const ko=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),
+    new THREE.MeshPhongMaterial({color:0xa78bfa,emissive:0xa78bfa,emissiveIntensity:0.5,transparent:true,opacity:0.4}));
+    ko.position.set((Math.random()-0.5)*6,2.5+Math.random()*2,(Math.random()-0.5)*6);scene.add(ko)}
+  scene.add(new THREE.PointLight(0xffeedd,0.4,12).translateY(5));
+}
+
+// ── 演练场 ──
+function buildArena(){
+  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  const ground=new THREE.Mesh(new THREE.CylinderGeometry(10,10.5,0.4,8),
+    new THREE.MeshStandardMaterial({color:0x1a0e14,metalness:0.3,roughness:0.4}));
+  ground.receiveShadow=true;scene.add(ground);
+  // 围绳
+  const col=0xf472b6;
+  for(let i=0;i<4;i++){const a=(Math.PI*2*i)/4+Math.PI/4;
+    const post=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,2.5,8),
+      new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.1}));
+    post.position.set(6*Math.cos(a),1.25,6*Math.sin(a));post.castShadow=true;scene.add(post);
+    scene.add(new THREE.PointLight(col,0.15,6).translateY(3).translateX(6*Math.cos(a)).translateZ(6*Math.sin(a)));
+  }
+  for(let i=0;i<4;i++){const a1=(Math.PI*2*i)/4+Math.PI/4,a2=(Math.PI*2*((i+1)%4))/4+Math.PI/4;
+    const pts=[new THREE.Vector3(6*Math.cos(a1),1.8,6*Math.sin(a1)),new THREE.Vector3(6*Math.cos(a2),1.8,6*Math.sin(a2))];
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.3})))}
+  // 记分牌
+  const board=new THREE.Mesh(new THREE.BoxGeometry(2.5,1.2,0.08),
+    new THREE.MeshPhongMaterial({color:0x111118,emissive:col,emissiveIntensity:0.1}));
+  board.position.set(0,5.5,0);scene.add(board);
+  const sl=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(makeColorLabel('A/B TEST','#f472b6')),transparent:true}));
+  sl.position.set(0,5.5,0.1);sl.scale.set(3,0.8,1);scene.add(sl);
+  // 靶子
+  for(let i=0;i<3;i++){
+    const dm=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,1.2,8),new THREE.MeshStandardMaterial({color:0x3a2030}));
+    dm.position.set(-2.5+i*2.5,0.6,0);dm.castShadow=true;scene.add(dm);
+    const dh=new THREE.Mesh(new THREE.SphereGeometry(0.2,8,8),new THREE.MeshStandardMaterial({color:0x4a2535}));
+    dh.position.set(-2.5+i*2.5,1.5,0);scene.add(dh)}
+}
+
+// ── 休息区 ──
+function buildRest(){
+  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
+    new THREE.MeshStandardMaterial({color:0x0e1018,roughness:0.9}));
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+  // 篝火
+  scene.add(new THREE.PointLight(0xff8833,0.8,15).translateY(1));
+  [{r:0.14,l:0.8,x:0,z:0},{r:0.1,l:0.6,x:0.25,z:0.1},{r:0.08,l:0.5,x:-0.15,z:0.15}].forEach(lg=>{
+    const log=new THREE.Mesh(new THREE.CylinderGeometry(lg.r,lg.r*0.8,lg.l,8),
+      new THREE.MeshStandardMaterial({color:0x3a2510,roughness:0.9}));
+    log.position.set(lg.x,0.15,lg.z);log.rotation.z=Math.PI/2;scene.add(log)});
+  for(let i=0;i<8;i++){const sp=new THREE.Mesh(new THREE.SphereGeometry(0.05,6,6),
+    new THREE.MeshBasicMaterial({color:0xff6622,transparent:true,opacity:0.6}));
+    sp.position.set((Math.random()-0.5)*0.5,0.4+Math.random()*0.8,(Math.random()-0.5)*0.5);scene.add(sp)}
+  // 豆袋
+  [0x223355,0x332255,0x225533,0x553322].forEach((cc,i)=>{const a=(Math.PI*2*i)/4+Math.PI/4;
+    const ch=new THREE.Mesh(new THREE.SphereGeometry(0.7,8,6),new THREE.MeshStandardMaterial({color:cc,roughness:0.9}));
+    ch.position.set(4*Math.cos(a),0.35,4*Math.sin(a));ch.scale.set(1,0.55,1);scene.add(ch)});
+  // 月亮星星
+  const moon=new THREE.Mesh(new THREE.SphereGeometry(0.8,16,16),
+    new THREE.MeshPhongMaterial({color:0xddeeff,emissive:0x8899bb,emissiveIntensity:0.3,transparent:true,opacity:0.2}));
+  moon.position.set(-4,8,0);scene.add(moon);
+  for(let i=0;i<15;i++){const st=new THREE.Mesh(new THREE.SphereGeometry(0.03,4,4),
+    new THREE.MeshBasicMaterial({color:0xffffff}));
+    st.position.set((Math.random()-0.5)*14,5+Math.random()*5,(Math.random()-0.5)*14);scene.add(st)}
+  scene.add(new THREE.PointLight(0x60a5fa,0.3,15).translateY(8));
+}
+
+// ══════════════════════════════════════════════════
+// 动画循环
+// ══════════════════════════════════════════════════
+function animate(){
+  requestAnimationFrame(animate);
+  if(!controls||!renderer)return;
+  const t=clock.getElapsedTime();
+  controls.update();
+  // 浮尘飘动
+  if(dustMesh){const p=dustMesh.geometry.attributes.position.array;
+    for(let i=0;i<p.length;i+=3){p[i+1]+=Math.sin(t*0.3+i)*0.002;if(p[i+1]>12)p[i+1]=0}
+    dustMesh.geometry.attributes.position.needsUpdate=true}
+  // 智能体轻微浮动
+  agentMeshes.forEach((fig,i)=>{fig.position.y=Math.sin(t*0.8+i)*0.04});
+  // 萃取漏斗旋转
+  scene.children.forEach(c=>{if(c.userData&&c.userData.spin)c.rotation.y=t*0.5});
+  // 菌丝脉动
+  if(myceliumGroup){const wave=Math.sin(t*0.6)*0.5+0.5;
+    myceliumGroup.children.forEach(m=>{if(m.material)m.material.opacity=0.05+wave*0.12})}
+  renderer.render(scene,camera);
+}
+
+// ══════════════════════════════════════════════════
+// 暴露给全局调用
+// ══════════════════════════════════════════════════
+window._dt3dBuildRoom=function(roomId){
+  if(!initialized){initScene();setTimeout(()=>buildRoom(roomId),100)}
+  else buildRoom(roomId);
+};
+window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
+  if(!camera||!controls)return;
+  camera.position.set(px,py,pz);controls.target.set(tx,ty,tz);
+};
+
+// 首次进入环境空间时初始化
+const observer=new MutationObserver(()=>{
+  const panel=document.getElementById('view-environment');
+  if(panel&&panel.classList.contains('active')&&!initialized){
+    setTimeout(initScene,100);observer.disconnect();
+  }
+});
+observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+</script>
+</body>
+</html>
