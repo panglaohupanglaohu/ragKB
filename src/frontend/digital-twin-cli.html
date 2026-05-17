@@ -1621,24 +1621,46 @@ function buildRoom(roomId){
 // ── 议事厅 (plaza-dark.html 枯山水广场) ──
 function buildCouncil(){
   _camGoal=new THREE.Vector3(0,22,22);_tgtGoal=new THREE.Vector3(0,0,0);
-  // 枯山水地面
+  // 枯山水地面 (灰白砂)
   const ground=new THREE.Mesh(new THREE.CircleGeometry(30,64),
-    new THREE.MeshStandardMaterial({color:0x161d27,roughness:0.95,metalness:0}));
+    new THREE.MeshStandardMaterial({color:0xd0ccc8,roughness:0.95,metalness:0}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 沙纹同心圆
   [6,10,15,21].forEach(r=>{
-    const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.03,r+0.03,128),
-      new THREE.MeshBasicMaterial({color:0x2a3545,side:THREE.DoubleSide,transparent:true,opacity:0.3}));
+    const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.04,r+0.04,128),
+      new THREE.MeshBasicMaterial({color:0xb8b4b0,side:THREE.DoubleSide,transparent:true,opacity:0.4}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.01;scene.add(ring);
   });
   // 中心石台
   const plat=new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,0.25,32),
-    new THREE.MeshStandardMaterial({color:0x2a3548,roughness:0.7,metalness:0.3}));
+    new THREE.MeshStandardMaterial({color:0x4a4540,roughness:0.7,metalness:0.3}));
   plat.position.y=0.125;plat.castShadow=true;plat.receiveShadow=true;scene.add(plat);
+  // 环形石座 (8个蒲团式座位)
+  for(let i=0;i<8;i++){
+    const a=(Math.PI*2*i)/8;const r=6;
+    // 座垫 (扁圆柱)
+    const seat=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.55,0.12,16),
+      new THREE.MeshStandardMaterial({color:0x3a3530,roughness:0.8}));
+    seat.position.set(r*Math.cos(a),0.06,r*Math.sin(a));seat.castShadow=true;scene.add(seat);
+    // 坐垫面料 (稍浅色圆顶)
+    const cushion=new THREE.Mesh(new THREE.SphereGeometry(0.42,12,6,0,Math.PI*2,0,Math.PI/3),
+      new THREE.MeshStandardMaterial({color:0x5c554e,roughness:0.9}));
+    cushion.position.set(r*Math.cos(a),0.12,r*Math.sin(a));scene.add(cushion);
+  }
+  // 第二圈石座 (12个)
+  for(let i=0;i<12;i++){
+    const a=(Math.PI*2*i)/12+Math.PI/12;const r=10;
+    const seat=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.5,0.1,16),
+      new THREE.MeshStandardMaterial({color:0x3a3530,roughness:0.85}));
+    seat.position.set(r*Math.cos(a),0.05,r*Math.sin(a));seat.castShadow=true;scene.add(seat);
+    const cushion=new THREE.Mesh(new THREE.SphereGeometry(0.38,12,6,0,Math.PI*2,0,Math.PI/3),
+      new THREE.MeshStandardMaterial({color:0x5c554e,roughness:0.9}));
+    cushion.position.set(r*Math.cos(a),0.1,r*Math.sin(a));scene.add(cushion);
+  }
   // 枯山石
-  [[5,0,3],[-4,0,-5],[7,0,-2]].forEach(([x,,z])=>{
+  [[5,0,3],[-4,0,-5],[7,0,-2],[-6,0,4],[3,0,-7]].forEach(([x,,z])=>{
     const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(0.6+Math.random()*0.5,0),
-      new THREE.MeshStandardMaterial({color:0x1e2a38,roughness:0.9}));
+      new THREE.MeshStandardMaterial({color:0x4a4540,roughness:0.9}));
     rock.position.set(x,0.3,z);rock.scale.set(1,0.6,1);rock.castShadow=true;scene.add(rock);
   });
 }
@@ -1646,18 +1668,18 @@ function buildCouncil(){
 // ── 萃取室 (skill-extract.html 培养皿+菌丝网络) ──
 function buildExtraction(){
   _camGoal=new THREE.Vector3(0,10,22);_tgtGoal=new THREE.Vector3(0,2,0);
-  // 基质层
+  // 基质层 (灰白培养基底)
   const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
-    new THREE.MeshStandardMaterial({color:0x141a22,roughness:0.96,transparent:true,opacity:0.85}));
+    new THREE.MeshStandardMaterial({color:0xd8d4d0,roughness:0.96,transparent:true,opacity:0.9}));
   substrate.rotation.x=-Math.PI/2;scene.add(substrate);
   // 培养皿边缘
   const rim=new THREE.Mesh(new THREE.TorusGeometry(25,0.15,6,48),
-    new THREE.MeshBasicMaterial({color:0x1e2a36,transparent:true,opacity:0.6}));
+    new THREE.MeshBasicMaterial({color:0xa0a0a0,transparent:true,opacity:0.6}));
   rim.rotation.x=-Math.PI/2;rim.position.y=0.08;scene.add(rim);
   // 同心纹理
   [5,10,15,20].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,48),
-      new THREE.MeshBasicMaterial({color:0x1e2836,transparent:true,opacity:0.08}));
+      new THREE.MeshBasicMaterial({color:0x90a0b0,transparent:true,opacity:0.15}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.002;scene.add(ring);
   });
   // 菌丝网络
