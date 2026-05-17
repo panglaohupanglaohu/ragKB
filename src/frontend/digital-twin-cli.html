@@ -1410,6 +1410,7 @@ let scene,camera,renderer,controls,clock;
 let dustMesh,agentMeshes=[],myceliumGroup;
 let currentRoom='council';
 let initialized=false;
+let _camGoal=null,_tgtGoal=null;
 
 // ── 文字标签 canvas ──
 function makeLabel(text){
@@ -1579,18 +1580,18 @@ function buildRoom(roomId){
   clearScene();currentRoom=roomId;
 
   // ── 通用光照 ──
-  scene.add(new THREE.AmbientLight(0xd4c4a8,0.35));
-  const dLight=new THREE.DirectionalLight(0xfff4e0,0.6);
+  scene.add(new THREE.AmbientLight(0xc8d4e0,0.5));
+  const dLight=new THREE.DirectionalLight(0xe8f0ff,0.7);
   dLight.position.set(10,20,8);dLight.castShadow=true;
   dLight.shadow.mapSize.set(1024,1024);
   dLight.shadow.camera.near=1;dLight.shadow.camera.far=50;
   dLight.shadow.camera.left=-20;dLight.shadow.camera.right=20;
   dLight.shadow.camera.top=20;dLight.shadow.camera.bottom=-20;
   scene.add(dLight);
-  scene.add(new THREE.HemisphereLight(0xd4c4a8,0x2a2520,0.4));
+  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.45));
 
   // ── 浮尘 ──
-  dustMesh=buildDust(200,50,0xd4c4a8);scene.add(dustMesh);
+  dustMesh=buildDust(200,50,0x8899aa);scene.add(dustMesh);
 
   switch(roomId){
     case'council':buildCouncil();break;
@@ -1619,7 +1620,7 @@ function buildRoom(roomId){
 
 // ── 议事厅 (plaza-dark.html 枯山水广场) ──
 function buildCouncil(){
-  camera.position.set(0,22,22);controls.target.set(0,0,0);
+  _camGoal=new THREE.Vector3(0,22,22);_tgtGoal=new THREE.Vector3(0,0,0);
   // 枯山水地面
   const ground=new THREE.Mesh(new THREE.CircleGeometry(30,64),
     new THREE.MeshStandardMaterial({color:0x161d27,roughness:0.95,metalness:0}));
@@ -1644,7 +1645,7 @@ function buildCouncil(){
 
 // ── 萃取室 (skill-extract.html 培养皿+菌丝网络) ──
 function buildExtraction(){
-  camera.position.set(0,10,22);controls.target.set(0,2,0);
+  _camGoal=new THREE.Vector3(0,10,22);_tgtGoal=new THREE.Vector3(0,2,0);
   // 基质层
   const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
     new THREE.MeshStandardMaterial({color:0x141a22,roughness:0.96,transparent:true,opacity:0.85}));
@@ -1683,7 +1684,7 @@ function buildExtraction(){
 
 // ── 工作坊 ──
 function buildWorkshop(){
-  camera.position.set(0,12,16);controls.target.set(0,1,0);
+  _camGoal=new THREE.Vector3(0,12,16);_tgtGoal=new THREE.Vector3(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x131a22,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
@@ -1701,14 +1702,14 @@ function buildWorkshop(){
     mon.position.set(x,1.5,0);mon.castShadow=true;scene.add(mon)});
   // 白板
   const board=new THREE.Mesh(new THREE.BoxGeometry(3.5,2,0.08),
-    new THREE.MeshStandardMaterial({color:0x1a1a2a,roughness:0.3}));
+    new THREE.MeshStandardMaterial({color:0x1a2030,roughness:0.3}));
   board.position.set(0,2.2,-6);scene.add(board);
   scene.add(new THREE.PointLight(0xfbbf24,0.4,15).translateY(6));
 }
 
 // ── 知识库 ──
 function buildLibrary(){
-  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x121620,roughness:0.8}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
@@ -1724,17 +1725,17 @@ function buildLibrary(){
       book.lookAt(0,book.position.y,0);scene.add(book)}}
   // 阅读桌
   const desk=new THREE.Mesh(new THREE.CylinderGeometry(2,2,0.1,16),
-    new THREE.MeshStandardMaterial({color:0x2a2040}));desk.position.y=0.9;scene.add(desk);
+    new THREE.MeshStandardMaterial({color:0x1e2636}));desk.position.y=0.9;scene.add(desk);
   // 知识球
   for(let i=0;i<6;i++){const ko=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),
     new THREE.MeshPhongMaterial({color:0xa78bfa,emissive:0xa78bfa,emissiveIntensity:0.5,transparent:true,opacity:0.4}));
     ko.position.set((Math.random()-0.5)*6,2.5+Math.random()*2,(Math.random()-0.5)*6);scene.add(ko)}
-  scene.add(new THREE.PointLight(0xffeedd,0.4,12).translateY(5));
+  scene.add(new THREE.PointLight(0xc8e0ff,0.5,12).translateY(5));
 }
 
 // ── 演练场 ──
 function buildArena(){
-  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
   const ground=new THREE.Mesh(new THREE.CylinderGeometry(10,10.5,0.4,8),
     new THREE.MeshStandardMaterial({color:0x141822,metalness:0.3,roughness:0.4}));
   ground.receiveShadow=true;scene.add(ground);
@@ -1765,7 +1766,7 @@ function buildArena(){
 
 // ── 休息区 ──
 function buildRest(){
-  camera.position.set(0,14,18);controls.target.set(0,1,0);
+  _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x0e1420,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
@@ -1799,6 +1800,9 @@ function animate(){
   requestAnimationFrame(animate);
   if(!controls||!renderer)return;
   const t=clock.getElapsedTime();
+  // 相机平滑过渡
+  if(_camGoal){camera.position.lerp(_camGoal,0.06);if(camera.position.distanceTo(_camGoal)<0.02){camera.position.copy(_camGoal);_camGoal=null}}
+  if(_tgtGoal){controls.target.lerp(_tgtGoal,0.06);if(controls.target.distanceTo(_tgtGoal)<0.02){controls.target.copy(_tgtGoal);_tgtGoal=null}}
   controls.update();
   // 浮尘飘动
   if(dustMesh){const p=dustMesh.geometry.attributes.position.array;
@@ -1823,7 +1827,7 @@ window._dt3dBuildRoom=function(roomId){
 };
 window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
   if(!camera||!controls)return;
-  camera.position.set(px,py,pz);controls.target.set(tx,ty,tz);
+  _camGoal=new THREE.Vector3(px,py,pz);_tgtGoal=new THREE.Vector3(tx,ty,tz);
 };
 
 // 首次进入环境空间时初始化
