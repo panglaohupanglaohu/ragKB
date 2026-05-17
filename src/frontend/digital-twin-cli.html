@@ -425,7 +425,7 @@ body {
           <button class="flow-btn" onclick="switchRoom('arena',this)">演练场</button>
           <button class="flow-btn" onclick="switchRoom('rest',this)">休息区</button>
         </div>
-        <div id="env-3d-container" style="position:relative;width:100%;height:640px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#0f0e0d;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3)">
+        <div id="env-3d-container" style="position:relative;width:100%;height:640px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#111820;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3)">
           <canvas id="env-3d-canvas" style="width:100%;height:100%;display:block"></canvas>
           <div style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
             <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
@@ -1223,8 +1223,12 @@ async function workflowCmd(args){
     addExecLog('info',`[workflow] Step ${i+1}: ${step}`);
     try{
       const result=await processCmd(step);
-      if(result){const clean=result.replace(/<[^>]+>/g,'').slice(0,60);o+=`    <span class="dim">${clean}</span>\n`}
-    }catch(e){o+=`    <span class="err">失败: ${e.message}</span>\n`}
+      if(result){
+        const clean=result.replace(/<[^>]+>/g,'').slice(0,60);
+        o+=`    <span class="dim">${clean}</span>\n`;
+        if(result.includes('class="err"')){o+=`    <span class="warn">▲ 步骤失败，工作流中止</span>\n`;break}
+      }
+    }catch(e){o+=`    <span class="err">失败: ${e.message}</span>\n`;break}
   }
   o+=`\n<span class="cmd">✓</span> 工作流完成: ${wf.name}`;
   addMsg('System','Workflow','response',`工作流完成: ${wf.name}`);
@@ -1400,6 +1404,8 @@ function flyTour(){const ids=['council','extraction','workshop','library','arena
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+if(!THREE){document.getElementById('env-3d-info').textContent='⚠ Three.js 加载失败'}
+
 let scene,camera,renderer,controls,clock;
 let dustMesh,agentMeshes=[],myceliumGroup;
 let currentRoom='council';
@@ -1524,14 +1530,14 @@ function initScene(){
   const W=container.clientWidth||800,H=container.clientHeight||600;
 
   scene=new THREE.Scene();
-  scene.background=new THREE.Color(0x0f0e0d);
-  scene.fog=new THREE.FogExp2(0x0f0e0d,0.012);
+  scene.background=new THREE.Color(0x111820);
+  scene.fog=new THREE.FogExp2(0x111820,0.012);
 
   camera=new THREE.PerspectiveCamera(50,W/H,0.1,200);
   camera.position.set(0,22,22);
 
   renderer=new THREE.WebGLRenderer({canvas,antialias:true});
-  renderer.setClearColor(0x0f0e0d);
+  renderer.setClearColor(0x111820);
   renderer.setSize(W,H);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
   renderer.shadowMap.enabled=true;
@@ -1616,22 +1622,22 @@ function buildCouncil(){
   camera.position.set(0,22,22);controls.target.set(0,0,0);
   // 枯山水地面
   const ground=new THREE.Mesh(new THREE.CircleGeometry(30,64),
-    new THREE.MeshStandardMaterial({color:0x1a1816,roughness:0.95,metalness:0}));
+    new THREE.MeshStandardMaterial({color:0x161d27,roughness:0.95,metalness:0}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 沙纹同心圆
   [6,10,15,21].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.03,r+0.03,128),
-      new THREE.MeshBasicMaterial({color:0x2a2520,side:THREE.DoubleSide,transparent:true,opacity:0.35}));
+      new THREE.MeshBasicMaterial({color:0x2a3545,side:THREE.DoubleSide,transparent:true,opacity:0.3}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.01;scene.add(ring);
   });
   // 中心石台
   const plat=new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,0.25,32),
-    new THREE.MeshStandardMaterial({color:0x3a3020,roughness:0.7,metalness:0.3}));
+    new THREE.MeshStandardMaterial({color:0x2a3548,roughness:0.7,metalness:0.3}));
   plat.position.y=0.125;plat.castShadow=true;plat.receiveShadow=true;scene.add(plat);
   // 枯山石
   [[5,0,3],[-4,0,-5],[7,0,-2]].forEach(([x,,z])=>{
     const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(0.6+Math.random()*0.5,0),
-      new THREE.MeshStandardMaterial({color:0x2a2520,roughness:0.9}));
+      new THREE.MeshStandardMaterial({color:0x1e2a38,roughness:0.9}));
     rock.position.set(x,0.3,z);rock.scale.set(1,0.6,1);rock.castShadow=true;scene.add(rock);
   });
 }
@@ -1641,16 +1647,16 @@ function buildExtraction(){
   camera.position.set(0,10,22);controls.target.set(0,2,0);
   // 基质层
   const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
-    new THREE.MeshStandardMaterial({color:0x1A2026,roughness:0.96,transparent:true,opacity:0.85}));
+    new THREE.MeshStandardMaterial({color:0x141a22,roughness:0.96,transparent:true,opacity:0.85}));
   substrate.rotation.x=-Math.PI/2;scene.add(substrate);
   // 培养皿边缘
   const rim=new THREE.Mesh(new THREE.TorusGeometry(25,0.15,6,48),
-    new THREE.MeshBasicMaterial({color:0x1E1A16,transparent:true,opacity:0.6}));
+    new THREE.MeshBasicMaterial({color:0x1e2a36,transparent:true,opacity:0.6}));
   rim.rotation.x=-Math.PI/2;rim.position.y=0.08;scene.add(rim);
   // 同心纹理
   [5,10,15,20].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,48),
-      new THREE.MeshBasicMaterial({color:0x221E18,transparent:true,opacity:0.08}));
+      new THREE.MeshBasicMaterial({color:0x1e2836,transparent:true,opacity:0.08}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.002;scene.add(ring);
   });
   // 菌丝网络
@@ -1679,15 +1685,15 @@ function buildExtraction(){
 function buildWorkshop(){
   camera.position.set(0,12,16);controls.target.set(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
-    new THREE.MeshStandardMaterial({color:0x141210,roughness:0.9}));
+    new THREE.MeshStandardMaterial({color:0x131a22,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 工作台
   const table=new THREE.Mesh(new THREE.BoxGeometry(5,0.15,2.5),
-    new THREE.MeshStandardMaterial({color:0x2a2218,roughness:0.6}));
+    new THREE.MeshStandardMaterial({color:0x1e2836,roughness:0.6}));
   table.position.y=1;table.castShadow=true;scene.add(table);
   [[-2.3,0,-1.1],[2.3,0,-1.1],[-2.3,0,1.1],[2.3,0,1.1]].forEach(([x,,z])=>{
     const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1,6),
-      new THREE.MeshStandardMaterial({color:0x3a3020}));leg.position.set(x,0.5,z);scene.add(leg)});
+      new THREE.MeshStandardMaterial({color:0x263040}));leg.position.set(x,0.5,z);scene.add(leg)});
   // 显示器
   [-1.2,0,1.2].forEach(x=>{
     const mon=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.6,0.04),
@@ -1704,12 +1710,12 @@ function buildWorkshop(){
 function buildLibrary(){
   camera.position.set(0,14,18);controls.target.set(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
-    new THREE.MeshStandardMaterial({color:0x12101a,roughness:0.8}));
+    new THREE.MeshStandardMaterial({color:0x121620,roughness:0.8}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 书架环绕
   for(let i=0;i<8;i++){const a=(Math.PI*2*i)/8;const r=8;
     const shelf=new THREE.Mesh(new THREE.BoxGeometry(3,4,0.3),
-      new THREE.MeshStandardMaterial({color:0x1a1428,roughness:0.7}));
+      new THREE.MeshStandardMaterial({color:0x1a2030,roughness:0.7}));
     shelf.position.set(r*Math.cos(a),2,r*Math.sin(a));shelf.lookAt(0,2,0);shelf.castShadow=true;scene.add(shelf);
     for(let j=0;j<5;j++){const bc=[0xa78bfa,0x60a5fa,0x34d399,0xfbbf24,0xf472b6][j];
       const book=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.5+Math.random()*0.4,0.18),
@@ -1730,7 +1736,7 @@ function buildLibrary(){
 function buildArena(){
   camera.position.set(0,14,18);controls.target.set(0,1,0);
   const ground=new THREE.Mesh(new THREE.CylinderGeometry(10,10.5,0.4,8),
-    new THREE.MeshStandardMaterial({color:0x1a0e14,metalness:0.3,roughness:0.4}));
+    new THREE.MeshStandardMaterial({color:0x141822,metalness:0.3,roughness:0.4}));
   ground.receiveShadow=true;scene.add(ground);
   // 围绳
   const col=0xf472b6;
@@ -1761,13 +1767,13 @@ function buildArena(){
 function buildRest(){
   camera.position.set(0,14,18);controls.target.set(0,1,0);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
-    new THREE.MeshStandardMaterial({color:0x0e1018,roughness:0.9}));
+    new THREE.MeshStandardMaterial({color:0x0e1420,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 篝火
   scene.add(new THREE.PointLight(0xff8833,0.8,15).translateY(1));
   [{r:0.14,l:0.8,x:0,z:0},{r:0.1,l:0.6,x:0.25,z:0.1},{r:0.08,l:0.5,x:-0.15,z:0.15}].forEach(lg=>{
     const log=new THREE.Mesh(new THREE.CylinderGeometry(lg.r,lg.r*0.8,lg.l,8),
-      new THREE.MeshStandardMaterial({color:0x3a2510,roughness:0.9}));
+      new THREE.MeshStandardMaterial({color:0x1e2a38,roughness:0.9}));
     log.position.set(lg.x,0.15,lg.z);log.rotation.z=Math.PI/2;scene.add(log)});
   for(let i=0;i<8;i++){const sp=new THREE.Mesh(new THREE.SphereGeometry(0.05,6,6),
     new THREE.MeshBasicMaterial({color:0xff6622,transparent:true,opacity:0.6}));
