@@ -1486,31 +1486,44 @@ function createSkillNode(name,hexColor,radius=0.2){
   return g;
 }
 
-// ── 菌丝网络 (来自 skill-extract.html 的 mycelium) ──
+// ── 菌丝网络 (照搬 skill-extract.html 的 buildVesselNerveScaffold) ──
 function buildMycelium(col){
   const mg=new THREE.Group();
-  const mat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.12,side:THREE.DoubleSide});
+  const myceliumColor=new THREE.Color(col);
   function grow(origin,dir,len,thick,depth,maxD){
     if(depth>maxD||len<0.25)return;
     const pts=[origin.clone()];const steps=Math.max(Math.floor(len*5),3);
     const cur=origin.clone();const d=dir.clone().normalize();
     for(let i=1;i<=steps;i++){
-      const t=i/steps;const wobble=Math.sin(t*7+depth*2.5)*0.08;
+      const t=i/steps;const wobble=Math.sin(t*7+depth*2.5)*0.08*(1+depth*0.3);
+      const perpX=-d.z,perpZ=d.x;
       cur.add(d.clone().multiplyScalar(len/steps));
-      cur.x+=(-d.z)*wobble;cur.z+=(d.x)*wobble;
+      cur.x+=perpX*wobble;cur.z+=perpZ*wobble;
       cur.y=origin.y+Math.sin(t*Math.PI)*0.06*len;
       pts.push(cur.clone());
     }
     const curve=new THREE.CatmullRomCurve3(pts);
-    mg.add(new THREE.Mesh(new THREE.TubeGeometry(curve,8,thick*(1-depth*0.3),6,false),mat.clone()));
-    const branches=Math.floor(2+Math.random()*2);
+    const depthRatio=1-depth/maxD;
+    const mat=new THREE.MeshBasicMaterial({
+      color:myceliumColor,transparent:true,opacity:0.06+depthRatio*0.18,side:THREE.DoubleSide
+    });
+    mg.add(new THREE.Mesh(new THREE.TubeGeometry(curve,Math.max(steps*2,4),thick,3,false),mat));
+    const endPt=pts[pts.length-1];
+    const branches=depth<2?2:1;
     for(let b=0;b<branches;b++){
-      const a=Math.random()*Math.PI*2;const tilt=0.4+Math.random()*0.4;
-      const nd=d.clone().applyAxisAngle(new THREE.Vector3(Math.cos(a),0,Math.sin(a)),tilt);
-      grow(pts[pts.length-1],nd,len*0.6,thick*0.7,depth+1,maxD);
+      const spread=(b/branches)*Math.PI*1.4-Math.PI*0.7;
+      const newDir=new THREE.Vector3(
+        d.x*Math.cos(spread)-d.z*Math.sin(spread),0,
+        d.x*Math.sin(spread)+d.z*Math.cos(spread)
+      ).normalize();
+      newDir.x+=(Math.random()-0.5)*0.35;newDir.z+=(Math.random()-0.5)*0.35;newDir.normalize();
+      grow(endPt,newDir,len*(0.5+Math.random()*0.28),thick*0.6,depth+1,maxD);
     }
   }
-  grow(new THREE.Vector3(0,0,0),new THREE.Vector3(0,1,0),2,0.08,0,3);
+  [0,1.57,3.14,4.71].forEach(angle=>{
+    grow(new THREE.Vector3(0,0.06,0),new THREE.Vector3(Math.cos(angle),0,Math.sin(angle)),
+      3.0+Math.random()*1.2,0.035+Math.random()*0.012,0,4);
+  });
   return mg;
 }
 
@@ -1579,20 +1592,6 @@ function buildRoom(roomId){
   if(!initialized)return;
   clearScene();currentRoom=roomId;
 
-  // ── 通用光照 ──
-  scene.add(new THREE.AmbientLight(0xc8d4e0,0.5));
-  const dLight=new THREE.DirectionalLight(0xe8f0ff,0.7);
-  dLight.position.set(10,20,8);dLight.castShadow=true;
-  dLight.shadow.mapSize.set(1024,1024);
-  dLight.shadow.camera.near=1;dLight.shadow.camera.far=50;
-  dLight.shadow.camera.left=-20;dLight.shadow.camera.right=20;
-  dLight.shadow.camera.top=20;dLight.shadow.camera.bottom=-20;
-  scene.add(dLight);
-  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.45));
-
-  // ── 浮尘 ──
-  dustMesh=buildDust(200,50,0x8899aa);scene.add(dustMesh);
-
   switch(roomId){
     case'council':buildCouncil();break;
     case'extraction':buildExtraction();break;
@@ -1621,68 +1620,65 @@ function buildRoom(roomId){
 // ── 议事厅 (plaza-dark.html 枯山水广场) ──
 function buildCouncil(){
   _camGoal=new THREE.Vector3(0,22,22);_tgtGoal=new THREE.Vector3(0,0,0);
-  // 枯山水地面 (灰白砂)
+  // 场景氛围 (照搬 plaza-dark)
+  scene.background=new THREE.Color(0x0f0e0d);
+  scene.fog=new THREE.FogExp2(0x0f0e0d,0.012);
+  renderer.setClearColor(0x0f0e0d);
+  // 光照 (照搬 plaza-dark)
+  scene.add(new THREE.AmbientLight(0xd4c4a8,0.35));
+  const dLight=new THREE.DirectionalLight(0xfff4e0,0.6);
+  dLight.position.set(10,20,8);dLight.castShadow=true;
+  dLight.shadow.mapSize.set(1024,1024);
+  dLight.shadow.camera.near=1;dLight.shadow.camera.far=50;
+  dLight.shadow.camera.left=-20;dLight.shadow.camera.right=20;
+  dLight.shadow.camera.top=20;dLight.shadow.camera.bottom=-20;
+  scene.add(dLight);
+  scene.add(new THREE.HemisphereLight(0xd4c4a8,0x2a2520,0.4));
+  // 地面 (照搬 plaza-dark: 0x1a1816)
   const ground=new THREE.Mesh(new THREE.CircleGeometry(30,64),
-    new THREE.MeshStandardMaterial({color:0xd0ccc8,roughness:0.95,metalness:0}));
+    new THREE.MeshStandardMaterial({color:0x1a1816,roughness:0.95,metalness:0}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
-  // 沙纹同心圆
+  // 涟漪同心圆 (照搬 plaza-dark: 0x2a2520, opacity 0.35)
   [6,10,15,21].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.04,r+0.04,128),
-      new THREE.MeshBasicMaterial({color:0xb8b4b0,side:THREE.DoubleSide,transparent:true,opacity:0.4}));
+      new THREE.MeshBasicMaterial({color:0x2a2520,side:THREE.DoubleSide,transparent:true,opacity:0.35}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.01;scene.add(ring);
   });
-  // 中心石台
+  // 中心石台 (照搬 plaza-dark: 0x3a3020)
   const plat=new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,0.25,32),
-    new THREE.MeshStandardMaterial({color:0x4a4540,roughness:0.7,metalness:0.3}));
+    new THREE.MeshStandardMaterial({color:0x3a3020,roughness:0.7,metalness:0.3}));
   plat.position.y=0.125;plat.castShadow=true;plat.receiveShadow=true;scene.add(plat);
-  // 环形石座 (8个蒲团式座位)
-  for(let i=0;i<8;i++){
-    const a=(Math.PI*2*i)/8;const r=6;
-    // 座垫 (扁圆柱)
-    const seat=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.55,0.12,16),
-      new THREE.MeshStandardMaterial({color:0x3a3530,roughness:0.8}));
-    seat.position.set(r*Math.cos(a),0.06,r*Math.sin(a));seat.castShadow=true;scene.add(seat);
-    // 坐垫面料 (稍浅色圆顶)
-    const cushion=new THREE.Mesh(new THREE.SphereGeometry(0.42,12,6,0,Math.PI*2,0,Math.PI/3),
-      new THREE.MeshStandardMaterial({color:0x5c554e,roughness:0.9}));
-    cushion.position.set(r*Math.cos(a),0.12,r*Math.sin(a));scene.add(cushion);
-  }
-  // 第二圈石座 (12个)
-  for(let i=0;i<12;i++){
-    const a=(Math.PI*2*i)/12+Math.PI/12;const r=10;
-    const seat=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.5,0.1,16),
-      new THREE.MeshStandardMaterial({color:0x3a3530,roughness:0.85}));
-    seat.position.set(r*Math.cos(a),0.05,r*Math.sin(a));seat.castShadow=true;scene.add(seat);
-    const cushion=new THREE.Mesh(new THREE.SphereGeometry(0.38,12,6,0,Math.PI*2,0,Math.PI/3),
-      new THREE.MeshStandardMaterial({color:0x5c554e,roughness:0.9}));
-    cushion.position.set(r*Math.cos(a),0.1,r*Math.sin(a));scene.add(cushion);
-  }
-  // 枯山石
-  [[5,0,3],[-4,0,-5],[7,0,-2],[-6,0,4],[3,0,-7]].forEach(([x,,z])=>{
-    const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(0.6+Math.random()*0.5,0),
-      new THREE.MeshStandardMaterial({color:0x4a4540,roughness:0.9}));
-    rock.position.set(x,0.3,z);rock.scale.set(1,0.6,1);rock.castShadow=true;scene.add(rock);
-  });
+  // 浮尘 (照搬 plaza-dark: color 0xd4c4a8, size 0.04, opacity 0.3, 200粒子)
+  dustMesh=buildDust(200,60,0xd4c4a8);scene.add(dustMesh);
 }
 
 // ── 萃取室 (skill-extract.html 培养皿+菌丝网络) ──
 function buildExtraction(){
   _camGoal=new THREE.Vector3(0,10,22);_tgtGoal=new THREE.Vector3(0,2,0);
-  // 基质层 (灰白培养基底)
+  // 场景氛围 (照搬 skill-extract)
+  scene.background=new THREE.Color(0x1A2026);
+  scene.fog=new THREE.FogExp2(0x1A2026,0.016);
+  renderer.setClearColor(0x1A2026);
+  // 光照 (照搬 skill-extract)
+  scene.add(new THREE.AmbientLight(0x2A2828,0.18));
+  const mainLight=new THREE.DirectionalLight(0x554840,0.45);
+  mainLight.position.set(5,25,8);scene.add(mainLight);
+  scene.add(new THREE.HemisphereLight(0x2A2828,0x181614,0.08));
+  // 基质层 (照搬 skill-extract: 0x1A2026)
   const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
-    new THREE.MeshStandardMaterial({color:0xd8d4d0,roughness:0.96,transparent:true,opacity:0.9}));
+    new THREE.MeshStandardMaterial({color:0x1A2026,roughness:0.96,metalness:0,transparent:true,opacity:0.85}));
   substrate.rotation.x=-Math.PI/2;scene.add(substrate);
-  // 培养皿边缘
+  // 培养皿边缘 (照搬 skill-extract: 0x1E1A16)
   const rim=new THREE.Mesh(new THREE.TorusGeometry(25,0.15,6,48),
-    new THREE.MeshBasicMaterial({color:0xa0a0a0,transparent:true,opacity:0.6}));
+    new THREE.MeshBasicMaterial({color:0x1E1A16,transparent:true,opacity:0.6}));
   rim.rotation.x=-Math.PI/2;rim.position.y=0.08;scene.add(rim);
-  // 同心纹理
+  // 同心纹理 (照搬 skill-extract: 0x221E18, opacity 0.08)
   [5,10,15,20].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,48),
-      new THREE.MeshBasicMaterial({color:0x90a0b0,transparent:true,opacity:0.15}));
+      new THREE.MeshBasicMaterial({color:0x221E18,transparent:true,opacity:0.08}));
     ring.rotation.x=-Math.PI/2;ring.position.y=0.002;scene.add(ring);
   });
-  // 菌丝网络
+  // 菌丝网络 (照搬 skill-extract 的 buildVesselNerveScaffold 水平分枝)
   myceliumGroup=buildMycelium(0x34d399);scene.add(myceliumGroup);
   // 浮动技能水晶
   const S=window.S;const skills=(S&&S.skills||[]).slice(0,8);
@@ -1692,7 +1688,6 @@ function buildExtraction(){
     const node=createSkillNode(sk.name||'skill',skillColors[i%skillColors.length],0.25);
     node.position.set(r*Math.cos(a),2+Math.random()*2,r*Math.sin(a));
     scene.add(node);
-    // 名字标签
     const tex=new THREE.CanvasTexture(makeColorLabel(sk.name||'skill','#'+new THREE.Color(skillColors[i%skillColors.length]).getHexString()));
     tex.minFilter=THREE.LinearFilter;
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
@@ -1702,11 +1697,18 @@ function buildExtraction(){
   const funnel=new THREE.Mesh(new THREE.ConeGeometry(2.5,4,16,1,true),
     new THREE.MeshBasicMaterial({color:0x34d399,wireframe:true,transparent:true,opacity:0.15}));
   funnel.position.y=4;funnel.userData.spin=true;scene.add(funnel);
+  // 浮尘 (照搬 skill-extract: color 0x584838, size 0.1, opacity 0.3)
+  dustMesh=buildDust(120,50,0x584838);scene.add(dustMesh);
 }
 
 // ── 工作坊 ──
 function buildWorkshop(){
   _camGoal=new THREE.Vector3(0,12,16);_tgtGoal=new THREE.Vector3(0,1,0);
+  scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.012);renderer.setClearColor(0x111820);
+  scene.add(new THREE.AmbientLight(0xc8d4e0,0.4));
+  const dl=new THREE.DirectionalLight(0xe8f0ff,0.5);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
+  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.3));
+  dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x131a22,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
@@ -1732,6 +1734,11 @@ function buildWorkshop(){
 // ── 知识库 ──
 function buildLibrary(){
   _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
+  scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.012);renderer.setClearColor(0x111820);
+  scene.add(new THREE.AmbientLight(0xc8d4e0,0.4));
+  const dl=new THREE.DirectionalLight(0xe8f0ff,0.5);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
+  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.3));
+  dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x121620,roughness:0.8}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
@@ -1758,6 +1765,11 @@ function buildLibrary(){
 // ── 演练场 ──
 function buildArena(){
   _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
+  scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.012);renderer.setClearColor(0x111820);
+  scene.add(new THREE.AmbientLight(0xc8d4e0,0.4));
+  const dl=new THREE.DirectionalLight(0xe8f0ff,0.5);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
+  scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.3));
+  dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CylinderGeometry(10,10.5,0.4,8),
     new THREE.MeshStandardMaterial({color:0x141822,metalness:0.3,roughness:0.4}));
   ground.receiveShadow=true;scene.add(ground);
@@ -1789,6 +1801,10 @@ function buildArena(){
 // ── 休息区 ──
 function buildRest(){
   _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
+  scene.background=new THREE.Color(0x0e1420);scene.fog=new THREE.FogExp2(0x0e1420,0.01);renderer.setClearColor(0x0e1420);
+  scene.add(new THREE.AmbientLight(0x8899aa,0.25));
+  scene.add(new THREE.HemisphereLight(0x8899aa,0x0e1420,0.2));
+  dustMesh=buildDust(100,40,0x556688);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
     new THREE.MeshStandardMaterial({color:0x0e1420,roughness:0.9}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
