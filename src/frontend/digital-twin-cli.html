@@ -92,6 +92,7 @@ body {
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions a { font-size: 12px; color: var(--muted); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s; }
 .header-actions a:hover { border-color: var(--cyan); color: var(--cyan); }
+.header-actions .gn-cur { font-size: 12px; color: var(--cyan); padding: 6px 12px; border: 1px solid var(--cyan); border-radius: 6px; pointer-events: none; cursor: default; }
 .status-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--green); }
 .status-indicator .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
@@ -343,7 +344,11 @@ body {
     <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
     <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
     <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
-    <a href="/agent-team-config.html">← 主控台</a>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取/赋予</a>
+    <span class="gn-cur">数字孪生</span>
+    <a href="/system-evolution.html">系统演进</a>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
   </div>
 </div>
@@ -426,14 +431,7 @@ body {
             <button class="btn" onclick="createRoom()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 创建空间</button>
           </div>
         </div>
-        <div id="room-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button class="flow-btn active" onclick="switchRoom('council',this)">议事厅</button>
-          <button class="flow-btn" onclick="switchRoom('extraction',this)">萃取室</button>
-          <button class="flow-btn" onclick="switchRoom('workshop',this)">工作坊</button>
-          <button class="flow-btn" onclick="switchRoom('library',this)">知识库</button>
-          <button class="flow-btn" onclick="switchRoom('arena',this)">演练场</button>
-          <button class="flow-btn" onclick="switchRoom('rest',this)">休息区</button>
-        </div>
+        <div id="room-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
         <div id="env-3d-container" style="position:relative;width:100%;height:640px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#111820;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3)">
           <canvas id="env-3d-canvas" style="width:100%;height:100%;display:block"></canvas>
           <div style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
@@ -509,14 +507,15 @@ window.S=S;
 async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
-  renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderStats();renderFreqChart();renderActivityFeed();
+  renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
   setInterval(loadLiveMetrics,10000);
   startSim();
 }
 async function loadDtState(){try{const r=await fetch(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
 async function syncDtState(){try{await fetch(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
 function loadLocal(){
-  S.rooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null')||defaultRooms();
+  const storedRooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null');
+  S.rooms=(storedRooms&&storedRooms.length)?storedRooms:defaultRooms();
   S.positions=JSON.parse(localStorage.getItem('dt2_positions')||'{}');
   S.messages=JSON.parse(localStorage.getItem('dt2_messages')||'[]').slice(-100);
   S.interactionCount=parseInt(localStorage.getItem('dt2_interactions')||'0');
@@ -557,6 +556,8 @@ function toggleTeam(tid,btn){
   const idx=S.selectedTeams.indexOf(tid);
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
   renderTeamSelector();renderAgentList();
+  // 同步刷新协作拓扑（如果当前可见）
+  if(document.getElementById('arch-sub-topo').style.display!=='none')renderTopology();
   // 重建当前3D房间以刷新智能体
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
 }
@@ -567,7 +568,7 @@ function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
   document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('view-'+el.dataset.view).classList.add('active');
-  if(el.dataset.view==='environment'){setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
+  if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
 }
 
 function renderAgentList(){
@@ -701,13 +702,19 @@ function renderTopology(){
   const svg=document.getElementById('topo-svg');
   const W=svg.clientWidth||800,H=460;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  if(!S.agents.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#576375" font-size="14">加载智能体数据后显示拓扑...</text>`;return}
-  const colors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
+  const teamColors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
+  // Filter agents by selected teams, matching left panel behavior
+  const visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId));
+  if(!visibleAgents.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#576375" font-size="14">${S.agents.length?'请在左侧选择至少一个团队':'加载智能体数据后显示拓扑...'}</text>`;return}
+  // Build team color map (matching left panel's teamColors)
+  const teamColorMap={};
+  S.teams.filter(t=>S.selectedTeams.includes(t.id)).forEach((t,i)=>{teamColorMap[t.id]=teamColors[i%teamColors.length]});
   const cx=W/2,cy=H/2,radius=Math.min(W,H)*0.32;
   // Position agents in circle
-  const nodes=S.agents.map((a,i)=>{
-    const angle=(2*Math.PI*i)/S.agents.length-Math.PI/2;
-    return{...a,x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle),color:colors[i%6],r:16+((a.skills||[]).length)*3};
+  const nodes=visibleAgents.map((a,i)=>{
+    const angle=(2*Math.PI*i)/visibleAgents.length-Math.PI/2;
+    const color=teamColorMap[a._teamId]||teamColors[i%6];
+    return{...a,x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle),color,r:16+((a.skills||[]).length)*3};
   });
   // Build edges from interaction messages
   const edgeMap={};
@@ -847,6 +854,11 @@ function renderExecLog(){
   el.innerHTML=S.execLog.slice(-20).map(l=>`<div class="exec-log-item"><span class="ts">${l.time}</span><span class="tag" style="background:${tagC[l.type]||tagC.info}">${l.type}</span><span class="content">${esc(l.msg)}</span></div>`).join('')||'<div style="padding:16px;color:var(--dim);font-size:12px;text-align:center">等待任务执行...</div>';
 }
 
+function renderRoomTabs(){
+  const el=document.getElementById('room-tabs');if(!el)return;
+  if(!S.rooms||!S.rooms.length)S.rooms=defaultRooms();
+  el.innerHTML=S.rooms.map((r,i)=>`<button class="flow-btn${i===0?' active':''}" onclick="switchRoom('${r.id}',this)">${r.name}</button>`).join('');
+}
 function renderEnvironment(){
   const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
   document.getElementById('env-grid').innerHTML=S.rooms.map(r=>{
@@ -856,7 +868,7 @@ function renderEnvironment(){
   if(_3dInitialized)update3DEnv();
 }
 function showRoom(id){const r=S.rooms.find(x=>x.id===id);if(!r)return;const ag=S.agents.filter(a=>S.positions[a.agent_id]===id);toast(`${r.icon} ${r.name} — ${ag.length} 智能体: ${ag.map(a=>a.name).join(', ')||'(空)'}`)}
-function createRoom(){const name=prompt('新空间名称:');if(!name)return;S.rooms.push({id:'r_'+Date.now().toString(36),name,icon:prompt('图标:','◇')||'◇',desc:prompt('描述:','')||'',color:'var(--muted)'});persist();renderEnvironment();toast('空间已创建: '+name)}
+function createRoom(){const name=prompt('新空间名称:');if(!name)return;S.rooms.push({id:'r_'+Date.now().toString(36),name,icon:prompt('图标:','◇')||'◇',desc:prompt('描述:','')||'',color:'var(--muted)'});persist();renderEnvironment();renderRoomTabs();toast('空间已创建: '+name)}
 
 function renderStats(){
   document.getElementById('stat-agents').textContent=S.agents.length;
@@ -1583,7 +1595,10 @@ function toast(msg){const el=document.createElement('div');el.className='toast';
 // 3D stub — real rendering in module script below
 // ═══════════════════════════════════════════════════════════════
 let _3dCurrentRoom='council';
-const ROOM_NAMES={council:'◇ 议事厅',extraction:'○ 萃取室',workshop:'□ 工作坊',library:'△ 知识库',arena:'◎ 演练场',rest:'◌ 休息区'};
+function getRoomName(id){const r=(window.S&&window.S.rooms||[]).find(x=>x.id===id);return r?(r.icon+' '+r.name):id;}
+window.getRoomName=getRoomName;
+const ROOM_NAMES=new Proxy({},{get:(_,k)=>getRoomName(k)});
+window.ROOM_NAMES=ROOM_NAMES;
 
 function switchEnvMode(mode,btn){
   document.querySelectorAll('#view-environment > .env-container > div:first-child .flow-btn').forEach(b=>b.classList.remove('active'));
@@ -1601,12 +1616,12 @@ function switchRoom(roomId,btn){
 }
 
 function flyToRoom(roomId){
-  const ids=['council','extraction','workshop','library','arena','rest'];
   const btns=document.querySelectorAll('#room-tabs .flow-btn');
-  const idx=ids.indexOf(roomId);if(idx>=0&&btns[idx])switchRoom(roomId,btns[idx]);
+  const idx=S.rooms.findIndex(r=>r.id===roomId);
+  if(idx>=0&&btns[idx])switchRoom(roomId,btns[idx]);
 }
 function flyToOverview(){if(window._dt3dSetCamera)window._dt3dSetCamera(0,25,25,0,0,0)}
-function flyTour(){const ids=['council','extraction','workshop','library','arena','rest'];let i=0;const next=()=>{if(i>=ids.length)return;flyToRoom(ids[i]);i++;setTimeout(next,2500)};next()}
+function flyTour(){let i=0;const next=()=>{if(i>=S.rooms.length)return;flyToRoom(S.rooms[i].id);i++;setTimeout(next,2500)};next()}
 </script>
 
 <!-- ═══ Three.js ES Module — 直接搬运 plaza-dark + skill-extract 的3D物体 ═══ -->
@@ -1975,14 +1990,15 @@ function buildExtraction(){
   scene.background=new THREE.Color(0x1A2026);
   scene.fog=new THREE.FogExp2(0x1A2026,0.016);
   renderer.setClearColor(0x1A2026);
-  // 光照 (照搬 skill-extract)
-  scene.add(new THREE.AmbientLight(0x2A2828,0.18));
-  const mainLight=new THREE.DirectionalLight(0x554840,0.45);
-  mainLight.position.set(5,25,8);scene.add(mainLight);
-  scene.add(new THREE.HemisphereLight(0x2A2828,0x181614,0.08));
+  // 光照 (参考 council 提亮)
+  scene.add(new THREE.AmbientLight(0x8090A0,0.12));
+  const mainLight=new THREE.DirectionalLight(0xC0C8D0,0.5);
+  mainLight.position.set(5,25,8);mainLight.castShadow=true;scene.add(mainLight);
+  scene.add(new THREE.HemisphereLight(0x8899A2,0x2A2828,0.1));
+  const accentLight=new THREE.PointLight(0x34d399,0.3,20);accentLight.position.set(0,8,0);scene.add(accentLight);
   // 基质层 (照搬 skill-extract: 0x1A2026)
   const substrate=new THREE.Mesh(new THREE.CircleGeometry(25,48),
-    new THREE.MeshStandardMaterial({color:0x1A2026,roughness:0.96,metalness:0,transparent:true,opacity:0.85}));
+    new THREE.MeshStandardMaterial({color:0x8A9095,roughness:0.88,metalness:0,transparent:true,opacity:0.95}));
   substrate.rotation.x=-Math.PI/2;scene.add(substrate);
   // 培养皿边缘 (照搬 skill-extract: 0x1E1A16)
   const rim=new THREE.Mesh(new THREE.TorusGeometry(25,0.15,6,48),
@@ -2015,16 +2031,17 @@ function buildExtraction(){
 
 // ── 工作坊 (双层透明玻璃屏幕 + 智能体) ──
 function buildWorkshop(){
-  _camGoal=new THREE.Vector3(0,10,18);_tgtGoal=new THREE.Vector3(0,3,0);
+  _camGoal=new THREE.Vector3(0,14,26);_tgtGoal=new THREE.Vector3(0,3,0);
   scene.background=new THREE.Color(0x0E1318);scene.fog=new THREE.FogExp2(0x0E1318,0.008);renderer.setClearColor(0x0E1318);
-  // 光照
-  scene.add(new THREE.AmbientLight(0x8090A0,0.15));
-  const dl=new THREE.DirectionalLight(0xC0C8D0,0.35);dl.position.set(4,20,6);dl.castShadow=true;
+  // 光照 (参考 council 提亮)
+  scene.add(new THREE.AmbientLight(0x9099A2,0.12));
+  const dl=new THREE.DirectionalLight(0xC7D0D8,0.46);dl.position.set(4,20,6);dl.castShadow=true;
   dl.shadow.mapSize.set(1024,1024);scene.add(dl);
-  scene.add(new THREE.HemisphereLight(0x7088A0,0x1A1A20,0.12));
+  scene.add(new THREE.HemisphereLight(0x8899A2,0x1A2026,0.1));
+  const fillLight=new THREE.PointLight(0x60a5fa,0.2,18);fillLight.position.set(0,10,0);scene.add(fillLight);
   // 地面
   const ground=new THREE.Mesh(new THREE.CircleGeometry(22,64),
-    new THREE.MeshStandardMaterial({color:0x141A20,roughness:0.92,metalness:0}));
+    new THREE.MeshStandardMaterial({color:0x7A8898,roughness:0.88,metalness:0}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   [5,10,16].forEach(r=>{
     const ring=new THREE.Mesh(new THREE.RingGeometry(r-0.02,r+0.02,64),
@@ -2115,14 +2132,14 @@ function buildWorkshop(){
 
 // ── 知识库 ──
 function buildLibrary(){
-  _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
+  _camGoal=new THREE.Vector3(0,17,22);_tgtGoal=new THREE.Vector3(0,1,0);
   scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.008);renderer.setClearColor(0x111820);
   scene.add(new THREE.AmbientLight(0xc8d4e0,0.7));
   const dl=new THREE.DirectionalLight(0xe8f0ff,0.7);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
   scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.5));
   dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CircleGeometry(18,48),
-    new THREE.MeshStandardMaterial({color:0x121620,roughness:0.8}));
+    new THREE.MeshStandardMaterial({color:0x4A5A6E,roughness:0.8}));
   ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   // 水晶书架环绕
   for(let i=0;i<8;i++){const a=(Math.PI*2*i)/8;const r=8;
@@ -2152,14 +2169,14 @@ function buildLibrary(){
 
 // ── 演练场 ──
 function buildArena(){
-  _camGoal=new THREE.Vector3(0,14,18);_tgtGoal=new THREE.Vector3(0,1,0);
+  _camGoal=new THREE.Vector3(0,17,22);_tgtGoal=new THREE.Vector3(0,1,0);
   scene.background=new THREE.Color(0x111820);scene.fog=new THREE.FogExp2(0x111820,0.008);renderer.setClearColor(0x111820);
   scene.add(new THREE.AmbientLight(0xc8d4e0,0.7));
   const dl=new THREE.DirectionalLight(0xe8f0ff,0.7);dl.position.set(5,15,8);dl.castShadow=true;scene.add(dl);
   scene.add(new THREE.HemisphereLight(0xc8d4e0,0x111820,0.5));
   dustMesh=buildDust(150,40,0x8899aa);scene.add(dustMesh);
   const ground=new THREE.Mesh(new THREE.CylinderGeometry(10,10.5,0.4,8),
-    new THREE.MeshStandardMaterial({color:0x141822,metalness:0.3,roughness:0.4}));
+    new THREE.MeshStandardMaterial({color:0x828890,metalness:0.3,roughness:0.4}));
   ground.receiveShadow=true;scene.add(ground);
   // 围绳
   const col=0xf472b6;
@@ -2188,15 +2205,16 @@ function buildArena(){
 
 // ── 休息区 · 现代发光枯山水 (致敬龙安寺) ──
 function buildRest(){
-  _camGoal=new THREE.Vector3(0,18,26);_tgtGoal=new THREE.Vector3(0,0,-2);
-  scene.background=new THREE.Color(0x060a12);scene.fog=new THREE.FogExp2(0x060a12,0.004);renderer.setClearColor(0x060a12);
-  scene.add(new THREE.AmbientLight(0x556677,0.3));
-  scene.add(new THREE.HemisphereLight(0x445566,0x060a12,0.25));
+  _camGoal=new THREE.Vector3(0,15,22);_tgtGoal=new THREE.Vector3(0,0,-2);
+  scene.background=new THREE.Color(0x0a0e16);scene.fog=new THREE.FogExp2(0x0a0e16,0.004);renderer.setClearColor(0x0a0e16);
+  scene.add(new THREE.AmbientLight(0x6A5030,0.35));
+  const moonLight=new THREE.DirectionalLight(0xCC8820,0.5);moonLight.position.set(-5,20,8);scene.add(moonLight);
+  scene.add(new THREE.HemisphereLight(0xA07030,0x0a0e16,0.3));
 
   // ── 庭園地面 (矩形砂砾, 龙安寺 5:2 比例) ──
   const gW=32,gD=16;
   const sand=new THREE.Mesh(new THREE.PlaneGeometry(gW,gD),
-    new THREE.MeshStandardMaterial({color:0x2a2e38,roughness:0.92}));
+    new THREE.MeshStandardMaterial({color:0x354A68,roughness:0.88}));
   sand.rotation.x=-Math.PI/2;sand.receiveShadow=true;scene.add(sand);
 
   // ── 发光耙纹 (平行线, 横向) ──
@@ -2284,9 +2302,9 @@ function buildRest(){
 
   // ── 月亮 & 星空 ──
   const moon=new THREE.Mesh(new THREE.SphereGeometry(0.9,16,16),
-    new THREE.MeshPhongMaterial({color:0xddeeff,emissive:0x8899bb,emissiveIntensity:0.3,transparent:true,opacity:0.15}));
+    new THREE.MeshPhongMaterial({color:0xFFF8E8,emissive:0xC49040,emissiveIntensity:0.2,transparent:true,opacity:0.38}));
   moon.position.set(-5,10,-4);scene.add(moon);
-  scene.add(new THREE.PointLight(0x8899bb,0.15,25).translateY(10));
+  scene.add(new THREE.PointLight(0xCC7700,0.8,35).translateY(10));
   for(let i=0;i<30;i++){
     const st=new THREE.Mesh(new THREE.SphereGeometry(0.025,4,4),
       new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.4+Math.random()*0.6}));

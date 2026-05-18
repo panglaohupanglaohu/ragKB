@@ -41,6 +41,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   transition:all 0.3s;letter-spacing:0.5px}
 .top-bar .nav-links a:hover{color:var(--ink)}
 .top-bar .nav-links a.active{color:var(--slit-glow);border-bottom:1px solid var(--slit-glow)}
+.top-bar .nav-links .cur{color:var(--slit-glow);border-bottom:1px solid var(--slit-glow);font-size:11px;padding:6px 14px;letter-spacing:0.5px;cursor:default;pointer-events:none;display:inline-block}
 
 /* ── Layout ── */
 .layout{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 44px);margin-top:44px}
@@ -230,8 +231,10 @@ textarea.fi{resize:vertical;min-height:45px}
   <span class="logo">议事广场</span>
   <div class="nav-links">
     <a href="/agent-team-config.html">智能体团队</a>
+    <span class="cur">议事广场</span>
+    <a href="/skill-extract.html">技能萃取/赋予</a>
+    <a href="/digital-twin-cli.html">数字孪生</a>
     <a href="/system-evolution.html">系统演进</a>
-    <a href="/skill-extract.html">技能萃取</a>
   </div>
 </div>
 
@@ -239,7 +242,7 @@ textarea.fi{resize:vertical;min-height:45px}
   <div class="left">
     <div class="hd"><h2>广场</h2><div class="sub">CONCRETE ARENA</div></div>
     <div class="list" id="plaza-list"><div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">加载中…</div></div>
-    <button class="btn-new" onclick="openCreatePlaza()">+ CREATE</button>
+    <button class="btn-new" onclick="openCreatePlaza()">+ 新建广场</button>
   </div>
 
   <div class="center" id="arena-container">
@@ -272,7 +275,6 @@ textarea.fi{resize:vertical;min-height:45px}
     </div>
     <div class="ctrl-bar">
       <button class="btn-start" id="btn-start" onclick="startDiscussion()" disabled>开始</button>
-      <button class="btn" onclick="openCreateDisc()">+ 话题</button>
       <span class="status-text" id="status-text"></span>
     </div>
   </div>

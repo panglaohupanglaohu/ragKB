@@ -18,13 +18,11 @@
     <div class="sb-header"><h2><span class="seal">智</span> AgentsGroup</h2><select class="fi" id="team-select" style="font-size:12px;padding:6px 8px"></select></div>
     <div class="sb-nav">
       <a class="active" data-view="overview" onclick="switchView('overview')"><span class="seal">览</span> 仪表盘</a>
-      <a data-view="models" onclick="switchView('models')"><span class="seal">腦</span> 模型池</a>
-      <a data-view="llm" onclick="switchView('llm')"><span class="seal">接</span> LLM 配置</a>
+      <a data-view="models" onclick="switchView('models')"><span class="seal">腦</span> 模型与连接</a>
       <a data-view="tools" onclick="switchView('tools')"><span class="seal seal-koke">具</span> 工具</a>
       <a data-view="skills" onclick="switchView('skills')"><span class="seal seal-kitsune">能</span> 技能</a>
       <a data-view="tasks" onclick="switchView('tasks')"><span class="seal">务</span> 任务</a>
       <a data-view="sessions" onclick="switchView('sessions')"><span class="seal">存</span> 会话存档</a>
-      <a data-view="runtime" onclick="switchView('runtime')"><span class="seal seal-shu">行</span> Runtime</a>
       <a data-view="registry" onclick="switchView('registry')"><span class="seal">厂</span> Token 工厂</a>
     </div>
     <div class="sb-section">团队成员</div>
@@ -33,49 +31,18 @@
   </div>
   <!-- Main -->
   <div class="main">
-    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><div class="topbar-right"><a href="/plaza.html" class="btn btn-sm btn-ghost"><span class="seal">⊙</span> 议事广场</a><a href="/digital-twin-cli.html" class="btn btn-sm btn-ghost"><span class="seal seal-koke">孪</span> 数字孪生</a><a href="/system-evolution.html" class="btn btn-sm btn-ghost"><span class="seal seal-koke">进</span> 系统演进</a><a href="/skill-extract.html" class="btn btn-sm btn-ghost"><span class="seal seal-shu">萃</span> 技能萃取</a><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button></div></div>
+    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"><span class="cur">智能体团队</span><a href="/plaza.html">议事广场</a><a href="/skill-extract.html">技能萃取/赋予</a><a href="/digital-twin-cli.html">数字孪生</a><a href="/system-evolution.html">系统演进</a></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button></div></div>
     <!-- Views -->
     <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
-<!-- 系统自我演进 -->
-<div class="section" id="evo-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-<span>🔄 系统自我演进</span>
-<div style="display:flex;gap:8px">
-  <select class="fi" id="evo-filter" style="width:auto;padding:4px 8px;font-size:11px" onchange="loadEvolution()"><option value="">全部状态</option><option value="discovered">发现</option><option value="dispatched">已派发</option><option value="in_progress">进行中</option><option value="verify_pending">待验证</option><option value="verified">已验证</option><option value="failed">失败</option></select>
-  <button class="btn btn-sm" onclick="runEvoAudit()">🔍 审查</button>
-  <button class="btn btn-sm btn-pink" onclick="runEvoCycleStepper()">▶ 运行演进周期</button>
-</div>
-</div>
-<!-- Compliance Rating -->
-<div id="evo-compliance" class="card-grid" style="margin-bottom:16px"></div>
-<!-- Evolution Cycle Stepper (hidden by default) -->
-<div id="evo-stepper" class="card hidden" style="margin-bottom:16px;padding:16px">
-  <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
-    <div class="evo-step-item" data-step="audit"><span class="wf-dot" id="es-audit">1</span><span style="font-size:12px;margin-left:4px">审查</span></div>
-    <div class="wf-connector" id="es-c1"></div>
-    <div class="evo-step-item" data-step="dispatch"><span class="wf-dot" id="es-dispatch">2</span><span style="font-size:12px;margin-left:4px">派发</span></div>
-    <div class="wf-connector" id="es-c2"></div>
-    <div class="evo-step-item" data-step="verify"><span class="wf-dot" id="es-verify">3</span><span style="font-size:12px;margin-left:4px">验证</span></div>
-    <div class="wf-connector" id="es-c3"></div>
-    <div class="evo-step-item" data-step="close"><span class="wf-dot" id="es-close">4</span><span style="font-size:12px;margin-left:4px">关闭</span></div>
-  </div>
-  <div id="evo-stepper-log" style="font-size:12px;color:var(--muted)"></div>
-</div>
-<!-- Stats -->
-<div class="card-grid" id="evo-stats" style="margin-bottom:16px"></div>
-<!-- Zones -->
-<div id="evo-zones" style="margin-bottom:16px"></div>
-<!-- Rules -->
-<div id="evo-rules" style="margin-bottom:16px"></div>
-<!-- Items -->
-<div id="evo-items"></div>
-</div>
+<!-- 演进状态摘要 -->
+<div class="section" id="evo-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>演进状态</span><a href="/system-evolution.html" class="btn btn-sm">→ 系统演进</a></div><div id="evo-compliance" class="card-grid"></div></div>
 </div></div>
-    <div id="view-models" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🧠 模型池</div><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-model')">＋ 添加模型</button></div><table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>提供商</th><th>Max Tokens</th><th>温度</th><th>默认</th><th>操作</th></tr></thead><tbody id="models-tb"></tbody></table></div></div>
+    <div id="view-models" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🧠 模型与连接</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('llm')">🔌 LLM / TTS</button><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-model')">＋ 添加模型</button></div></div><table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>提供商</th><th>Max Tokens</th><th>温度</th><th>默认</th><th>操作</th></tr></thead><tbody id="models-tb"></tbody></table></div></div>
     <div id="view-tools" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🔧 可用工具</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('registry')">🏭 Token 工厂</button><button class="btn btn-sm" onclick="showToolSearch()">🔍 搜索</button></div></div><div id="tools-search-bar" class="hidden" style="margin-bottom:12px"><div style="display:flex;gap:10px"><input class="fi" id="tools-search-input" placeholder="搜索工具..." oninput="filterToolCards(this.value)" style="flex:1"><button class="btn btn-sm" onclick="el('tools-search-bar').classList.add('hidden')">✕</button></div></div><div id="tools-cards"></div></div></div>
-    <div id="view-skills" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">⚡ 可用技能</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('registry')">📥 导入</button><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出</button></div></div><div id="skills-cards"></div></div></div>
+    <div id="view-skills" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">⚡ 可用技能</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出</button></div></div><div id="skills-cards"></div></div></div>
     <div id="view-tasks" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">📋 并发任务</div><div style="display:flex;gap:8px"><span id="task-stats" style="font-size:12px;color:var(--muted);display:flex;align-items:center"></span><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-task')">＋ 提交任务</button><button class="btn btn-sm" onclick="openModal('modal-batch-task')">📦 批量提交</button></div></div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>Agent</th><th>优先级</th><th>依赖</th><th>状态</th><th>操作</th></tr></thead><tbody id="tasks-tb"></tbody></table></div></div>
     <div id="view-llm" class="main-inner hidden"><div class="main-scroll">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🔌 LLM 提供商配置</div><button class="btn btn-pink btn-sm" onclick="testLLM()">🧪 测试连接</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px"><button class="btn btn-sm" onclick="switchView('models')">← 返回</button><div class="section-title" style="margin:0">🔌 LLM / TTS 配置</div></div><button class="btn btn-pink btn-sm" onclick="testLLM()">🧪 测试连接</button></div>
       <div id="llm-status-card" class="card" style="margin-bottom:20px;padding:20px"><p style="color:var(--dim)">加载中...</p></div>
       <div class="card" style="padding:20px;margin-bottom:20px">
         <div class="section-title" style="margin-top:0;margin-bottom:12px">⚙️ 配置 LLM 提供商</div>
@@ -215,8 +182,8 @@
         </div>
         <div id="tf-claude-test-result" style="display:none;margin-top:12px;padding:12px 14px;background:rgba(0,0,0,.2);border-radius:0;font-size:12px;font-family:'IBM Plex Mono',monospace;max-height:240px;overflow-y:auto"></div>
       </div>
-    </div></div><div class="tabs" id="agent-tabs"><button class="tab active" data-at="ag-status">状态</button><button class="tab" data-at="ag-aware">自我意识</button><button class="tab" data-at="ag-soul">心智</button><button class="tab" data-at="ag-tools">工具</button><button class="tab" data-at="ag-skills">技能</button><button class="tab" data-at="ag-relations">关系</button><button class="tab" data-at="ag-workspace">工作区</button><button class="tab" data-at="ag-chat">聊天</button><button class="tab" data-at="ag-logs">工作日志</button><button class="tab" data-at="ag-settings">设置</button></div><div class="main-scroll" id="agent-content"></div></div>
-    <div id="view-wizard" class="main-inner hidden"><div class="wizard-steps" id="wz-steps"><div class="wz-step active" data-step="1"><span class="num">1</span> 基本信息</div><div class="wz-line"></div><div class="wz-step" data-step="2"><span class="num">2</span> 人格设定</div><div class="wz-line"></div><div class="wz-step" data-step="3"><span class="num">3</span> 技能配置</div><div class="wz-line"></div><div class="wz-step" data-step="4"><span class="num">4</span> 工具绑定</div><div class="wz-line"></div><div class="wz-step" data-step="5"><span class="num">5</span> 权限设置</div><div class="wz-line"></div><div class="wz-step" data-step="6"><span class="num">6</span> 通道绑定</div></div><div class="main-scroll"><div class="wz-content" id="wz-content"></div></div></div>
+    </div></div><div class="tabs" id="agent-tabs"><button class="tab active" data-at="ag-status">状态</button><button class="tab" data-at="ag-soul">人格</button><button class="tab" data-at="ag-tools">工具</button><button class="tab" data-at="ag-skills">技能</button><button class="tab" data-at="ag-relations">关系</button><button class="tab" data-at="ag-workspace">工作区</button><button class="tab" data-at="ag-chat">聊天</button><button class="tab" data-at="ag-logs">工作日志</button><button class="tab" data-at="ag-settings">设置</button></div><div class="main-scroll" id="agent-content"></div></div>
+    <div id="view-wizard" class="main-inner hidden"><div class="wizard-steps" id="wz-steps"><div class="wz-step active" data-step="1"><span class="num">1</span> 基本信息</div><div class="wz-line"></div><div class="wz-step" data-step="2"><span class="num">2</span> 人格设定</div><div class="wz-line"></div><div class="wz-step" data-step="3"><span class="num">3</span> 技能配置</div><div class="wz-line"></div><div class="wz-step" data-step="4"><span class="num">4</span> 工具绑定</div><div class="wz-line"></div><div class="wz-step" data-step="5"><span class="num">5</span> 权限与通道</div></div><div class="main-scroll"><div class="wz-content" id="wz-content"></div></div></div>
   </div>
 </div>
 <!-- Modals -->

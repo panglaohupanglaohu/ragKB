@@ -31,7 +31,7 @@ a{color:var(--koke);text-decoration:none}
 .app{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
 .sidebar{width:260px;min-width:260px;background:var(--ishi);border-right:1px solid var(--groove);display:flex;flex-direction:column;overflow:hidden}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 28px;border-bottom:1px solid var(--groove);background:var(--shironeri);min-height:56px}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 28px;border-bottom:1px solid var(--groove);background:var(--shironeri);min-height:56px;position:relative}.global-nav{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:0;align-items:stretch;height:56px}.global-nav a,.global-nav .cur{padding:0 14px;font-size:12px;color:var(--muted);text-decoration:none;display:flex;align-items:center;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;letter-spacing:.3px}.global-nav a:hover{color:var(--sumi);background:rgba(255,255,255,.02)}.global-nav .cur{color:var(--koke);border-bottom-color:var(--koke);pointer-events:none;cursor:default;font-weight:500}
 .topbar-left{display:flex;align-items:center;gap:12px}
 .topbar-left h1{font-size:18px;font-weight:600}
 .topbar-right{display:flex;gap:8px;align-items:center}
@@ -172,9 +172,8 @@ a{color:var(--koke);text-decoration:none}
       <a class="active" onclick="switchPanel('overview')"><span class="seal">览</span> 演进概览</a>
       <a onclick="switchPanel('ratchet')"><span class="seal seal-kitsune">锁</span> 达尔文棘轮</a>
       <a onclick="switchPanel('evolve-lab')"><span class="seal seal-koke">🧬</span> 技能演化</a>
-      <a onclick="switchPanel('rules')"><span class="seal">规</span> 审查规则</a>
+      <a onclick="switchPanel('rules-zones')"><span class="seal">规</span> 规则与区域</a>
       <a onclick="switchPanel('items')"><span class="seal seal-shu">项</span> 演进条目</a>
-      <a onclick="switchPanel('zones')"><span class="seal seal-koke">域</span> 合规区域</a>
       <a onclick="switchPanel('trail')"><span class="seal">迹</span> 审计轨迹</a>
       <a onclick="switchPanel('trend')"><span class="seal seal-kitsune">趋</span> 趋势分析</a>
     </div>
@@ -184,10 +183,7 @@ a{color:var(--koke);text-decoration:none}
       <button class="btn btn-sm btn-primary" onclick="runCycleStepper()">▶ 演进周期</button>
       <button class="btn btn-sm" onclick="recalcRating()">📊 重算评级</button>
     </div>
-    <div class="sb-footer">
-      <a href="/skill-extract.html" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;margin-bottom:6px"><span class="seal seal-shu">萃</span> 技能萃取</a>
-      <a href="/agent-team-config.html" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">← 返回团队管理</a>
-    </div>
+
   </div>
 
   <!-- Main Content -->
@@ -197,6 +193,13 @@ a{color:var(--koke);text-decoration:none}
         <h1 id="panel-title">演进概览</h1>
         <span id="panel-badge" style="font-size:11px;padding:2px 8px;background:oklch(0.52 0.04 160/.1);color:var(--koke);font-family:var(--font-mono)"></span>
       </div>
+      <nav class="global-nav">
+        <a href="/agent-team-config.html">智能体团队</a>
+        <a href="/plaza.html">议事广场</a>
+        <a href="/skill-extract.html">技能萃取/赋予</a>
+        <a href="/digital-twin-cli.html">数字孪生</a>
+        <span class="cur">系统演进</span>
+      </nav>
       <div class="topbar-right">
         <span id="last-audit" style="font-size:11px;color:var(--muted)"></span>
         <button class="btn btn-sm" onclick="refreshAll()">↻ 刷新</button>
@@ -289,8 +292,8 @@ a{color:var(--koke);text-decoration:none}
         </div>
       </div>
 
-      <!-- ═══ Rules Panel ═══ -->
-      <div id="panel-rules" class="tab-panel">
+      <!-- ═══ Rules+Zones Panel ═══ -->
+      <div id="panel-rules-zones" class="tab-panel">
         <div class="filter-bar">
           <select id="rule-domain-filter" onchange="renderRules()">
             <option value="">全部域</option>
@@ -305,6 +308,14 @@ a{color:var(--koke);text-decoration:none}
           <span id="rule-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
         </div>
         <div id="rules-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">合规区域</div>
+          <div id="zones-all" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">活跃区域</div>
+          <div id="zones-active" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
       </div>
 
       <!-- ═══ Items Panel ═══ -->
@@ -328,17 +339,7 @@ a{color:var(--koke);text-decoration:none}
         <div id="items-table"></div>
       </div>
 
-      <!-- ═══ Zones Panel ═══ -->
-      <div id="panel-zones" class="tab-panel">
-        <div class="section">
-          <div class="section-title">合规区域</div>
-          <div id="zones-all" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
-        </div>
-        <div class="section" style="margin-top:20px">
-          <div class="section-title">活跃区域</div>
-          <div id="zones-active" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-        </div>
-      </div>
+      <!-- ═══ Zones Panel merged into rules-zones ═══ -->
 
       <!-- ═══ Audit Trail Panel ═══ -->
       <div id="panel-trail" class="tab-panel">
@@ -603,9 +604,9 @@ function switchPanel(name) {
   const panel = el('panel-' + name);
   if (panel) panel.classList.add('active');
   const links = document.querySelectorAll('.sb-nav a');
-  const map = { overview: 0, ratchet: 1, 'evolve-lab': 2, rules: 3, items: 4, zones: 5, trail: 6, trend: 7 };
+  const map = { overview: 0, ratchet: 1, 'evolve-lab': 2, 'rules-zones': 3, items: 4, trail: 5, trend: 6 };
   if (map[name] !== undefined && links[map[name]]) links[map[name]].classList.add('active');
-  const titles = { overview: '演进概览', ratchet: '达尔文棘轮', 'evolve-lab': '🧬 技能演化', rules: '审查规则', items: '演进条目', zones: '合规区域', trail: '审计轨迹', trend: '趋势分析' };
+  const titles = { overview: '演进概览', ratchet: '达尔文棘轮', 'evolve-lab': '🧬 技能演化', 'rules-zones': '规则与区域', items: '演进条目', trail: '审计轨迹', trend: '趋势分析' };
   el('panel-title').textContent = titles[name] || name;
   // Load data for panel (skip if already loaded, unless it's overview or evolve-lab)
   const alwaysRefresh = ['overview'];
@@ -614,9 +615,8 @@ function switchPanel(name) {
     if (name === 'overview') loadOverview();
     else if (name === 'ratchet') loadHeritage();
     else if (name === 'evolve-lab') loadEvolveLab();
-    else if (name === 'rules') loadRules();
+    else if (name === 'rules-zones') { loadRules(); loadZones(); }
     else if (name === 'items') loadItems();
-    else if (name === 'zones') loadZones();
     else if (name === 'trail') loadTrail();
     else if (name === 'trend') loadTrend();
   }

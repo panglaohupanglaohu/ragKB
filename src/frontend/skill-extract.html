@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>技能萃取 — AgentsGroup2026</title>
+<title>技能萃取/赋予 — AgentsGroup2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
 
@@ -72,6 +72,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   border:none;border-bottom:1px solid transparent;transition:all .25s;text-decoration:none;letter-spacing:0.5px;font-weight:400}
 .topbar-nav a:hover{color:#EEF2F5;background:rgba(166,176,186,0.06)}
 .topbar-nav a.active{color:#CFD6DD;border-bottom:1px solid #CFD6DD}
+.topbar-nav .cur{padding:8px 16px;font-size:11px;color:#CFD6DD;border-bottom:1px solid #CFD6DD;cursor:default;pointer-events:none;letter-spacing:0.5px;font-weight:400;display:inline-flex;align-items:center}
 
 /* ── Left Panel: Submission + Message Flow ────────────────────────── */
 .panel-left{grid-column:1;grid-row:2/4;display:flex;flex-direction:column;
@@ -660,15 +661,17 @@ body.mode-router .taxonomy-bar{display:none}
   <div class="topbar">
     <div class="topbar-left">
       <span class="seal" id="mode-seal">萃</span>
-      <h1 id="mode-title">技能萃取</h1>
+      <h1 id="mode-title">技能萃取/赋予</h1>
       <div class="mode-toggle">
         <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">🩸 萃取</button>
         <button data-mode="router" onclick="window._switchPageMode('router')">🧭 赋予</button>
       </div>
     </div>
     <div class="topbar-nav">
-      <a href="plaza.html">议事广场</a>
       <a href="agent-team-config.html">智能体团队</a>
+      <a href="plaza.html">议事广场</a>
+      <span class="cur">技能萃取/赋予</span>
+      <a href="digital-twin-cli.html">数字孪生</a>
       <a href="system-evolution.html">系统演进</a>
     </div>
     <div class="topbar-right">
@@ -5622,14 +5625,14 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     const title = document.getElementById('mode-title');
     if (mode === 'router') {
       seal.textContent = '赋';
-      title.textContent = '技能赋予';
+      title.textContent = '技能萃取/赋予';
       // Show agent figure in router mode
       if (humanFigure) humanFigure.visible = true;
       // Show assign bar immediately
       updateAssignBar();
     } else {
       seal.textContent = '萃';
-      title.textContent = '技能萃取';
+      title.textContent = '技能萃取/赋予';
       // Hide agent figure in extraction mode — skill nodes stay visible
       if (humanFigure) humanFigure.visible = false;
       // Hide assign bar

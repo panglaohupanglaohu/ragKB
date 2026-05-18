@@ -1,0 +1,59 @@
+{
+  "pipeline_id": "9de4c78dbb41",
+  "name": "理论模型向真实硬件环境的迁移验证",
+  "description": "萃取管线 — 45fa48fd",
+  "team_id": "build_system",
+  "current_stage": "draft",
+  "created_by": "human",
+  "gate_requirements": {
+    "review": {
+      "stage": "review",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    },
+    "approval": {
+      "stage": "approval",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    },
+    "published": {
+      "stage": "published",
+      "min_reviewers": 1,
+      "required_identities": [
+        "peer"
+      ],
+      "min_approvals": 1,
+      "max_rejections": 1,
+      "require_cross_team": false,
+      "forbid_self_review": false,
+      "auto_advance": true,
+      "extra_rules": {}
+    }
+  },
+  "reviewers": [],
+  "transitions": [],
+  "todos": [],
+  "payload": {},
+  "tags": [
+    "item:45fa48fd"
+  ],
+  "version": 1,
+  "created_at": "2026-05-18T08:04:26.230942+00:00",
+  "updated_at": "2026-05-18T08:04:26.230966+00:00"
+}
