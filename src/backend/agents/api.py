@@ -392,7 +392,10 @@ def get_team(team_id: str) -> Dict[str, Any]:
     team = _tm().get_team(team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
-    return team.to_dict()
+    return {
+        **team.to_dict(),
+        "tasks": _summarize_team_tasks(team_id),
+    }
 
 
 @router.post(
@@ -670,6 +673,20 @@ def list_team_skills(team_id: str) -> List[Dict[str, Any]]:
 
 
 # TAB 5 -- AGENTS (5-step wizard)
+
+
+@router.get("/agents", summary="List all agents")
+def list_all_agents() -> List[Dict[str, Any]]:
+    agents: List[Dict[str, Any]] = []
+    for team in _tm().list_teams():
+        team_agents = team.agents.values() if isinstance(team.agents, dict) else team.agents
+        for agent in team_agents:
+            agents.append({
+                **agent.to_dict(),
+                "team_id": team.team_id,
+                "team_name": team.name,
+            })
+    return agents
 
 
 def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
@@ -6689,6 +6706,17 @@ def get_agent_activity(team_id: str, agent_id: str) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════
 
 
+def _summarize_team_tasks(team_id: str) -> Dict[str, Any]:
+    from collections import Counter
+
+    all_tasks = _te().get_team_tasks(team_id)
+    task_status = Counter(t.status.value for t in all_tasks)
+    return {
+        "total": len(all_tasks),
+        "by_status": dict(task_status),
+    }
+
+
 @router.get(
     "/teams/{team_id}/dashboard",
     summary="Get team dashboard data for overview panel",
@@ -6715,11 +6743,6 @@ def get_team_dashboard(team_id: str) -> Dict[str, Any]:
             },
         })
 
-    # Task summary
-    all_tasks = _te().get_team_tasks(team_id)
-    from collections import Counter
-    task_status = Counter(t.status.value for t in all_tasks)
-
     return {
         "team_id": team_id,
         "name": team.name,
@@ -6728,10 +6751,7 @@ def get_team_dashboard(team_id: str) -> Dict[str, Any]:
         "tool_count": len(team.tools),
         "skill_count": len(team.skills),
         "agents": agents_data,
-        "tasks": {
-            "total": len(all_tasks),
-            "by_status": dict(task_status),
-        },
+        "tasks": _summarize_team_tasks(team_id),
         "recent_activity": [],
     }
 

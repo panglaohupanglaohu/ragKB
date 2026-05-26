@@ -32,16 +32,21 @@ logger = logging.getLogger(__name__)
 
 class SyncPolicy(str, Enum):
     """同步策略枚举 — 用于流量染色标签."""
-    FIXED_THRESHOLD = "fixed"  # 对照组: 固定阈值
-    EWMA = "ewma"              # 实验组: EWMA动态阈值
+    FIXED_THRESHOLD = "fixed_threshold"  # 对照组: 固定阈值
+    EWMA_ADAPTIVE = "ewma_adaptive"      # 实验组: EWMA动态阈值
+    EWMA = EWMA_ADAPTIVE
+    LAMPORT_CLOCK = "lamport_clock"
 
 
-class TrafficAllocation(str, Enum):
+class TrafficAllocation(float, Enum):
     """流量分配阶段."""
-    CANARY_5PCT = "5%"        # 5% 流量阶段
-    HALF_50PCT = "50%"        # 50% 流量阶段
-    FULL_100PCT = "100%"      # 100% 全量阶段
-    ROLLED_BACK = "rollback"  # 已回滚
+    PHASE_1_5PCT = 5.0
+    PHASE_2_50PCT = 50.0
+    PHASE_3_100PCT = 100.0
+    CANARY_5PCT = PHASE_1_5PCT
+    HALF_50PCT = PHASE_2_50PCT
+    FULL_100PCT = PHASE_3_100PCT
+    ROLLED_BACK = 0.0
 
 
 @dataclass
@@ -56,6 +61,10 @@ class LamportClock:
     node_id: str
     counter: int = 0
     timestamp: float = 0.0  # 物理时间戳 (毫秒)
+
+    def __post_init__(self) -> None:
+        if self.timestamp <= 0:
+            self.timestamp = time.time() * 1000
 
     def tick(self, physical_ts: Optional[float] = None) -> int:
         """时钟滴答 — 递增计数器.
@@ -82,6 +91,18 @@ class LamportClock:
         self.counter = max(self.counter, other.counter) + 1
         self.timestamp = max(self.timestamp, other.timestamp)
         return self.counter
+
+    def update(self, other_timestamp: float) -> float:
+        """兼容旧 API: 用对端时间戳推进本地时钟."""
+        self.counter += 1
+        self.timestamp = max(self.timestamp, other_timestamp) + 1
+        return self.timestamp
+
+    def is_concurrent_with(self, other: LamportClock) -> bool:
+        return self.node_id != other.node_id and self.timestamp == other.timestamp
+
+    def happened_before(self, other: LamportClock) -> bool:
+        return self.timestamp < other.timestamp
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -131,22 +152,48 @@ class EWMAConfig:
         warm_cache_window_size: 预热缓存窗口大小, 默认 100
     """
     alpha: float = 0.3
+    beta: float = 0.1
     base_threshold_ms: float = 100.0
+    min_threshold_ms: float = 50.0
+    max_threshold_ms: float = 500.0
     threshold_multiplier: float = 3.0
-    cooling_period_seconds: float = 60.0
+    cooldown_seconds: float = 30.0
+    cooling_extension_seconds: float = 15.0
     min_samples: int = 10
-    max_dependency_depth: int = 3
+    max_causal_depth: int = 5
     clock_skew_tolerance_ms: float = 100.0
     enable_warm_cache: bool = True
     warm_cache_window_size: int = 100
 
+    @property
+    def cooling_period_seconds(self) -> float:
+        return self.cooldown_seconds
+
+    @cooling_period_seconds.setter
+    def cooling_period_seconds(self, value: float) -> None:
+        self.cooldown_seconds = value
+
+    @property
+    def max_dependency_depth(self) -> int:
+        return self.max_causal_depth
+
+    @max_dependency_depth.setter
+    def max_dependency_depth(self, value: int) -> None:
+        self.max_causal_depth = value
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "alpha": self.alpha,
+            "beta": self.beta,
             "base_threshold_ms": self.base_threshold_ms,
+            "min_threshold_ms": self.min_threshold_ms,
+            "max_threshold_ms": self.max_threshold_ms,
             "threshold_multiplier": self.threshold_multiplier,
+            "cooldown_seconds": self.cooldown_seconds,
             "cooling_period_seconds": self.cooling_period_seconds,
+            "cooling_extension_seconds": self.cooling_extension_seconds,
             "min_samples": self.min_samples,
+            "max_causal_depth": self.max_causal_depth,
             "max_dependency_depth": self.max_dependency_depth,
             "clock_skew_tolerance_ms": self.clock_skew_tolerance_ms,
             "enable_warm_cache": self.enable_warm_cache,
@@ -157,11 +204,21 @@ class EWMAConfig:
     def from_dict(cls, data: Dict[str, Any]) -> EWMAConfig:
         return cls(
             alpha=data.get("alpha", 0.3),
+            beta=data.get("beta", 0.1),
             base_threshold_ms=data.get("base_threshold_ms", 100.0),
+            min_threshold_ms=data.get("min_threshold_ms", 50.0),
+            max_threshold_ms=data.get("max_threshold_ms", 500.0),
             threshold_multiplier=data.get("threshold_multiplier", 3.0),
-            cooling_period_seconds=data.get("cooling_period_seconds", 60.0),
+            cooldown_seconds=data.get(
+                "cooldown_seconds",
+                data.get("cooling_period_seconds", 30.0),
+            ),
+            cooling_extension_seconds=data.get("cooling_extension_seconds", 15.0),
             min_samples=data.get("min_samples", 10),
-            max_dependency_depth=data.get("max_dependency_depth", 3),
+            max_causal_depth=data.get(
+                "max_causal_depth",
+                data.get("max_dependency_depth", 5),
+            ),
             clock_skew_tolerance_ms=data.get("clock_skew_tolerance_ms", 100.0),
             enable_warm_cache=data.get("enable_warm_cache", True),
             warm_cache_window_size=data.get("warm_cache_window_size", 100),
@@ -192,6 +249,7 @@ class ABTestMetrics:
     temperature_slope: float = 0.0
     policy_evaluation_latency_ms: float = 0.0
     evolution_stagnation_rate: float = 0.0
+    experiment_traffic_pct: float = 0.0
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -204,6 +262,7 @@ class ABTestMetrics:
             "temperature_slope": self.temperature_slope,
             "policy_evaluation_latency_ms": self.policy_evaluation_latency_ms,
             "evolution_stagnation_rate": self.evolution_stagnation_rate,
+            "experiment_traffic_pct": self.experiment_traffic_pct,
         }
 
 
@@ -229,7 +288,7 @@ class EWMAThresholdEngine:
 
     def __init__(self, config: Optional[EWMAConfig] = None):
         self.config = config or EWMAConfig()
-        self._ewma: float = 0.0
+        self._ewma: float = self.config.base_threshold_ms
         self._ewmvar: float = 0.0
         self._sample_count: int = 0
         self._last_update_ts: float = 0.0
@@ -238,7 +297,7 @@ class EWMAThresholdEngine:
             window_size=self.config.warm_cache_window_size
         ) if self.config.enable_warm_cache else None
 
-    def update(self, latency_ms: float) -> float:
+    def update(self, latency_ms: float, timestamp: Optional[float] = None) -> float:
         """更新 EWMA 统计量并返回当前阈值.
 
         Args:
@@ -247,7 +306,7 @@ class EWMAThresholdEngine:
         Returns:
             当前动态阈值 (毫秒).
         """
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
 
         # 检查冷却期
         if now < self._cooling_until:
@@ -256,15 +315,10 @@ class EWMAThresholdEngine:
         self._sample_count += 1
         alpha = self.config.alpha
 
-        if self._sample_count == 1:
-            self._ewma = latency_ms
-            self._ewmvar = 0.0
-        else:
-            diff = latency_ms - self._ewma
-            incr = alpha * diff
-            self._ewma += incr
-            # EWMA 方差更新
-            self._ewmvar = (1 - alpha) * (self._ewmvar + alpha * diff * diff)
+        previous_ewma = self._ewma
+        self._ewma = alpha * latency_ms + (1 - alpha) * self._ewma
+        diff = latency_ms - previous_ewma
+        self._ewmvar = (1 - alpha) * (self._ewmvar + alpha * diff * diff)
 
         self._last_update_ts = now
 
@@ -281,12 +335,18 @@ class EWMAThresholdEngine:
             阈值 (毫秒).
         """
         if self._sample_count < self.config.min_samples:
-            # 样本不足时使用基础阈值
-            return self.config.base_threshold_ms
+            threshold = max(self.config.base_threshold_ms, self._ewma)
+            return min(self.config.max_threshold_ms, max(self.config.min_threshold_ms, threshold))
 
         std_dev = math.sqrt(self._ewmvar) if self._ewmvar > 0 else 0.0
         threshold = self._ewma + self.config.threshold_multiplier * std_dev
-        return max(threshold, self.config.base_threshold_ms)
+        threshold = max(threshold, self.config.base_threshold_ms)
+        threshold = max(self.config.min_threshold_ms, threshold)
+        threshold = min(self.config.max_threshold_ms, threshold)
+        return threshold
+
+    def get_ewma(self) -> float:
+        return self._ewma
 
     def get_current_threshold(self) -> float:
         """获取当前阈值 (不更新统计量).
@@ -307,6 +367,8 @@ class EWMAThresholdEngine:
             "ewmvar": self._ewmvar,
             "std_dev": math.sqrt(self._ewmvar) if self._ewmvar > 0 else 0.0,
             "sample_count": self._sample_count,
+            "update_count": self._sample_count,
+            "alpha": self.config.alpha,
             "current_threshold": self._compute_threshold(),
             "cooling_active": time.time() < self._cooling_until,
             "cooling_remaining_seconds": max(0, self._cooling_until - time.time()),
@@ -318,8 +380,8 @@ class EWMAThresholdEngine:
         Args:
             reason: 冷却原因.
         """
-        self._cooling_until = time.time() + self.config.cooling_period_seconds
-        logger.warning(f"❄️ EWMA 进入冷却期 {self.config.cooling_period_seconds}s: {reason}")
+        self._cooling_until = time.time() + self.config.cooldown_seconds
+        logger.warning(f"❄️ EWMA 进入冷却期 {self.config.cooldown_seconds}s: {reason}")
 
     def is_cooling(self) -> bool:
         """是否处于冷却期.
@@ -331,7 +393,7 @@ class EWMAThresholdEngine:
 
     def reset(self) -> None:
         """重置所有统计量."""
-        self._ewma = 0.0
+        self._ewma = self.config.base_threshold_ms
         self._ewmvar = 0.0
         self._sample_count = 0
         self._last_update_ts = 0.0
@@ -551,8 +613,10 @@ class TrafficStainer:
             包含 x-sync-policy 头的字典.
         """
         is_experiment = self.should_stain_experiment(node_id, node_type)
-        policy = SyncPolicy.EWMA if is_experiment else SyncPolicy.FIXED_THRESHOLD
-        return {"x-sync-policy": policy.value}
+        headers = {"x-sync-policy": "ewma" if is_experiment else "fixed"}
+        if node_type:
+            headers["x-node-type"] = node_type
+        return headers
 
     def parse_stain_header(self, headers: Dict[str, str]) -> SyncPolicy:
         """解析流量染色头.
@@ -564,7 +628,7 @@ class TrafficStainer:
             解析出的同步策略.
         """
         policy_str = headers.get("x-sync-policy", "").strip().lower()
-        if policy_str == SyncPolicy.EWMA.value:
+        if policy_str in {"ewma", SyncPolicy.EWMA.value, SyncPolicy.EWMA_ADAPTIVE.value}:
             return SyncPolicy.EWMA
         return SyncPolicy.FIXED_THRESHOLD
 
@@ -616,9 +680,10 @@ class CausalConsistencyDecider:
     def should_force_sync(
         self,
         latency_ms: float,
-        peer_clock: Optional[LamportClock] = None,
         dependency_depth: int = 1,
+        peer_clock: Optional[LamportClock] = None,
         peer_node_id: str = "",
+        clock_skew_ms: Optional[float] = None,
     ) -> Tuple[bool, str]:
         """判断是否需要触发强同步.
 
@@ -633,6 +698,10 @@ class CausalConsistencyDecider:
         """
         self._total_decisions += 1
 
+        if isinstance(dependency_depth, LamportClock) and peer_clock is None:
+            peer_clock = dependency_depth
+            dependency_depth = 1
+
         # 1. 更新 EWMA 统计量
         threshold = self._ewma.update(latency_ms)
 
@@ -643,34 +712,37 @@ class CausalConsistencyDecider:
             return False, reason
 
         # 3. 检查因果依赖深度
-        if dependency_depth > self._config.max_dependency_depth:
+        if dependency_depth >= self._config.max_causal_depth:
             reason = (
                 f"因果依赖深度 {dependency_depth} > "
-                f"最大深度 {self._config.max_dependency_depth}: 触发强同步"
+                f"最大深度 {self._config.max_causal_depth}: 触发强同步"
             )
+            self._ewma.enter_cooling(reason)
             self._record_decision(True, reason, latency_ms, threshold)
             return True, reason
 
         # 4. 检查时钟偏差
-        if peer_clock and peer_node_id:
+        if clock_skew_ms is None and peer_clock and peer_node_id:
             self._peer_clocks[peer_node_id] = peer_clock
-            merged = self._local_clock.merge(peer_clock)
-            clock_skew = abs(self._local_clock.timestamp - peer_clock.timestamp)
+            self._local_clock.merge(peer_clock)
+            clock_skew_ms = abs(self._local_clock.timestamp - peer_clock.timestamp)
 
-            if clock_skew > self._config.clock_skew_tolerance_ms:
-                reason = (
-                    f"时钟偏差 {clock_skew:.1f}ms > "
-                    f"容忍度 {self._config.clock_skew_tolerance_ms}ms: 触发强同步"
-                )
-                self._record_decision(True, reason, latency_ms, threshold)
-                return True, reason
+        if clock_skew_ms is not None and clock_skew_ms > self._config.clock_skew_tolerance_ms:
+            reason = (
+                f"时钟偏差 {clock_skew_ms:.1f}ms > "
+                f"容忍度 {self._config.clock_skew_tolerance_ms}ms: 触发强同步"
+            )
+            self._ewma.enter_cooling(reason)
+            self._record_decision(True, reason, latency_ms, threshold)
+            return True, reason
 
         # 5. 使用 EWMA 动态阈值判断
-        if latency_ms > threshold:
+        if latency_ms >= threshold:
             reason = (
-                f"延迟 {latency_ms:.1f}ms > "
+                f"延迟 {latency_ms:.1f}ms >= "
                 f"动态阈值 {threshold:.1f}ms: 触发强同步"
             )
+            self._ewma.enter_cooling(reason)
             self._record_decision(True, reason, latency_ms, threshold)
             return True, reason
 
@@ -739,6 +811,15 @@ class CausalConsistencyDecider:
             },
         }
 
+    def get_decision_stats(self) -> Dict[str, Any]:
+        sync_decisions = sum(1 for item in self._decisions if item["should_sync"])
+        no_sync_decisions = self._total_decisions - sync_decisions
+        return {
+            "total_decisions": self._total_decisions,
+            "sync_decisions": sync_decisions,
+            "no_sync_decisions": no_sync_decisions,
+        }
+
     def reset(self) -> None:
         """重置决策器."""
         self._ewma.reset()
@@ -771,6 +852,9 @@ class ABTestManager:
 
     def __init__(self, config: Optional[EWMAConfig] = None):
         self._config = config or EWMAConfig()
+        self.test_active: bool = False
+        self.experiment_traffic_pct: float = 0.0
+        self._warmed_up: bool = False
 
         # 实验组: EWMA 策略
         self._experiment_ewma = EWMAThresholdEngine(config=self._config)
@@ -796,15 +880,28 @@ class ABTestManager:
 
     # ── 生命周期管理 ──────────────────────────────────────
 
-    def start_test(self, allocation: TrafficAllocation = TrafficAllocation.CANARY_5PCT) -> None:
+    def start_test(
+        self,
+        allocation: TrafficAllocation = TrafficAllocation.CANARY_5PCT,
+        traffic_pct: Optional[float] = None,
+    ) -> None:
         """启动 A/B 测试.
 
         Args:
             allocation: 初始流量分配阶段.
         """
+        if traffic_pct is not None:
+            allocation = self._allocation_from_pct(traffic_pct)
+
         self._started_at = datetime.now(timezone.utc).isoformat()
+        self.test_active = True
+        self.experiment_traffic_pct = float(allocation.value)
         self._stainer.set_allocation(allocation)
         logger.info(f"🚀 A/B测试启动: 分配={allocation.value}")
+
+    def stop_test(self) -> None:
+        self.test_active = False
+        self.experiment_traffic_pct = 0.0
 
     def advance_allocation(self) -> TrafficAllocation:
         """推进到下一个流量分配阶段.
@@ -825,6 +922,7 @@ class ABTestManager:
             raise RuntimeError(f"无法从 {current.value} 推进: 已是最终阶段或已回滚")
 
         self._stainer.set_allocation(next_alloc)
+        self.experiment_traffic_pct = float(next_alloc.value)
         logger.info(f"📈 流量分配推进: {current.value} → {next_alloc.value}")
         return next_alloc
 
@@ -835,9 +933,14 @@ class ABTestManager:
             reason: 回滚原因.
         """
         self._stainer.set_allocation(TrafficAllocation.ROLLED_BACK)
+        self.test_active = False
+        self.experiment_traffic_pct = 0.0
         self._rolled_back_at = datetime.now(timezone.utc).isoformat()
         self._rollback_reason = reason
         logger.warning(f"⏪ A/B测试回滚: {reason}")
+
+    def is_in_experiment(self, node_id: str, node_type: str = "") -> bool:
+        return self._stainer.should_stain_experiment(node_id, node_type)
 
     def is_rolled_back(self) -> bool:
         """是否已回滚.
@@ -877,6 +980,20 @@ class ABTestManager:
                 peer_node_id=peer_node_id,
             )
         else:
+            if dependency_depth >= self._config.max_causal_depth:
+                return True, (
+                    f"因果依赖深度 {dependency_depth} > "
+                    f"最大深度 {self._config.max_causal_depth}: 触发强同步"
+                )
+
+            if peer_clock is not None:
+                clock_skew_ms = abs((peer_clock.timestamp or 0.0) - (time.time() * 1000))
+                if clock_skew_ms > self._config.clock_skew_tolerance_ms:
+                    return True, (
+                        f"时钟偏差 {clock_skew_ms:.1f}ms > "
+                        f"容忍度 {self._config.clock_skew_tolerance_ms}ms: 触发强同步"
+                    )
+
             # 对照组: 固定阈值
             should_sync = latency_ms > self._config.base_threshold_ms
             reason = (
@@ -924,6 +1041,7 @@ class ABTestManager:
         """
         start = time.time()
         threshold = self._experiment_ewma.warm_up(precomputed_values)
+        self._warmed_up = True
         elapsed = (time.time() - start) * 1000  # 转换为毫秒
 
         if elapsed > 1000:
@@ -949,6 +1067,8 @@ class ABTestManager:
             "rolled_back_at": self._rolled_back_at,
             "rollback_reason": self._rollback_reason,
             "allocation": self._stainer.get_allocation().value,
+            "test_active": self.test_active,
+            "experiment_traffic_pct": self.experiment_traffic_pct,
             "traffic_stats": self._stainer.get_stats(),
             "experiment": self._experiment_decider.get_stats(),
             "metrics": self._metrics.to_dict(),
@@ -963,18 +1083,49 @@ class ABTestManager:
         """
         return self._config
 
-    def update_config(self, config: EWMAConfig) -> None:
+    def update_config(self, config: EWMAConfig | Dict[str, Any]) -> None:
         """热更新配置.
 
         Args:
             config: 新配置.
         """
+        if isinstance(config, dict):
+            config = EWMAConfig.from_dict({**self._config.to_dict(), **config})
+
         old_alpha = self._config.alpha
         self._config = config
         self._experiment_ewma.config = config
+        self._experiment_decider._config = config
+        self._control_ewma.config = EWMAConfig(
+            alpha=0.0,
+            base_threshold_ms=self._config.base_threshold_ms,
+            min_threshold_ms=self._config.min_threshold_ms,
+            max_threshold_ms=self._config.max_threshold_ms,
+            threshold_multiplier=0.0,
+        )
         logger.info(
             f"♻️ ConfigMap 热更新: alpha={old_alpha} → {config.alpha}"
         )
+
+    def get_metrics(self) -> ABTestMetrics:
+        self._metrics.experiment_traffic_pct = self.experiment_traffic_pct
+        return self._metrics
+
+    def get_report(self) -> Dict[str, Any]:
+        return {
+            **self.get_status(),
+            "test_active": self.test_active,
+            "experiment_traffic_pct": self.experiment_traffic_pct,
+        }
+
+    def _allocation_from_pct(self, traffic_pct: float) -> TrafficAllocation:
+        if traffic_pct <= 0:
+            return TrafficAllocation.ROLLED_BACK
+        if traffic_pct <= 5:
+            return TrafficAllocation.PHASE_1_5PCT
+        if traffic_pct <= 50:
+            return TrafficAllocation.PHASE_2_50PCT
+        return TrafficAllocation.PHASE_3_100PCT
 
 
 # ══════════════════════════════════════════════════════════════════

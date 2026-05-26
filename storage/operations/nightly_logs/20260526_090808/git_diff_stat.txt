@@ -1,0 +1,7 @@
+ src/backend/agent_team_api.py         |   6 +-
+ src/backend/agents/ab_testing.py      | 249 +++++++++++++++++++++++++++-------
+ src/backend/agents/api.py             |  14 ++
+ src/backend/channels/openclaw_sync.py |  59 +++++---
+ src/backend/main.py                   |   7 +
+ src/frontend/js/agent-team-config.js  |  28 +++-
+ 6 files changed, 288 insertions(+), 75 deletions(-)

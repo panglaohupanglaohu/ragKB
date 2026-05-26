@@ -255,7 +255,23 @@ async def startup():
     except Exception as e:
         logger.warning(f"⚠️ Agent Config API failed: {e}")
 
-    # 5. 启动验证路由
+    # 5. SECS 沙箱系统 API
+    try:
+        from sandbox.api import router as sandbox_router, set_orchestrator
+        from sandbox.channel import SandboxChannel
+        from channels.marine_base import get_default_registry
+
+        sandbox_ch = SandboxChannel()
+        sandbox_ch.initialize()
+        registry = get_default_registry()
+        registry.register(sandbox_ch)
+        set_orchestrator(sandbox_ch.get_orchestrator())
+        app.include_router(sandbox_router)
+        logger.info("✅ SECS Sandbox API mounted (/api/v1/sandbox)")
+    except Exception as e:
+        logger.warning(f"⚠️ SECS Sandbox API failed: {e}")
+
+    # 6. 启动验证路由
     try:
         from startup_check import get_startup_check_router
         app.include_router(get_startup_check_router())
@@ -673,6 +689,13 @@ if _frontend_dir.exists():
     @app.get("/agent-team-config.html")
     async def agent_config_page():
         return FileResponse(str(_frontend_dir / "agent-team-config.html"))
+
+    @app.get("/{page_name}.html")
+    async def frontend_page(page_name: str):
+        page = _frontend_dir / f"{page_name}.html"
+        if page.exists():
+            return FileResponse(str(page))
+        raise HTTPException(404, f"Page '{page_name}.html' not found")
 
     @app.get("/evolution.html")
     async def evolution_page():

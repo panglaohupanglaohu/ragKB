@@ -1,6 +1,9 @@
 const A='/api/v1/agent-config',AT='/api/v1/agent-teams';
 let tid='',aid='',atab='ag-status',wzD={},wzS=1;
 let _offline=false;
+let _teamsListCache=null;
+let _teamsListCacheAt=0;
+const TEAMS_LIST_CACHE_MS=60000;
 
 function toast(m,type){
   const e=document.getElementById('toast');
@@ -77,13 +80,27 @@ async function api(p,o){
 }
 api._lastError=null;
 
+async function getTeamsList(force=false){
+  const now=Date.now();
+  if(!force&&_teamsListCache&&(now-_teamsListCacheAt)<TEAMS_LIST_CACHE_MS){
+    return _teamsListCache;
+  }
+  const teams=await api(`${A}/teams`);
+  if(Array.isArray(teams)&&teams.length){
+    _teamsListCache=teams;
+    _teamsListCacheAt=now;
+    return teams;
+  }
+  return _teamsListCache||teams||[];
+}
+
 function stL(s){return{idle:'待命中',working:'工作中',reporting:'汇报中',blocked:'阻塞',error:'异常'}[s]||s||'未知'}
 function el(id){return document.getElementById(id)}
 function escapeHtml(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 
 // ── Teams ──
 async function loadTeams(){
-  const d=await api(`${A}/teams`);const s=el('team-select');
+  const d=await getTeamsList(true);const s=el('team-select');
   if(!d||!d.length){s.innerHTML='<option>无团队</option>';return}
   s.innerHTML=d.map(t=>`<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join('');
   if(!tid)tid=d[0].team_id;s.value=tid;loadView();
@@ -108,19 +125,26 @@ function switchView(v,extra){
   else if(v==='agent'){el('view-agent').classList.remove('hidden');el('agent-tabs').style.display='';el('agent-content').style.display='';loadAgent(extra)}
   else if(v==='wizard'){el('view-wizard').classList.remove('hidden');t.textContent='新建智能体';b.textContent=''}
 }
-function loadView(){loadSbAgents();
+function loadView(){
   // ── Darwin rule: bridge-task-dispatch deep-link support ──
   const params = new URLSearchParams(window.location.search);
   const view = params.get('view');
-  switchView(view && document.querySelector(`[data-view="${view}"]`) ? view : 'overview');
+  const nextView=view && document.querySelector(`[data-view="${view}"]`) ? view : 'overview';
+  if(nextView!=='overview')loadSbAgents();
+  switchView(nextView);
 }
 
 // ── Sidebar agents ──
-async function loadSbAgents(){
-  const d=await api(`${A}/teams/${tid}`);const c=el('sb-agents');
-  if(!d||!d.agents){c.innerHTML='<div style="padding:12px;color:var(--dim);font-size:12px">暂无成员</div>';return}
-  const aa=Array.isArray(d.agents)?d.agents:Object.values(d.agents);
+function renderSbAgents(team){
+  const c=el('sb-agents');
+  if(!team||!team.agents){c.innerHTML='<div style="padding:12px;color:var(--dim);font-size:12px">暂无成员</div>';return}
+  const aa=Array.isArray(team.agents)?team.agents:Object.values(team.agents);
   c.innerHTML=aa.map(a=>`<div class="sb-agent${a.agent_id===aid?' active':''}" onclick="selectAgent('${a.agent_id}')"><span class="dot ${a.state||'idle'}"></span><span style="overflow:hidden;text-overflow:ellipsis">${escapeHtml(a.name||a.agent_id)}</span></div>`).join('');
+}
+
+async function loadSbAgents(){
+  const d=await api(`${A}/teams/${tid}`);
+  renderSbAgents(d);
 }
 function selectAgent(id){aid=id;switchView('agent',id)}
 
@@ -128,43 +152,66 @@ function selectAgent(id){aid=id;switchView('agent',id)}
 let _ovTimer=null;
 async function loadOverview(){
   if(_ovTimer)clearInterval(_ovTimer);
-  const teamsList=await api(`${A}/teams`);
-  const teamIds=(teamsList||[]).map(t=>t.team_id);
-  const[ov,dash,...allTeams]=await Promise.all([
-    api(`${AT}/overview`),
-    api(`${A}/teams/${tid}/dashboard`),
-    ...teamIds.map(id=>api(`${A}/teams/${id}`))
+  const [teamsList,ov]=await Promise.all([
+    getTeamsList(),
+    api(`${AT}/overview?team_id=${encodeURIComponent(tid)}`)
   ]);
+  const curTm=ov?.current_team||null;
   const sc=el('ov-stats');
   const _teamIcons={'build_system':'🏗️','energy_first_principle':'⚡','ai_coding':'💻','d083a568':'☁️'};
-  if(ov){const sh=ov.scheduler||{};const dt=dash||{};const ev=ov.evolution||{};const evs=ev.stats||{};
-  const totalModels=allTeams.reduce((n,t)=>n+(t&&t.models?Object.keys(t.models).length:0),0);
-  const totalAgents=allTeams.reduce((n,t)=>n+(t&&t.agents?(Array.isArray(t.agents)?t.agents.length:Object.keys(t.agents).length):0),0);
-  const teamCards=allTeams.filter(Boolean).map(t=>{const ac=t.agents?(Array.isArray(t.agents)?t.agents.length:Object.keys(t.agents).length):0;const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${ac}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
-  sc.innerHTML=`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${dt.tasks?.total||0}</div><div class="sub">${Object.entries(dt.tasks?.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`}
-  const curTm=allTeams.find(t=>t&&t.team_id===tid);
-  const teamTitle=curTm?curTm.name:tid;
-  const teamIcon=_teamIcons[tid]||'🤖';
-  el('ov-team-title').textContent=`${teamIcon} ${teamTitle}`;
-  const tbody=el('ov-team-agents');tbody.innerHTML='';
-  if(curTm&&curTm.agents){
-    const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);
-    aa.forEach(a=>{tbody.innerHTML+=`<tr><td><b>${escapeHtml(a.name||a.agent_id)}</b></td><td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td><td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td><td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+s+'</span>').join('')}</td><td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td></tr>`});
+  const allTeams=teamsList||[];
+  if(ov){
+    const sh=ov.scheduler||{};
+    const ev=ov.evolution||{};
+    const evs=ev.stats||{};
+    const taskSummary=curTm?.tasks||{};
+    const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
+    const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
+    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
+    sc.innerHTML=`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
+    const curTmMeta=allTeams.find(t=>t&&t.team_id===tid);
+    const teamTitle=(curTm&&curTm.name)||(curTmMeta&&curTmMeta.name)||tid;
+    const teamIcon=_teamIcons[tid]||'🤖';
+    renderSbAgents(curTm);
+    el('ov-team-title').textContent=`${teamIcon} ${teamTitle}`;
+    const tbody=el('ov-team-agents');tbody.innerHTML='';
+    if(curTm&&curTm.agents){
+      const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);
+      aa.forEach(a=>{tbody.innerHTML+=`<tr><td><b>${escapeHtml(a.name||a.agent_id)}</b></td><td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td><td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td><td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+s+'</span>').join('')}</td><td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td></tr>`});
+    }
+    if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
+    _ovTimer=setInterval(()=>{
+      if(document.hidden||!document.querySelector('#view-overview:not(.hidden)')){
+        clearInterval(_ovTimer);
+        _ovTimer=null;
+        return;
+      }
+      loadOverview();
+    },10000);
+    loadEvolution(ov?.evolution?.compliance_rating||null);
   }
-  if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
-  _ovTimer=setInterval(()=>{if(document.querySelector('#view-overview:not(.hidden)'))loadOverview();else clearInterval(_ovTimer)},10000);
-  loadEvolution();
 }
 
 // ── System Evolution (自我演进) ──
 const EVP='/api/v1/agent-teams/evolution';
-async function loadEvolution(){
+const EVO_ITEMS_PAGE_SIZE=50;
+let evoVisibleCount=EVO_ITEMS_PAGE_SIZE;
+let evoCachedItems=[];
+
+async function loadEvolution(prefetchedCompliance=null){
   const statusFilter=el('evo-filter')?.value||'';
   const itemsUrl=statusFilter?`${EVP}/items?status=${statusFilter}`:`${EVP}/items`;
-  const[rules,items,summary,compliance]=await Promise.all([
-    api(`${EVP}/rules`),api(itemsUrl),api(`${EVP}/summary`),api(`${EVP}/compliance-rating`)
-  ]);
   const rs=el('evo-rules'),is=el('evo-items'),sc=el('evo-stats'),cc=el('evo-compliance');
+  const needsDetailedData=Boolean(rs||is||sc);
+  const complianceReq=prefetchedCompliance?Promise.resolve(prefetchedCompliance):api(`${EVP}/compliance-rating`);
+  const [rules,items,summary,compliance]=needsDetailedData
+    ? await Promise.all([
+        api(`${EVP}/rules`),
+        api(itemsUrl),
+        api(`${EVP}/summary`),
+        complianceReq
+      ])
+    : [null,null,null,await complianceReq];
 
   // Compliance Rating Card
   if(compliance&&cc){
@@ -175,9 +222,13 @@ async function loadEvolution(){
   }
 
   // Stats
-  if(summary){
+  if(summary&&sc){
     const bs=summary.by_status||{};const bd=summary.by_domain||{};
     sc.innerHTML=`<div class="stat-card"><div class="label">📋 规则</div><div class="value">${summary.audit_rules_count||0}</div><div class="sub">验证函数 ${summary.verify_tests_registered||0}</div></div><div class="stat-card"><div class="label">🔍 演进项</div><div class="value">${summary.total_items||0}</div><div class="sub">${Object.entries(bs).map(([k,v])=>evoStL(k)+': '+v).join(' · ')||'无'}</div></div><div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k,v])=>k+' '+v).join(' · ')||'-'}</div></div>`;
+  }
+
+  if(!needsDetailedData){
+    return;
   }
 
   // Active Zones
@@ -186,15 +237,31 @@ async function loadEvolution(){
   // Rules — filter by selected team
   const isEnergy=(tid==='energy_first_principle');
   const filteredRules=(rules||[]).filter(r=>isEnergy?r.domain==='Datacenter':r.domain!=='Datacenter');
-  if(filteredRules.length){
+  if(rs&&filteredRules.length){
     rs.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">审查规则 (${filteredRules.length})</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">${filteredRules.map(r=>`<div style="padding:10px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:0"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${escapeHtml(r.id)}</b><span class="chip" style="font-size:10px">${escapeHtml(r.domain)}</span></div><div style="font-size:12px;margin-top:4px;color:var(--text)">${escapeHtml(r.title)}</div><div style="font-size:11px;color:var(--dim);margin-top:2px">${escapeHtml(r.reference||'')}</div><div style="font-size:11px;margin-top:2px"><span style="color:${r.severity==='critical'?'var(--red)':r.severity==='high'?'var(--amber)':'var(--muted)'}">${escapeHtml(r.severity)}</span> · ${escapeHtml(r.target_channel)}</div></div>`).join('')}</div>`;
-  } else { rs.innerHTML='<div style="color:var(--dim);font-size:12px">暂无审查规则</div>'; }
+  } else if(rs) { rs.innerHTML='<div style="color:var(--dim);font-size:12px">暂无审查规则</div>'; }
 
   // Items with action buttons
-  if(items&&items.length){
-    const maxItems=50;const shown=items.slice(0,maxItems);
-    is.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">演进条目 (${items.length}${items.length>maxItems?' · 显示前'+maxItems+'条':''})</div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>目标</th><th>操作</th></tr></thead><tbody>${shown.map(i=>`<tr><td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0,8)||'')}</td><td><b>${escapeHtml(i.title)}</b></td><td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain||'')}</span></td><td style="color:${i.severity==='critical'?'var(--red)':i.severity==='high'?'var(--amber)':'var(--muted)'}">${escapeHtml(i.severity||'')}</td><td>${evoStBadge(i.status)}</td><td style="font-size:12px">${escapeHtml(i.target_channel||'')}</td><td style="white-space:nowrap">${evoItemActions(i)}</td></tr>`).join('')}</tbody></table>${items.length>maxItems?`<button class="btn btn-sm" style="margin-top:8px" onclick="toast('TODO: 加载更多')">加载更多 (${items.length-maxItems} 剩余)</button>`:''}`;
-  } else { is.innerHTML='<div style="color:var(--dim);font-size:12px;padding:8px">暂无演进条目 — 点击「审查」或「运行演进周期」开始</div>'; }
+  evoCachedItems=items||[];
+  evoVisibleCount=EVO_ITEMS_PAGE_SIZE;
+  renderEvolutionItems();
+}
+
+function renderEvolutionItems(){
+  const is=el('evo-items');
+  if(!is)return;
+  if(!evoCachedItems.length){
+    is.innerHTML='<div style="color:var(--dim);font-size:12px;padding:8px">暂无演进条目 — 点击「审查」或「运行演进周期」开始</div>';
+    return;
+  }
+  const shown=evoCachedItems.slice(0,evoVisibleCount);
+  const remaining=Math.max(0,evoCachedItems.length-shown.length);
+  is.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">演进条目 (${evoCachedItems.length}${remaining>0?' · 显示前'+shown.length+'条':''})</div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>目标</th><th>操作</th></tr></thead><tbody>${shown.map(i=>`<tr><td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0,8)||'')}</td><td><b>${escapeHtml(i.title)}</b></td><td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain||'')}</span></td><td style="color:${i.severity==='critical'?'var(--red)':i.severity==='high'?'var(--amber)':'var(--muted)'}">${escapeHtml(i.severity||'')}</td><td>${evoStBadge(i.status)}</td><td style="font-size:12px">${escapeHtml(i.target_channel||'')}</td><td style="white-space:nowrap">${evoItemActions(i)}</td></tr>`).join('')}</tbody></table>${remaining>0?`<button class="btn btn-sm" style="margin-top:8px" onclick="evoLoadMore()">加载更多 (${remaining} 剩余)</button>`:''}`;
+}
+
+function evoLoadMore(){
+  evoVisibleCount+=EVO_ITEMS_PAGE_SIZE;
+  renderEvolutionItems();
 }
 
 function evoItemActions(item){
@@ -1687,30 +1754,19 @@ loadTeams();
 
 // ═══ Phase 3: Performance Optimization ═══
 
-// Visibility-aware polling: pause when tab is hidden
-let _pollTimer=null;
-function startPolling(){
-  if(_pollTimer)return;
-  _pollTimer=setInterval(()=>{
-    if(document.hidden)return;
-    const v=document.querySelector('.main-inner:not(.hidden)');
-    if(v&&v.id==='view-overview')loadOverview();
-  },15000);
-}
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&_pollTimer){
+  if(!document.hidden){
     const v=document.querySelector('.main-inner:not(.hidden)');
     if(v&&v.id==='view-overview')loadOverview();
   }
 });
-startPolling();
 
 // Debounce utility
 function debounce(fn,ms=300){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
 
 // SSE cleanup on page unload
 window.addEventListener('beforeunload',()=>{
-  if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null}
+  if(_ovTimer){clearInterval(_ovTimer);_ovTimer=null}
 });
 
 // ═══ Phase 4: Interaction Experience ═══

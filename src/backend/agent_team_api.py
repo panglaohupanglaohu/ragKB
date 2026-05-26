@@ -181,7 +181,7 @@ async def submit_feedback(body: FeedbackSubmission):
 # ---------------------------------------------------------------------------
 
 @router.get("/overview")
-async def teams_overview():
+async def teams_overview(team_id: Optional[str] = None):
     """一站式获取双团队全局概览."""
     result: Dict[str, Any] = {}
     if _build_team:
@@ -201,8 +201,32 @@ async def teams_overview():
     if _scheduler:
         result["scheduler"] = _scheduler.get_status()
     if _evolution_engine:
-        result["evolution"] = _evolution_engine.get_status()
+        result["evolution"] = {
+            **_evolution_engine.get_status(),
+            "compliance_rating": _serialize_compliance_rating(),
+        }
+    if team_id:
+        result["current_team"] = _serialize_current_team(team_id)
     return result
+
+
+def _serialize_current_team(team_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from .agents.api import _summarize_team_tasks, _team_manager
+    except ImportError:
+        from agents.api import _summarize_team_tasks, _team_manager
+
+    if _team_manager is None:
+        return None
+
+    team = _team_manager.get_team(team_id)
+    if team is None:
+        return None
+
+    return {
+        **team.to_dict(),
+        "tasks": _summarize_team_tasks(team_id),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +238,11 @@ async def evolution_status():
     """获取自我演进引擎状态。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_status()
+    status = _evolution_engine.get_status()
+    return {
+        "status": "initialized" if status.get("initialized") else "not_initialized",
+        **status,
+    }
 
 
 @router.get("/evolution/summary")
@@ -367,15 +395,15 @@ async def evolution_compliance_rating():
     """获取 DNV CII 风格 A~E 合规评级。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
+    return _serialize_compliance_rating()
+
+
+def _serialize_compliance_rating() -> Dict[str, Any]:
     data = _evolution_engine.get_compliance_rating()
-    # Add aliases expected by frontend
     data["grade"] = data.get("rating", "?")
     data["description"] = data.get("rating_label", "")
     escalation = _evolution_engine.get_escalation_status()
-    if escalation.get("escalated_count", 0) > 0:
-        data["escalation_tier"] = "corrective"
-    else:
-        data["escalation_tier"] = "normal"
+    data["escalation_tier"] = "corrective" if escalation.get("escalated_count", 0) > 0 else "normal"
     return data
 
 

@@ -959,6 +959,87 @@ workflow health-check
 
 ---
 
+## SECS 自进化协同沙箱系统 (Self-Evolving Collaborative Sandbox)
+
+> **"数字世界的二次映射——智能体的思维预演场"**
+
+SECS 是数字孪生功能的核心升级，将孪生从"被动观测"进化为"主动预演+自主进化"。它为智能体提供了一个安全的虚拟试错空间，经过沙箱验证的最优策略才会被注入真实环境。
+
+### 四维一体架构
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│            Layer 4: 集体智慧对齐 (DT-MADDPG)                    │
+│        全局评论家 · 协同悖论检测 · 策略对齐 · SOP 输出            │
+├────────────────────────────────────────────────────────────────┤
+│            Layer 3: 策略试错实验 (TwinLoop)                      │
+│     环境偏移检测 · 触发式仿真 · 并行What-if · 闭环注入           │
+├────────────────────────────────────────────────────────────────┤
+│            Layer 2: 认知进化循环 (AAS Zero-Exp)                  │
+│       零经验启动 · 经验-反思-优化循环 · 双记忆系统 · SOP提取      │
+├────────────────────────────────────────────────────────────────┤
+│            Layer 1: 环境语义映射 (MADTwin)                       │
+│     智能体状态 · 工作流拓扑 · 资源建模 · 约束语义化 · 快照       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 系统运行流程
+
+```
+快照与预警 → 沙箱试错 → 全局对齐 → 闭环注入
+    │              │            │           │
+  MADTwin 检测   AAS 零经验   DT-MADDPG    TwinLoop
+  环境偏移       并行实验     评估优化      策略回注
+```
+
+1. **快照与预警**: WorldStateManager 实时感知数字世界状态，DriftDetector 检测环境偏移（任务突变/资源冲突/智能体故障/性能衰退），自动触发仿真
+2. **沙箱试错**: TwinLoopEngine 创建智能体孪生副本，在加速沙箱中执行大量 What-if 推演（支持单场景/并行/演化三种模式）
+3. **全局对齐**: GlobalCritic 从5个维度（任务完成率/通信效率/资源利用率/冲突避免/收敛速度）评估群体表现，ZeroExpEngine 提取协作 SOP
+4. **闭环注入**: 只有验证通过的最优策略才被注入真实环境，同时固化经验到长期记忆
+
+### 核心组件
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| 数据模型 | `sandbox/models.py` | 全部数据结构（快照/经验/SOP/评估等） |
+| 环境映射 | `sandbox/world_state.py` | MADTwin 二次映射 + 快照管理 |
+| 双记忆 | `sandbox/memory_system.py` | 短期/长期经验 + 反思 + 启发式规则 |
+| 仿真引擎 | `sandbox/twin_loop.py` | 仿真在环控制 + 并行策略对比 |
+| 演化引擎 | `sandbox/zero_exp_engine.py` | 零经验循环 + SOP 提取 |
+| 偏移检测 | `sandbox/drift_detector.py` | 5 类偏移检测 + 自动触发 |
+| 全局评论家 | `sandbox/global_critic.py` | 5 维评估 + 建议生成 |
+| 策略对齐 | `sandbox/strategy_aligner.py` | 协同悖论检测 + 对齐协议 |
+| 编排器 | `sandbox/orchestrator.py` | 四维统一编排入口 |
+| API | `sandbox/api.py` | REST + SSE 实时流 |
+| Channel | `sandbox/channel.py` | MarineChannel 集成 |
+
+### API 端点
+
+```
+POST   /api/v1/sandbox/sessions              # 创建沙箱会话
+GET    /api/v1/sandbox/sessions              # 列出所有会话
+GET    /api/v1/sandbox/sessions/{id}         # 获取会话详情
+POST   /api/v1/sandbox/sessions/{id}/run     # 启动仿真
+GET    /api/v1/sandbox/sessions/{id}/stream  # SSE 实时流
+POST   /api/v1/sandbox/sessions/{id}/inject  # 注入最优策略
+POST   /api/v1/sandbox/world/sync            # 同步世界状态
+GET    /api/v1/sandbox/stats                 # 全局统计
+GET    /api/v1/sandbox/drift/history         # 偏移历史
+GET    /api/v1/sandbox/sops                  # SOP 库
+GET    /api/v1/sandbox/memory/{agent_id}     # 智能体记忆
+```
+
+### 前端页面
+
+访问 `sandbox-twin.html` 可看到完整的 SECS 仪表盘：
+- 🌐 环境语义映射面板 — 智能体拓扑实时可视化
+- 🎮 仿真控制面板 — 配置模式/步数/速度并一键启动
+- 📊 仿真时间线 — 奖励曲线 + 步骤回放
+- 🎯 全局评论家面板 — 5 维评分条 + 改进建议
+- 📋 SOP 库 — 已提取的协作标准操作程序
+
+---
+
 ## 系统架构总览
 
 ```

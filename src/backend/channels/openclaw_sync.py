@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -93,6 +94,7 @@ class OpenClawSyncChannel(MarineChannel):
         try:
             # 预热 EWMA 引擎
             self._ab_manager.warm_up()
+            self._initialized = True
             self._set_health(ChannelStatus.OK, "OpenClaw Sync Channel 就绪")
             logger.info(f"✅ {self.name} 初始化完成")
             return True
@@ -119,22 +121,32 @@ class OpenClawSyncChannel(MarineChannel):
         """
         self._events_processed += 1
         event_type = event.get("type", "")
+        start_time = time.time()
 
-        if event_type == "sync_request":
-            return self._handle_sync_request(event)
-        elif event_type == "metrics_update":
-            return self._handle_metrics_update(event)
-        elif event_type == "config_update":
-            return self._handle_config_update(event)
-        elif event_type == "stain_request":
-            return self._handle_stain_request(event)
-        elif event_type == "advance_allocation":
-            return self._handle_advance_allocation(event)
-        elif event_type == "get_status":
-            return self.get_status()
-        else:
-            logger.warning(f"未知事件类型: {event_type}")
-            return None
+        try:
+            if event_type == "sync_request":
+                result = self._handle_sync_request(event)
+            elif event_type == "metrics_update":
+                result = self._handle_metrics_update(event)
+            elif event_type == "config_update":
+                result = self._handle_config_update(event)
+            elif event_type == "stain_request":
+                result = self._handle_stain_request(event)
+            elif event_type == "advance_allocation":
+                result = self._handle_advance_allocation(event)
+            elif event_type == "get_status":
+                result = self.get_status()
+            else:
+                logger.warning(f"未知事件类型: {event_type}")
+                result = {"status": "error", "error": f"unknown event type: {event_type}"}
+
+            success = result.get("status", "ok") == "ok" and "error" not in result
+            self._record_call(success=success, latency_ms=(time.time() - start_time) * 1000)
+            return result
+        except Exception as exc:
+            self._record_call(success=False, latency_ms=(time.time() - start_time) * 1000)
+            logger.exception("处理事件失败: %s", event_type)
+            return {"status": "error", "error": str(exc), "event_type": event_type}
 
     def get_status(self) -> Dict[str, Any]:
         """获取 Channel 完整状态.
@@ -160,6 +172,7 @@ class OpenClawSyncChannel(MarineChannel):
                     if self._health.last_check else ""
                 ),
             },
+            "metrics": asdict(self.get_metrics()),
             "ab_testing": ab_status,
             "stats": {
                 "events_processed": self._events_processed,
@@ -199,6 +212,7 @@ class OpenClawSyncChannel(MarineChannel):
         Returns:
             True 如果关闭成功.
         """
+        self._initialized = False
         self._set_health(ChannelStatus.OFF, "Channel 已关闭")
         logger.info(f"🔌 {self.name} 已关闭")
         return True
@@ -215,8 +229,6 @@ class OpenClawSyncChannel(MarineChannel):
             同步决策结果.
         """
         self._sync_requests += 1
-        start_time = time.time()
-
         node_id = event.get("node_id", "unknown")
         node_type = event.get("node_type", "")
         latency_ms = event.get("latency_ms", 0.0)
@@ -248,7 +260,7 @@ class OpenClawSyncChannel(MarineChannel):
             peer_node_id=node_id,
         )
 
-        elapsed_ms = (time.time() - start_time) * 1000
+        elapsed_ms = 0.0
 
         if should_sync:
             self._sync_success += 1
@@ -347,9 +359,10 @@ class OpenClawSyncChannel(MarineChannel):
         Returns:
             确认消息.
         """
-        config_data = event.get("config", {})
-        new_config = EWMAConfig.from_dict(config_data)
-        self._ab_manager.update_config(new_config)
+        config_data = event.get("config") or {
+            k: v for k, v in event.items() if k != "type"
+        }
+        self._ab_manager.update_config(config_data)
         logger.info(f"♻️ 配置热更新: {config_data}")
         return {"status": "ok", "message": "配置已更新"}
 
@@ -446,6 +459,10 @@ class OpenClawSyncChannel(MarineChannel):
             ABTestManager 实例.
         """
         return self._ab_manager
+
+    def get_metrics(self):
+        """返回 metrics 快照，避免调用方拿到可变内部对象."""
+        return replace(self._metrics)
 
 
 # ══════════════════════════════════════════════════════════════════
