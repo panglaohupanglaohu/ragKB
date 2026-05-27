@@ -54,6 +54,7 @@ class CreateSessionRequest(BaseModel):
     speed_factor: float = Field(default=10.0, ge=1.0, le=100.0)
     parallel_branches: int = Field(default=3, ge=1, le=10)
     trigger_description: str = ""
+    use_llm: bool = Field(default=False, description="启用 LLM 驱动的智能体决策")
 
 
 class InjectRequest(BaseModel):
@@ -89,6 +90,7 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
         speed_factor=req.speed_factor,
         parallel_branches=req.parallel_branches,
         trigger_description=req.trigger_description,
+        use_llm=req.use_llm,
     )
 
     return {
@@ -96,7 +98,16 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
         "status": session.status.value,
         "mode": session.mode.value,
         "created_at": session.created_at,
+        "use_llm": req.use_llm,
     }
+
+
+@router.post("/llm-mode")
+async def set_llm_mode(enabled: bool = True) -> Dict[str, Any]:
+    """全局切换 LLM 决策模式."""
+    orch = get_orchestrator()
+    orch.set_llm_mode(enabled)
+    return {"llm_mode": enabled}
 
 
 @router.get("/sessions")

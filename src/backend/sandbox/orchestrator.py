@@ -27,6 +27,7 @@ from .zero_exp_engine import ZeroExpEngine
 from .drift_detector import DriftDetector
 from .global_critic import GlobalCritic
 from .strategy_aligner import StrategyAligner
+from .llm_decision import llm_decision
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ class SECSOrchestrator:
         self.critic = GlobalCritic()
         self.aligner = StrategyAligner(self.critic, self.zero_exp)
 
+        # LLM 模式标志
+        self._llm_mode = False
+
         # 注册偏移触发回调
         self.drift_detector.on_drift_trigger(self._on_drift_trigger)
 
@@ -62,8 +66,15 @@ class SECSOrchestrator:
         speed_factor: float = 10.0,
         parallel_branches: int = 3,
         trigger_description: str = "",
+        use_llm: bool = False,
     ) -> SandboxSession:
         """创建沙箱会话."""
+        # 如果启用 LLM 模式，注入 LLM 决策函数
+        if use_llm or self._llm_mode:
+            self.twin_loop._decision_func = self._llm_decision_wrapper
+        else:
+            self.twin_loop._decision_func = self.twin_loop._default_decision
+
         return self.twin_loop.create_session(
             team_id=team_id,
             mode=mode,
@@ -72,6 +83,32 @@ class SECSOrchestrator:
             parallel_branches=parallel_branches,
             trigger_description=trigger_description,
         )
+
+    def set_llm_mode(self, enabled: bool) -> None:
+        """启用/禁用 LLM 驱动的决策模式."""
+        self._llm_mode = enabled
+        if enabled:
+            self.twin_loop._decision_func = self._llm_decision_wrapper
+            logger.info("🧠 SECS 切换到 LLM 决策模式")
+        else:
+            self.twin_loop._decision_func = self.twin_loop._default_decision
+            logger.info("📏 SECS 切换到规则决策模式")
+
+    def _llm_decision_wrapper(self, twin, world, all_twins):
+        """同步包装异步 LLM 决策 (兼容同步调用场景)."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # 如果已在事件循环中，创建 task 并发执行
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(
+                    asyncio.run, llm_decision(twin, world, all_twins)
+                )
+                return future.result(timeout=10)
+        except RuntimeError:
+            # 没有运行中的事件循环
+            return asyncio.run(llm_decision(twin, world, all_twins))
 
     def get_session(self, session_id: str) -> Optional[SandboxSession]:
         """获取会话."""
