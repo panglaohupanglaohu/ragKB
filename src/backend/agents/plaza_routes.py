@@ -46,7 +46,7 @@ class AddParticipantRequest(BaseModel):
 
 class CreateDiscussionRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=200)
-    description: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=2000)
     goal: str = Field(default="", max_length=500)
     moderator_agent_id: str = ""
     max_rounds: int = Field(default=3, ge=1, le=10)

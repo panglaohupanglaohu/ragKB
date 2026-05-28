@@ -315,8 +315,11 @@ class PlazaEngine:
                 for speaker in ex_speakers:
                     # 获取最近 5 条作为即时上下文 (短窗口促进针锋相对)
                     recent = self._format_recent(disc, limit=5)
+                    context_block = f"背景描述: {disc.description}\n" if disc.description else ""
+                    goal_block = f"讨论目标: {disc.goal}\n" if disc.goal else ""
                     speak_prompt = (
                         f"你正在参与关于「{disc.topic}」的团队讨论。\n"
+                        f"{context_block}{goal_block}"
                         f"你是 {speaker.agent_name}（{speaker.role}）。"
                         f"第 {round_num} 轮，第 {ex_idx+1} 次发言。\n\n"
                         f"刚才的讨论:\n{recent}\n\n"
@@ -353,6 +356,7 @@ class PlazaEngine:
 
         final_prompt = (
             f"你是议事长。关于「{disc.topic}」的讨论已经完成 {disc.max_rounds} 轮。\n"
+            f"{f'背景描述: {disc.description}' if disc.description else ''}\n"
             f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
             f"完整讨论记录:\n{self._format_history(disc)}\n\n"
             f"请生成可直接派发任务的技术型概要。核心原则——有取舍、有权重:\n"

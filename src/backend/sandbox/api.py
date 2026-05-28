@@ -44,6 +44,19 @@ def get_orchestrator() -> SECSOrchestrator:
     return _orchestrator
 
 
+# ── Helper: DT→SECS bridge ──────────────────────────────────
+
+
+def _sync_dt_to_orchestrator(orch: SECSOrchestrator) -> Dict[str, Any]:
+    """从数字孪生 _dt_state 同步到 SECS."""
+    try:
+        from agents.api import _dt_state
+        return orch.sync_from_digital_twin(_dt_state)
+    except Exception as e:
+        logger.warning(f"DT 同步失败: {e}")
+        return {"synced_agents": 0, "synced_rooms": 0, "synced_edges": 0, "error": str(e)}
+
+
 # ── Request/Response Models ─────────────────────────────────
 
 
@@ -55,6 +68,7 @@ class CreateSessionRequest(BaseModel):
     parallel_branches: int = Field(default=3, ge=1, le=10)
     trigger_description: str = ""
     use_llm: bool = Field(default=False, description="启用 LLM 驱动的智能体决策")
+    sync_dt: bool = Field(default=True, description="创建时自动从数字孪生同步场景")
 
 
 class InjectRequest(BaseModel):
@@ -83,6 +97,11 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {req.mode}")
 
+    # 自动从数字孪生同步当前场景
+    dt_sync = None
+    if req.sync_dt:
+        dt_sync = _sync_dt_to_orchestrator(orch)
+
     session = orch.create_session(
         team_id=req.team_id,
         mode=mode,
@@ -99,7 +118,16 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
         "mode": session.mode.value,
         "created_at": session.created_at,
         "use_llm": req.use_llm,
+        "dt_sync": dt_sync,
     }
+
+
+@router.post("/sync-from-dt")
+async def sync_from_digital_twin() -> Dict[str, Any]:
+    """从数字孪生同步当前场景到 SECS 世界状态."""
+    orch = get_orchestrator()
+    result = _sync_dt_to_orchestrator(orch)
+    return {"status": "synced", **result}
 
 
 @router.post("/llm-mode")

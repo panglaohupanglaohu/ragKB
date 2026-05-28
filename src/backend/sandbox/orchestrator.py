@@ -141,6 +141,61 @@ class SECSOrchestrator:
         if workflow_edges:
             self.world_state.sync_workflow(workflow_edges)
 
+    def sync_from_digital_twin(self, dt_state: Dict[str, Any]) -> Dict[str, Any]:
+        """从数字孪生状态同步场景到 SECS 世界.
+
+        将 DT 的 rooms/positions/interactions 转换为
+        SECS 的 agents/resources/workflow_edges。
+        """
+        rooms = dt_state.get("rooms", [])
+        positions = dt_state.get("positions", {})
+        interactions = dt_state.get("interactions", [])
+
+        # rooms → 资源 (每个房间是一个空间资源)
+        resources = [
+            {"id": r.get("id", f"room-{i}"), "type": "room",
+             "capacity": r.get("capacity", 5.0), "utilization": 0.0,
+             "available": True, "metadata": {"name": r.get("name", f"Room {i}")}}
+            for i, r in enumerate(rooms)
+        ]
+
+        # positions → agent 状态 (agent 在哪个房间)
+        agents = [
+            {"id": agent_id, "name": agent_id, "role": "general",
+             "state": "idle", "room": room_id, "skills": [], "tools": []}
+            for agent_id, room_id in positions.items()
+        ]
+
+        # interactions → workflow edges (谁和谁通信过)
+        edges = []
+        seen = set()
+        for ix in interactions:
+            key = (ix.get("from", ""), ix.get("to", ""))
+            if key not in seen and key[0] and key[1]:
+                seen.add(key)
+                edges.append({
+                    "source": ix["from"], "target": ix["to"],
+                    "channel": "direct", "message_type": ix.get("type", "handoff"),
+                    "weight": 1.0,
+                })
+
+        # 同步到世界状态
+        self.sync_world(
+            agents=agents,
+            resources=resources,
+            workflow_edges=edges,
+        )
+
+        summary = {
+            "synced_agents": len(agents),
+            "synced_rooms": len(resources),
+            "synced_edges": len(edges),
+            "agent_ids": [a["id"] for a in agents],
+        }
+        logger.info(f"🔄 DT→SECS 同步完成: {summary['synced_agents']} agents, "
+                    f"{summary['synced_rooms']} rooms, {summary['synced_edges']} edges")
+        return summary
+
     def get_world_summary(self) -> Dict[str, Any]:
         """获取世界状态摘要."""
         return self.world_state.to_dict()

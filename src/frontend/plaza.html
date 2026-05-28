@@ -1623,10 +1623,15 @@ window.openCreateDisc = async function() {
 window.doCreateDisc = async function() {
   const topic = $('inp-dt').value.trim();
   if (!topic) { toast('请输入话题'); return; }
-  const r = await api(`${API}/plaza/${curPlaza}/discussions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic, goal: $('inp-dg').value.trim(), description: $('inp-dd').value.trim(), moderator_agent_id: $('inp-dm').value, max_rounds: parseInt($('inp-dr').value) })
-  });
-  if (r) { closeM('m-disc'); $('inp-dt').value=''; $('inp-dg').value=''; $('inp-dd').value=''; toast('讨论已创建'); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300); }
+  const desc = $('inp-dd').value.trim();
+  if (desc.length > 2000) { toast('背景内容过长，请缩减到2000字以内'); return; }
+  const body = { topic, goal: $('inp-dg').value.trim(), description: desc, moderator_agent_id: $('inp-dm').value, max_rounds: parseInt($('inp-dr').value) };
+  try {
+    const resp = await fetch(`${API}/plaza/${curPlaza}/discussions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!resp.ok) { const err = await resp.json().catch(() => null); toast(err?.detail?.[0]?.msg || err?.detail || '创建失败，请检查输入'); return; }
+    const r = await resp.json();
+    closeM('m-disc'); $('inp-dt').value=''; $('inp-dg').value=''; $('inp-dd').value=''; toast('讨论已创建'); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300);
+  } catch(e) { toast('网络错误: ' + e.message); }
 };
 
 window.startDiscussion = async function() {

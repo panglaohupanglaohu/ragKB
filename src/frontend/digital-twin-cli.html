@@ -319,6 +319,7 @@ body {
 .btn-primary:hover { background: #4de8fa; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease-out; }
 @keyframes toastIn { from{opacity:0;transform:translate(-50%,10px)} }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:translateX(0)} }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -478,7 +479,7 @@ body {
   </div>
 
   <div class="agent-drawer" id="agent-drawer"></div>
-  <div class="right-panel">
+  <div class="right-panel" id="rp-default">
     <div class="rp-section">
       <div class="rp-title">系统概况</div>
       <div class="rp-stat"><span class="label">智能体</span><span class="value cyan" id="stat-agents">-</span></div>
@@ -497,6 +498,74 @@ body {
       <div class="activity-feed" id="activity-feed"></div>
     </div>
   </div>
+  <div class="right-panel" id="rp-secs" style="display:none">
+    <div class="rp-section">
+      <div class="rp-title" style="display:flex;align-items:center;gap:6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        SECS 仿真控制
+      </div>
+      <div id="secs-sync-status" style="font-size:11px;color:var(--muted);margin-top:8px;padding:8px 10px;background:var(--panel2);border-radius:6px">
+        <span style="color:var(--dim)">场景未同步</span>
+      </div>
+      <button onclick="secsSyncDT()" style="width:100%;margin-top:10px;padding:8px 0;font-size:12px;font-weight:500;background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(34,211,238,0.3);border-radius:6px;cursor:pointer;transition:all 0.2s" onmouseover="this.style.background='rgba(34,211,238,0.25)'" onmouseout="this.style.background='var(--cyan-dim)'">🔄 同步当前场景</button>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">仿真模式</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="what_if" checked style="accent-color:var(--cyan)"> What-if 推演
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="parallel" style="accent-color:var(--cyan)"> 并行策略对比
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="evolutionary" style="accent-color:var(--cyan)"> 演化搜索
+        </label>
+      </div>
+      <div style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="checkbox" id="secs-use-llm" style="accent-color:var(--purple)"> 🧠 LLM 智能决策
+        </label>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--dim);white-space:nowrap">步数</span>
+        <input type="range" id="secs-steps" min="10" max="200" value="50" style="flex:1;accent-color:var(--cyan)">
+        <span id="secs-steps-val" style="font-size:11px;color:var(--cyan);min-width:24px">50</span>
+      </div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">选择团队</div>
+      <select id="secs-team-select" onchange="secsLoadTeamTasks()" style="width:100%;margin-top:6px;padding:8px;font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+        <option value="">加载中...</option>
+      </select>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title" id="secs-task-label">选择任务</div>
+      <select id="secs-task-select" style="width:100%;margin-top:6px;padding:8px;font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+        <option value="">请先选择团队</option>
+      </select>
+    </div>
+    <div class="rp-section">
+      <button onclick="secsRun()" id="secs-run-btn" style="width:100%;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#000;border:none;border-radius:6px;cursor:pointer;transition:all 0.2s">▶ 开始仿真</button>
+      <button onclick="secsDevWorkflow()" id="secs-dev-btn" style="width:100%;margin-top:8px;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,#fbbf24,#f472b6);color:#000;border:none;border-radius:6px;cursor:pointer;transition:all 0.2s">🎬 运行任务流程仿真</button>
+    </div>
+    <div class="rp-section" id="secs-results" style="display:none;border-bottom:none;flex:1;overflow-y:auto">
+      <div class="rp-title">仿真结果</div>
+      <div id="secs-results-body" style="margin-top:8px;font-size:11.5px;color:var(--text2)"></div>
+    </div>
+    <div class="rp-section" style="border-bottom:none;flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:160px">
+      <div class="rp-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>💬 实时对话</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button id="secs-tts-btn" onclick="secsToggleTTS()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;color:var(--cyan);cursor:pointer" title="语音播报开关">🔊 语音</button>
+          <button onclick="document.getElementById('secs-dialogue-log').innerHTML=''" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--dim);cursor:pointer" title="清空">✕</button>
+        </div>
+      </div>
+      <div id="secs-dialogue-log" style="flex:1;overflow-y:auto;margin-top:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;font-size:11px;line-height:1.7;max-height:220px">
+        <span style="color:var(--dim)">仿真启动后将在此显示对话内容...</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -508,10 +577,11 @@ async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
   renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
+  secsInitTeamDropdown();
   setInterval(loadLiveMetrics,10000);
   startSim();
 }
-async function loadDtState(){try{const r=await fetch(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
+async function loadDtState(){try{const r=await fetch(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
 async function syncDtState(){try{await fetch(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
 function loadLocal(){
   const storedRooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null');
@@ -539,7 +609,8 @@ async function loadTeamsAndAgents(){
       try{const ar=await fetch(`${API}/teams/${tid}/agents`);if(ar.ok){const agents=await ar.json();S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}}catch{}
     });
     await Promise.all(fetches);
-    S.selectedTeams=S.teams.map(t=>t.id);
+    // 仅首次加载或无选中时设置全选，否则保留用户选择
+    if(!S.selectedTeams.length) S.selectedTeams=S.teams.map(t=>t.id);
     renderTeamSelector();
   }catch{}
 }
@@ -568,6 +639,10 @@ function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
   document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('view-'+el.dataset.view).classList.add('active');
+  // 右面板切换: 环境空间时显示 SECS 控制台
+  const isEnv = el.dataset.view === 'environment';
+  document.getElementById('rp-default').style.display = isEnv ? 'none' : '';
+  document.getElementById('rp-secs').style.display = isEnv ? '' : 'none';
   if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
 }
 
@@ -865,7 +940,6 @@ function renderEnvironment(){
     const ag=S.agents.filter(a=>S.positions[a.agent_id]===r.id);
     return`<div class="env-room" data-room-id="${r.id}" onclick="showRoom('${r.id}')" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'${r.id}')"><div class="room-icon">${r.icon}</div><div class="room-name">${r.name}</div><div class="room-desc">${r.desc}</div><div class="room-agents">${ag.map((a,i)=>`<div class="ag-dot" style="background:${colors[i%6]}30;color:${colors[i%6]}" title="${a.name}">${(a.name||'?').charAt(0)}</div>`).join('')||'<span style="font-size:10px;color:var(--dim)">空</span>'}</div><div class="drop-hint">拖放智能体到此空间</div><div class="room-footer"><span>${ag.length} 智能体</span><span style="color:${r.color}">●</span></div></div>`;
   }).join('');
-  if(_3dInitialized)update3DEnv();
 }
 function showRoom(id){const r=S.rooms.find(x=>x.id===id);if(!r)return;const ag=S.agents.filter(a=>S.positions[a.agent_id]===id);toast(`${r.icon} ${r.name} — ${ag.length} 智能体: ${ag.map(a=>a.name).join(', ')||'(空)'}`)}
 function createRoom(){const name=prompt('新空间名称:');if(!name)return;S.rooms.push({id:'r_'+Date.now().toString(36),name,icon:prompt('图标:','◇')||'◇',desc:prompt('描述:','')||'',color:'var(--muted)'});persist();renderEnvironment();renderRoomTabs();toast('空间已创建: '+name)}
@@ -1613,6 +1687,8 @@ function switchRoom(roomId,btn){
   if(btn){document.querySelectorAll('#room-tabs .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
   _3dCurrentRoom=roomId;
   if(window._dt3dBuildRoom)window._dt3dBuildRoom(roomId);
+  // 切房间时刷新任务下拉菜单
+  secsRefreshTaskDropdown();
 }
 
 function flyToRoom(roomId){
@@ -1622,6 +1698,1304 @@ function flyToRoom(roomId){
 }
 function flyToOverview(){if(window._dt3dSetCamera)window._dt3dSetCamera(0,25,25,0,0,0)}
 function flyTour(){let i=0;const next=()=>{if(i>=S.rooms.length)return;flyToRoom(S.rooms[i].id);i++;setTimeout(next,2500)};next()}
+
+// ── SECS 仿真控制 (右面板) ──────────────────────────────────
+const SECS_API = '/api/v1/sandbox';
+let _secsSession = null;
+
+document.getElementById('secs-steps').addEventListener('input', function(){
+  document.getElementById('secs-steps-val').textContent = this.value;
+});
+
+async function secsSyncDT(){
+  const el = document.getElementById('secs-sync-status');
+  el.innerHTML = '<span style="color:var(--amber)">⏳ 同步中...</span>';
+  try {
+    const r = await fetch(`${SECS_API}/sync-from-dt`, {method:'POST'});
+    const d = await r.json();
+    if(d.synced_agents > 0){
+      el.innerHTML = `<span style="color:var(--green)">✓ 已同步</span> <span style="color:var(--dim)">${d.synced_agents} agents · ${d.synced_rooms} rooms · ${d.synced_edges} edges</span>`;
+    } else {
+      el.innerHTML = `<span style="color:var(--amber)">⚠ 场景为空</span> <span style="color:var(--dim)">请先在3D场景中放置智能体</span>`;
+    }
+  } catch(e){
+    el.innerHTML = `<span style="color:var(--red)">✗ 同步失败</span>`;
+  }
+}
+
+async function secsRun(){
+  const btn = document.getElementById('secs-run-btn');
+  const mode = document.querySelector('input[name="secs-mode"]:checked').value;
+  const useLlm = document.getElementById('secs-use-llm').checked;
+  const steps = parseInt(document.getElementById('secs-steps').value);
+  const triggerEl = document.getElementById('secs-trigger');
+  const trigger = triggerEl ? triggerEl.value.trim() : '';
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 仿真运行中...';
+  btn.style.opacity = '0.6';
+
+  try {
+    // 创建会话 (自动同步DT)
+    const cr = await fetch(`${SECS_API}/sessions`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mode, use_llm:useLlm, max_steps:steps, trigger_description:trigger, sync_dt:true})
+    });
+    const session = await cr.json();
+    _secsSession = session;
+
+    // 执行仿真
+    const rr = await fetch(`${SECS_API}/sessions/${session.session_id}/run`, {method:'POST'});
+    const result = await rr.json();
+
+    // 显示结果
+    secsShowResult(session, result);
+  } catch(e){
+    document.getElementById('secs-results').style.display = '';
+    document.getElementById('secs-results-body').innerHTML = `<span style="color:var(--red)">仿真失败: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ 开始仿真';
+    btn.style.opacity = '1';
+  }
+}
+
+function secsShowResult(session, result){
+  const el = document.getElementById('secs-results');
+  const body = document.getElementById('secs-results-body');
+  el.style.display = '';
+
+  const eval_ = result.evaluation || {};
+  const sop = result.best_sop || {};
+  const score = eval_.global_score != null ? (eval_.global_score * 100).toFixed(0) : '--';
+  const scoreColor = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+      <span style="font-size:22px;font-weight:700;color:${scoreColor}">${score}</span>
+      <span style="font-size:11px;color:var(--dim)">/ 100 综合评分</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px">
+      ${_secsMetric('任务完成', eval_.task_completion)}
+      ${_secsMetric('通信效率', eval_.communication_efficiency)}
+      ${_secsMetric('资源利用', eval_.resource_utilization)}
+      ${_secsMetric('冲突规避', eval_.conflict_avoidance)}
+      ${_secsMetric('收敛速度', eval_.convergence_speed)}
+    </div>
+    ${sop.name ? `<div style="padding:8px 10px;background:var(--green-dim);border:1px solid rgba(52,211,153,0.3);border-radius:6px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--green)">📋 最优 SOP: ${sop.name}</div>
+      <div style="font-size:10.5px;color:var(--dim);margin-top:2px">avg_reward: ${sop.avg_reward?.toFixed(3) || '--'}</div>
+    </div>` : ''}
+    ${eval_.recommendations?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--muted)"><b>建议:</b><ul style="margin:4px 0 0 14px">${eval_.recommendations.map(r=>`<li>${r}</li>`).join('')}</ul></div>` : ''}
+    <button onclick="secsInject()" style="width:100%;margin-top:10px;padding:8px 0;font-size:12px;font-weight:500;background:var(--green-dim);color:var(--green);border:1px solid rgba(52,211,153,0.3);border-radius:6px;cursor:pointer">⬆ 注入最优策略到真实环境</button>
+  `;
+}
+
+function _secsMetric(label, val){
+  const v = val != null ? (val * 100).toFixed(0) : '--';
+  const pct = val != null ? (val * 100) : 0;
+  return `<div style="display:flex;align-items:center;gap:8px"><span style="font-size:10.5px;color:var(--dim);min-width:56px">${label}</span><div style="flex:1;height:4px;background:var(--panel3);border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--cyan);border-radius:2px"></div></div><span style="font-size:10.5px;color:var(--text2);min-width:24px;text-align:right">${v}</span></div>`;
+}
+
+async function secsInject(){
+  if(!_secsSession) return;
+  try {
+    const r = await fetch(`${SECS_API}/sessions/${_secsSession.session_id}/inject`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{"confirm":true}'
+    });
+    const d = await r.json();
+    if(d.status === 'injected'){
+      addActivity({type:'info', text:'✅ SECS 策略已注入真实环境', time:new Date().toISOString()});
+    }
+  } catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════════
+// SECS 实时对话日志 + TTS 语音播报
+// ══════════════════════════════════════════════════════════════
+let _secsTTSEnabled = localStorage.getItem('secs_tts') !== 'false'; // 默认开启
+let _secsTTSAudio = null;
+let _secsTTSSerial = 0;
+
+function secsToggleTTS(){
+  _secsTTSEnabled = !_secsTTSEnabled;
+  localStorage.setItem('secs_tts', String(_secsTTSEnabled));
+  const btn = document.getElementById('secs-tts-btn');
+  if(btn) btn.textContent = _secsTTSEnabled ? '🔊 语音' : '🔇 静音';
+  if(btn) btn.style.color = _secsTTSEnabled ? 'var(--cyan)' : 'var(--dim)';
+  if(!_secsTTSEnabled){
+    if(_secsTTSAudio){_secsTTSAudio.pause();_secsTTSAudio=null}
+    if(window.speechSynthesis) speechSynthesis.cancel();
+  }
+}
+// 初始化按钮状态
+setTimeout(()=>{
+  const btn = document.getElementById('secs-tts-btn');
+  if(btn){btn.textContent = _secsTTSEnabled ? '🔊 语音' : '🔇 静音';btn.style.color = _secsTTSEnabled ? 'var(--cyan)' : 'var(--dim)';}
+},100);
+
+// 追加一条对话记录到面板
+function secsAppendDialogue(agentName, text, color){
+  const log = document.getElementById('secs-dialogue-log');
+  if(!log) return;
+  // 如果是初始提示文字, 先清空
+  if(log.querySelector('span[style*="dim"]') && log.children.length === 1) log.innerHTML = '';
+  const entry = document.createElement('div');
+  entry.style.cssText = 'margin-bottom:4px;border-left:2px solid '+(color||'#22d3ee')+';padding-left:8px;animation:fadeIn 0.3s ease';
+  entry.innerHTML = `<span style="color:${color||'#22d3ee'};font-weight:600;font-size:10px">${agentName}</span> <span style="color:#ccc">${text}</span>`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+// TTS 语音播报 (后端GPT-SoVITS优先，Web Speech API兜底)
+async function secsTTSSpeak(text, agentName){
+  if(!_secsTTSEnabled || !text) return;
+  const serial = ++_secsTTSSerial;
+  // 停止上一段
+  if(_secsTTSAudio){_secsTTSAudio.pause();_secsTTSAudio=null}
+  if(window.speechSynthesis) speechSynthesis.cancel();
+
+  // 尝试后端TTS
+  try {
+    const resp = await fetch('/api/v1/tts', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text, text_lang:'zh', speed_factor:1.1, agent_name:agentName||''})
+    });
+    if(resp.ok && serial === _secsTTSSerial){
+      const blob = await resp.blob();
+      if(blob.size > 0 && serial === _secsTTSSerial){
+        return new Promise(resolve=>{
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          _secsTTSAudio = audio;
+          audio.volume = 0.8;
+          audio.onended = ()=>{URL.revokeObjectURL(url);if(_secsTTSAudio===audio)_secsTTSAudio=null;resolve()};
+          audio.onerror = ()=>{URL.revokeObjectURL(url);if(_secsTTSAudio===audio)_secsTTSAudio=null;resolve()};
+          audio.play().catch(()=>resolve());
+        });
+      }
+    }
+  } catch(e){/* fallback to Web Speech */}
+
+  // Web Speech API 兜底
+  if(serial !== _secsTTSSerial) return;
+  if(!window.speechSynthesis) return;
+  return new Promise(resolve=>{
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'zh-CN';
+    utt.rate = 1.1;
+    utt.pitch = 0.85;
+    utt.volume = 0.8;
+    const voices = speechSynthesis.getVoices();
+    const zhVoice = voices.find(v=>v.lang.startsWith('zh'));
+    if(zhVoice) utt.voice = zhVoice;
+    utt.onend = ()=>resolve();
+    utt.onerror = ()=>resolve();
+    speechSynthesis.speak(utt);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// SECS 开发流程仿真 (工作坊场景专用) — 基于真实团队/任务
+// ══════════════════════════════════════════════════════════════
+let _secsSimRunning = false;
+let _secsTeams = [];
+let _secsTaskCache = {};
+
+// 角色 → 工作描述映射 (console风格真实输出)
+const _roleWorkMap = {
+  project_manager: { emoji:'📋', task:'需求分析与任务分配', screens:[
+    ['$ ag-pm analyze --task="{task}"','[INFO] Loading requirements.json...','[INFO] Parsing 12 user stories','> Priority: P0=3, P1=5, P2=4','> Assigning subtasks to agents...','[OK] 7 subtasks dispatched'],
+    ['$ ag-pm schedule --sprint=current','[INFO] Capacity: 7 agents × 8h','> Critical path: design→impl→test','> ETA: 4.2h (parallel factor 0.6)','[OK] Sprint plan generated']
+  ]},
+  researcher: { emoji:'🔬', task:'技术研究与方案调研', screens:[
+    ['$ ag-research scan --domain="{task}"','[INFO] Querying knowledge_base...','[INFO] Found 23 relevant papers','> Comparing: approach_A vs approach_B','> Feasibility score: 0.87','[OK] Report: research_output.md'],
+    ['$ ag-research compare --depth=3','[INFO] Evaluating solution_A...','[INFO] Evaluating solution_B...','[INFO] Evaluating solution_C...','> Best: solution_B (cost↓40%, perf↑12%)','[OK] Recommendation finalized']
+  ]},
+  architect: { emoji:'🏗', task:'架构设计', screens:[
+    ['$ ag-arch design --scope="{task}"','[INFO] Analyzing dependencies...','> Modules: core(3), api(2), store(1)','> Interface contracts: 8 defined','> Pattern: event-driven + CQRS','[OK] arch_diagram.mermaid written'],
+    ['$ ag-arch validate --strict','[CHECK] Circular deps... PASS','[CHECK] Single responsibility... PASS','[CHECK] API consistency... PASS','> Coverage: 100% modules validated','[OK] Architecture approved']
+  ]},
+  developer: { emoji:'💻', task:'编码实现', screens:[
+    ['$ ag-dev implement --module=core','[INFO] Reading arch spec...','> Generating: src/core/handler.ts','> Generating: src/core/types.ts','> Lines written: 347','[OK] 4 files, 0 lint errors'],
+    ['$ ag-dev test --unit --coverage','[RUN] handler.test.ts... 12 passed','[RUN] types.test.ts... 8 passed','> Coverage: 94.2% (target: 90%)','> Mutations killed: 87/92','[OK] All tests green ✓']
+  ]},
+  qa_engineer: { emoji:'🧪', task:'测试验证', screens:[
+    ['$ ag-qa run --suite=integration','[INFO] Spinning up test env...','[RUN] api_flow.spec... 23/23 ✓','[RUN] edge_cases.spec... 18/18 ✓','[RUN] stress.spec... 5/5 ✓','[OK] 46 tests passed, 0 failed'],
+    ['$ ag-qa fuzz --iterations=1000','[INFO] Generating random inputs...','[WARN] Found 2 boundary issues','> Fix applied: input validation','[RUN] Re-test... ALL PASS','[OK] Security audit complete']
+  ]},
+  devops: { emoji:'🚀', task:'部署发布', screens:[
+    ['$ ag-deploy build --target=prod','[INFO] Installing dependencies...','> Bundle size: 2.1MB (gzip: 680KB)','> Docker image: agentsgroup:v2.4.1','[INFO] Pushing to registry...','[OK] Image pushed, ready to deploy'],
+    ['$ ag-deploy rollout --canary=10%','[INFO] Canary: 10% traffic routed','> Health: 200 OK (p99: 45ms)','> Error rate: 0.00%','[INFO] Promoting to 100%...','[OK] Deployment complete 🎉']
+  ]},
+  documentation: { emoji:'📝', task:'文档输出', screens:[
+    ['$ ag-docs generate --format=md','[INFO] Scanning source files...','> API endpoints: 12 documented','> Params/Returns: auto-extracted','> Examples: 8 generated from tests','[OK] docs/api-reference.md updated'],
+    ['$ ag-docs changelog --since=v2.3','[INFO] Parsing git log (47 commits)','> Features: 3, Fixes: 8, Refactor: 2','> Breaking changes: 0','> Migration guide: not needed','[OK] CHANGELOG.md appended']
+  ]},
+};
+const _roleColors = ['#22d3ee','#60a5fa','#a78bfa','#34d399','#f472b6','#fbbf24','#fb923c'];
+
+async function secsInitTeamDropdown(){
+  try {
+    const r = await fetch('/api/v1/agent-config/teams');
+    _secsTeams = await r.json();
+    const sel = document.getElementById('secs-team-select');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">-- 选择团队 --</option>' +
+      _secsTeams.map(t=>`<option value="${t.team_id}">${t.name||t.team_id} (${t.agent_count||0}人)</option>`).join('');
+  } catch(e){ console.warn('SECS teams load failed',e); }
+}
+
+async function secsLoadTeamTasks(){
+  const teamId = document.getElementById('secs-team-select')?.value;
+  const taskSel = document.getElementById('secs-task-select');
+  if(!taskSel) return;
+  if(!teamId){ taskSel.innerHTML = '<option value="">请先选择团队</option>'; return; }
+
+  // 立即切换3D场景到该团队的智能体
+  if(window.S && window.S.selectedTeams){
+    window.S.selectedTeams = [teamId];
+    if(typeof renderTeamSelector === 'function') renderTeamSelector();
+    if(typeof renderAgentList === 'function') renderAgentList();
+    // 保持当前房间并重建场景 (加载该团队agents)
+    const curRoom = window._currentRoomId || 'council';
+    if(window._dt3dBuildRoom){
+      if(typeof flyToRoom === 'function') flyToRoom(curRoom);
+      else window._dt3dBuildRoom(curRoom);
+    }
+  }
+
+  // 先加载真实任务到缓存
+  taskSel.innerHTML = '<option value="">加载中...</option>';
+  try {
+    const r = await fetch(`/api/v1/agent-config/teams/${teamId}/tasks`);
+    const tasks = await r.json();
+    _secsTaskCache[teamId] = tasks;
+  } catch(e){ _secsTaskCache[teamId] = []; }
+
+  // 根据当前房间渲染不同内容
+  secsRefreshTaskDropdown();
+}
+
+// ── 场景化任务/议题配置 ──
+const _roomTaskConfig = {
+  council: {
+    label: '◇ 选择讨论议题',
+    btnText: '🎬 开始议事讨论',
+    // 从真实任务提取议题 + 预置通用议题
+    transform(tasks){
+      const fromTasks = tasks.slice(0,5).map(t => ({
+        id: t.task_id, title: '讨论: ' + (t.title?.substring(0,30)||'议题')
+      }));
+      const preset = [
+        {id:'_c1', title:'技术方案评审: 架构选型与风险评估'},
+        {id:'_c2', title:'迭代复盘: 上周交付质量与改进'},
+        {id:'_c3', title:'资源协调: 人员分配与优先级排序'},
+        {id:'_c4', title:'技术债务: 是否立即还债'},
+        {id:'_c5', title:'新需求评估: 可行性与工期预估'},
+      ];
+      return [...fromTasks, ...preset];
+    }
+  },
+  workshop: {
+    label: '□ 选择开发任务',
+    btnText: '🎬 运行开发流程仿真',
+    transform(tasks){
+      if(!tasks.length) return [{id:'_w1', title:'通用开发流程演示'}];
+      return tasks.map(t => ({id: t.task_id, title: (t.title?.substring(0,38)||t.task_id) + ` [${t.status}]`}));
+    }
+  },
+  extraction: {
+    label: '○ 选择萃取目标',
+    btnText: '🎬 启动技能萃取仿真',
+    transform(tasks){
+      const fromTasks = tasks.slice(0,3).map(t => ({
+        id: t.task_id, title: '萃取: ' + (t.title?.substring(0,28)||'技能')
+      }));
+      const preset = [
+        {id:'_e1', title:'萃取: 代码审查最佳实践'},
+        {id:'_e2', title:'萃取: 故障排查经验模式'},
+        {id:'_e3', title:'萃取: 架构设计决策知识'},
+        {id:'_e4', title:'萃取: 测试策略与边界发现'},
+        {id:'_e5', title:'萃取: 部署回滚操作SOP'},
+      ];
+      return [...fromTasks, ...preset];
+    }
+  },
+  library: {
+    label: '△ 选择检索主题',
+    btnText: '🎬 启动知识检索仿真',
+    transform(tasks){
+      const fromTasks = tasks.slice(0,3).map(t => ({
+        id: t.task_id, title: '检索: ' + (t.title?.substring(0,28)||'知识')
+      }));
+      const preset = [
+        {id:'_l1', title:'检索: 系统架构设计文档'},
+        {id:'_l2', title:'检索: API接口规范与示例'},
+        {id:'_l3', title:'检索: 历史故障案例库'},
+        {id:'_l4', title:'检索: 技术选型对比分析'},
+        {id:'_l5', title:'检索: 团队知识图谱概览'},
+      ];
+      return [...fromTasks, ...preset];
+    }
+  },
+  arena: {
+    label: '◎ 选择对抗命题',
+    btnText: '🎬 启动对抗演练',
+    transform(tasks){
+      const fromTasks = tasks.slice(0,3).map(t => ({
+        id: t.task_id, title: 'PK: ' + (t.title?.substring(0,28)||'挑战')
+      }));
+      const preset = [
+        {id:'_a1', title:'PK: 方案A vs 方案B 架构对决'},
+        {id:'_a2', title:'PK: 性能优化 — 激进派 vs 保守派'},
+        {id:'_a3', title:'PK: 新框架 vs 现有框架 迁移决策'},
+        {id:'_a4', title:'PK: 限时编码挑战 (30min)'},
+        {id:'_a5', title:'PK: 代码审查攻防演练'},
+      ];
+      return [...fromTasks, ...preset];
+    }
+  },
+  rest: {
+    label: '◌ 选择复盘对象',
+    btnText: '🎬 启动复盘充能',
+    transform(tasks){
+      const fromTasks = tasks.filter(t=>t.status==='completed').slice(0,3).map(t => ({
+        id: t.task_id, title: '复盘: ' + (t.title?.substring(0,28)||'项目')
+      }));
+      const preset = [
+        {id:'_r1', title:'复盘: 本周工作效率与瓶颈'},
+        {id:'_r2', title:'复盘: 最近一次线上事故'},
+        {id:'_r3', title:'复盘: 团队协作流程优化'},
+        {id:'_r4', title:'充能: 技能缺口分析与学习规划'},
+        {id:'_r5', title:'充能: 认知负荷管理与专注力恢复'},
+      ];
+      return [...fromTasks, ...preset];
+    }
+  },
+};
+
+// 根据当前房间刷新任务下拉菜单
+function secsRefreshTaskDropdown(){
+  const taskSel = document.getElementById('secs-task-select');
+  const taskLabel = document.getElementById('secs-task-label');
+  const btn = document.getElementById('secs-dev-btn');
+  if(!taskSel) return;
+
+  const curRoom = window._currentRoomId || 'workshop';
+  const config = _roomTaskConfig[curRoom] || _roomTaskConfig.workshop;
+  const teamId = document.getElementById('secs-team-select')?.value;
+  const tasks = _secsTaskCache[teamId] || [];
+
+  // 更新标签
+  if(taskLabel) taskLabel.textContent = config.label;
+  // 更新按钮文字
+  if(btn && !btn.disabled) btn.textContent = config.btnText;
+
+  // 生成选项
+  const items = config.transform(tasks);
+  if(!items.length){
+    taskSel.innerHTML = '<option value="">暂无可选项</option>';
+    return;
+  }
+  taskSel.innerHTML = items.map(item =>
+    `<option value="${item.id}">${item.title}</option>`
+  ).join('');
+}
+
+async function secsDevWorkflow(){
+  if(_secsSimRunning) return;
+  const teamId = document.getElementById('secs-team-select')?.value;
+  const taskId = document.getElementById('secs-task-select')?.value;
+  if(!teamId){ alert('请先选择团队'); return; }
+
+  _secsSimRunning = true;
+  // 清空对话日志
+  const dlLog = document.getElementById('secs-dialogue-log');
+  if(dlLog) dlLog.innerHTML = '';
+
+  // 切换到仅显示选中团队的智能体
+  if(window.S && window.S.selectedTeams){
+    window.S.selectedTeams = [teamId];
+    if(typeof renderTeamSelector === 'function') renderTeamSelector();
+  }
+
+  // 确定目标场景: 保持当前房间 (任何房间都支持推演)
+  const validRooms = ['council','extraction','workshop','library','arena','rest'];
+  const targetRoom = validRooms.includes(window._currentRoomId) ? window._currentRoomId : 'workshop';
+  if(window._currentRoomId !== targetRoom){
+    if(typeof flyToRoom === 'function') flyToRoom(targetRoom);
+    else if(window._dt3dBuildRoom) window._dt3dBuildRoom(targetRoom);
+    await new Promise(r=>setTimeout(r,800));
+  } else {
+    if(window._dt3dBuildRoom) window._dt3dBuildRoom(targetRoom);
+    await new Promise(r=>setTimeout(r,600));
+  }
+
+  const btn = document.getElementById('secs-dev-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ 仿真进行中...'; btn.style.opacity='0.6'; }
+
+  // 清除旧屏幕内容
+  if(window._dt3dClearScreens) window._dt3dClearScreens();
+
+  // 获取当前3D场景中的agent名字 (通过module暴露的helper)
+  const sceneAgentNames = window._dt3dGetAgentNames ? window._dt3dGetAgentNames() : [];
+
+  // 获取团队agents
+  let teamAgents = [];
+  try {
+    const r = await fetch(`/api/v1/agent-config/teams/${teamId}/agents`);
+    teamAgents = await r.json();
+  } catch(e){}
+
+  // 只保留当前场景中存在的agents (label必须能匹配)
+  console.log('[SECS] 场景agents:', sceneAgentNames, '团队agents:', teamAgents.map(a=>a.name));
+  const activeAgents = teamAgents.filter(a => sceneAgentNames.includes(a.name));
+  if(!activeAgents.length){
+    // 如果没匹配上, 尝试用场景中所有agent
+    alert(`团队 "${teamId}" 的智能体不在当前3D场景中。\n场景中有: ${sceneAgentNames.join(', ')}\n请确保已选择该团队后切换到workshop。`);
+    if(btn){ btn.disabled=false; btn.textContent=(_roomTaskConfig[window._currentRoomId||'workshop']||_roomTaskConfig.workshop).btnText; btn.style.opacity='1'; }
+    _secsSimRunning = false;
+    return;
+  }
+
+  // 获取选中的任务标题 → 直接从下拉菜单读取显示文本
+  const taskSelEl = document.getElementById('secs-task-select');
+  const taskTitle = taskSelEl?.selectedOptions?.[0]?.textContent?.trim()
+    || (_secsTaskCache[teamId]?.find(t=>t.task_id===taskId)?.title)
+    || '通用流程';
+  // 去掉前缀标记 (讨论:/萃取:/检索:/PK:/复盘:)
+  const topic = taskTitle.replace(/^(讨论|萃取|检索|PK|复盘|充能):\s*/,'');
+
+  // 获取仿真模式
+  const simMode = document.querySelector('input[name="secs-mode"]:checked')?.value || 'what_if';
+
+  // ════════════════════════════════════════════════════
+  // 场景角色映射 (每个场景有不同的推演语义)
+  // ════════════════════════════════════════════════════
+  const _roomRoleMaps = {
+    // ── 议事厅: 讨论/辩论 ──
+    council: {
+      project_manager: { emoji:'📋', task:'主持讨论', screens:[
+        [`◇ 议题: "${topic}"`,'[主持] 各位，今天讨论该议题','> 请每位发表观点','> 时间: 每人3分钟','[OK] 开始第一轮发言'],
+        [`◇ 议题: "${topic}"`,'[主持] 进入总结阶段','> 综合各方意见...','> 形成决议草案','[OK] 决议已拟定，待表决']
+      ]},
+      researcher: { emoji:'🔬', task:'提供研究论据', screens:[
+        [`[发言] 关于 "${topic}"`,'> 根据调研数据显示...','> 方案A可行性: 87%','> 方案B风险较高(成本↑40%)','> 建议: 采用方案A','[结论] 论据已呈现'],
+        [`[发言] 补充调研结论`,'> 对比行业案例 3 个','> 类似项目成功率: 72%','> 关键风险点: 2处','> 建议: 增加验证环节','[结论] 建议已提交']
+      ]},
+      architect: { emoji:'🏗', task:'架构视角发言', screens:[
+        [`[发言] 架构影响分析`,'> 该议题涉及模块: 3个','> 接口变更: 需要','> 兼容性: 向后兼容可行','> 预计重构: 2天','[结论] 技术可行'],
+        [`[发言] 系统设计建议`,'> 推荐: 渐进式实施','> 第一阶段: 核心模块','> 第二阶段: 边缘适配','> 风险隔离: 可控','[结论] 分阶段推进']
+      ]},
+      developer: { emoji:'💻', task:'实现难度评估', screens:[
+        [`[发言] 开发评估`,'> 工作量: ~320行代码','> 难度: 中等','> 依赖: 需 API v2','> 开发周期: 3天','[结论] 可按期交付'],
+        [`[发言] 技术细节讨论`,'> 现有代码可复用: 60%','> 新增逻辑: handler+types','> 测试覆盖: 需补充','> 建议: 先写测试','[结论] 测试先行']
+      ]},
+      qa_engineer: { emoji:'🧪', task:'质量风险发言', screens:[
+        [`[发言] 质量影响`,'> 测试用例需新增: 15个','> 回归范围: 中等','> 边界条件: 需关注3处','> 自动化覆盖: 可达90%','[结论] 风险可控'],
+        [`[发言] 验收标准建议`,'> 建议验收条件 5 项','> P0: 核心流程不退化','> P1: 性能无劣化','> P2: 文档同步更新','[结论] 标准已定义']
+      ]},
+      devops: { emoji:'🚀', task:'部署视角发言', screens:[
+        [`[发言] 部署影响`,'> 需要: 配置变更','> 灰度策略: 10%→50%→100%','> 回滚方案: 已备','> 预计上线窗口: 2h','[结论] 可安全发布'],
+        [`[发言] 运维建议`,'> 监控: 需增加2个告警','> 资源: 不需扩容','> SLA影响: 无','> 建议: 非高峰期部署','[结论] 风险低']
+      ]},
+      documentation: { emoji:'📝', task:'文档视角发言', screens:[
+        [`[发言] 文档影响`,'> 需更新: API文档+变更日志','> 用户指南: 需修改1章','> FAQ: 预计新增3条','> 工作量: 0.5天','[结论] 同步更新'],
+        [`[发言] 知识沉淀建议`,'> 建议: 记录决策过程','> ADR编号: #47','> 模板: 已有可复用','> 归档: knowledge_base/','[结论] 将同步归档']
+      ]},
+    },
+    // ── 萃取室: 技能萃取/知识提炼 ──
+    extraction: {
+      project_manager: { emoji:'📋', task:'萃取规划', screens:[
+        [`○ 萃取目标: "${topic}"`,'[规划] 识别可萃取知识点...','> 知识粒度: 细分3层','> 萃取策略: 深度优先','> 预计产出: 5个技能卡片','[OK] 萃取流程启动'],
+        [`○ 萃取协调`,'[规划] 分配萃取任务...','> 隐性知识: 需访谈','> 显性知识: 文档提取','> 实践知识: 代码分析','[OK] 任务分配完毕']
+      ]},
+      researcher: { emoji:'🔬', task:'知识挖掘', screens:[
+        [`[萃取] 深度分析 "${topic}"`,'> 扫描相关文档 47份','> 识别核心概念: 12个','> 构建知识图谱节点...','> 发现隐含关联: 3处','[结晶] 知识原矿已提取'],
+        [`[萃取] 模式识别`,'> 分析历史执行记录...','> 成功模式: 4种','> 反模式: 2种','> 频率最高: Pattern#A','[结晶] 模式谱已生成']
+      ]},
+      architect: { emoji:'🏗', task:'结构化提炼', screens:[
+        [`[提炼] 构建知识骨架`,'> 分类: 概念/流程/决策','> 层级: 3层树状结构','> 关联边: 8条','> 覆盖度: 92%','[结晶] 结构化完成'],
+        [`[提炼] 形式化建模`,'> 抽象为可复用模板...','> 模板参数: 5个','> 适用场景: 3类','> 复用率预估: 78%','[结晶] 模板已固化']
+      ]},
+      developer: { emoji:'💻', task:'代码知识萃取', screens:[
+        [`[萃取] 代码模式分析`,'> 扫描关键函数: 23个','> 提取设计意图...','> 编码惯例: 7条','> 技巧集锦: 4项','[结晶] 代码DNA已提取'],
+        [`[萃取] 实现经验提炼`,'> 踩坑记录: 5处','> 最佳实践: 8条','> 性能窍门: 3条','> 可教学化: 已标注','[结晶] 经验卡片已生成']
+      ]},
+      qa_engineer: { emoji:'🧪', task:'质量知识萃取', screens:[
+        [`[萃取] 测试经验提炼`,'> 经典Bug模式: 6种','> 测试策略知识: 4条','> 覆盖率陷阱: 3处','> 自动化窍门: 5项','[结晶] 测试智慧已提取'],
+        [`[萃取] 验证方法归纳`,'> 边界值发现法: 记录','> 等价类划分: 记录','> 探索式策略: 记录','> 有效性: 已验证','[结晶] 方法论已固化']
+      ]},
+      devops: { emoji:'🚀', task:'运维知识萃取', screens:[
+        [`[萃取] 部署经验`,'> 故障排查路径: 5条','> 监控配置模板: 3套','> 回滚SOP: 已结构化','> 容量规划公式: 2个','[结晶] 运维手册已萃取'],
+        [`[萃取] 基础设施知识`,'> 架构决策记录: 4份','> 配置演进历史: 追溯','> 性能调优参数: 归档','> 灾备方案: 已模板化','[结晶] 基建知识已固化']
+      ]},
+      documentation: { emoji:'📝', task:'知识结晶', screens:[
+        [`[结晶] 最终输出`,'> 技能卡片: 已生成5张','> 知识图谱: 节点12/边8','> 可教学材料: 3份','> 索引更新: knowledge_base/','[完成] 萃取产物已归档'],
+        [`[结晶] 格式化输出`,'> Markdown文档: 生成','> 思维导图: 导出','> Anki卡片: 8张','> 搜索索引: 已更新','[完成] 多格式输出完毕']
+      ]},
+    },
+    // ── 知识库: 检索/归档/学习 ──
+    library: {
+      project_manager: { emoji:'📋', task:'检索规划', screens:[
+        [`△ 检索目标: "${topic}"`,'[规划] 解析查询意图...','> 关键词: 3组','> 搜索范围: 全库','> 策略: 语义+关键词混合','[OK] 检索计划就绪'],
+        [`△ 知识任务分配`,'[规划] 需要汇集的信息...','> 直接相关: 优先检索','> 关联知识: 扩展搜索','> 历史案例: 追溯','[OK] 分工明确']
+      ]},
+      researcher: { emoji:'🔬', task:'深度检索', screens:[
+        [`[检索] "${topic}" 相关知识`,'> 命中文档: 34份','> 精排Top5: 相关度>0.85','> 摘要提取中...','> 关键段落: 已标记12处','[完成] 检索报告已生成'],
+        [`[检索] 扩展关联搜索`,'> 引用链追踪: 3层','> 发现关联主题: 5个','> 跨领域连接: 2处','> 时间线: 按版本排列','[完成] 知识地图已扩展']
+      ]},
+      architect: { emoji:'🏗', task:'知识结构分析', screens:[
+        [`[分析] 知识架构映射`,'> 概念层级: 解析完毕','> 依赖关系: 8条','> 知识缺口: 发现2处','> 推荐补充: 已标注','[完成] 结构图已更新'],
+        [`[分析] 体系完整性检查`,'> 覆盖率: 87%','> 缺失章节: 2处','> 过期内容: 3份需更新','> 冗余: 1处可合并','[完成] 健康报告已出']
+      ]},
+      developer: { emoji:'💻', task:'代码示例检索', screens:[
+        [`[检索] 相关代码示例`,'> 匹配代码片段: 8个','> 最佳实践: 3份','> Stack Overflow: 5条','> 内部案例: 2个','[完成] 示例集已整理'],
+        [`[检索] API用法查询`,'> 匹配接口: 4个','> 使用示例: 生成中','> 兼容性注意: 2条','> 版本差异: 已标注','[完成] API手册已汇编']
+      ]},
+      qa_engineer: { emoji:'🧪', task:'测试知识检索', screens:[
+        [`[检索] 测试相关知识`,'> 历史Bug: 相似12条','> 回归用例: 推荐5个','> 测试策略文档: 3份','> 覆盖率基准: 已查到','[完成] 测试参考已汇总'],
+        [`[检索] 质量标准查询`,'> 行业标准: ISO相关2份','> 内部规范: 4份','> Checklist: 推荐使用v3','> 度量指标: 已整理','[完成] 标准库已输出']
+      ]},
+      devops: { emoji:'🚀', task:'运维知识检索', screens:[
+        [`[检索] 部署相关知识`,'> 配置模板: 3套匹配','> 故障案例: 相似5条','> Runbook: 推荐2份','> 容量数据: 历史可查','[完成] 运维知识已汇总'],
+        [`[检索] 基础设施文档`,'> 架构图: 最新版已定位','> 变更记录: 近30天','> 监控仪表盘: 3个相关','> 告警规则: 已检索','[完成] 基建文档已输出']
+      ]},
+      documentation: { emoji:'📝', task:'归档与索引', screens:[
+        [`[归档] 更新知识库`,'> 新增条目: 3条','> 索引重建: 执行中','> 标签更新: +5个','> 交叉引用: 已建立','[完成] 知识库已更新'],
+        [`[归档] 生成学习路径`,'> 前置知识: 标注完毕','> 推荐顺序: 已排列','> 预计学习时间: 2.5h','> 练习题: 已生成8道','[完成] 学习路径已输出']
+      ]},
+    },
+    // ── 演练场: A/B对抗/技能验证 ──
+    arena: {
+      project_manager: { emoji:'📋', task:'裁判/规则制定', screens:[
+        [`◎ 对抗命题: "${topic}"`,'[裁判] 制定评判标准...','> 维度: 性能/质量/创新','> 权重: 40/35/25','> 回合数: 3轮','[OK] 竞技规则已发布'],
+        [`◎ 赛事管理`,'[裁判] 初始化对抗环境...','> 红队/蓝队: 已分配','> 计时器: 启动','> 评分板: 已就绪','[OK] 比赛开始!']
+      ]},
+      researcher: { emoji:'🔬', task:'红队·方案A', screens:[
+        [`[红队] 方案A: "${topic}"`,'> 策略: 激进创新路线','> 优势: 性能提升35%','> 实现: 全新架构','> 风险: 兼容性待验证','[提交] 方案A 已完成'],
+        [`[红队] 第2轮优化`,'> 吸收蓝队反馈...','> 调整: 增加兼容层','> 性能微降5%→仍领先','> 稳定性: ↑显著','[提交] 方案A v2 已优化']
+      ]},
+      architect: { emoji:'🏗', task:'蓝队·方案B', screens:[
+        [`[蓝队] 方案B: "${topic}"`,'> 策略: 渐进稳健路线','> 优势: 零风险迁移','> 实现: 现有架构扩展','> 代价: 性能提升20%','[提交] 方案B 已完成'],
+        [`[蓝队] 第2轮优化`,'> 吸收红队亮点...','> 调整: 热路径重构','> 性能: ↑至28%','> 维持零风险承诺','[提交] 方案B v2 已优化']
+      ]},
+      developer: { emoji:'💻', task:'实战编码PK', screens:[
+        [`[PK] 限时编码挑战`,'> 题目: ${topic.substring(0,15)}','> 计时: 00:00 开始','> 提交代码: 127行','> 通过用例: 18/20','[完成] 编码分数: 87/100'],
+        [`[PK] 代码审查对决`,'> 审查对方代码...','> 发现问题: 3处','> 提出优化: 2处','> 防守: 自身0 bug','[完成] 审查分: 92/100']
+      ]},
+      qa_engineer: { emoji:'🧪', task:'压力测试裁判', screens:[
+        [`[验证] 方案对比测试`,'> 方案A: 1000req/s → p99=45ms','> 方案B: 1000req/s → p99=62ms','> 稳定性A: 99.2%','> 稳定性B: 99.8%','[裁决] 各有优劣'],
+        [`[验证] 极限测试`,'> 并发拉到5000...','> 方案A: 劣化15%但未崩','> 方案B: 劣化8%稳定','> 边界: B更抗压','[裁决] 综合评分已出']
+      ]},
+      devops: { emoji:'🚀', task:'部署对决', screens:[
+        [`[对决] 部署速度PK`,'> 方案A部署: 2m30s','> 方案B部署: 1m45s','> 回滚测试A: 30s','> 回滚测试B: 15s','[结果] B部署效率胜出'],
+        [`[对决] 容灾演练`,'> 模拟节点宕机...','> 方案A恢复: 8s','> 方案B恢复: 12s','> 数据一致性: 均PASS','[结果] A容灾能力胜出']
+      ]},
+      documentation: { emoji:'📝', task:'记录与判定', screens:[
+        [`[记录] 对抗结果汇总`,'> 红队总分: 84.5','> 蓝队总分: 82.3','> 最佳单项: 红队·创新','> 最佳稳定: 蓝队·兼容','[判定] 红队微幅胜出'],
+        [`[记录] 经验归档`,'> 对抗收获: 已记录','> 可融合方案: 提取中','> 最终推荐: 融合A+B优点','> ADR: 已生成','[完成] 演练报告归档']
+      ]},
+    },
+    // ── 休息区: 充能/自省/复盘 ──
+    rest: {
+      project_manager: { emoji:'📋', task:'复盘引导', screens:[
+        [`◌ 复盘主题: "${topic}"`,'[复盘] 回顾项目执行过程...','> 目标达成: 88%','> 超时环节: 2处','> 协作瓶颈: 1处','[完成] 改进计划已生成'],
+        [`◌ 状态检查`,'[巡检] 团队成员状态...','> 疲劳指数: 平均 0.6','> 注意力: 中等偏下','> 建议: 休整30min','[OK] 充能计划已下发']
+      ]},
+      researcher: { emoji:'🔬', task:'知识消化', screens:[
+        [`[充能] 消化近期所学`,'> 整理笔记: 12条','> 建立关联: 5处','> 遗忘曲线复习: 执行','> 灵感记录: 2条','[完成] 知识已巩固'],
+        [`[自省] 研究方法回顾`,'> 成功路径: 回溯3条','> 低效尝试: 标记2处','> 方法论更新: 1处','> 下次改进: 已记录','[完成] 自省完毕']
+      ]},
+      architect: { emoji:'🏗', task:'架构反思', screens:[
+        [`[充能] 架构设计回顾`,'> 当初决策: 审视5个','> 事后看仍正确: 4个','> 需调整: 1个','> 技术债: 已标注','[完成] 架构笔记已更新'],
+        [`[自省] 思维模式校准`,'> 是否过度设计: 检查','> 是否忽略简单方案: 检查','> KISS原则: 重新对齐','> 心智模型: 已刷新','[完成] 认知校准完毕']
+      ]},
+      developer: { emoji:'💻', task:'技能复盘', screens:[
+        [`[充能] 编码复盘`,'> 本周代码: 回顾','> 重复模式: 发现2处','> 可抽象为工具: 1个','> 新技能GET: async模式','[完成] 技能树已更新'],
+        [`[自省] 效率分析`,'> 流畅时段: 10am-12pm','> 打断次数: 7次/天','> 上下文切换成本: 高','> 优化: 设置专注时间','[完成] 效率方案已定']
+      ]},
+      qa_engineer: { emoji:'🧪', task:'质量反思', screens:[
+        [`[充能] 测试策略复盘`,'> 漏测Bug: 回顾2个','> 根因: 边界覆盖不足','> 新增规则: 3条','> 自动化率: 可提升至95%','[完成] 策略已优化'],
+        [`[自省] 效能分析`,'> 发现Bug效率: 分析','> 误报率: 偏高(12%)','> 优化: 调整阈值','> 优先级判断: 已校准','[完成] 质量感知已升级']
+      ]},
+      devops: { emoji:'🚀', task:'系统健康检查', screens:[
+        [`[充能] 基础设施巡检`,'> CPU均值: 42% ✓','> 内存: 68% ⚠ 偏高','> 磁盘: 55% ✓','> 异常日志: 0 ✓','[完成] 系统状态良好'],
+        [`[自省] 运维流程复盘`,'> 上次故障响应: 回顾','> MTTR: 从8min→5min','> 可优化: 告警分级','> 自动恢复: 新增2个场景','[完成] SRE手册已更新']
+      ]},
+      documentation: { emoji:'📝', task:'整理归档', screens:[
+        [`[充能] 文档债务清理`,'> 过期文档: 标记3份','> 缺失文档: 补充2份','> 格式统一: 执行','> 搜索优化: 标签重建','[完成] 文档库已整洁'],
+        [`[自省] 写作复盘`,'> 可读性评分: 回顾','> 读者反馈: 整理','> 改进: 增加示例','> 模板: 优化2个','[完成] 写作能力↑']
+      ]},
+    },
+  };
+
+  // ═══════════════════════════════════════════════
+  // 场景元数据配置
+  // ═══════════════════════════════════════════════
+  const _roomMeta = {
+    council:    { label:'议事厅', icon:'◇', handoff:'发言权交接', defaultTask:'发表观点', 
+                  modes:{what_if:'议题讨论',parallel:'分组辩论',evolutionary:'多轮共识'} },
+    extraction: { label:'萃取室', icon:'○', handoff:'萃取传递', defaultTask:'知识萃取',
+                  modes:{what_if:'萃取推演',parallel:'并行萃取',evolutionary:'迭代精炼'} },
+    workshop:   { label:'工作坊', icon:'□', handoff:'产出交付', defaultTask:'执行任务',
+                  modes:{what_if:'What-if 推演',parallel:'并行策略对比',evolutionary:'演化搜索'} },
+    library:    { label:'知识库', icon:'△', handoff:'知识传递', defaultTask:'知识检索',
+                  modes:{what_if:'检索推演',parallel:'并行检索',evolutionary:'深度挖掘'} },
+    arena:      { label:'演练场', icon:'◎', handoff:'挑战传递', defaultTask:'技能验证',
+                  modes:{what_if:'对抗推演',parallel:'多路PK',evolutionary:'淘汰赛'} },
+    rest:       { label:'休息区', icon:'◌', handoff:'状态同步', defaultTask:'自省充能',
+                  modes:{what_if:'复盘推演',parallel:'并行充能',evolutionary:'渐进恢复'} },
+  };
+
+  const roomMeta = _roomMeta[targetRoom] || _roomMeta.workshop;
+  const roleMap = _roomRoleMaps[targetRoom] || _roleWorkMap;
+
+  // 动态生成步骤
+  const steps = activeAgents.map((ag, idx) => {
+    const roleInfo = roleMap[ag.role] || { emoji:'⚡', task: roomMeta.defaultTask, screens:[
+      [`[${roomMeta.icon}] ${topic}`,'> 正在处理...','> 分析中...','> 输出结果...','[完成] 任务已执行']
+    ]};
+    const color = _roleColors[idx % _roleColors.length];
+    const screenSet = roleInfo.screens[Math.floor(Math.random()*roleInfo.screens.length)]
+      .map(l => l.replace('{task}', taskTitle.substring(0,20)));
+    return {
+      agent: ag.name,
+      task: roleInfo.task,
+      screenLines: screenSet,
+      next: idx < activeAgents.length-1 ? activeAgents[idx+1].name : null,
+      handoff: roomMeta.handoff,
+      color
+    };
+  });
+
+  const simLog = [];
+  const startTime = Date.now();
+  const modeLabel = roomMeta.modes[simMode] || simMode;
+
+  addActivity({type:'info', text:`🎬 ${roomMeta.label}[${modeLabel}]: ${topic} (${activeAgents.length}个智能体)`, time:new Date().toISOString()});
+
+  // ══════════════════════════════════════
+  // 根据场景+模式选择执行策略
+  // ══════════════════════════════════════
+
+  // ── 议事厅专属: 围坐讨论模式 ──
+  if(targetRoom === 'council' && simMode === 'what_if'){
+    const syncEl = document.getElementById('secs-sync-status');
+    // PM开场
+    if(syncEl) syncEl.innerHTML = `<span style="color:#22d3ee">◇ 议事开始 · ${topic}</span>`;
+    await _secsRunStep(steps[0], 0, steps, simLog);
+    // 全员并行发言 (PM不再发言)
+    if(steps.length > 2){
+      const speakers = steps.slice(1);
+      if(syncEl) syncEl.innerHTML = `<span style="color:#a78bfa">◇ 自由讨论中 · ${speakers.length}人发言</span>`;
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,800));
+      // 每位逐一发言 (围坐轮转)
+      for(let si=0; si<speakers.length; si++){
+        const sp = speakers[si];
+        if(syncEl) syncEl.innerHTML = `<span style="color:${sp.color}">◇ ${sp.agent} 发言中...</span>`;
+        // 从PM到发言者画线
+        if(si===0 && window._dt3dHandoff) window._dt3dHandoff(steps[0].agent, sp.agent, '请发言', '#22d3ee');
+        else if(window._dt3dHandoff) window._dt3dHandoff(speakers[si-1].agent, sp.agent, '接力', speakers[si-1].color);
+        await new Promise(r=>setTimeout(r,600));
+        if(window._dt3dFocusByName) window._dt3dFocusByName(sp.agent);
+        if(window._dt3dSpeakerBubble) window._dt3dSpeakerBubble(sp.agent, true);
+        // 找出有意义的发言内容
+        const spContent = sp.screenLines.find(l=> l && !l.startsWith('[') && !l.startsWith('──') && !l.startsWith('═') && l.length > 4) || sp.task;
+        secsAppendDialogue(sp.agent, spContent, sp.color);
+        const ttsP = secsTTSSpeak(sp.agent + '：' + spContent, sp.agent);
+        // 逐行显示发言
+        for(let li=0; li<sp.screenLines.length; li++){
+          if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(sp.agent, sp.screenLines.slice(0,li+1), sp.color);
+          await new Promise(r=>setTimeout(r, 400 + Math.random()*200));
+        }
+        await ttsP;
+        await new Promise(r=>setTimeout(r,300));
+        if(window._dt3dSpeakerBubble) window._dt3dSpeakerBubble(sp.agent, false);
+        if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(sp.agent, [...sp.screenLines, '── 发言完毕 ──'], '#34d399');
+        simLog.push({agent:sp.agent, task:sp.task, duration:((speakers.length-si)*1.2).toFixed(1)+'s', status:'completed'});
+      }
+      // PM总结
+      if(syncEl) syncEl.innerHTML = `<span style="color:#22d3ee">◇ 主持人总结</span>`;
+      await new Promise(r=>setTimeout(r,500));
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,400));
+      // 所有发言者向PM画汇聚线
+      for(const sp of speakers){
+        if(window._dt3dHandoff) window._dt3dHandoff(sp.agent, steps[0].agent, '观点', sp.color);
+        await new Promise(r=>setTimeout(r,200));
+      }
+      await new Promise(r=>setTimeout(r,1200));
+      if(window._dt3dFocusByName) window._dt3dFocusByName(steps[0].agent);
+      if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(steps[0].agent, [
+        '═══════════════════════════',
+        `  ◇ 议题: ${topic.substring(0,20)}`,
+        `  📋 综合 ${speakers.length} 位成员意见`,
+        '  ✅ 决议: 通过 (共识度 87%)',
+        '  📌 待办: 3项 Action Items',
+        '═══════════════════════════'
+      ], '#22d3ee');
+      simLog.push({agent:steps[0].agent, task:'总结决议', duration:'2.0s', status:'completed'});
+    }
+
+  // ── 演练场专属: 红蓝对抗模式 ──
+  } else if(targetRoom === 'arena' && simMode === 'what_if'){
+    const syncEl = document.getElementById('secs-sync-status');
+    // 第1位=裁判, 奇数位=红队, 偶数位=蓝队
+    const judge = steps[0];
+    const contestants = steps.slice(1);
+    const redTeam = contestants.filter((_,i)=>i%2===0);
+    const blueTeam = contestants.filter((_,i)=>i%2===1);
+    // 裁判开场
+    if(syncEl) syncEl.innerHTML = `<span style="color:#fbbf24">◎ 裁判制定规则</span>`;
+    await _secsRunStep(judge, 0, steps, simLog);
+    // 红蓝交替对抗
+    const maxRounds = Math.max(redTeam.length, blueTeam.length);
+    for(let rd=0; rd<maxRounds; rd++){
+      // 红队出场
+      if(rd < redTeam.length){
+        const red = redTeam[rd];
+        if(syncEl) syncEl.innerHTML = `<span style="color:#f472b6">🔴 红队: ${red.agent}</span>`;
+        if(window._dt3dHandoff) window._dt3dHandoff(judge.agent, red.agent, '红队挑战', '#f472b6');
+        await new Promise(r=>setTimeout(r,500));
+        if(window._dt3dFocusByName) window._dt3dFocusByName(red.agent);
+        const redContent = red.screenLines.find(l=>l&&!l.startsWith('[')&&!l.startsWith('──')&&l.length>4) || red.task;
+        secsAppendDialogue('🔴 '+red.agent, redContent, '#f472b6');
+        const redTTS = secsTTSSpeak(red.agent + '红队观点：' + redContent, red.agent);
+        for(let li=0; li<red.screenLines.length; li++){
+          if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(red.agent, red.screenLines.slice(0,li+1), '#f472b6');
+          await new Promise(r=>setTimeout(r,350));
+        }
+        await redTTS;
+        simLog.push({agent:red.agent, task:red.task, duration:'3.2s', status:'completed'});
+        await new Promise(r=>setTimeout(r,400));
+      }
+      // 蓝队出场
+      if(rd < blueTeam.length){
+        const blue = blueTeam[rd];
+        if(syncEl) syncEl.innerHTML = `<span style="color:#60a5fa">🔵 蓝队: ${blue.agent}</span>`;
+        if(window._dt3dHandoff) window._dt3dHandoff(judge.agent, blue.agent, '蓝队应战', '#60a5fa');
+        await new Promise(r=>setTimeout(r,500));
+        if(window._dt3dFocusByName) window._dt3dFocusByName(blue.agent);
+        const blueContent = blue.screenLines.find(l=>l&&!l.startsWith('[')&&!l.startsWith('──')&&l.length>4) || blue.task;
+        secsAppendDialogue('🔵 '+blue.agent, blueContent, '#60a5fa');
+        const blueTTS = secsTTSSpeak(blue.agent + '蓝队应答：' + blueContent, blue.agent);
+        for(let li=0; li<blue.screenLines.length; li++){
+          if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(blue.agent, blue.screenLines.slice(0,li+1), '#60a5fa');
+          await new Promise(r=>setTimeout(r,350));
+        }
+        await blueTTS;
+        simLog.push({agent:blue.agent, task:blue.task, duration:'3.4s', status:'completed'});
+        // PK spark between red & blue
+        if(rd < redTeam.length && window._dt3dPKSpark) window._dt3dPKSpark(redTeam[rd].agent, blue.agent);
+        await new Promise(r=>setTimeout(r,400));
+      }
+    }
+    // 裁判判定
+    if(syncEl) syncEl.innerHTML = `<span style="color:#fbbf24">◎ 裁判最终判定</span>`;
+    await new Promise(r=>setTimeout(r,600));
+    if(window._dt3dOverview) window._dt3dOverview();
+    await new Promise(r=>setTimeout(r,500));
+    // 全员向裁判汇聚
+    for(const c of contestants){
+      if(window._dt3dHandoff) window._dt3dHandoff(c.agent, judge.agent, '成绩', c.color);
+      await new Promise(r=>setTimeout(r,150));
+    }
+    await new Promise(r=>setTimeout(r,1200));
+    if(window._dt3dFocusByName) window._dt3dFocusByName(judge.agent);
+    const redScore = (78 + Math.random()*15).toFixed(1);
+    const blueScore = (78 + Math.random()*15).toFixed(1);
+    if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(judge.agent, [
+      '═══════════════════════════',
+      `  ◎ 命题: ${topic.substring(0,18)}`,
+      `  🔴 红队总分: ${redScore}`,
+      `  🔵 蓝队总分: ${blueScore}`,
+      `  🏆 ${parseFloat(redScore)>parseFloat(blueScore)?'红队':'蓝队'}胜出!`,
+      '═══════════════════════════'
+    ], '#fbbf24');
+    simLog.push({agent:judge.agent, task:'最终裁决', duration:'1.5s', status:'completed'});
+
+  // ── 萃取室专属: 培养皿萃取模式 ──
+  } else if(targetRoom === 'extraction' && simMode === 'what_if'){
+    const syncEl = document.getElementById('secs-sync-status');
+    // 第1位=萃取规划者, 最后1位=结晶输出, 中间=并行萃取
+    if(syncEl) syncEl.innerHTML = `<span style="color:#34d399">○ 萃取启动 · ${topic}</span>`;
+    await _secsRunStep(steps[0], 0, steps, simLog);
+    if(steps.length > 2){
+      const extractors = steps.slice(1, -1);
+      const crystalizer = steps[steps.length-1];
+      // 中心辐射: 规划者向所有萃取者发射
+      if(syncEl) syncEl.innerHTML = `<span style="color:#34d399">○ 并行萃取中 · ${extractors.length}路</span>`;
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,500));
+      for(let ei=0; ei<extractors.length; ei++){
+        if(window._dt3dHandoff) window._dt3dHandoff(steps[0].agent, extractors[ei].agent, '萃取任务', '#34d399');
+        await new Promise(r=>setTimeout(r,300));
+      }
+      await new Promise(r=>setTimeout(r,1000));
+      // 所有萃取者并行工作
+      const maxLines = Math.max(...extractors.map(e=>e.screenLines.length));
+      for(let li=0; li<maxLines; li++){
+        for(const ext of extractors){
+          if(li < ext.screenLines.length && window._dt3dUpdateScreen){
+            window._dt3dUpdateScreen(ext.agent, ext.screenLines.slice(0,li+1), ext.color);
+          }
+        }
+        await new Promise(r=>setTimeout(r, 400 + Math.random()*150));
+      }
+      await new Promise(r=>setTimeout(r,600));
+      // 追加对话日志 (每人一条总结)
+      for(const ext of extractors){
+        const extContent = ext.screenLines.find(l=>l&&!l.startsWith('[')&&!l.startsWith('──')&&l.length>4) || ext.task;
+        secsAppendDialogue(ext.agent, extContent, ext.color);
+      }
+      extractors.forEach(ext=>{
+        if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(ext.agent, [...ext.screenLines, '── 萃取完成 ──'], '#34d399');
+        simLog.push({agent:ext.agent, task:ext.task, duration:'3.5s', status:'completed'});
+      });
+      // 汇聚到结晶者
+      if(syncEl) syncEl.innerHTML = `<span style="color:#fbbf24">○ 知识结晶中...</span>`;
+      await new Promise(r=>setTimeout(r,500));
+      for(const ext of extractors){
+        if(window._dt3dHandoff) window._dt3dHandoff(ext.agent, crystalizer.agent, '原矿', ext.color);
+        await new Promise(r=>setTimeout(r,250));
+      }
+      await new Promise(r=>setTimeout(r,1200));
+      await _secsRunStep(crystalizer, steps.length-1, steps, simLog);
+    } else if(steps.length === 2){
+      await _secsRunStep(steps[1], 1, steps, simLog);
+    }
+
+  // ── 知识库专属: 分布检索→汇聚归纳 ──
+  } else if(targetRoom === 'library' && simMode === 'what_if'){
+    const syncEl = document.getElementById('secs-sync-status');
+    const coordinator = steps[0]; // 第1人=检索协调者
+    const searchers = steps.slice(1, -1); // 中间=检索者
+    const summarizer = steps[steps.length-1]; // 最后=归纳者
+    // 协调者发起检索
+    if(syncEl) syncEl.innerHTML = `<span style="color:#a78bfa">△ ${coordinator.agent} 发起检索</span>`;
+    await _secsRunStep(coordinator, 0, steps, simLog);
+    // 检索者并行检索
+    if(searchers.length > 0){
+      if(syncEl) syncEl.innerHTML = `<span style="color:#a78bfa">△ ${searchers.length} 路并行检索中...</span>`;
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,600));
+      // 发射检索线
+      for(let si=0; si<searchers.length; si++){
+        const s = searchers[si];
+        if(window._dt3dHandoff) window._dt3dHandoff(coordinator.agent, s.agent, '检索#'+(si+1), '#a78bfa');
+        await new Promise(r=>setTimeout(r,300));
+      }
+      await new Promise(r=>setTimeout(r,800));
+      // 每位检索者逐行显示结果
+      for(const s of searchers){
+        if(syncEl) syncEl.innerHTML = `<span style="color:${s.color}">△ ${s.agent} 检索中...</span>`;
+        if(window._dt3dFocusByName) window._dt3dFocusByName(s.agent);
+        const sContent = s.screenLines.find(l=>l&&!l.startsWith('[')&&!l.startsWith('──')&&l.length>4) || s.task;
+        secsAppendDialogue(s.agent, sContent, s.color);
+        const sTTS = secsTTSSpeak(s.agent + '：' + sContent, s.agent);
+        for(let li=0; li<s.screenLines.length; li++){
+          if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(s.agent, s.screenLines.slice(0,li+1), s.color);
+          await new Promise(r=>setTimeout(r, 300 + Math.random()*150));
+        }
+        await sTTS;
+        simLog.push({agent:s.agent, task:s.task, duration:(2+Math.random()*2).toFixed(1)+'s', status:'completed'});
+        await new Promise(r=>setTimeout(r,400));
+      }
+      // 汇聚到归纳者
+      if(syncEl) syncEl.innerHTML = `<span style="color:#a78bfa">△ 汇聚检索结果 → ${summarizer.agent}</span>`;
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,500));
+      for(const s of searchers){
+        if(window._dt3dHandoff) window._dt3dHandoff(s.agent, summarizer.agent, '结果', s.color);
+        await new Promise(r=>setTimeout(r,200));
+      }
+      await new Promise(r=>setTimeout(r,1200));
+    }
+    // 归纳者总结
+    await _secsRunStep(summarizer, steps.length-1, steps, simLog);
+    if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(summarizer.agent, [
+      '═══════════════════════════',
+      `  △ 检索主题: ${topic.substring(0,18)}`,
+      `  📚 命中文档: ${Math.ceil(Math.random()*20+15)} 份`,
+      `  🔗 关联知识: ${Math.ceil(Math.random()*8+3)} 条`,
+      `  ✅ 知识覆盖率: ${(78+Math.random()*18).toFixed(0)}%`,
+      '═══════════════════════════'
+    ], '#a78bfa');
+
+  // ── 休息区专属: 慢节奏复盘 ──
+  } else if(targetRoom === 'rest'){
+    const syncEl = document.getElementById('secs-sync-status');
+    if(syncEl) syncEl.innerHTML = `<span style="color:var(--dim)">◌ 安静复盘中... (慢节奏)</span>`;
+    // 顺序执行但速度慢1.5x, 每步之间有呼吸间隔
+    for(let i=0; i<steps.length; i++){
+      const step = steps[i];
+      const stepStart = Date.now();
+      try {
+        if(i > 0 && window._dt3dUpdateScreen) window._dt3dUpdateScreen(steps[i-1].agent, [''], '#333');
+        if(window._dt3dFocusByName) window._dt3dFocusByName(step.agent);
+        // 追加对话日志 + TTS
+        const restContent = step.screenLines.find(l=>l&&!l.startsWith('[')&&!l.startsWith('──')&&!l.startsWith('═')&&l.length>4) || step.task;
+        secsAppendDialogue(step.agent, restContent, step.color);
+        const restTTS = secsTTSSpeak(step.agent + '：' + restContent, step.agent);
+        // 慢速逐行显示
+        for(let li=0; li<step.screenLines.length; li++){
+          if(window._dt3dUpdateScreen) window._dt3dUpdateScreen(step.agent, step.screenLines.slice(0,li+1), step.color);
+          await new Promise(r=>setTimeout(r, 600 + Math.random()*300)); // 比正常慢1.5x
+        }
+        await restTTS;
+        await new Promise(r=>setTimeout(r,800)); // 呼吸
+        if(window._dt3dUpdateScreen){
+          window._dt3dUpdateScreen(step.agent, [...step.screenLines, '── ✓ ──'], '#34d399');
+        }
+        if(step.next && window._dt3dHandoff){
+          window._dt3dHandoff(step.agent, step.next, '轮到你了', step.color);
+          await new Promise(r=>setTimeout(r,2500)); // 慢速过渡
+        }
+      } catch(e){}
+      simLog.push({agent:step.agent, task:step.task, duration:((Date.now()-stepStart)/1000).toFixed(1)+'s', status:'completed'});
+    }
+
+  } else if(simMode === 'parallel'){
+    // ── 并行策略对比模式 ──
+    // 第1步: PM 独立规划
+    await _secsRunStep(steps[0], 0, steps, simLog);
+    // 第2步: 剩余agents并行执行 (屏幕同时更新)
+    if(steps.length > 2){
+      const parallelSteps = steps.slice(1, -1);
+      const syncEl = document.getElementById('secs-sync-status');
+      if(syncEl) syncEl.innerHTML = `<span style="color:#a78bfa">⚡ 并行执行: ${parallelSteps.map(s=>s.agent).join(' + ')}</span>`;
+      // 摄像机拉远到全景, 让所有弧线可见
+      if(window._dt3dOverview) window._dt3dOverview();
+      await new Promise(r=>setTimeout(r,600));
+      // 逐条发射handoff线 (间隔300ms, 每条不同颜色)
+      const parallelColors = ['#a78bfa','#60a5fa','#f472b6','#fbbf24','#34d399'];
+      for(let pi=0; pi<parallelSteps.length; pi++){
+        const s = parallelSteps[pi];
+        const c = parallelColors[pi % parallelColors.length];
+        if(window._dt3dHandoff) window._dt3dHandoff(steps[0].agent, s.agent, '→'+s.agent, c);
+        await new Promise(r=>setTimeout(r,400));
+      }
+      await new Promise(r=>setTimeout(r,1500));
+      // 并行: 逐行同时推进所有agent屏幕
+      // 先追加对话日志 (并行启动信息)
+      for(const ps of parallelSteps){
+        const psContent = ps.screenLines.find(l=>l&&!l.startsWith('$')&&!l.startsWith('[')&&!l.startsWith('──')&&l.length>4) || ps.task;
+        secsAppendDialogue(ps.agent, psContent, ps.color);
+      }
+      const maxLines = Math.max(...parallelSteps.map(s=>s.screenLines.length));
+      for(let li=0; li<maxLines; li++){
+        for(const ps of parallelSteps){
+          if(li < ps.screenLines.length && window._dt3dUpdateScreen){
+            window._dt3dUpdateScreen(ps.agent, ps.screenLines.slice(0,li+1), ps.color);
+          }
+        }
+        await new Promise(r=>setTimeout(r, 300 + Math.random()*150));
+      }
+      await new Promise(r=>setTimeout(r,600));
+      // 标记完成
+      const pStart = Date.now();
+      parallelSteps.forEach(ps=>{
+        if(window._dt3dUpdateScreen){
+          window._dt3dUpdateScreen(ps.agent, [...ps.screenLines, '── done (parallel) ──'], '#34d399');
+        }
+        simLog.push({agent:ps.agent, task:ps.task, duration:((Date.now()-pStart)/1000+2).toFixed(1)+'s', status:'completed'});
+      });
+      await new Promise(r=>setTimeout(r,800));
+      // 汇聚到最后一个agent: 多条线同时飞向它
+      const lastStep = steps[steps.length-1];
+      for(let pi=0; pi<parallelSteps.length; pi++){
+        const ps = parallelSteps[pi];
+        const c = parallelColors[pi % parallelColors.length];
+        if(window._dt3dHandoff) window._dt3dHandoff(ps.agent, lastStep.agent, '汇总', c);
+        await new Promise(r=>setTimeout(r,300));
+      }
+      await new Promise(r=>setTimeout(r,1500));
+      await _secsRunStep(lastStep, steps.length-1, steps, simLog);
+    } else if(steps.length === 2){
+      await _secsRunStep(steps[1], 1, steps, simLog);
+    }
+
+  } else if(simMode === 'evolutionary'){
+    // ── 演化搜索模式 ──
+    // 两轮迭代: 草案轮(快) + 精炼轮(正常)
+    const syncEl = document.getElementById('secs-sync-status');
+    // 第1轮: 快速草案
+    if(syncEl) syncEl.innerHTML = `<span style="color:#fbbf24">🧬 第1轮 · 草案探索</span>`;
+    for(let i=0; i<steps.length; i++){
+      const step = steps[i];
+      const stepStart = Date.now();
+      try {
+        if(window._dt3dFocusByName) window._dt3dFocusByName(step.agent);
+        // 快速显示(一次性刷完)
+        if(window._dt3dUpdateScreen){
+          window._dt3dUpdateScreen(step.agent, [...step.screenLines, '── draft v1 ──'], '#fbbf24');
+        }
+        await new Promise(r=>setTimeout(r, 600));
+        if(step.next && window._dt3dHandoff) window._dt3dHandoff(step.agent, step.next, 'v1草案', '#fbbf24');
+        await new Promise(r=>setTimeout(r, 800));
+      } catch(e){}
+    }
+    // 第2轮: 精炼
+    if(syncEl) syncEl.innerHTML = `<span style="color:#34d399">🧬 第2轮 · 精炼优化</span>`;
+    await new Promise(r=>setTimeout(r,600));
+    for(let i=0; i<steps.length; i++){
+      const step = steps[i];
+      // 改写output为"refined"版
+      const refinedLines = step.screenLines.map(l => l.replace('[INFO]','[v2]').replace('[OK]','[✓✓]'));
+      step.screenLines = refinedLines;
+      await _secsRunStep(step, i, steps, simLog);
+    }
+
+  } else {
+    // ── What-if 推演 (默认) ──
+    // 顺序执行, 逐个agent
+    for(let i=0; i<steps.length; i++){
+      await _secsRunStep(steps[i], i, steps, simLog);
+    }
+  }
+
+  const totalTime = ((Date.now()-startTime)/1000).toFixed(1);
+
+  // 所有agent显示完成
+  steps.forEach((step,idx)=>{
+    if(window._dt3dUpdateScreen){
+      const elapsed = simLog[idx]?.duration || '?s';
+      window._dt3dUpdateScreen(step.agent, [
+        '═══════════════════════════',
+        `  ✅ ${step.task}`,
+        `  ⏱  ${elapsed}`,
+        '═══════════════════════════'
+      ], '#34d399');
+    }
+  });
+
+  const syncEl2 = document.getElementById('secs-sync-status');
+  if(syncEl2) syncEl2.innerHTML = `<span style="color:var(--green)">✓ [${modeLabel}] 完成</span> <span style="color:var(--dim)">总耗时 ${totalTime}s</span>`;
+
+  // 生成报告并弹出
+  await new Promise(r=>setTimeout(r,800));
+  if(window._dt3dSpeakerBubble) window._dt3dSpeakerBubble(null, false); // 清除发言气泡
+  // 停止TTS
+  if(_secsTTSAudio){_secsTTSAudio.pause();_secsTTSAudio=null}
+  if(window.speechSynthesis) speechSynthesis.cancel();
+  _secsTTSSerial++;
+  showSecsReport(simLog, totalTime, steps);
+
+  if(btn){ btn.disabled=false; btn.textContent=(_roomTaskConfig[window._currentRoomId||'workshop']||_roomTaskConfig.workshop).btnText; btn.style.opacity='1'; }
+  _secsSimRunning = false;
+}
+
+// ── 单步执行helper (What-if/演化精炼 共用) ──
+async function _secsRunStep(step, i, steps, simLog){
+  const stepStart = Date.now();
+  try {
+    const syncEl = document.getElementById('secs-sync-status');
+    if(syncEl) syncEl.innerHTML = `<span style="color:${step.color}">▶ ${step.agent}: ${step.task}</span>`;
+    if(i > 0 && window._dt3dUpdateScreen){
+      window._dt3dUpdateScreen(steps[i-1].agent, [''], '#333');
+    }
+    if(window._dt3dFocusByName) window._dt3dFocusByName(step.agent);
+    // 追加对话日志
+    secsAppendDialogue(step.agent, step.task, step.color);
+    const lines = step.screenLines;
+    // 找出有实质内容的行作为TTS朗读文本
+    const speakLine = lines.find(l=> l && !l.startsWith('$') && !l.startsWith('[OK]') && !l.startsWith('──') && !l.startsWith('═') && l.length > 4) || step.task;
+    const ttsPromise = secsTTSSpeak(step.agent + '：' + speakLine, step.agent);
+    for(let li=0; li<lines.length; li++){
+      if(window._dt3dUpdateScreen){
+        window._dt3dUpdateScreen(step.agent, lines.slice(0, li+1), step.color);
+      }
+      await new Promise(r=>setTimeout(r, 350 + Math.random()*200));
+    }
+    await ttsPromise; // 等TTS说完再继续
+    await new Promise(r=>setTimeout(r,400));
+    if(window._dt3dUpdateScreen){
+      const elapsed = ((Date.now()-stepStart)/1000).toFixed(1);
+      window._dt3dUpdateScreen(step.agent, [...lines, `── done ${elapsed}s ──`], '#34d399');
+    }
+    if(step.next && window._dt3dHandoff){
+      window._dt3dHandoff(step.agent, step.next, step.handoff, step.color);
+      await new Promise(r=>setTimeout(r,2200));
+    } else {
+      await new Promise(r=>setTimeout(r,800));
+    }
+  } catch(e){ console.error('[SECS] Step error:', step.agent, e); }
+  simLog.push({agent:step.agent, task:step.task, duration:((Date.now()-stepStart)/1000).toFixed(1)+'s', status:'completed'});
+}
+
+function showSecsReport(log, totalTime, _secsDevSteps){
+  const modal = document.getElementById('secs-report-modal');
+  const content = document.getElementById('secs-report-content');
+  const curRoom = window._currentRoomId || 'workshop';
+
+  // 计算指标
+  const taskCount = log.length;
+  const completedCount = log.filter(l=>l.status==='completed').length;
+  const efficiency = ((completedCount/taskCount)*100).toFixed(0);
+  const handoffs = taskCount - 1;
+
+  // 场景专属标题和指标名
+  const reportMeta = {
+    council: { title:'◇ 议事决议报告', metric1:'发言人数', metric2:'共识度', metric3:'讨论轮次', metric4:'总耗时', color:'#22d3ee' },
+    extraction: { title:'○ 知识萃取报告', metric1:'萃取节点', metric2:'结晶率', metric3:'知识关联', metric4:'总耗时', color:'#34d399' },
+    workshop: { title:'□ 开发交付报告', metric1:'任务阶段', metric2:'完成率', metric3:'任务交接', metric4:'总耗时', color:'#fbbf24' },
+    library: { title:'△ 知识检索报告', metric1:'检索路径', metric2:'命中率', metric3:'关联发现', metric4:'总耗时', color:'#a78bfa' },
+    arena: { title:'◎ 对抗演练报告', metric1:'参赛选手', metric2:'完成率', metric3:'对抗回合', metric4:'总耗时', color:'#f472b6' },
+    rest: { title:'◌ 复盘充能报告', metric1:'复盘项', metric2:'完成度', metric3:'改进点', metric4:'总耗时', color:'#60a5fa' },
+  }[curRoom] || { title:'仿真报告', metric1:'阶段', metric2:'完成率', metric3:'交接', metric4:'总耗时', color:'#22d3ee' };
+
+  // 场景专属结论
+  const conclusions = {
+    council: [
+      `议事讨论共 <b>${taskCount}</b> 位成员参与，<b>${handoffs}</b> 次发言交接`,
+      `共识度评估：<span style="color:#22d3ee;font-weight:600">${(82+Math.random()*15).toFixed(0)}%</span>`,
+      `决议结果：通过 — 已生成 3 项 Action Items`,
+      `建议：对分歧较大的议题可增加第二轮辩论`
+    ],
+    extraction: [
+      `萃取流程 <b>${taskCount}</b> 个节点，产出知识卡片 <b>${Math.max(3,taskCount-1)}</b> 张`,
+      `知识纯度评分：<span style="color:#34d399;font-weight:600">${(85+Math.random()*12).toFixed(0)}/100</span>`,
+      `发现隐含关联 <b>${Math.ceil(Math.random()*4+1)}</b> 处，已自动建立连接`,
+      `建议：高频模式可进一步结晶为可复用技能模板`
+    ],
+    workshop: [
+      `开发流程共 <b>${taskCount}</b> 个阶段，<b>${handoffs}</b> 次交接，全部顺畅完成`,
+      `瓶颈分析：编码实现阶段耗时最长，建议并行拆分子任务`,
+      `协作效率评分：<span style="color:#34d399;font-weight:600">${(88+Math.random()*10).toFixed(0)}/100</span>`,
+      `建议：策划师可与架构师并行工作，减少串行等待`
+    ],
+    library: [
+      `检索路径 <b>${taskCount}</b> 条，命中相关文档 <b>${Math.ceil(Math.random()*20+15)}</b> 份`,
+      `知识覆盖率：<span style="color:#a78bfa;font-weight:600">${(78+Math.random()*18).toFixed(0)}%</span>`,
+      `发现知识缺口 <b>${Math.ceil(Math.random()*3)}</b> 处，已标记待补充`,
+      `建议：定期运行检索以发现过期和缺失内容`
+    ],
+    arena: [
+      `对抗演练 <b>${taskCount}</b> 位参与，<b>${Math.ceil(handoffs/2)}</b> 回合对决`,
+      `红队综合分：<span style="color:#f472b6;font-weight:600">${(78+Math.random()*15).toFixed(1)}</span> / 蓝队：<span style="color:#60a5fa;font-weight:600">${(78+Math.random()*15).toFixed(1)}</span>`,
+      `最佳表现：${log[Math.floor(Math.random()*log.length)]?.agent||'Agent'} (单项最高)`,
+      `建议：融合双方优点形成最终方案，记录对抗经验`
+    ],
+    rest: [
+      `复盘 <b>${taskCount}</b> 项内容，团队疲劳指数下降 <b>${(15+Math.random()*20).toFixed(0)}%</b>`,
+      `认知校准完成度：<span style="color:#60a5fa;font-weight:600">${(85+Math.random()*12).toFixed(0)}%</span>`,
+      `发现改进点 <b>${Math.ceil(Math.random()*4+2)}</b> 处，已加入迭代计划`,
+      `建议：每周安排固定复盘时段，保持持续改进`
+    ],
+  }[curRoom] || [];
+
+  content.innerHTML = `
+    <div style="text-align:center;margin-bottom:16px">
+      <h2 style="font-size:16px;color:${reportMeta.color};margin:0;font-weight:600">${reportMeta.title}</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+      <div style="background:#0d1520;border:1px solid ${reportMeta.color}33;border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:${reportMeta.color}">${taskCount}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px">${reportMeta.metric1}</div>
+      </div>
+      <div style="background:#0d1520;border:1px solid rgba(52,211,153,0.2);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#34d399">${efficiency}%</div>
+        <div style="font-size:11px;color:#888;margin-top:4px">${reportMeta.metric2}</div>
+      </div>
+      <div style="background:#0d1520;border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#a78bfa">${handoffs}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px">${reportMeta.metric3}</div>
+      </div>
+      <div style="background:#0d1520;border:1px solid rgba(251,191,36,0.2);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#fbbf24">${totalTime}s</div>
+        <div style="font-size:11px;color:#888;margin-top:4px">${reportMeta.metric4}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px">
+      <h3 style="font-size:14px;color:#e8e8e8;margin:0 0 12px 0;font-weight:500">📊 执行明细</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid #2a3040">
+            <th style="text-align:left;padding:8px;color:#888;font-weight:500">智能体</th>
+            <th style="text-align:left;padding:8px;color:#888;font-weight:500">职责</th>
+            <th style="text-align:center;padding:8px;color:#888;font-weight:500">耗时</th>
+            <th style="text-align:center;padding:8px;color:#888;font-weight:500">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${log.map((l,i)=>{
+            const stepDef = _secsDevSteps[i];
+            const c = stepDef?.color || '#888';
+            return `<tr style="border-bottom:1px solid #1a2030">
+              <td style="padding:8px;color:${c};font-weight:500">${l.agent}</td>
+              <td style="padding:8px;color:#ccc">${l.task}</td>
+              <td style="padding:8px;text-align:center;color:#aaa">${l.duration}</td>
+              <td style="padding:8px;text-align:center"><span style="background:rgba(52,211,153,0.15);color:#34d399;padding:2px 8px;border-radius:4px;font-size:11px">✓ 完成</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-bottom:20px">
+      <h3 style="font-size:14px;color:#e8e8e8;margin:0 0 12px 0;font-weight:500">🔗 协作流程</h3>
+      <div style="display:flex;align-items:center;gap:0;overflow-x:auto;padding:10px 0">
+        ${_secsDevSteps.map((s,i)=>{
+          const arrow = i < _secsDevSteps.length-1 ? `<div style="color:#555;font-size:16px;margin:0 4px">→</div>` : '';
+          return `<div style="display:flex;align-items:center;gap:0">
+            <div style="background:rgba(255,255,255,0.03);border:1px solid ${s.color}33;border-radius:6px;padding:8px 12px;text-align:center;min-width:68px">
+              <div style="font-size:11px;color:${s.color};font-weight:500">${s.agent}</div>
+              <div style="font-size:10px;color:#666;margin-top:2px">${s.task}</div>
+            </div>
+            ${arrow}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div style="background:${reportMeta.color}12;border:1px solid ${reportMeta.color}33;border-radius:8px;padding:16px;margin-bottom:16px">
+      <h3 style="font-size:13px;color:${reportMeta.color};margin:0 0 8px 0;font-weight:500">💡 ${reportMeta.title.replace(/[◇○□△◎◌]\s*/,'')}</h3>
+      <ul style="margin:0;padding-left:16px;color:#bbb;font-size:12px;line-height:1.8">
+        ${conclusions.map(c=>`<li>${c}</li>`).join('')}
+      </ul>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.02);border:1px solid #2a3040;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <h3 style="font-size:12px;color:#888;margin:0 0 8px 0;font-weight:500">🔄 后续建议</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${{
+          council:['→ 工作坊: 将决议转为开发任务','→ 萃取室: 归档讨论精华'],
+          extraction:['→ 知识库: 检索关联知识验证','→ 工作坊: 应用萃取技能'],
+          workshop:['→ 演练场: 测试方案对比','→ 萃取室: 沉淀开发经验'],
+          library:['→ 工作坊: 基于检索结果开发','→ 议事厅: 讨论知识缺口'],
+          arena:['→ 工作坊: 采纳获胜方案','→ 休息区: 复盘对抗收获'],
+          rest:['→ 工作坊: 带着新认知继续','→ 议事厅: 规划下个迭代'],
+        }[curRoom]?.map(s=>`<span style="font-size:11px;background:#1a2030;border:1px solid #333;padding:4px 10px;border-radius:12px;color:#aaa;cursor:pointer" onclick="closeSecsReport();flyToRoom('${s.includes('工作坊')?'workshop':s.includes('萃取')?'extraction':s.includes('知识库')?'library':s.includes('议事')?'council':s.includes('演练')?'arena':'rest'}')">${s}</span>`).join('')||''}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeSecsReport()" style="padding:8px 16px;font-size:12px;background:transparent;border:1px solid #333;color:#aaa;border-radius:6px;cursor:pointer">关闭</button>
+      <button onclick="secsInjectFromReport()" style="padding:8px 16px;font-size:12px;background:linear-gradient(135deg,#34d399,#22d3ee);color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:500">⬆ 注入优化策略</button>
+    </div>
+  `;
+
+  // 动态更新报告弹窗标题
+  const titleEl = document.getElementById('secs-report-title');
+  if(titleEl){titleEl.textContent = '📋 ' + reportMeta.title; titleEl.style.color = reportMeta.color;}
+  modal.style.display = 'flex';
+}
+
+function closeSecsReport(){
+  document.getElementById('secs-report-modal').style.display = 'none';
+}
+
+function secsInjectFromReport(){
+  closeSecsReport();
+  addActivity({type:'info', text:'✅ SECS 开发流程优化策略已注入', time:new Date().toISOString()});
+  document.getElementById('secs-sync-status').innerHTML = 
+    '<span style="color:var(--green)">✓ 策略已注入</span> <span style="color:var(--dim)">开发流程优化方案生效中</span>';
+}
 </script>
 
 <!-- ═══ Three.js ES Module — 直接搬运 plaza-dark + skill-extract 的3D物体 ═══ -->
@@ -2075,10 +3449,10 @@ function buildWorkshop(){
   }
   // ─── 智能体+屏幕 分内/中/外三圈 ───
   const ringMax=[8,12,20];
-  const agentRadii=[6,10,14.5]; // 智能体环半径
-  const screenRadii=[4.2,8,12.5]; // 屏幕在智能体内侧
-  const screenW=2.0,screenH=1.4;
-  const screenY=2.0;
+  const agentRadii=[7,11,15.5]; // 智能体环半径 (加大以容纳宽屏)
+  const screenRadii=[5,9,13.5]; // 屏幕在智能体内侧
+  const screenW=3.8,screenH=1.0;
+  const screenY=2.2;
   // 分配到圈
   const rings=[[],[],[]];
   let ri=0;
@@ -2107,6 +3481,8 @@ function buildWorkshop(){
       const geom=new THREE.BufferGeometry().setFromPoints(pts);
       const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.8}));
       line.position.set(sx,screenY,sz);line.lookAt(0,screenY,0);scene.add(line);
+      fig.userData.screenPos=new THREE.Vector3(sx,screenY,sz);
+      fig.userData.screenLine=line;
       const pl=new THREE.PointLight(col,0.08,2.5);pl.position.set(sx,screenY-0.5,sz);scene.add(pl);
     });
   });
@@ -2116,14 +3492,16 @@ function buildWorkshop(){
     for(let i=0;i<5;i++){
       const angle=(Math.PI*2*i)/5-Math.PI/2;
       const fig=createAgentFigure(wsAgentNames[i],wsColorHex[i],i===0);
-      fig.position.set(6*Math.cos(angle),0,6*Math.sin(angle));
+      fig.position.set(7*Math.cos(angle),0,7*Math.sin(angle));
       fig.userData.baseY=0;fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
-      const sx=4.2*Math.cos(angle),sz=4.2*Math.sin(angle);
+      const sx=5*Math.cos(angle),sz=5*Math.sin(angle);
       const pts=[new THREE.Vector3(-screenW/2,-screenH/2,0),new THREE.Vector3(screenW/2,-screenH/2,0),
         new THREE.Vector3(screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,-screenH/2,0)];
       const geom=new THREE.BufferGeometry().setFromPoints(pts);
       const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:new THREE.Color(wsColorHex[i]),transparent:true,opacity:0.8}));
       line.position.set(sx,screenY,sz);line.lookAt(0,screenY,0);scene.add(line);
+      fig.userData.screenPos=new THREE.Vector3(sx,screenY,sz);
+      fig.userData.screenLine=line;
     }
   }
   // 浮尘
@@ -2369,15 +3747,228 @@ window.pulse3DAgent=function(fromName,toName){
 };
 
 // ══════════════════════════════════════════════════
+// 屏幕内容更新 & 任务交接动画
+// ══════════════════════════════════════════════════
+const _screenSprites={};
+
+function makeScreenCanvas(lines,hexColor){
+  const c=document.createElement('canvas');c.width=1024;c.height=256;
+  const ctx=c.getContext('2d');
+  // 带鱼屏深色背景 + 圆角
+  ctx.fillStyle='rgba(6,10,18,0.92)';
+  ctx.roundRect(2,2,1020,252,6);ctx.fill();
+  // 顶部状态条 (更细更亮)
+  ctx.fillStyle=hexColor||'#22d3ee';
+  ctx.fillRect(8,8,1008,2);
+  // 左侧竖条装饰
+  ctx.fillStyle=(hexColor||'#22d3ee')+'44';
+  ctx.fillRect(8,14,2,232);
+  // monospace终端风格文本
+  const textLines=Array.isArray(lines)?lines:[lines];
+  ctx.font='bold 20px "SF Mono","Fira Code",monospace';
+  textLines.forEach((l,i)=>{
+    // $ 命令行用亮色, 其他用稍暗色
+    if(l.startsWith('$')){
+      ctx.fillStyle='#ffffff';
+    } else if(l.startsWith('[OK]') || l.includes('✓') || l.includes('PASS')){
+      ctx.fillStyle='#34d399';
+    } else if(l.startsWith('[WARN]')){
+      ctx.fillStyle='#fbbf24';
+    } else if(l.startsWith('>')){
+      ctx.fillStyle=(hexColor||'#22d3ee')+'cc';
+    } else {
+      ctx.fillStyle=hexColor||'#22d3ee';
+    }
+    ctx.fillText(l,20,36+i*28,980);
+  });
+  return c;
+}
+
+window._dt3dUpdateScreen=function(agentName,lines,hexColor){
+  if(!initialized||!scene)return;
+  const fig=agentMeshes.find(m=>m.userData.label===agentName);
+  if(!fig||!fig.userData.screenPos)return;
+  // Remove old sprite
+  if(_screenSprites[agentName]){
+    scene.remove(_screenSprites[agentName]);
+    _screenSprites[agentName].material.map.dispose();
+    _screenSprites[agentName].material.dispose();
+  }
+  const pos=fig.userData.screenPos;
+  const canvas=makeScreenCanvas(lines,hexColor||'#22d3ee');
+  const tex=new THREE.CanvasTexture(canvas);tex.minFilter=THREE.LinearFilter;
+  const mat=new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false});
+  const sprite=new THREE.Sprite(mat);
+  sprite.position.copy(pos);
+  sprite.scale.set(4.0,0.9,1);
+  scene.add(sprite);
+  _screenSprites[agentName]=sprite;
+  // Flash the screen border
+  if(fig.userData.screenLine){
+    fig.userData.screenLine.material.opacity=1.0;
+    setTimeout(()=>{if(fig.userData.screenLine)fig.userData.screenLine.material.opacity=0.8},600);
+  }
+};
+
+window._dt3dClearScreens=function(){
+  Object.keys(_screenSprites).forEach(name=>{
+    if(_screenSprites[name]){
+      scene.remove(_screenSprites[name]);
+      _screenSprites[name].material.map.dispose();
+      _screenSprites[name].material.dispose();
+    }
+  });
+  Object.keys(_screenSprites).forEach(k=>delete _screenSprites[k]);
+};
+
+window._dt3dGetAgentNames=function(){
+  return agentMeshes.map(m=>m.userData?.label).filter(Boolean);
+};
+
+// ── 发言气泡 (议事厅专用: 在发言agent头上浮出💬图标) ──
+let _activeBubble=null;
+window._dt3dSpeakerBubble=function(agentName,show){
+  if(_activeBubble){scene.remove(_activeBubble);_activeBubble.material.map.dispose();_activeBubble.material.dispose();_activeBubble=null}
+  if(!show||!agentName)return;
+  const fig=agentMeshes.find(m=>m.userData.label===agentName);
+  if(!fig)return;
+  const c=document.createElement('canvas');c.width=64;c.height=64;
+  const ctx=c.getContext('2d');ctx.font='48px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('💬',32,32);
+  const tex=new THREE.CanvasTexture(c);tex.minFilter=THREE.LinearFilter;
+  const mat=new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false});
+  const spr=new THREE.Sprite(mat);
+  spr.position.copy(fig.position).add(new THREE.Vector3(0,4.2,0));
+  spr.scale.set(1.2,1.2,1);
+  scene.add(spr);_activeBubble=spr;
+};
+
+// ── PK火花 (演练场专用: 红蓝对抗时中心闪烁) ──
+window._dt3dPKSpark=function(redName,blueName){
+  const redFig=agentMeshes.find(m=>m.userData.label===redName);
+  const blueFig=agentMeshes.find(m=>m.userData.label===blueName);
+  if(!redFig||!blueFig)return;
+  const mid=redFig.position.clone().lerp(blueFig.position,0.5).add(new THREE.Vector3(0,3,0));
+  // 放射8个小球
+  const sparkGroup=new THREE.Group();
+  for(let i=0;i<8;i++){
+    const angle=(i/8)*Math.PI*2;
+    const col=i%2===0?0xf472b6:0x60a5fa;
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(0.12,6,6),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:1}));
+    dot.position.set(Math.cos(angle)*0.3,Math.sin(angle)*0.3,0);
+    sparkGroup.add(dot);
+  }
+  sparkGroup.position.copy(mid);scene.add(sparkGroup);
+  const t0=clock.getElapsedTime();
+  _arcParticles.push({line:sparkGroup,start:t0,dur:1.5,isGroup:true,isSpark:true});
+};
+
+window._dt3dHandoff=function(fromName,toName,taskLabel,color){
+  if(!initialized)return;
+  const fromFig=agentMeshes.find(m=>m.userData.label===fromName);
+  const toFig=agentMeshes.find(m=>m.userData.label===toName);
+  if(!fromFig||!toFig)return;
+  const hexColor=color||'#fbbf24';
+  const col=new THREE.Color(hexColor);
+  const t0=clock.getElapsedTime();
+
+  // ── 起点agent 整体闪烁弹跳 ──
+  _pulseQueue.push({mesh:fromFig,start:t0,dur:1.5,type:'body'});
+  if(fromFig.userData.glowRing){
+    _pulseQueue.push({mesh:fromFig.userData.glowRing,start:t0,dur:2.0});
+  }
+
+  // ── 粗虚线弧 (分段小圆柱) ──
+  const startPos=fromFig.position.clone().add(new THREE.Vector3(0,2.2,0));
+  const endPos=toFig.position.clone().add(new THREE.Vector3(0,2.2,0));
+  const mid=startPos.clone().lerp(endPos,0.5).add(new THREE.Vector3(0,4.5,0));
+  const curve=new THREE.QuadraticBezierCurve3(startPos,mid,endPos);
+  const totalPts=curve.getPoints(80);
+  // 分段绘制: 每隔几个点画一段, 形成虚线
+  const dashGroup=new THREE.Group();
+  const segLen=4, gapLen=3; // 4个点一段, 3个点间隔
+  for(let i=0;i<totalPts.length-1;i++){
+    const inDash=(i%(segLen+gapLen))<segLen;
+    if(!inDash)continue;
+    const p1=totalPts[i],p2=totalPts[i+1];
+    const dir2=p2.clone().sub(p1);
+    const len=dir2.length();
+    if(len<0.001)continue;
+    const cyl=new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08,0.08,len,4,1),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9})
+    );
+    cyl.position.copy(p1).add(dir2.clone().multiplyScalar(0.5));
+    cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir2.normalize());
+    dashGroup.add(cyl);
+  }
+  scene.add(dashGroup);
+  _arcParticles.push({line:dashGroup,start:t0,dur:3.5,isGroup:true});
+
+  // ── 沿弧线飞行的光球粒子 (3个, 间隔出发) ──
+  for(let pi=0;pi<3;pi++){
+    const sphere=new THREE.Mesh(
+      new THREE.SphereGeometry(0.15,8,8),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1})
+    );
+    sphere.position.copy(startPos);
+    scene.add(sphere);
+    _arcParticles.push({line:sphere,start:t0+pi*0.4,dur:1.8,curve:curve,isTraveler:true});
+  }
+
+  // Task label
+  if(taskLabel){
+    const labelCanvas=makeColorLabel(taskLabel,hexColor);
+    const labelTex=new THREE.CanvasTexture(labelCanvas);labelTex.minFilter=THREE.LinearFilter;
+    const labelSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTex,transparent:true,depthTest:false}));
+    labelSprite.position.copy(mid);
+    labelSprite.scale.set(2.5,0.65,1);
+    scene.add(labelSprite);
+    setTimeout(()=>{scene.remove(labelSprite);labelSprite.material.map.dispose();labelSprite.material.dispose()},3500);
+  }
+
+  // ── 终点agent 闪烁弹跳 (延迟) + 摄像机摇过去 ──
+  setTimeout(()=>{
+    _pulseQueue.push({mesh:toFig,start:clock.getElapsedTime(),dur:1.5,type:'body'});
+    if(toFig.userData.glowRing){
+      _pulseQueue.push({mesh:toFig.userData.glowRing,start:clock.getElapsedTime(),dur:2.0});
+    }
+    if(window._dt3dFocusByName) window._dt3dFocusByName(toName);
+  },800);
+};
+
+// ══════════════════════════════════════════════════
 // 动画循环
+// ── 仿真运行时场景地面脉冲环 ──
+let _simPulseRing=null;
+const _roomThemeColor={council:'#22d3ee',extraction:'#34d399',workshop:'#fbbf24',library:'#a78bfa',arena:'#f472b6',rest:'#60a5fa'};
+function _updateSimPulseRing(t){
+  const running=window._secsSimRunning;
+  if(running&&!_simPulseRing){
+    const col=new THREE.Color(_roomThemeColor[currentRoom]||'#22d3ee');
+    const ring=new THREE.Mesh(new THREE.RingGeometry(5,5.3,64),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,side:THREE.DoubleSide}));
+    ring.rotation.x=-Math.PI/2;ring.position.y=0.02;
+    scene.add(ring);_simPulseRing=ring;
+  } else if(!running&&_simPulseRing){
+    scene.remove(_simPulseRing);_simPulseRing.geometry.dispose();_simPulseRing.material.dispose();_simPulseRing=null;
+  }
+  if(_simPulseRing){
+    const pulse=Math.sin(t*2)*0.5+0.5;
+    _simPulseRing.material.opacity=0.08+pulse*0.18;
+    const s=1+pulse*0.15;
+    _simPulseRing.scale.set(s,s,1);
+  }
+}
+
 // ══════════════════════════════════════════════════
 function animate(){
   requestAnimationFrame(animate);
   if(!controls||!renderer)return;
   const t=clock.getElapsedTime();
+  _updateSimPulseRing(t);
   // 相机平滑过渡
-  if(_camGoal){camera.position.lerp(_camGoal,0.06);if(camera.position.distanceTo(_camGoal)<0.02){camera.position.copy(_camGoal);_camGoal=null}}
-  if(_tgtGoal){controls.target.lerp(_tgtGoal,0.06);if(controls.target.distanceTo(_tgtGoal)<0.02){controls.target.copy(_tgtGoal);_tgtGoal=null}}
+  if(_camGoal){camera.position.lerp(_camGoal,0.04);if(camera.position.distanceTo(_camGoal)<0.02){camera.position.copy(_camGoal);_camGoal=null}}
+  if(_tgtGoal){controls.target.lerp(_tgtGoal,0.04);if(controls.target.distanceTo(_tgtGoal)<0.02){controls.target.copy(_tgtGoal);_tgtGoal=null}}
   controls.update();
   // 浮尘飘动
   if(dustMesh){const p=dustMesh.geometry.attributes.position.array;
@@ -2393,15 +3984,58 @@ function animate(){
   // 交互脉冲动画
   for(let i=_pulseQueue.length-1;i>=0;i--){
     const p=_pulseQueue[i];const elapsed=t-p.start;
-    if(elapsed>p.dur){p.mesh.material.opacity=0.22;_pulseQueue.splice(i,1);continue}
-    p.mesh.material.opacity=0.22+0.6*Math.sin(elapsed/p.dur*Math.PI);
-    p.mesh.scale.setScalar(1+0.4*Math.sin(elapsed/p.dur*Math.PI));
+    if(elapsed>p.dur){
+      if(p.type==='body'){p.mesh.scale.setScalar(p.mesh.userData._origScale||1)}
+      else{p.mesh.material.opacity=0.22;p.mesh.scale.setScalar(1)}
+      _pulseQueue.splice(i,1);continue;
+    }
+    const wave=Math.sin(elapsed/p.dur*Math.PI);
+    if(p.type==='body'){
+      // 整体身体弹跳
+      const os=p.mesh.userData._origScale||1;
+      if(!p.mesh.userData._origScale)p.mesh.userData._origScale=os;
+      p.mesh.scale.setScalar(os*(1+0.3*wave));
+    } else {
+      p.mesh.material.opacity=0.22+0.6*wave;
+      p.mesh.scale.setScalar(1+0.4*wave);
+    }
   }
   // 弧线粒子消退
   for(let i=_arcParticles.length-1;i>=0;i--){
     const a=_arcParticles[i];const elapsed=t-a.start;
-    if(elapsed>a.dur){scene.remove(a.line);a.line.geometry.dispose();a.line.material.dispose();_arcParticles.splice(i,1);continue}
-    a.line.material.opacity=0.6*(1-elapsed/a.dur);
+    if(elapsed<0)continue; // 尚未开始 (延迟粒子)
+    if(elapsed>a.dur){
+      if(a.isGroup){
+        a.line.children.forEach(c=>{c.geometry.dispose();c.material.dispose()});
+        scene.remove(a.line);
+      } else {
+        scene.remove(a.line);a.line.geometry.dispose();
+        if(a.line.material)a.line.material.dispose();
+      }
+      _arcParticles.splice(i,1);continue;
+    }
+    // 飞行粒子: 沿曲线移动
+    if(a.isTraveler&&a.curve){
+      const progress=elapsed/a.dur;
+      const pos=a.curve.getPoint(Math.min(progress,1));
+      a.line.position.copy(pos);
+      a.line.material.opacity=1-progress*0.5;
+      a.line.scale.setScalar(1+Math.sin(progress*Math.PI)*0.5);
+    }
+    // 虚线段组: 整体淡出
+    else if(a.isGroup){
+      const fade=1-elapsed/a.dur;
+      if(a.isSpark){
+        // PK火花: 向外扩散
+        const expand=1+elapsed/a.dur*3;
+        a.line.scale.set(expand,expand,expand);
+      }
+      a.line.children.forEach(c=>{if(c.material)c.material.opacity=0.9*fade});
+    }
+    // 普通线: 淡出
+    else {
+      if(a.line.material)a.line.material.opacity=0.85*(1-elapsed/a.dur);
+    }
   }
   renderer.render(scene,camera);
 }
@@ -2425,6 +4059,30 @@ window._dt3dFocusAgent=function(agentId){
   _tgtGoal=pos.clone().add(new THREE.Vector3(0,1.5,0));
 };
 
+// 按名字聚焦agent (摄像机平滑摇到该agent的屏幕前)
+window._dt3dFocusByName=function(agentName){
+  const fig=agentMeshes.find(m=>m.userData.label===agentName);
+  if(!fig||!camera)return;
+  const screenPos=fig.userData.screenPos;
+  if(screenPos){
+    // 摄像机在屏幕正前方偏上, 看向屏幕中心
+    const dir=screenPos.clone().normalize();
+    _camGoal=screenPos.clone().add(dir.multiplyScalar(3)).add(new THREE.Vector3(0,1.5,0));
+    _tgtGoal=screenPos.clone();
+  } else {
+    const pos=fig.position.clone();
+    _camGoal=new THREE.Vector3(pos.x*1.4,4,pos.z*1.4+6);
+    _tgtGoal=pos.clone().add(new THREE.Vector3(0,1.8,0));
+  }
+};
+
+// 全景视角: 拉远摄像机看到所有agent
+window._dt3dOverview=function(){
+  if(!camera)return;
+  _camGoal=new THREE.Vector3(0,18,22);
+  _tgtGoal=new THREE.Vector3(0,2,0);
+};
+
 // 首次进入环境空间时初始化
 const observer=new MutationObserver(()=>{
   const panel=document.getElementById('view-environment');
@@ -2434,5 +4092,16 @@ const observer=new MutationObserver(()=>{
 });
 observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
 </script>
+
+<!-- ═══ SECS 仿真报告弹窗 ═══ -->
+<div id="secs-report-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center">
+  <div style="background:#1a2030;border:1px solid rgba(34,211,238,0.3);border-radius:12px;width:680px;max-height:80vh;overflow-y:auto;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0;font-size:18px;color:#22d3ee;font-weight:600" id="secs-report-title">📋 SECS 仿真报告</h2>
+      <button onclick="closeSecsReport()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">&times;</button>
+    </div>
+    <div id="secs-report-content"></div>
+  </div>
+</div>
 </body>
 </html>
