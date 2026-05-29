@@ -85,8 +85,8 @@ def evaluate(context: GateEvaluationContext) -> GateEvaluationResult:
     # ── 第一步: 检查否决项 ─────────────────────────────────
     if context.has_critical_security_issue:
         blocked_by.append("存在严重安全漏洞 (has_critical_security_issue=True)")
-    if context.has_breaking_change:
-        blocked_by.append("存在破坏性变更 (has_breaking_change=True)")
+    if context.has_breaking_change or context.breaking_changes:
+        blocked_by.append("breaking_changes: 存在破坏性变更")
     if context.critical_test_failures > 0:
         blocked_by.append(f"关键测试失败 {context.critical_test_failures} 项")
 
@@ -145,40 +145,63 @@ def _calculate_dimension_scores(ctx: GateEvaluationContext) -> Tuple[Dict[str, f
     reasons: List[str] = []
 
     # 合规评分 (直接使用)
-    scores["compliance_score"] = ctx.compliance_score
-    reasons.append(f"合规评分={ctx.compliance_score:.1f}")
+    compliance_score = _clamp(ctx.compliance_score)
+    scores["compliance_score"] = compliance_score
+    reasons.append(f"合规评分={compliance_score:.1f}")
 
     # 测试通过率
-    scores["test_pass_rate"] = ctx.test_pass_rate
-    reasons.append(f"测试通过率={ctx.test_pass_rate:.1f}%")
+    test_pass_rate = _clamp(ctx.test_pass_rate)
+    scores["test_pass_rate"] = test_pass_rate
+    reasons.append(f"测试通过率={test_pass_rate:.1f}%")
 
     # 代码质量
-    scores["code_quality_score"] = ctx.code_quality_score
-    reasons.append(f"代码质量={ctx.code_quality_score:.1f}")
+    code_quality_score = _clamp(ctx.code_quality_score)
+    scores["code_quality_score"] = code_quality_score
+    reasons.append(f"代码质量={code_quality_score:.1f}")
 
     # 安全问题 → 评分 (低分是好)
-    sec_score = _map_security_issues_to_score(ctx.security_issues)
+    security_issues = max(0, int(ctx.security_issues))
+    sec_score = _map_security_issues_to_score(security_issues)
     scores["security_score"] = sec_score
-    reasons.append(f"安全问题={ctx.security_issues} → 安全评分={sec_score:.1f}")
+    reasons.append(f"安全问题={security_issues} → 安全评分={sec_score:.1f}")
 
     # 文档完善度
-    scores["documentation_level"] = ctx.documentation_level
-    reasons.append(f"文档完善度={ctx.documentation_level:.1f}")
+    documentation_level = _clamp(ctx.documentation_level)
+    scores["documentation_level"] = documentation_level
+    reasons.append(f"文档完善度={documentation_level:.1f}")
 
     # 性能影响映射
-    perf_score = _map_performance_impact(ctx.performance_impact)
+    raw_impact = ctx.performance_impact if ctx.performance_impact else ctx.evolution_impact
+    perf_score = _map_performance_impact(raw_impact)
     scores["performance_score"] = perf_score
-    reasons.append(f"性能影响={ctx.performance_impact:.1f} → 性能评分={perf_score:.1f}")
+    reasons.append(f"性能影响={raw_impact:.1f} → 性能评分={perf_score:.1f}")
 
     return scores, reasons
 
 
 def _compute_weighted_score(dim_scores: Dict[str, float]) -> float:
     """加权求和."""
+    aliases = {
+        "compliance_score": "compliance",
+        "test_pass_rate": "test_pass",
+        "code_quality_score": "code_quality",
+        "security_score": "security",
+        "documentation_level": "documentation",
+    }
     total = 0.0
     for dim, weight in _DIMENSION_WEIGHTS.items():
-        total += dim_scores.get(dim, 0.0) * weight
+        value = dim_scores.get(dim)
+        if value is None and dim in aliases:
+            value = dim_scores.get(aliases[dim])
+        total += _clamp(value or 0.0) * weight
     return total
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
+    """Clamp numeric inputs to the scoring range."""
+    if math.isnan(float(value)):
+        return low
+    return max(low, min(high, float(value)))
 
 
 def _map_security_issues_to_score(count: int) -> float:

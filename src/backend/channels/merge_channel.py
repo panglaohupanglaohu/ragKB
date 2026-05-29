@@ -124,7 +124,7 @@ class MergeChannel(MarineChannel):
         if self._enable_presets:
             for _preset_key, rule_dict in PRESET_RULES.items():
                 rule = MergeRule.from_dict(rule_dict)
-                self._custom_rules[rule.rule_id] = rule
+                self._custom_rules[_preset_key] = rule
 
     # ── MarineChannel Interface ─────────────────────────────────
 

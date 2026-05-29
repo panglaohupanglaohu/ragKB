@@ -94,10 +94,10 @@ class TaskEngine:
         Maximum number of tasks executing in parallel (default 4).
     """
 
-    def __init__(self, max_concurrency: int = 4) -> None:
+    def __init__(self, max_concurrency: int = 4, store: Any = None) -> None:
         from .task_store import TaskStore
         self._max_concurrency = max_concurrency
-        self._store = TaskStore()
+        self._store = store or TaskStore()
         self._tasks: Dict[str, AgentTask] = self._store.load_all()
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._semaphore: Optional[asyncio.Semaphore] = None
@@ -106,6 +106,10 @@ class TaskEngine:
         self._callbacks: List[StatusCallback] = []
         self._lock = asyncio.Lock()
         self._executor: Optional[Callable] = None  # Set externally for auto-execution
+
+    @property
+    def max_concurrency(self) -> int:
+        return self._max_concurrency
 
     def set_executor(self, executor: Callable) -> None:
         """Register an external async executor callback.
@@ -152,7 +156,9 @@ class TaskEngine:
             for t in tasks:
                 self._tasks[t.task_id] = t
         for t in tasks:
-            await self._enqueue_if_ready(t.task_id)
+            self._store.save_task(t)
+            if self._executor:
+                await self._enqueue_if_ready(t.task_id)
         return tasks
 
     def get_task(self, task_id: str) -> Optional[AgentTask]:
@@ -291,11 +297,15 @@ class TaskEngine:
                     task.result = {"message": f"Task '{task.title}' executed by executor"}
             else:
                 logger.warning("TaskEngine: no executor registered for task %s (%s) — "
-                               "marking completed without real work",
+                               "leaving task pending until an executor is registered",
                                task.task_id, task.title)
                 await asyncio.sleep(0)
-                if task.result is None:
-                    task.result = {"message": f"Task '{task.title}' completed (no executor)"}
+                task.status = TaskStatus.PENDING
+                task.started_at = ""
+                task.result = task.result or {"message": "No executor registered"}
+                self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.PENDING)
+                self._store.save_task(task)
+                return
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.COMPLETED)
@@ -310,6 +320,8 @@ class TaskEngine:
         self._cascade_dependents()
 
     def _cascade_dependents(self) -> None:
+        if not self._executor:
+            return
         for t in self._tasks.values():
             if t.status == TaskStatus.PENDING and self._dependencies_met(t):
                 asyncio.ensure_future(self._queue.put(t.task_id))

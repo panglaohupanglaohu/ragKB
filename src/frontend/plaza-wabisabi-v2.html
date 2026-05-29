@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plaza Wabi-Sabi V2</title>
+  <style>
+    :root {
+      --bg: #eeede7;
+      --fg: #20231f;
+      --text: #20231f;
+      --panel: #fbfaf5;
+      --card: #e2ded2;
+      --line: #bfb7a4;
+      --dim: #696154;
+      --muted: #7f7568;
+      --accent: #47645a;
+      --wabi-paper: #fbfaf5;
+      --wabi-ink: #20231f;
+      --ando-concrete: #d8d4ca;
+      --font-sans: Inter, system-ui, sans-serif;
+      --radius: 8px;
+      --shadow: 0 18px 44px rgba(45, 51, 46, 0.14);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-sans);
+    }
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0;
+    }
+    .plaza-stage {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+    .plaza-lanes {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .plaza-lane {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 16px;
+    }
+  </style>
+</head>
+<body>
+  <main class="plaza">
+    <section class="plaza-stage" aria-labelledby="wabi-v2-plaza-title">
+      <h1 id="wabi-v2-plaza-title">智能体广场 Wabi-Sabi V2</h1>
+      <p>Wabi-sabi v2 plaza template for agent 讨论, facilitation lanes, and decision memory.</p>
+      <div class="plaza-lanes">
+        <article class="plaza-lane">
+          <h2>讨论脉络</h2>
+          <p>记录每轮观点和关键分歧。</p>
+        </article>
+        <article class="plaza-lane">
+          <h2>智能体协作</h2>
+          <p>呈现席位、任务归属和结论状态。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

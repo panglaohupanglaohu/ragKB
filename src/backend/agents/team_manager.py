@@ -16,8 +16,8 @@ from .team_store import TeamStore
 class TeamManager:
     """Manages the lifecycle of agent teams."""
 
-    def __init__(self) -> None:
-        self._store = TeamStore()
+    def __init__(self, store: Optional[TeamStore] = None) -> None:
+        self._store = store or TeamStore()
         self._teams: Dict[str, AgentTeam] = self._store.load_all()
 
     def _persist(self) -> None:
@@ -34,6 +34,8 @@ class TeamManager:
     ) -> AgentTeam:
         """Create a new team and register it."""
         team = AgentTeam(name=name, description=description, **kwargs)
+        if team.team_id in self._teams:
+            raise ValueError(f"Team already exists: {team.team_id}")
         self._teams[team.team_id] = team
         self._persist()
         return team

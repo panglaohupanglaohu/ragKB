@@ -16,9 +16,9 @@ fi
 # Check port availability
 check_port() {
     if lsof -ti:$1 &>/dev/null; then
-        echo "⚠️  Port $1 is in use. Killing existing process..."
-        lsof -ti:$1 | xargs kill -9 2>/dev/null
-        sleep 1
+        echo "❌ Port $1 is already in use."
+        echo "   Stop the process using that port, or change the configured port."
+        exit 1
     fi
 }
 check_port 8080
@@ -34,7 +34,7 @@ source venv/bin/activate
 
 # Install Python deps
 echo "📦 Installing Python dependencies..."
-pip install -q fastapi uvicorn[standard] pydantic httpx 2>/dev/null || pip install fastapi uvicorn pydantic httpx
+pip install -q -e ".[dev]" 2>/dev/null || pip install -e ".[dev]"
 
 # Install Node deps
 if [ ! -d "node_modules" ]; then
@@ -72,7 +72,7 @@ done
 
 # Start frontend
 echo "🌐 Starting frontend on port 5173..."
-npx vite --config vite.config.mjs &
+npm run dev &
 FRONTEND_PID=$!
 
 # Wait for frontend

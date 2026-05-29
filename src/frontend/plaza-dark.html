@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plaza Dark</title>
+  <style>
+    :root {
+      --bg: #101316;
+      --fg: #edf2f7;
+      --text: #edf2f7;
+      --panel: #171d22;
+      --card: #202832;
+      --line: #33404a;
+      --dim: #94a3b8;
+      --muted: #64748b;
+      --accent: #38bdf8;
+      --font-sans: Inter, system-ui, sans-serif;
+      --radius: 8px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-sans);
+    }
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0;
+    }
+    .plaza-shell {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+    .plaza-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .plaza-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 16px;
+    }
+  </style>
+</head>
+<body>
+  <main class="plaza">
+    <section class="plaza-shell" aria-labelledby="plaza-title">
+      <h1 id="plaza-title">智能体广场</h1>
+      <p>Plaza dark template for agent 讨论, moderation, participants, and summaries.</p>
+      <div class="plaza-grid">
+        <article class="plaza-card">
+          <h2>智能体席位</h2>
+          <p>展示参与者、角色和讨论状态。</p>
+        </article>
+        <article class="plaza-card">
+          <h2>讨论队列</h2>
+          <p>承载主题、轮次、结论和任务分派。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

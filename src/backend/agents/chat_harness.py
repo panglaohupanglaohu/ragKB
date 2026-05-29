@@ -895,6 +895,53 @@ class ChatHarness:
 
         # Handle tool calls if present
         tool_invocations = self._extract_tool_calls(message)
+        if tool_invocations:
+            from .agent_toolbox import dispatch_tool_call
+
+            for invocation in tool_invocations:
+                args_json = json.dumps(invocation.arguments, ensure_ascii=False)
+                tool_result = dispatch_tool_call(invocation.tool_name, args_json)
+                invocation.result = json.dumps(tool_result, ensure_ascii=False)
+                invocation.permitted = bool(tool_result.get("ok", False))
+                if not invocation.permitted:
+                    invocation.denial_reason = tool_result.get("error", "")
+
+            tool_context = json.dumps(
+                [inv.to_dict() for inv in tool_invocations],
+                ensure_ascii=False,
+            )
+            followup_messages = messages + [
+                {"role": "assistant", "content": content or "工具调用已准备执行。"},
+                {
+                    "role": "user",
+                    "content": (
+                        "工具执行结果(JSON):\n"
+                        f"{tool_context[:8000]}\n\n"
+                        "请基于这些结果直接回答原始问题。"
+                    ),
+                },
+            ]
+            second_raw = await client.chat_completion(
+                followup_messages, model=model, tools=None,
+            )
+            if not second_raw.get("error"):
+                second_choices = second_raw.get("choices", [])
+                if second_choices:
+                    second_message = second_choices[0].get("message", {})
+                    final_content = second_message.get("content") or second_message.get("reasoning") or ""
+                    if final_content:
+                        content = final_content
+                        stop_reason = "tool_result"
+                    second_usage = second_raw.get("usage", {})
+                    usage = usage.add(
+                        second_usage.get("prompt_tokens", 0),
+                        second_usage.get("completion_tokens", 0),
+                    )
+                    session.total_usage = session.total_usage.add(
+                        second_usage.get("prompt_tokens", 0),
+                        second_usage.get("completion_tokens", 0),
+                    )
+                    self._total_tokens += second_usage.get("total_tokens", 0)
 
         session.add_assistant_message(content)
 

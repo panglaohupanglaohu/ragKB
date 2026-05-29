@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plaza Wabi-Sabi</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --fg: #24211c;
+      --text: #24211c;
+      --panel: #fffaf0;
+      --card: #ebe2d3;
+      --line: #c9b99d;
+      --dim: #756b5c;
+      --muted: #857969;
+      --accent: #7c6a44;
+      --wabi-paper: #fffaf0;
+      --wabi-ink: #24211c;
+      --font-sans: Inter, system-ui, sans-serif;
+      --radius: 8px;
+      --shadow: 0 16px 40px rgba(69, 54, 31, 0.14);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-sans);
+    }
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0;
+    }
+    .plaza-room {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+    .plaza-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .plaza-note {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 16px;
+    }
+  </style>
+</head>
+<body>
+  <main class="plaza">
+    <section class="plaza-room" aria-labelledby="wabi-plaza-title">
+      <h1 id="wabi-plaza-title">智能体广场 Wabi-Sabi</h1>
+      <p>Wabi-sabi plaza template for quiet agent 讨论, imperfect notes, and shared decisions.</p>
+      <div class="plaza-columns">
+        <article class="plaza-note">
+          <h2>讨论主题</h2>
+          <p>沉淀问题、背景和下一步。</p>
+        </article>
+        <article class="plaza-note">
+          <h2>智能体席位</h2>
+          <p>保留参与者、角色和发言节奏。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

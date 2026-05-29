@@ -89,8 +89,7 @@ def temp_task_store():
 def team_manager(temp_team_store):
     """提供 TeamManager 实例 (使用临时存储)."""
     from agents.team_manager import TeamManager
-    # TeamManager() 不接受 store 参数，内部自行创建 TeamStore
-    return TeamManager()
+    return TeamManager(store=temp_team_store)
 
 
 @pytest.fixture
@@ -131,7 +130,9 @@ def sample_model_dict():
 def task_engine():
     """提供 TaskEngine 实例."""
     from agents.task_engine import TaskEngine
-    return TaskEngine(max_concurrency=4)
+    from agents.task_store import TaskStore
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield TaskEngine(max_concurrency=4, store=TaskStore(base_dir=Path(tmpdir)))
 
 
 @pytest.fixture

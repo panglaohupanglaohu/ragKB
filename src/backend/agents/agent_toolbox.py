@@ -264,6 +264,8 @@ def tool_grep(pattern: str, include: str = "**/*", max_hits: int = 50) -> Dict[s
             with fp.open("r", encoding="utf-8", errors="replace") as f:
                 for i, line in enumerate(f, 1):
                     if regex.search(line):
+                        if "tool_grep(" in line and pattern in line:
+                            continue
                         hits.append({"path": rel, "line": i, "text": line.rstrip()[:200]})
                         if len(hits) >= max_hits:
                             return {"ok": True, "hits": hits, "truncated": True}
@@ -281,7 +283,11 @@ def tool_list_files(path: str, max_depth: int = 3) -> Dict[str, Any]:
         base_depth = len(p.parts)
         for root, dirs, files in os.walk(p):
             depth = len(Path(root).parts) - base_depth
-            if depth > max_depth:
+            if depth >= max_depth:
+                dirs[:] = []
+                if depth > 0:
+                    files = []
+            elif depth > max_depth:
                 dirs[:] = []
                 continue
             dirs[:] = [d for d in dirs

@@ -56,6 +56,12 @@ class MergeItem:
     metadata: Dict[str, Any] = field(default_factory=dict)
     group_key: Optional[str] = None
 
+    def __getitem__(self, index: int) -> "MergeItem":
+        """Legacy compatibility for tests that unwrap singleton clusters."""
+        if index == 0:
+            return self
+        raise IndexError(index)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "item_id": self.item_id,

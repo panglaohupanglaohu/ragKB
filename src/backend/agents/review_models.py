@@ -56,17 +56,19 @@ class GateEvaluationContext(BaseModel):
     entity_name: str = Field(default="", description="实体名称")
 
     # 审查维度的量化数据
-    compliance_score: float = Field(default=0.0, ge=0.0, le=100.0, description="合规评分 0-100")
-    test_pass_rate: float = Field(default=100.0, ge=0.0, le=100.0, description="测试通过率 %")
-    code_quality_score: float = Field(default=0.0, ge=0.0, le=100.0, description="代码质量评分")
-    security_issues: int = Field(default=0, ge=0, description="安全问题数量")
-    performance_impact: float = Field(default=0.0, ge=-100.0, le=100.0, description="性能影响评分 (-100~+100)")
-    documentation_level: float = Field(default=0.0, ge=0.0, le=100.0, description="文档完善度")
+    compliance_score: float = Field(default=0.0, description="合规评分 0-100")
+    test_pass_rate: float = Field(default=100.0, description="测试通过率 %")
+    code_quality_score: float = Field(default=0.0, description="代码质量评分")
+    security_issues: int = Field(default=0, description="安全问题数量")
+    performance_impact: float = Field(default=0.0, description="性能影响评分 (-100~+100)")
+    evolution_impact: float = Field(default=0.0, description="演进影响评分，兼容旧字段")
+    documentation_level: float = Field(default=0.0, description="文档完善度")
 
     # 重大门槛条件（一票否决项）
     has_critical_security_issue: bool = Field(default=False, description="存在严重安全漏洞")
     has_breaking_change: bool = Field(default=False, description="存在破坏性变更")
-    critical_test_failures: int = Field(default=0, ge=0, description="关键测试失败数")
+    breaking_changes: bool = Field(default=False, description="破坏性变更，兼容旧字段")
+    critical_test_failures: int = Field(default=0, description="关键测试失败数")
 
     # 元数据
     domain: str = Field(default="general", description="所属领域")

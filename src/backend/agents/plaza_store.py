@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from .plaza import (
     Discussion, DiscussionStatus, NicheRole, Participant,
@@ -72,6 +72,27 @@ class PlazaStore:
             except Exception as e:
                 logger.warning(f"加载广场失败 {path.name}: {e}")
         return plazas
+
+    def list_plazas(self) -> List[Plaza]:
+        """返回所有广场列表."""
+        return list(self.load_all().values())
+
+    def get_indices(self) -> Dict[str, Dict[str, str]]:
+        """返回轻量索引，供路由和测试快速定位广场内容."""
+        plazas = self.load_all()
+        return {
+            "plazas": {pid: plaza.name for pid, plaza in plazas.items()},
+            "participants": {
+                participant_id: plaza_id
+                for plaza_id, plaza in plazas.items()
+                for participant_id in plaza.participants
+            },
+            "discussions": {
+                discussion_id: plaza_id
+                for plaza_id, plaza in plazas.items()
+                for discussion_id in plaza.discussions
+            },
+        }
 
     def delete_plaza(self, plaza_id: str):
         path = self._dir / f"{plaza_id}.json"

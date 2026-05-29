@@ -106,6 +106,18 @@ class AgentTemplateType(Enum):
 # ── Dataclasses ────────────────────────────────────────────────────────────
 
 
+class AgentCollection(dict):
+    """Dict-backed agent collection with legacy list-style helpers."""
+
+    def append(self, agent: "AgentProfile") -> None:
+        self[agent.agent_id] = agent
+
+    def __getitem__(self, key: Any) -> "AgentProfile":
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
 @dataclass
 class ModelConfig:
     """LLM model configuration entry."""
@@ -348,15 +360,19 @@ class HermesAgentConfig:
 class AgentPermission:
     """Agent access permission."""
 
+    agent_id: str = ""
     resource: str = ""
     access_level: AccessLevel = AccessLevel.READ
     channels: List[str] = field(default_factory=list)
+    allowed_tools: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "agent_id": self.agent_id,
             "resource": self.resource,
             "access_level": self.access_level.value,
             "channels": self.channels,
+            "allowed_tools": self.allowed_tools,
         }
 
 
@@ -364,14 +380,28 @@ class AgentPermission:
 class AgentChannelConfig:
     """Channel subscription configuration for an agent."""
 
+    channel: str = ""
     channel_name: str = ""
+    endpoint: str = ""
+    enabled: bool = True
+    sync_interval_seconds: int = 60
     subscribe: bool = True
     publish: bool = False
     priority: int = 0
 
+    def __post_init__(self) -> None:
+        if self.channel and not self.channel_name:
+            self.channel_name = self.channel
+        elif self.channel_name and not self.channel:
+            self.channel = self.channel_name
+
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "channel": self.channel,
             "channel_name": self.channel_name,
+            "endpoint": self.endpoint,
+            "enabled": self.enabled,
+            "sync_interval_seconds": self.sync_interval_seconds,
             "subscribe": self.subscribe,
             "publish": self.publish,
             "priority": self.priority,
@@ -403,6 +433,10 @@ class AgentProfile:
     def __post_init__(self) -> None:
         if not self.agent_id:
             self.agent_id = str(uuid.uuid4())[:8]
+        if isinstance(self.state, str):
+            self.state = AgentState(self.state)
+        if isinstance(self.template_type, str):
+            self.template_type = AgentTemplateType(self.template_type)
 
     @property
     def is_hermes_agent(self) -> bool:
@@ -440,7 +474,7 @@ class AgentTeam:
     name: str = ""
     description: str = ""
     visibility: Visibility = Visibility.PRIVATE
-    agents: Dict[str, AgentProfile] = field(default_factory=dict)
+    agents: Dict[str, AgentProfile] = field(default_factory=AgentCollection)
     models: Dict[str, ModelConfig] = field(default_factory=dict)
     tools: Dict[str, ToolDefinition] = field(default_factory=dict)
     skills: Dict[str, SkillDefinition] = field(default_factory=dict)
@@ -450,6 +484,8 @@ class AgentTeam:
     def __post_init__(self) -> None:
         if not self.team_id:
             self.team_id = str(uuid.uuid4())[:8]
+        if not isinstance(self.agents, AgentCollection):
+            self.agents = AgentCollection(self.agents)
 
     def add_agent(self, agent: AgentProfile) -> None:
         self.agents[agent.agent_id] = agent

@@ -6,11 +6,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.mjs",
-    "backend": "cd src/backend && python main.py --port 8080",
+    "backend": "cd src/backend && python3 main.py --port 8080",
     "start": "concurrently \"npm run backend\" \"npm run dev\"",
+    "build": "vite build --config vite.config.mjs",
+    "test": "python3 -m pytest -q",
+    "test:backend": "python3 -m pytest -q src/backend/tests",
+    "test:root": "python3 -m pytest -q tests",
+    "lint": "python3 -m compileall -q src/backend",
     "preview": "vite preview --config vite.config.mjs"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "vite": "^6.0.0"
   },
   "dependencies": {

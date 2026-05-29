@@ -203,10 +203,11 @@ class OperationEvent:
         session_id: Optional[str] = None,
         task_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        operation_id: str = "",
     ) -> "OperationEvent":
         """工厂方法 — 创建带自动 ID 和时间戳的操作事件."""
         return cls(
-            operation_id=f"OP-{uuid.uuid4().hex[:8]}",
+            operation_id=operation_id or f"OP-{uuid.uuid4().hex[:8]}",
             operation_type=operation_type,
             agent_id=agent_id,
             team_id=team_id,

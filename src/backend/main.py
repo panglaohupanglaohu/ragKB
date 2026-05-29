@@ -15,6 +15,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -39,10 +41,26 @@ app = FastAPI(
     version="1.0.0",
 )
 
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5173,"
+    "http://127.0.0.1:5173,"
+    "http://localhost:8080,"
+    "http://127.0.0.1:8080"
+)
+_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("AG_ALLOWED_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",")
+    if origin.strip()
+]
+_allow_credentials = os.getenv("AG_CORS_ALLOW_CREDENTIALS", "1").lower() not in {"0", "false", "no"}
+if "*" in _allowed_origins and _allow_credentials:
+    logger.warning("AG_ALLOWED_ORIGINS contains '*' with credentials; disabling credentials for CORS")
+    _allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -82,6 +100,15 @@ class RegisterRequest(BaseModel):
 
 _team_manager = None
 _chat_channel = None
+_STRICT_STARTUP = os.getenv("AG_STRICT_STARTUP", "1").lower() not in {"0", "false", "no"}
+
+
+def _handle_startup_failure(name: str, exc: Exception, *, critical: bool) -> None:
+    """Log startup failures and fail fast for core modules in strict mode."""
+    level = "critical" if critical else "optional"
+    logger.warning("⚠️ %s startup failed (%s): %s", name, level, exc)
+    if critical and _STRICT_STARTUP:
+        raise RuntimeError(f"Core startup module failed: {name}") from exc
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -120,7 +147,7 @@ async def startup():
         _chat_channel.initialize()
         logger.info("✅ BridgeChatChannel registered")
     except Exception as e:
-        logger.warning(f"⚠️ Channel registration failed: {e}")
+        _handle_startup_failure("channels", e, critical=True)
 
     # 2. Agent Team API (evolution endpoints)
     try:
@@ -138,7 +165,7 @@ async def startup():
         app.include_router(agent_team_router)
         logger.info("✅ Agent Team API mounted (/api/v1/agent-teams)")
     except Exception as e:
-        logger.warning(f"⚠️ Agent Team API failed: {e}")
+        _handle_startup_failure("agent_team_api", e, critical=True)
 
     # 3. Agent Config API (teams, agents, tools, skills, tasks, sessions)
     try:
@@ -215,7 +242,7 @@ async def startup():
             app.include_router(plaza_router, prefix="/api/v1/agent-config")
             logger.info("✅ 智能体广场 API mounted (/api/v1/agent-config/plaza)")
         except Exception as e:
-            logger.warning(f"⚠️ Plaza API failed: {e}")
+            _handle_startup_failure("plaza_api", e, critical=True)
 
         # 4b. TTS 语音合成代理 (GPT-SoVITS)
         try:
@@ -253,7 +280,7 @@ async def startup():
             logger.warning(f"⚠️ Skill Extract WebSocket failed: {e}")
 
     except Exception as e:
-        logger.warning(f"⚠️ Agent Config API failed: {e}")
+        _handle_startup_failure("agent_config_api", e, critical=True)
 
     # 5. SECS 沙箱系统 API
     try:
@@ -269,7 +296,7 @@ async def startup():
         app.include_router(sandbox_router)
         logger.info("✅ SECS Sandbox API mounted (/api/v1/sandbox)")
     except Exception as e:
-        logger.warning(f"⚠️ SECS Sandbox API failed: {e}")
+        _handle_startup_failure("secs_sandbox_api", e, critical=False)
 
     # 6. 启动验证路由
     try:
@@ -300,16 +327,70 @@ async def startup():
 # Auth
 # ══════════════════════════════════════════════════════════════════
 
-import hashlib
 import secrets
 import time as _time
 import os as _os
 
-# Default users (in production, use a proper database)
-_default_pwd = _os.environ.get("ADMIN_PASSWORD", "admin123")
-_USERS = {
-    "admin": hashlib.sha256(_default_pwd.encode()).hexdigest(),
-}
+# User store: username -> password hash.
+_USER_STORE = Path(__file__).resolve().parents[2] / "config" / "users.json"
+_PBKDF2_ITERATIONS = 260_000
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        _PBKDF2_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt}${digest}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, iterations, salt, digest = stored_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        candidate = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt.encode("utf-8"),
+            int(iterations),
+        ).hex()
+        return hmac.compare_digest(candidate, digest)
+    except Exception:
+        return False
+
+
+def _load_users() -> Dict[str, str]:
+    try:
+        if _USER_STORE.exists():
+            data = json.loads(_USER_STORE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items()}
+    except Exception as exc:
+        logger.warning("⚠️ Failed to load user store: %s", exc)
+    return {}
+
+
+def _save_users(users: Dict[str, str]) -> None:
+    _USER_STORE.parent.mkdir(parents=True, exist_ok=True)
+    _USER_STORE.write_text(json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+_USERS = _load_users()
+_admin_password = _os.environ.get("ADMIN_PASSWORD", "")
+if _admin_password:
+    _USERS["admin"] = _hash_password(_admin_password)
+    _save_users(_USERS)
+elif _os.environ.get("AG_ALLOW_DEFAULT_ADMIN", "").lower() in {"1", "true", "yes"}:
+    logger.warning("⚠️ AG_ALLOW_DEFAULT_ADMIN enabled; using insecure development admin password")
+    _USERS.setdefault("admin", _hash_password("admin123"))
+    _save_users(_USERS)
+elif "admin" not in _USERS:
+    logger.warning("⚠️ ADMIN_PASSWORD is not set; default admin account is disabled")
+
 # Token store: token -> {"username": str, "created_at": float}
 _TOKENS: Dict[str, dict] = {}
 _TOKEN_TTL = 86400 * 7  # 7 days
@@ -348,11 +429,12 @@ async def register(req: RegisterRequest):
     username = req.username.strip()
     if not username or len(username) < 2:
         raise HTTPException(status_code=400, detail="用户名至少需要2个字符")
-    if len(req.password) < 4:
-        raise HTTPException(status_code=400, detail="密码至少需要4个字符")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="密码至少需要8个字符")
     if username in _USERS:
         raise HTTPException(status_code=409, detail="该用户名已被注册")
-    _USERS[username] = hashlib.sha256(req.password.encode()).hexdigest()
+    _USERS[username] = _hash_password(req.password)
+    _save_users(_USERS)
     token = _create_token(username)
     logger.info(f"✅ New user registered: {username}")
     return {"token": token, "username": username}
@@ -361,8 +443,7 @@ async def register(req: RegisterRequest):
 @app.post("/api/v1/auth/login")
 async def login(req: LoginRequest):
     """Simple token-based login."""
-    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
-    if req.username not in _USERS or _USERS[req.username] != pwd_hash:
+    if req.username not in _USERS or not _verify_password(req.password, _USERS[req.username]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = _create_token(req.username)
     return {"token": token, "username": req.username}

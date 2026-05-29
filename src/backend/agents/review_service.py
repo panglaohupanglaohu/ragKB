@@ -38,6 +38,69 @@ from .review_models import (
 logger = logging.getLogger(__name__)
 
 
+class _MemoryAuditStore:
+    """In-memory audit store for isolated ReviewService instances."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._entries: Dict[str, Dict[str, Any]] = {}
+        self._idempotency_keys: Dict[str, str] = {}
+
+    async def initialize(self) -> bool:
+        return True
+
+    async def upsert(self, entry: ReviewEntry) -> ReviewEntry:
+        async with self._lock:
+            if entry.idempotency_key:
+                existing_id = self._idempotency_keys.get(entry.idempotency_key)
+                if existing_id and existing_id != entry.id:
+                    return ReviewEntry(**self._entries[existing_id])
+            self._entries[entry.id] = entry.model_dump()
+            if entry.idempotency_key:
+                self._idempotency_keys[entry.idempotency_key] = entry.id
+            return entry
+
+    async def get(self, entry_id: str) -> Optional[ReviewEntry]:
+        async with self._lock:
+            data = self._entries.get(entry_id)
+            return ReviewEntry(**data) if data else None
+
+    async def list_entries(
+        self,
+        status: Optional[ReviewStatus] = None,
+        entity_id: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[ReviewEntry]:
+        async with self._lock:
+            entries = []
+            for data in self._entries.values():
+                if status and data.get("status") != status.value:
+                    continue
+                if entity_id and data.get("entity_id") != entity_id:
+                    continue
+                if domain and data.get("domain") != domain:
+                    continue
+                entries.append(ReviewEntry(**data))
+            entries.sort(key=lambda e: e.created_at, reverse=True)
+            return entries[offset:offset + limit]
+
+    async def get_queue(self) -> ReviewQueue:
+        entries = await self.list_entries(limit=100000)
+        queue = ReviewQueue(entries=entries)
+        queue.refresh_stats()
+        return queue
+
+    async def count_by_status(self) -> Dict[str, int]:
+        async with self._lock:
+            counts: Dict[str, int] = {}
+            for data in self._entries.values():
+                status = data.get("status", ReviewStatus.PENDING.value)
+                counts[status] = counts.get(status, 0) + 1
+            return counts
+
+
 class ReviewService:
     """审核服务 — 管理审核队列的完整生命周期.
 
@@ -60,9 +123,10 @@ class ReviewService:
         self._store = store
         self._lock = asyncio.Lock()
 
-    async def _get_store(self) -> AuditStore:
+    async def _get_store(self):
         if self._store is None:
-            self._store = await get_audit_store()
+            self._store = _MemoryAuditStore()
+            await self._store.initialize()
         return self._store
 
     # ── 提交 ──────────────────────────────────────────────
@@ -156,7 +220,7 @@ class ReviewService:
             # 获取当前条目
             current = await store.get(entry_id)
             if current is None:
-                raise ValueError(f"审核条目不存在: {entry_id}")
+                raise ValueError(f"审核条目未找到: {entry_id}")
 
             # 状态机验证
             new_status = self._transition_status(current.status, action)
@@ -183,7 +247,7 @@ class ReviewService:
                 idempotency_key=idempotency_key,
                 version=new_version,
                 entity_version=new_entity_version,
-                reviewer=reviewer,
+                reviewer=current.reviewer,
                 comment=comment,
                 domain=current.domain,
                 severity=current.severity,

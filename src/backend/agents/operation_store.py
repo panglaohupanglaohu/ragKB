@@ -105,6 +105,17 @@ class OperationStore:
         self._idempotency_keys: set = set()
         self._idempotency_max = 50000
 
+    def _get_month_dir(self, timestamp: Optional[str] = None) -> Path:
+        """获取本 store 的日期分区目录 (YYYY-MM)."""
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                dt = datetime.now(timezone.utc)
+        else:
+            dt = datetime.now(timezone.utc)
+        return self._base_dir / dt.strftime("%Y-%m")
+
     # ── 写入 ─────────────────────────────────────────────
 
     async def append_operation(self, event: OperationEvent) -> bool:
@@ -119,7 +130,7 @@ class OperationStore:
                 logger.debug(f"⏭️ 幂等跳过: {event.operation_id} key={event.idempotency_key}")
                 return False
 
-            month_dir = _get_month_dir(event.timestamp)
+            month_dir = self._get_month_dir(event.timestamp)
             _ensure_dir(month_dir)
 
             # 写入事件
@@ -150,7 +161,7 @@ class OperationStore:
             True 如果写入成功.
         """
         async with self._lock:
-            month_dir = _get_month_dir(context_slice.timestamp)
+            month_dir = self._get_month_dir(context_slice.timestamp)
             _ensure_dir(month_dir)
 
             # 写入切片
@@ -181,7 +192,7 @@ class OperationStore:
                 return False
 
             # 写入事件
-            month_dir = _get_month_dir(event.timestamp)
+            month_dir = self._get_month_dir(event.timestamp)
             _ensure_dir(month_dir)
             event_file = month_dir / f"{event.operation_id}.json"
             _atomic_write(event_file, json.dumps(event.to_dict(), ensure_ascii=False, indent=2))

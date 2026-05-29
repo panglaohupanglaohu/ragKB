@@ -41,6 +41,36 @@ from .marine_base import (
 logger = logging.getLogger(__name__)
 
 
+class AwaitableDict(dict):
+    """Dictionary result that can also be awaited by async callers."""
+
+    def __await__(self):
+        async def _wrap():
+            return self
+
+        return _wrap().__await__()
+
+
+class EvolutionItemList:
+    """List-style compatibility view over the evolution item dictionary."""
+
+    def __init__(self, items: Dict[str, "EvolutionItem"]) -> None:
+        self._items = items
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self):
+        return iter(self._items.values())
+
+    def __getitem__(self, index):
+        values = list(self._items.values())
+        return values[index]
+
+    def append(self, item: "EvolutionItem") -> None:
+        self._items[item.id] = item
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Data Models
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -132,6 +162,7 @@ class EvolutionItem:
     description: str = ""
     target_channel: str = ""
     audit_domain: str = AuditDomain.GENERAL.value
+    domain: str = ""
     severity: str = Severity.MEDIUM.value
     status: str = EvolutionStatus.DISCOVERED.value
 
@@ -166,6 +197,14 @@ class EvolutionItem:
     compliance_rating: str = ""  # A~E
     operational_domain: str = ""
     checklist_level: str = ChecklistLevel.SHIP.value
+
+    def __post_init__(self) -> None:
+        if self.domain and (
+            not self.audit_domain or self.audit_domain == AuditDomain.GENERAL.value
+        ):
+            self.audit_domain = self.domain
+        elif self.audit_domain and not self.domain:
+            self.domain = self.audit_domain
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -1138,6 +1177,11 @@ class SystemEvolutionChannel(MarineChannel):
         # 趋势分析数据
         self._score_trend: List[Dict[str, Any]] = []  # [{time, score, rating, passed, failed}]
 
+    @property
+    def discovered_items(self) -> EvolutionItemList:
+        """Legacy list-style view of discovered evolution items."""
+        return EvolutionItemList(self.evolution_items)
+
     # ── MarineChannel 接口 ───────────────────────────────────
 
     def initialize(self) -> bool:
@@ -1199,7 +1243,7 @@ class SystemEvolutionChannel(MarineChannel):
         new_items: List[str] = []
 
         for rule in self.audit_rules:
-            channel = registry.get(rule.target_channel)
+            channel = self if rule.target_channel == self.name else registry.get(rule.target_channel)
             if not channel:
                 results.append({
                     "rule": rule.id, "status": "skip",
@@ -1247,7 +1291,7 @@ class SystemEvolutionChannel(MarineChannel):
                 self.total_discovered += 1
                 new_items.append(item.id)
 
-        result = {
+        result = AwaitableDict({
             "audit_run": self.total_audits,
             "rules_checked": len(results),
             "passed": sum(1 for r in results if r.get("passed")),
@@ -1255,7 +1299,7 @@ class SystemEvolutionChannel(MarineChannel):
             "skipped": sum(1 for r in results if r.get("status") == "skip"),
             "new_items_created": new_items,
             "details": results,
-        }
+        })
 
         # ── Phase 3: 计算合规评级 ──
         rating_result = self.calculate_compliance_rating(results)
@@ -1338,6 +1382,26 @@ class SystemEvolutionChannel(MarineChannel):
             dispatched.append(item.id)
 
         return {"dispatched": dispatched, "count": len(dispatched)}
+
+    async def dispatch_item(self, item_id: str) -> Optional[EvolutionItem]:
+        """Async compatibility helper to dispatch a single evolution item."""
+        item = self.evolution_items.get(item_id)
+        if item is None:
+            return None
+        status = item.status.value if isinstance(item.status, EvolutionStatus) else item.status
+        if status == EvolutionStatus.DISCOVERED.value:
+            item.status = EvolutionStatus.DISPATCHED.value
+            item.dispatched_at = datetime.now().isoformat()
+            self.total_dispatched += 1
+            self._record_trail(
+                "dispatch",
+                item_id=item.id,
+                actor="system",
+                old_value=EvolutionStatus.DISCOVERED.value,
+                new_value=EvolutionStatus.DISPATCHED.value,
+                detail=f"单项派发: {item.title}",
+            )
+        return item
 
     def mark_in_progress(self, item_id: str) -> bool:
         """Build 团队标记开始工作。"""
