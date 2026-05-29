@@ -145,6 +145,7 @@ class TaskEngine:
         async with self._lock:
             self._tasks[task.task_id] = task
         self._store.save_task(task)
+        self._publish_event("created", task)
         # Only auto-execute tasks that have an executor callback registered;
         # otherwise keep them in PENDING for manual/cross-team workflows.
         if self._executor:
@@ -157,6 +158,7 @@ class TaskEngine:
                 self._tasks[t.task_id] = t
         for t in tasks:
             self._store.save_task(t)
+            self._publish_event("created", t)
             if self._executor:
                 await self._enqueue_if_ready(t.task_id)
         return tasks
@@ -170,6 +172,9 @@ class TaskEngine:
     def get_agent_tasks(self, agent_id: str) -> List[AgentTask]:
         return [t for t in self._tasks.values() if t.agent_id == agent_id]
 
+    def list_tasks(self) -> List[AgentTask]:
+        return list(self._tasks.values())
+
     async def cancel_task(self, task_id: str) -> Optional[AgentTask]:
         task = self._tasks.get(task_id)
         if task is None:
@@ -180,6 +185,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, old, TaskStatus.CANCELLED)
             self._store.save_task(task)
+            self._publish_event("cancelled", task)
         return task
 
     async def complete_task(self, task_id: str, result: Any = None) -> Optional[AgentTask]:
@@ -197,6 +203,7 @@ class TaskEngine:
                 task.result = {"message": f"Task '{task.title}' completed"}
             self._fire_callbacks(task, old, TaskStatus.COMPLETED)
             self._store.save_task(task)
+            self._publish_event("completed", task)
             self._cascade_dependents()
         return task
 
@@ -211,6 +218,7 @@ class TaskEngine:
             task.started_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, old, TaskStatus.RUNNING)
             self._store.save_task(task)
+            self._publish_event("started", task)
         return task
 
     async def fail_task(self, task_id: str, error: str = "") -> Optional[AgentTask]:
@@ -225,6 +233,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, old, TaskStatus.FAILED)
             self._store.save_task(task)
+            self._publish_event("failed", task)
         return task
 
     async def delete_task(self, task_id: str) -> Optional[AgentTask]:
@@ -275,6 +284,7 @@ class TaskEngine:
                 task.error = "Dependency not met"
                 task.completed_at = datetime.now(timezone.utc).isoformat()
                 self._fire_callbacks(task, old, TaskStatus.FAILED)
+                self._publish_event("failed", task)
                 self._cascade_dependents()
                 continue
             assert self._semaphore is not None
@@ -286,6 +296,7 @@ class TaskEngine:
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(timezone.utc).isoformat()
         self._fire_callbacks(task, old_status, TaskStatus.RUNNING)
+        self._publish_event("started", task)
         try:
             if self._executor:
                 logger.info("TaskEngine: executing task %s (%s) via registered executor",
@@ -310,6 +321,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.COMPLETED)
             self._store.save_task(task)
+            self._publish_event("completed", task)
         except Exception as exc:
             logger.error("TaskEngine: task %s failed — %s", task.task_id, exc, exc_info=True)
             task.status = TaskStatus.FAILED
@@ -317,6 +329,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.FAILED)
             self._store.save_task(task)
+            self._publish_event("failed", task)
         self._cascade_dependents()
 
     def _cascade_dependents(self) -> None:
@@ -334,6 +347,32 @@ class TaskEngine:
                 cb(task, old, new)
             except Exception:
                 pass
+
+    def _publish_event(self, kind: str, task: AgentTask) -> None:
+        """Emit lightweight task lifecycle events for downstream trackers."""
+        try:
+            from .domain_events import DomainEvent, EventType, TaskSnapshot
+            from .event_bus import get_event_bus
+
+            event_type = {
+                "created": EventType.TASK_CREATED,
+                "started": EventType.TASK_STARTED,
+                "completed": EventType.TASK_COMPLETED,
+                "failed": EventType.TASK_FAILED,
+                "cancelled": EventType.TASK_CANCELLED,
+            }.get(kind)
+            if event_type is None:
+                return
+
+            event = DomainEvent.create(
+                event_type=event_type,
+                payload=TaskSnapshot.from_agent_task(task),
+                source="task_engine",
+                correlation_id=task.task_id,
+            )
+            get_event_bus().publish(event)
+        except Exception:
+            logger.exception("TaskEngine: failed to publish %s event for %s", kind, task.task_id)
 
 
 _engine: Optional[TaskEngine] = None

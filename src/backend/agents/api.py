@@ -1839,6 +1839,146 @@ def _te():
     return engine
 
 
+async def _check_task_runtime_ready() -> tuple[bool, str]:
+    """Return whether task execution has a reachable LLM backend."""
+    token_ready = False
+    try:
+        from token_factory import TokenFactory as _TF
+
+        tf = _TF.instance()
+        tf_status = await tf.ensure_ready()
+        token_ready = tf_status.get("ready", False)
+        _harness_log.info(
+            "[task_runtime] Token Factory ready=%s, providers=%s",
+            token_ready,
+            [n for n, p in tf._provider_health.items() if p.reachable],
+        )
+    except Exception as _tf_err:
+        _harness_log.warning("[task_runtime] Token Factory check failed: %s", _tf_err)
+
+    if token_ready:
+        return True, ""
+
+    api_key, _, _ = _get_deepseek_credentials()
+    if api_key:
+        _harness_log.info("[task_runtime] Direct DeepSeek API available — proceeding")
+        return True, ""
+
+    return False, "LLM 推理后端不可用，任务已创建但未启动执行"
+
+
+def _prepare_task_submission(task: AgentTask, team_id: str, token_ready: bool) -> list:
+    """Seed workflow/context and persist a task handoff record before execution."""
+    wf = _generate_workflow(task, team_id)
+    if wf:
+        task.metadata["workflow"] = wf
+
+    try:
+        _seed_project_context(task.task_id, task.title, task.description or "")
+        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
+    except Exception as _ctx_err:
+        _harness_log.warning("[task_prepare] Context seeding failed: %s", _ctx_err)
+
+    _write_handoff(task.task_id, "task_init", {
+        "task_id": task.task_id,
+        "title": task.title,
+        "description": task.description,
+        "team_id": team_id,
+        "agent_id": task.agent_id,
+        "token_factory_ready": token_ready,
+        "workflow_steps": [s["key"] for s in wf] if wf else [],
+    })
+    return wf
+
+
+async def _start_task_workflow(engine, task: AgentTask, team_id: str, wf: list) -> None:
+    """Launch the first workflow step and attach the harness monitor."""
+    if not wf:
+        return
+
+    first_step = wf[0]
+    if first_step.get("status") == "active" and first_step.get("agent_id"):
+        import uuid as _uuid
+
+        sr = _sr()
+        skill = sr.get_by_slug("code_implementation")
+        cfg = dict(skill.config or {}) if skill else {}
+        agent = _tm().get_agent(team_id, first_step["agent_id"])
+        if agent:
+            sid = str(_uuid.uuid4())[:12]
+            step_prompt = _build_step_prompt(task, first_step, wf)
+            _harness_log.info(
+                "[task_start] Starting Claude session %s for step '%s' (agent: %s)",
+                sid,
+                first_step["key"],
+                agent.name,
+            )
+            _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+            first_step["session_id"] = sid
+            task.metadata["workflow"] = wf
+            _emit_pipeline_event(task.task_id, "step_started", {
+                "step": first_step["key"],
+                "label": first_step.get("label", ""),
+                "agent": agent.name,
+            })
+
+    await engine.start_task(task.task_id)
+    _start_harness_monitor(task.task_id, team_id)
+
+
+async def _submit_internal_task(
+    team_id: str,
+    *,
+    title: str,
+    description: str = "",
+    agent_id: str = "",
+    priority: int = 2,
+    dependencies: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    auto_start: bool = True,
+) -> AgentTask:
+    """Create a task using the same workflow/bootstrap path as the REST endpoint."""
+    _get_team_or_404(team_id)
+    if agent_id:
+        _get_agent_or_404(team_id, agent_id)
+
+    engine = _te()
+    if not engine._running:
+        await engine.start()
+
+    token_ready = False
+    token_error = ""
+    if auto_start:
+        token_ready, token_error = await _check_task_runtime_ready()
+
+    task = AgentTask(
+        agent_id=agent_id,
+        team_id=team_id,
+        title=title,
+        description=description,
+        priority=priority,
+        dependencies=list(dependencies or []),
+        metadata=dict(metadata or {}),
+    )
+
+    wf = _prepare_task_submission(task, team_id, token_ready)
+    await engine.submit_task(task)
+
+    if auto_start and not token_ready:
+        _harness_log.warning(
+            "[task_submit] Runtime unavailable — task %s queued but not started",
+            task.task_id,
+        )
+        task.metadata["token_factory_error"] = token_error
+        engine._store.save_task(task)
+        return task
+
+    if auto_start:
+        await _start_task_workflow(engine, task, team_id, wf)
+
+    return task
+
+
 async def _real_task_executor(task) -> Any:
     """Real executor callback — invoked by TaskEngine._execute() for queued tasks.
 
@@ -1926,97 +2066,16 @@ async def _real_task_executor(task) -> Any:
     status_code=status.HTTP_201_CREATED,
 )
 async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    if req.agent_id:
-        _get_agent_or_404(team_id, req.agent_id)
-    engine = _te()
-    if not engine._running:
-        await engine.start()
-
-    # ── Token Factory 预检: 确保 LLM 推理后端可用 ──
-    token_ready = False
-    try:
-        from token_factory import TokenFactory as _TF
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        token_ready = tf_status.get("ready", False)
-        _harness_log.info("[submit_task] Token Factory ready=%s, providers=%s",
-                          token_ready,
-                          [n for n, p in tf._provider_health.items() if p.reachable])
-    except Exception as _tf_err:
-        _harness_log.warning("[submit_task] Token Factory check failed: %s", _tf_err)
-
-    task = AgentTask(
-        agent_id=req.agent_id,
-        team_id=team_id,
+    task = await _submit_internal_task(
+        team_id,
         title=req.title,
         description=req.description,
+        agent_id=req.agent_id,
         priority=req.priority,
-        dependencies=list(req.dependencies),
-        metadata=dict(req.metadata),
+        dependencies=req.dependencies,
+        metadata=req.metadata,
+        auto_start=True,
     )
-    # Auto-generate workflow steps
-    wf = _generate_workflow(task, team_id)
-    if wf:
-        task.metadata["workflow"] = wf
-
-    # Pre-seed pipeline workspace with project context
-    try:
-        _seed_project_context(task.task_id, req.title, req.description or "")
-        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
-    except Exception as _ctx_err:
-        _harness_log.warning("[submit_task] Context seeding failed: %s", _ctx_err)
-
-    # 写入任务启动 handoff 文件
-    _write_handoff(task.task_id, "task_init", {
-        "task_id": task.task_id,
-        "title": task.title,
-        "description": task.description,
-        "team_id": team_id,
-        "agent_id": req.agent_id,
-        "token_factory_ready": token_ready,
-        "workflow_steps": [s["key"] for s in wf] if wf else [],
-    })
-
-    await engine.submit_task(task)
-
-    # ── Token Factory 不就绪时检查是否有直连 API 可用 ──
-    if not token_ready:
-        api_key, _, _ = _get_deepseek_credentials()
-        if api_key:
-            _harness_log.info("[submit_task] Token Factory not ready but direct DeepSeek API available — proceeding")
-            token_ready = True  # Override: direct API works
-        else:
-            _harness_log.warning("[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
-                                 "请先确保 Ollama / LLM 推理后端可用。", task.task_id)
-            task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
-            return task.to_dict()
-
-    # Auto-start Claude Code for the first active step
-    if wf:
-        first_step = wf[0]
-        if first_step.get("status") == "active" and first_step.get("agent_id"):
-            import uuid as _uuid
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            agent = _tm().get_agent(team_id, first_step["agent_id"])
-            if agent:
-                sid = str(_uuid.uuid4())[:12]
-                step_prompt = _build_step_prompt(task, first_step, wf)
-                _harness_log.info("[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
-                                  sid, first_step["key"], agent.name)
-                _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
-                first_step["session_id"] = sid
-                task.metadata["workflow"] = wf
-                _emit_pipeline_event(task.task_id, "step_started", {
-                    "step": first_step["key"],
-                    "label": first_step.get("label", ""),
-                    "agent": agent.name,
-                })
-        # Mark task as running and start harness monitor
-        await engine.start_task(task.task_id)
-        _start_harness_monitor(task.task_id, team_id)
     return task.to_dict()
 
 
@@ -7943,4 +8002,3 @@ def skill_library_lineage(skill_id: str, team_id: str = "") -> Dict[str, Any]:
 @router.get("/skill-library/{skill_id}/evolution-history", summary="获取技能演化历史")
 def skill_library_evolution_history(skill_id: str, team_id: str = "") -> Dict[str, Any]:
     return _get_skill_evolver().get_evolution_history(team_id, skill_id)
-

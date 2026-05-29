@@ -96,6 +96,30 @@ class PlazaEngine:
             f"可以表达观点、提出建议、回应他人，说话要有内容、有依据。"
         )
 
+    def _next_plan_revision(self, disc: Discussion) -> int:
+        """Return the next monotonically increasing plan revision number."""
+        current = 0
+        if disc.plan:
+            try:
+                current = int(disc.plan.get("revision", 0) or 0)
+            except (TypeError, ValueError):
+                current = 0
+        return current + 1
+
+    def _build_plan_payload(self, disc: Discussion, content: str, reason: str) -> Dict[str, Any]:
+        """Normalize discussion plan metadata for downstream task dispatch."""
+        previous_task_ids = []
+        if disc.plan:
+            previous_task_ids = list(disc.plan.get("task_ids", []) or [])
+        return {
+            "revision": self._next_plan_revision(disc),
+            "revision_reason": reason,
+            "revised_at": datetime.now(timezone.utc).isoformat(),
+            "content": content,
+            "task_ids": previous_task_ids,
+            "task_count": len(previous_task_ids),
+        }
+
     # ── 广场 CRUD ──────────────────────────────────────────
 
     def create_plaza(self, name: str, description: str = "") -> Plaza:
@@ -385,11 +409,7 @@ class PlazaEngine:
             final_prompt,
         )
         # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
-        disc.plan = {
-            "revision_reason": "讨论收敛",
-            "revised_at": datetime.now(timezone.utc).isoformat(),
-            "content": disc.summary,
-        }
+        disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
 
         closing_msg = PlazaMessage(
@@ -552,11 +572,7 @@ class PlazaEngine:
                     f"|---|---|---|---|---|---|\n"
                     f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
                 )
-                disc.plan = {
-                    "revision_reason": user_message,
-                    "revised_at": datetime.now(timezone.utc).isoformat(),
-                    "content": plan_content,
-                }
+                disc.plan = self._build_plan_payload(disc, plan_content, user_message)
                 wrap_msg = await self.publish_message(
                     disc,
                     moderator,
@@ -686,11 +702,7 @@ class PlazaEngine:
             plan_text = await self._generate_agent_content(moderator, plan_prompt)
 
             # 存储修订计划
-            disc.plan = {
-                "revision_reason": user_message,
-                "revised_at": datetime.now(timezone.utc).isoformat(),
-                "content": plan_text,
-            }
+            disc.plan = self._build_plan_payload(disc, plan_text, user_message)
 
             # 议事长发出修订后的执行计划作为消息
             wrap_msg = await self.publish_message(
@@ -743,9 +755,14 @@ class PlazaEngine:
         if not disc:
             return {"error": "讨论不存在"}
 
-        moderator = next(
-            (p for p in disc.participants if p.niche_role == "moderator"), None
-        )
+        moderator = None
+        if disc.moderator_agent_id:
+            moderator = plaza.participants.get(disc.moderator_agent_id)
+        if not moderator:
+            moderator = next(
+                (p for p in plaza.participants.values() if p.niche_role.value == "moderator"),
+                None,
+            )
         if not moderator:
             return {"error": "无议事长"}
 
@@ -772,11 +789,7 @@ class PlazaEngine:
         )
         plan_text = await self._generate_agent_content(moderator, plan_prompt)
 
-        disc.plan = {
-            "revision_reason": "用户请求刷新执行计划",
-            "revised_at": datetime.now(timezone.utc).isoformat(),
-            "content": plan_text,
-        }
+        disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
 
         # 议事长发出修订计划作为消息
         plan_msg = await self.publish_message(

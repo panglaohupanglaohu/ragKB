@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status
@@ -54,6 +55,148 @@ class CreateDiscussionRequest(BaseModel):
 
 class SetVisualModeRequest(BaseModel):
     mode: str = Field(default="modern")  # modern | rome_320ad | senedd
+
+
+def _get_plan_source(disc) -> str:
+    """Return the current discussion plan text, falling back to the summary."""
+    if disc.plan and disc.plan.get("content"):
+        return str(disc.plan["content"])
+    if disc.summary:
+        return disc.summary
+    return ""
+
+
+def _get_plan_revision(disc) -> int:
+    """Return the discussion plan revision, defaulting to the first version."""
+    if not disc.plan:
+        return 1
+    try:
+        return int(disc.plan.get("revision", 1) or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _build_plaza_task_metadata(
+    *,
+    plaza_id: str,
+    discussion_id: str,
+    discussion_topic: str,
+    team_id: str,
+    plan_revision: int,
+    plan_item_index: int,
+    responsible_role: str = "",
+    acceptance_test: str = "",
+    expected_artifacts: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Normalize plaza-origin task metadata for tracing and later evolution."""
+    return {
+        "source": "plaza",
+        "plaza_id": plaza_id,
+        "discussion_id": discussion_id,
+        "discussion_topic": discussion_topic,
+        "team_id": team_id,
+        "plan_revision": plan_revision,
+        "plan_item_index": plan_item_index,
+        "responsible_role": responsible_role,
+        "acceptance_test": acceptance_test,
+        "expected_artifacts": list(expected_artifacts or []),
+        "skills_used": ["code_implementation"],
+    }
+
+
+async def _dispatch_discussion_tasks(
+    plaza_id: str,
+    disc,
+    team_id: str,
+    *,
+    auto_start: bool,
+) -> List[Dict[str, Any]]:
+    """Materialize discussion plan items into concrete tasks."""
+    plan_source = _get_plan_source(disc)
+    if not plan_source:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
+
+    tasks_data = _parse_plan_table(plan_source)
+    if not tasks_data or (len(tasks_data) == 1 and tasks_data[0].get("title") == "演化需求"):
+        from .chat_harness import get_chat_harness
+
+        harness = get_chat_harness()
+        parse_prompt = (
+            "你是任务拆解助手。请分析以下执行计划，提取可执行的任务列表。\n"
+            "严格按照 JSON 数组格式输出，每项包含: title, description, priority (1-3, 1最高)\n"
+            "只输出 JSON 数组，不要任何其他文字。\n\n"
+            f"讨论话题: {disc.topic}\n\n"
+            f"执行计划:\n{plan_source}\n"
+        )
+        try:
+            result = await harness.chat(parse_prompt, system_prompt="你是一个任务拆解专家，只输出JSON。")
+            llm_reply = result.response
+            import re
+
+            json_match = re.search(r'\[.*\]', llm_reply, re.DOTALL)
+            if not json_match:
+                raise ValueError("LLM 未返回有效 JSON 数组")
+            tasks_data = json.loads(json_match.group())
+        except Exception as e:
+            logger.warning("LLM 任务拆解失败: %s，回退为单任务", e)
+            tasks_data = [{
+                "title": f"[广场计划] {disc.topic[:50]}",
+                "description": plan_source[:500],
+                "priority": 2,
+                "responsible": "",
+                "dependencies": "",
+                "expected_artifact": "执行结果记录",
+            }]
+
+    from .api import _submit_internal_task
+
+    created_tasks: List[Dict[str, Any]] = []
+    plan_revision = _get_plan_revision(disc)
+    for index, td in enumerate(tasks_data[:10]):
+        expected_artifact = str(td.get("expected_artifact", "")).strip()
+        description_lines = []
+        if td.get("description"):
+            description_lines.append(str(td["description"]).strip())
+        if td.get("responsible"):
+            description_lines.append(f"负责角色: {str(td['responsible']).strip()}")
+        if td.get("dependencies"):
+            description_lines.append(f"依赖: {str(td['dependencies']).strip()}")
+        if expected_artifact:
+            description_lines.append(f"预期产出: {expected_artifact}")
+
+        task = await _submit_internal_task(
+            team_id,
+            title=str(td.get("title", f"任务 {index + 1}"))[:120],
+            description="\n".join(line for line in description_lines if line)[:2000],
+            priority=int(td.get("priority", 2)),
+            metadata=_build_plaza_task_metadata(
+                plaza_id=plaza_id,
+                discussion_id=disc.id,
+                discussion_topic=disc.topic,
+                team_id=team_id,
+                plan_revision=plan_revision,
+                plan_item_index=index,
+                responsible_role=str(td.get("responsible", "")).strip(),
+                acceptance_test=str(td.get("acceptance_test", "")).strip(),
+                expected_artifacts=[expected_artifact] if expected_artifact else [],
+            ),
+            auto_start=auto_start,
+        )
+        created_tasks.append(task.to_dict())
+
+    disc.assigned_team_id = team_id
+    if not disc.plan:
+        disc.plan = {
+            "revision": plan_revision,
+            "revision_reason": "从讨论总结补建执行计划",
+            "revised_at": "",
+            "content": plan_source,
+        }
+    disc.plan["task_ids"] = [task["task_id"] for task in created_tasks]
+    disc.plan["task_count"] = len(created_tasks)
+    disc.plan["team_id"] = team_id
+    disc.plan["dispatched_at"] = datetime.now(timezone.utc).isoformat()
+    return created_tasks
 
 
 # ── 广场 CRUD ──────────────────────────────────────────────
@@ -229,8 +372,36 @@ async def get_discussion_summary(plaza_id: str, disc_id: str) -> Dict[str, Any]:
         "message_count": len(disc.messages),
         "rounds": disc.current_round,
         "plan": disc.plan,
+        "plan_revision": _get_plan_revision(disc),
+        "task_ids": list((disc.plan or {}).get("task_ids", []) or []),
+        "task_count": int((disc.plan or {}).get("task_count", 0) or 0),
         "goal": disc.goal,
         "assigned_team_id": disc.assigned_team_id,
+    }
+
+
+@router.get("/{plaza_id}/discussions/{disc_id}/tasks", summary="获取讨论关联任务")
+async def get_discussion_tasks(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+    engine = get_plaza_engine()
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    from .api import _te
+
+    tasks = [
+        task.to_dict()
+        for task in _te().list_tasks()
+        if task.metadata.get("source") == "plaza"
+        and task.metadata.get("plaza_id") == plaza_id
+        and task.metadata.get("discussion_id") == disc_id
+    ]
+    tasks.sort(key=lambda item: item.get("metadata", {}).get("plan_item_index", 0))
+    return {
+        "discussion_id": disc_id,
+        "plaza_id": plaza_id,
+        "task_count": len(tasks),
+        "tasks": tasks,
     }
 
 
@@ -297,23 +468,40 @@ async def assign_plan_to_team(
 
     disc.assigned_team_id = req.team_id
 
-    # 尝试创建任务
     try:
-        from agents.task_engine import get_task_engine, AgentTask
-        te = get_task_engine()
+        from .api import _submit_internal_task
+
         task_name = req.task_name or f"[广场计划] {disc.topic[:50]}"
-        task_desc = req.task_description or disc.summary or disc.topic
-        task = AgentTask(
-            team_id=req.team_id,
+        task_desc = req.task_description or _get_plan_source(disc) or disc.topic
+        submitted = await _submit_internal_task(
+            req.team_id,
             title=task_name,
-            description=task_desc,
-            metadata={"source": "plaza", "discussion_id": disc.id, "plaza_id": plaza_id},
+            description=task_desc[:2000],
+            metadata=_build_plaza_task_metadata(
+                plaza_id=plaza_id,
+                discussion_id=disc.id,
+                discussion_topic=disc.topic,
+                team_id=req.team_id,
+                plan_revision=_get_plan_revision(disc),
+                plan_item_index=0,
+                expected_artifacts=["执行结果记录"],
+            ),
+            auto_start=False,
         )
-        import asyncio
-        submitted = await te.submit_task(task)
+        if not disc.plan:
+            disc.plan = {
+                "revision": _get_plan_revision(disc),
+                "revision_reason": "指派团队时补建执行计划",
+                "revised_at": "",
+                "content": task_desc,
+            }
+        disc.plan["task_ids"] = [submitted.task_id]
+        disc.plan["task_count"] = 1
+        disc.plan["team_id"] = req.team_id
+        engine._store.save_plaza(engine._plazas[plaza_id])
         return {"status": "assigned", "team_id": req.team_id, "task_id": submitted.task_id}
     except Exception as e:
-        logger.warning(f"创建任务失败: {e}")
+        logger.warning("创建任务失败: %s", e)
         return {"status": "assigned_no_task", "team_id": req.team_id, "error": str(e)}
 
 
@@ -328,8 +516,6 @@ async def dispatch_tasks_from_discussion(
     plaza_id: str, disc_id: str, req: DispatchTasksRequest,
 ) -> Dict[str, Any]:
     """解析执行计划中的任务表格，为每行创建独立的可追踪任务."""
-    import re as _re
-
     engine = get_plaza_engine()
     plaza = engine.get_plaza(plaza_id)
     if not plaza:
@@ -338,64 +524,7 @@ async def dispatch_tasks_from_discussion(
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    # 优先从 disc.plan.content 取，其次 disc.summary
-    plan_source = ""
-    if disc.plan and disc.plan.get("content"):
-        plan_source = disc.plan["content"]
-    elif disc.summary:
-        plan_source = disc.summary
-    else:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或插话生成计划")
-
-    # 先尝试从 plan 表格直接解析，失败再用 LLM
-    tasks_data = _parse_plan_table(plan_source)
-    if not tasks_data or (len(tasks_data) == 1 and tasks_data[0].get("title") == "演化需求"):
-        from .chat_harness import get_chat_harness
-        harness = get_chat_harness()
-        parse_prompt = (
-            "你是任务拆解助手。请分析以下执行计划，提取可执行的任务列表。\n"
-            "严格按照 JSON 数组格式输出，每项包含: title, description, priority (1-3, 1最高)\n"
-            "只输出 JSON 数组，不要任何其他文字。\n\n"
-            f"讨论话题: {disc.topic}\n\n"
-            f"执行计划:\n{plan_source}\n"
-        )
-        try:
-            result = await harness.chat(parse_prompt, system_prompt="你是一个任务拆解专家，只输出JSON。")
-            llm_reply = result.response
-            import re
-            json_match = re.search(r'\[.*\]', llm_reply, re.DOTALL)
-            if not json_match:
-                raise ValueError("LLM 未返回有效 JSON 数组")
-            tasks_data = json.loads(json_match.group())
-        except Exception as e:
-            logger.warning(f"LLM 任务拆解失败: {e}，回退为单任务")
-            tasks_data = [{
-                "title": f"[广场计划] {disc.topic[:50]}",
-                "description": plan_source[:500],
-                "priority": 2,
-            }]
-
-    # 批量提交任务
-    from .task_engine import get_task_engine, AgentTask
-    te = get_task_engine()
-    created_tasks = []
-    for i, td in enumerate(tasks_data[:10]):  # 最多 10 个任务
-        task = AgentTask(
-            team_id=req.team_id,
-            title=str(td.get("title", f"任务 {i+1}"))[:120],
-            description=str(td.get("description", ""))[:2000],
-            priority=int(td.get("priority", 2)),
-            metadata={
-                "source": "plaza_dispatch",
-                "discussion_id": disc.id,
-                "plaza_id": plaza_id,
-                "sequence": i,
-            },
-        )
-        await te.submit_task(task)
-        created_tasks.append(task.to_dict())
-
-    disc.assigned_team_id = req.team_id
+    created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=False)
     engine._store.save_plaza(engine._plazas[plaza_id])
 
     return {
@@ -426,31 +555,56 @@ def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
     import re
     tasks: List[Dict[str, Any]] = []
 
-    # 尝试匹配 markdown 表格行: | 序号 | 标题 | 描述 | 优先级 | 负责人 |
-    table_rows = re.findall(
-        r'\|\s*\d+\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(P[0-3]|\d)\s*\|(?:\s*(.+?)\s*\|)?',
-        plan_text,
-    )
-    if table_rows:
-        priority_map = {"P0": 1, "P1": 1, "P2": 2, "P3": 3, "1": 1, "2": 2, "3": 3}
-        for row in table_rows:
-            title, desc, pri, responsible = row[0], row[1], row[2], row[3] if len(row) > 3 else ""
-            tasks.append({
-                "title": title.strip(),
-                "description": desc.strip(),
-                "priority": priority_map.get(pri.strip(), 2),
-                "responsible": responsible.strip() if responsible else "",
-            })
-        return tasks
+    priority_map = {"P0": 1, "P1": 1, "P2": 2, "P3": 3, "1": 1, "2": 2, "3": 3}
+
+    table_lines = [
+        line.strip()
+        for line in plan_text.splitlines()
+        if line.strip().startswith("|") and line.strip().endswith("|")
+    ]
+    if len(table_lines) >= 3:
+        header_cells = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
+        if any("任务" in cell for cell in header_cells):
+            for row_line in table_lines[2:]:
+                cells = [cell.strip() for cell in row_line.strip("|").split("|")]
+                if len(cells) < 6:
+                    continue
+                if not cells[0] or re.fullmatch(r"-{3,}", cells[0].replace(" ", "")):
+                    continue
+                title = cells[1]
+                responsible = cells[2]
+                priority = cells[3]
+                dependencies = cells[4]
+                expected_artifact = cells[5]
+                description = "\n".join(
+                    line for line in [
+                        f"负责角色: {responsible}" if responsible else "",
+                        f"依赖: {dependencies}" if dependencies and dependencies != "-" else "",
+                        f"预期产出: {expected_artifact}" if expected_artifact else "",
+                    ] if line
+                )
+                tasks.append({
+                    "title": title,
+                    "description": description or title,
+                    "priority": priority_map.get(priority.strip(), 2),
+                    "responsible": responsible,
+                    "dependencies": dependencies,
+                    "expected_artifact": expected_artifact,
+                })
+            if tasks:
+                return tasks
 
     # 尝试匹配列表格式: - 任务标题: 描述
     list_items = re.findall(r'[-*]\s+(.+?)[:：]\s*(.+)', plan_text)
     if list_items:
-        for i, (title, desc) in enumerate(list_items):
+        for title, desc in list_items:
             tasks.append({
                 "title": title.strip(),
                 "description": desc.strip(),
                 "priority": 2,
+                "responsible": "",
+                "dependencies": "",
+                "expected_artifact": "",
             })
         return tasks
 
@@ -463,9 +617,19 @@ def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
                 "title": clean[:100],
                 "description": clean,
                 "priority": 2,
+                "responsible": "",
+                "dependencies": "",
+                "expected_artifact": "",
             })
 
-    return tasks or [{"title": "演化需求", "description": plan_text[:500], "priority": 2}]
+    return tasks or [{
+        "title": "演化需求",
+        "description": plan_text[:500],
+        "priority": 2,
+        "responsible": "",
+        "dependencies": "",
+        "expected_artifact": "",
+    }]
 
 
 @router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行")
@@ -473,38 +637,22 @@ async def dispatch_and_execute(
     plaza_id: str, disc_id: str, req: DispatchTasksRequest,
 ) -> Dict[str, Any]:
     """拆解执行计划为任务，并立即触发自动执行流水线."""
-    # 先调用标准派发
-    result = await dispatch_tasks_from_discussion(plaza_id, disc_id, req)
-    if result["task_count"] == 0:
-        return result
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    # 立即启动所有任务
-    from .task_engine import get_task_engine
-    te = get_task_engine()
-    if not te._running:
-        await te.start()
-
-    started = []
-    for task_dict in result["tasks"]:
-        task = te.get_task(task_dict["task_id"])
-        if task and task.status.value == "pending":
-            started_task = await te.start_task(task.task_id)
-            if started_task:
-                # 如果有 executor 注册，自动执行
-                if te._executor:
-                    try:
-                        await te._executor(started_task)
-                    except Exception as e:
-                        logger.warning(f"任务自动执行失败 {task.task_id}: {e}")
-                started.append(started_task.to_dict())
-            else:
-                started.append(task_dict)
-        else:
-            started.append(task_dict)
-
-    result["tasks"] = started
-    result["status"] = "executing"
-    return result
+    created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=True)
+    engine._store.save_plaza(engine._plazas[plaza_id])
+    return {
+        "status": "executing",
+        "team_id": req.team_id,
+        "task_count": len(created_tasks),
+        "tasks": created_tasks,
+    }
 
 
 # ── 进入演化 ──────────────────────────────────────────────
@@ -526,20 +674,31 @@ async def evolve_from_discussion(
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    plan_source = ""
-    if disc.plan and disc.plan.get("content"):
-        plan_source = disc.plan["content"]
-    elif disc.summary:
-        plan_source = disc.summary
-    else:
+    plan_source = _get_plan_source(disc)
+    if not plan_source:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划")
 
     # 解析为演化需求项并注入 SystemEvolutionChannel
-    from ..channels.system_evolution import SystemEvolutionChannel, EvolutionItem
-    from ..agent_team_api import _evolution_engine
+    from channels.system_evolution import EvolutionItem
+    from agent_team_api import _evolution_engine
 
     if not _evolution_engine:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
+
+    dispatched_tasks = []
+    if req.team_id:
+        try:
+            dispatched_tasks = await _dispatch_discussion_tasks(
+                plaza_id,
+                disc,
+                req.team_id,
+                auto_start=False,
+            )
+            engine._store.save_plaza(engine._plazas[plaza_id])
+        except Exception as e:
+            logger.warning("演化前派发失败: %s", e)
+
+    source_task_ids = [task.get("task_id", "") for task in dispatched_tasks if task.get("task_id")]
 
     # 从计划中提取任务，转为演化项
     tasks_data = _parse_plan_table(plan_source)
@@ -551,6 +710,10 @@ async def evolve_from_discussion(
             description=str(td.get("description", ""))[:500],
             target_channel=f"plaza:{plaza_id}/discussion:{disc.id}",
             severity="high" if td.get("priority", 2) <= 1 else "medium",
+            source_plaza_id=plaza_id,
+            source_discussion_id=disc.id,
+            source_task_ids=source_task_ids,
+            artifact_dir=f"storage/evolution_runs/{disc.id}",
         )
         _evolution_engine.evolution_items[item.id] = item
         evolution_items.append({
@@ -558,21 +721,12 @@ async def evolve_from_discussion(
             "title": item.title,
             "status": item.status,
             "priority": td.get("priority", 2),
+            "source_discussion_id": item.source_discussion_id,
+            "source_task_ids": item.source_task_ids,
         })
 
     # 触发演化周期
     cycle_result = _evolution_engine.run_evolution_cycle()
-
-    # 如果指定了团队，同时派发
-    dispatched_tasks = []
-    if req.team_id:
-        try:
-            dispatch_result = await dispatch_tasks_from_discussion(
-                plaza_id, disc_id, DispatchTasksRequest(team_id=req.team_id)
-            )
-            dispatched_tasks = dispatch_result.get("tasks", [])
-        except Exception as e:
-            logger.warning(f"演化时派发失败: {e}")
 
     return {
         "status": "evolving",

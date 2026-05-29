@@ -175,6 +175,10 @@ class EvolutionItem:
     build_task_id: Optional[str] = None
     assigned_agent: Optional[str] = None
     code_changes: List[str] = field(default_factory=list)  # 变更文件列表
+    source_plaza_id: str = ""
+    source_discussion_id: str = ""
+    source_task_ids: List[str] = field(default_factory=list)
+    artifact_dir: str = ""
 
     # 验证
     verify_test_name: Optional[str] = None   # 用于验证的测试函数名
@@ -1411,14 +1415,24 @@ class SystemEvolutionChannel(MarineChannel):
         item.status = EvolutionStatus.IN_PROGRESS.value
         return True
 
-    def mark_build_complete(self, item_id: str, code_changes: Optional[List[str]] = None) -> bool:
+    def mark_build_complete(
+        self,
+        item_id: str,
+        code_changes: Optional[List[str]] = None,
+        artifact_dir: str = "",
+    ) -> bool:
         """Build 团队标记修改完成，进入待验证。"""
         item = self.evolution_items.get(item_id)
         if not item:
             return False
-        item.status = EvolutionStatus.VERIFY_PENDING.value
         if code_changes:
             item.code_changes = code_changes
+        if artifact_dir:
+            item.artifact_dir = artifact_dir
+        if not item.code_changes and not item.artifact_dir:
+            logger.warning("Build complete rejected for %s: no artifacts recorded", item_id)
+            return False
+        item.status = EvolutionStatus.VERIFY_PENDING.value
         return True
 
     # ── 验证: 通过模拟人类操作的自动化测试 ─────────────────────
@@ -1504,12 +1518,6 @@ class SystemEvolutionChannel(MarineChannel):
         """一键运行完整的审查→派发→验证→关闭循环。"""
         audit_result = self.run_full_audit()
         dispatch_result = self.dispatch_all_pending()
-
-        # Auto-advance: DISPATCHED items → VERIFY_PENDING
-        # (self-evolution system: rules themselves serve as verification)
-        for item in self.evolution_items.values():
-            if item.status == EvolutionStatus.DISPATCHED.value:
-                item.status = EvolutionStatus.VERIFY_PENDING.value
 
         verify_result = self.verify_all_pending()
         closed = self.close_verified()

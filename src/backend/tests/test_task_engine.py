@@ -7,6 +7,8 @@ import asyncio
 
 import pytest
 
+from agents.domain_events import EventType
+from agents.event_bus import reset_event_bus, get_event_bus
 from agents.task_engine import (
     AgentTask,
     TaskEngine,
@@ -265,6 +267,61 @@ class TestTaskEngine:
             team_tasks = task_engine.get_team_tasks("team-1")
             assert len(team_tasks) == 1
             assert team_tasks[0].team_id == "team-1"
+        asyncio.run(_test())
+
+    def test_list_tasks(self, task_engine):
+        async def _test():
+            await task_engine.submit_task(AgentTask(title="A", agent_id="a1"))
+            await task_engine.submit_task(AgentTask(title="B", agent_id="a2"))
+            tasks = task_engine.list_tasks()
+            assert len(tasks) == 2
+            assert {task.title for task in tasks} == {"A", "B"}
+        asyncio.run(_test())
+
+    def test_task_completed_event_published(self, task_engine):
+        async def _test():
+            reset_event_bus()
+            received = []
+            bus = get_event_bus()
+
+            async def _handler(event):
+                received.append(event)
+
+            bus.subscribe(EventType.TASK_COMPLETED, _handler)
+
+            task = await task_engine.submit_task(
+                AgentTask(title="Event Complete", agent_id="a1", team_id="team-1")
+            )
+            await task_engine.complete_task(task.task_id)
+            await asyncio.sleep(0.05)
+
+            assert len(received) == 1
+            assert received[0].event_type == EventType.TASK_COMPLETED
+            assert received[0].payload.task_id == task.task_id
+            assert received[0].payload.metadata == task.metadata
+        asyncio.run(_test())
+
+    def test_task_failed_event_published(self, task_engine):
+        async def _test():
+            reset_event_bus()
+            received = []
+            bus = get_event_bus()
+
+            async def _handler(event):
+                received.append(event)
+
+            bus.subscribe(EventType.TASK_FAILED, _handler)
+
+            task = await task_engine.submit_task(
+                AgentTask(title="Event Fail", agent_id="a1", team_id="team-1")
+            )
+            await task_engine.fail_task(task.task_id, "boom")
+            await asyncio.sleep(0.05)
+
+            assert len(received) == 1
+            assert received[0].event_type == EventType.TASK_FAILED
+            assert received[0].payload.task_id == task.task_id
+            assert received[0].payload.error == "boom"
         asyncio.run(_test())
 
 
