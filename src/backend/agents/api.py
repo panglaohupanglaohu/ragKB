@@ -7840,6 +7840,7 @@ async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     harness = get_chat_harness()
     permission_context = None
     team_id = ""
+    events: List[Dict[str, Any]] = []
     if req.agent_id:
         team_id, agent = _find_agent_across_teams(req.agent_id)
         if agent is not None:
@@ -7852,8 +7853,11 @@ async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
         system_prompt=req.system_prompt,
         max_iterations=req.max_iterations,
         permission_context=permission_context,
+        on_event=lambda event_type, payload: events.append({"type": event_type, **payload}),
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["events"] = events
+    return payload
 
 
 class PlanPreviewRequest(BaseModel):

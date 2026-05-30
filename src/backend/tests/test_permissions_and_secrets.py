@@ -55,9 +55,13 @@ class DummyHarness:
 class CaptureLoopHarness:
     def __init__(self):
         self.last_permission_context = None
+        self.last_on_event = None
 
     async def agent_loop(self, *args, **kwargs):
         self.last_permission_context = kwargs.get("permission_context")
+        self.last_on_event = kwargs.get("on_event")
+        if self.last_on_event:
+            self.last_on_event("plan_start", {"steps": 1})
         return type("Result", (), {"to_dict": lambda self: {"ok": True}})()
 
 
@@ -208,7 +212,9 @@ class TestToolPermissions:
             )
         )
 
-        assert result == {"ok": True}
+        assert result["ok"] is True
+        assert result["events"] == [{"type": "plan_start", "steps": 1}]
         assert harness.last_permission_context is not None
+        assert callable(harness.last_on_event)
         assert harness.last_permission_context.blocks("write_file") is True
         assert harness.last_permission_context.blocks("read_file") is False
