@@ -34,5 +34,18 @@
     "edge_voice": "zh-CN-YunxiNeural",
     "edge_rate": "+8%",
     "gpt_sovits_dir": ""
+  },
+  "sandbox": {
+    "mode": "lite",
+    "memory_limit_mb": 256,
+    "file_size_limit_kb": 512,
+    "network_enabled": false
+  },
+  "budget": {
+    "per_session_max": 200000,
+    "per_agent_daily_max": 2000000,
+    "per_team_daily_max": 10000000,
+    "on_exceed": "halt",
+    "alert_threshold": 0.8
   }
 }

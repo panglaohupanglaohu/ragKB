@@ -89,6 +89,7 @@ def _build_plaza_task_metadata(
     expected_artifacts: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Normalize plaza-origin task metadata for tracing and later evolution."""
+    inferred_skills = _infer_skills_from_role(responsible_role)
     return {
         "source": "plaza",
         "plaza_id": plaza_id,
@@ -100,8 +101,29 @@ def _build_plaza_task_metadata(
         "responsible_role": responsible_role,
         "acceptance_test": acceptance_test,
         "expected_artifacts": list(expected_artifacts or []),
-        "skills_used": ["code_implementation"],
+        "skills_used": inferred_skills,
     }
+
+
+def _infer_skills_from_role(responsible_role: str) -> List[str]:
+    """Infer likely skill evidence from the role assigned in the discussion plan."""
+    role = (responsible_role or "").strip().lower()
+    if not role:
+        return []
+
+    role_skill_hints = (
+        (("developer", "engineer", "开发", "实现"), ["code_implementation", "debugging"]),
+        (("qa", "tester", "test", "测试"), ["testing", "test_execution", "regression_testing"]),
+        (("architect", "架构"), ["architecture_design", "interface_definition"]),
+        (("research", "analyst", "研究", "分析"), ["web_research", "requirements_analysis"]),
+        (("pm", "manager", "协调", "项目"), ["task_decomposition", "progress_tracking"]),
+        (("deploy", "ops", "devops", "运维"), ["build_automation", "deployment_orchestration"]),
+    )
+
+    for keywords, skills in role_skill_hints:
+        if any(keyword in role for keyword in keywords):
+            return list(skills)
+    return []
 
 
 async def _dispatch_discussion_tasks(

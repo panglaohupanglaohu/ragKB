@@ -25,6 +25,101 @@
 
 ---
 
+## 🗂 项目执行看板（2026-05-29）
+
+> 说明：从这一版开始，这份文档同时承担两件事：
+> 1. 前半部分是**可执行看板**
+> 2. 后半部分保留**详细优化方案**
+
+### 状态图例
+
+- `DONE`：已完成并验证
+- `WIP`：进行中
+- `READY`：已明确，下一批可直接开工
+- `BACKLOG`：已收敛问题，但暂未排进当前批次
+
+### 已完成铺垫（已落地）
+
+这些工作已经不是“规划”，而是当前仓库里的已完成基础设施：
+
+| 卡片 | 状态 | 已完成内容 | 验证 |
+|------|:----:|------------|------|
+| F-01 | DONE | 默认测试入口已覆盖后端核心测试 | `python3 -m pytest -q src/backend/tests --maxfail=1` |
+| F-02 | DONE | Plaza 计划已可结构化派发到真实 Task 提交链 | Plaza 派发回归测试通过 |
+| F-03 | DONE | Evolution 去掉 `DISPATCHED -> VERIFY_PENDING` 假闭环 | `test_plaza_evolution_bridge.py` |
+| F-04 | DONE | Agent / Skill 绑定已支持持久化、运行时解析、required_tools 注入 | `test_agent_skill_binding.py` |
+| F-05 | DONE | Task 执行产物已回写到 task metadata，并同步到 EvolutionItem | `test_plaza_task_artifact_bridge.py` |
+| F-06 | DONE | `permissions` 已接入 LLM 工具暴露、AgentLoop 和 ToolExecutor 真正执行入口 | `test_permissions_and_secrets.py` |
+| F-07 | DONE | token usage 已落到 SQLite，预算守卫已接入 ChatHarness，并开放 summary / alerts / budget API | `test_token_budget.py` |
+
+### 当前工作批次（正在推进）
+
+| 卡片 | 对应问题 | 状态 | 当前结论 | 下一步 | 完成定义 |
+|------|----------|:----:|----------|--------|----------|
+| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链；已支持 discussion/task/evolution 双向追踪 | 补 `diff/patch` 级证据沉淀，补自动 verify/close 收口 | Plaza 讨论可产出任务、产物、验证状态，且全链路可追踪 |
+| W-02 | #13 缺少可观测性和 tracing | WIP | 已有 pipeline events、workflow summary、task artifacts，但还不是统一 tracing | 统一 `task_id/discussion_id/evolution_item_id` 关联字段，补结构化日志出口 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
+| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；已阻断危险 import / 调用、文件写入、明显路径越界与超时 | 补 Docker 级隔离、网络级封禁和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+
+### 下一批（按优先级执行）
+
+| 卡片 | 对应问题 | 状态 | 为什么现在做 | 直接交付物 | 验证口 |
+|------|----------|:----:|--------------|------------|--------|
+| N-02 | #12 API Key 明文存储 | WIP | env-first + 默认 secrets 文件已接入，tracked 配置不再承载默认 provider 密钥 | 补本地 secrets 加密/轮换，彻底摆脱 JSON 明文 secrets 文件 | 仓库与配置快照中不再出现明文 key，且本地 secrets 至少加密或系统托管 |
+| N-03 | #4 两套 AgentLoop 并存 | READY | runtime 继续扩前，必须先统一 | `src/backend/agents/runtime/` 单一执行循环 | 旧入口迁移后测试保持通过 |
+| N-04 | #14 无 token 配额和成本告警 | WIP | SQLite usage log、预算守卫、summary / alerts / budget API 已落地；非流式主链已接入拦截与记录 | 补前端仪表盘、streaming 用量记录、更精细成本模型 | 长任务超预算时可中止或告警，且用量可查询可告警 |
+
+### 待排期（问题已确认）
+
+| 编号 | 问题 | 状态 | 备注 |
+|------|------|:----:|------|
+| #1 | 事件总线是进程内实现，无法横向扩展 | BACKLOG | 等当前单机闭环稳定后，再考虑外部 MQ |
+| #2 | `channels` 有定义但没有真正消费者 | BACKLOG | 建议放在统一 runtime 后补 |
+| #5 | UltraPlan 仍是硬编码 if/else | BACKLOG | 先把执行闭环做硬，再升级 planner |
+| #6 | Hermes 概率工具集没有反馈学习 | BACKLOG | 依赖预算系统和效果反馈数据 |
+| #7 | 会话持久化仍是 JSON 全量扫描 | BACKLOG | 可与 tracing / telemetry 一起做存储升级 |
+| #8 | `state` 字段没有状态机、超时和变更事件 | BACKLOG | 适合在 unified runtime 落地时一并收口 |
+| #9 | Plaza 讨论仍偏轮播，不是真正辩论协商 | BACKLOG | 当前先保执行闭环，后做共识度量和动态退出 |
+
+### 14 项主问题状态总表
+
+| # | 主题 | 当前状态 | 备注 |
+|---|------|:--------:|------|
+| 1 | 事件总线外部化 | BACKLOG | 未开工 |
+| 2 | `channels` 真正消费 | BACKLOG | 未开工 |
+| 3 | `permissions` 接进工具调用 | DONE | Tool schema、AgentLoop、ToolExecutor 已接入 |
+| 4 | 统一 AgentLoop | READY | 下一批 |
+| 5 | UltraPlan 真正规划化 | BACKLOG | 未开工 |
+| 6 | Hermes 反馈学习 | BACKLOG | 未开工 |
+| 7 | 会话存储升级 | BACKLOG | 未开工 |
+| 8 | `state` 状态机治理 | BACKLOG | 未开工 |
+| 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
+| 10 | Plaza 计划自动派发 | WIP | 主链已通，证据闭环继续补 |
+| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox 已落地，Docker 级隔离待补 |
+| 12 | API Key 脱离明文 JSON | WIP | env-first 与 gitignored default secrets 已接入，本地 secrets 加密待补 |
+| 13 | 结构化日志 / tracing | WIP | 已有局部基础，待统一 |
+| 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
+
+### 当前建议执行顺序
+
+1. 完成 `W-03` 的 Docker 级隔离收口
+2. 收口 `N-02`，把本地 secrets 从 gitignored 明文文件推进到加密或系统托管
+3. `N-03` 统一 AgentLoop
+4. 回到 `W-01`，把 Plaza 闭环补到 `diff -> verify -> close`
+5. 给 `N-04` 补前端仪表盘与 streaming 用量记录
+
+### 当前验收快照
+
+- 后端测试：`576 passed`
+- 前端构建：`npm run build` 通过
+- Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
+- Agent / Skill：绑定、持久化、运行时注入已打通
+- Permissions：未授权工具不会进入 LLM schema，也会在执行入口被稳定拒绝
+- Secrets：默认 provider 与 model pool 已改为 env-first，并支持 gitignored default secret store
+- Budget：token usage 已写入 SQLite，超预算请求会被优雅拦截，并可通过 `/usage/*` API 查询
+- 轻量沙箱：`run_python / run_pytest` 已接入 `LiteSandbox` 并有安全回归测试
+
+---
+
 ## 🎯 现存问题清单（共 14 项）
 
 ### 一、架构层硬伤

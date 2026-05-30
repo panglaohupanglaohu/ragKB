@@ -14,6 +14,7 @@ Tab-based organization:
 from __future__ import annotations
 
 import asyncio
+import copy
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
@@ -32,7 +33,9 @@ from .models import (
     HermesAgentConfig,
     ModelConfig,
     SkillCategory,
+    SkillDefinition,
     ToolCategory,
+    ToolDefinition,
     ToolsetDistribution,
 )
 from .hermes_research import (
@@ -51,12 +54,21 @@ from .chat_harness import (
     ProviderConfig,
     get_chat_harness,
 )
+from .budget import TokenBudget, get_budget_guard, get_usage_store
+from .budget.guard import save_budget_settings
+from .secret_store import (
+    load_model_api_keys,
+    resolve_api_key,
+    save_default_llm_api_key,
+    save_model_api_keys,
+)
 from .execution_registry import (
     ToolPermissionContext,
     PortRuntime,
     assemble_tool_pool,
     build_execution_registry,
 )
+from .security.permission_resolver import PermissionResolver
 from .session_store import (
     list_sessions as list_stored_sessions,
     search_sessions,
@@ -82,7 +94,6 @@ _CONFIG_DIR = _mp_os.path.join(
     "config",
 )
 _MODEL_POOL_PATH = _mp_os.path.join(_CONFIG_DIR, "model_pool.json")
-_API_KEYS_PATH = _mp_os.path.join(_CONFIG_DIR, ".api_keys.json")
 
 
 def _save_model_pool() -> None:
@@ -115,21 +126,9 @@ def _save_model_pool() -> None:
         _mp_os.makedirs(_CONFIG_DIR, exist_ok=True)
         with open(_MODEL_POOL_PATH, "w", encoding="utf-8") as f:
             _mp_json.dump(data, f, ensure_ascii=False, indent=2)
-        with open(_API_KEYS_PATH, "w", encoding="utf-8") as f:
-            _mp_json.dump(secrets, f, ensure_ascii=False, indent=2)
+        save_model_api_keys(secrets)
     except Exception:
         pass
-
-
-def _load_api_keys() -> Dict[str, Dict[str, str]]:
-    """Load API keys from .api_keys.json (gitignored secrets file)."""
-    if not _mp_os.path.isfile(_API_KEYS_PATH):
-        return {}
-    try:
-        with open(_API_KEYS_PATH, "r", encoding="utf-8") as f:
-            return _mp_json.load(f)
-    except Exception:
-        return {}
 
 
 def _load_model_pool(tm: TeamManager) -> None:
@@ -141,7 +140,7 @@ def _load_model_pool(tm: TeamManager) -> None:
             data = _mp_json.load(f)
     except Exception:
         return
-    secrets = _load_api_keys()
+    secrets = load_model_api_keys()
     for team in tm.list_teams():
         team_data = data.get(team.team_id)
         if not team_data:
@@ -150,7 +149,11 @@ def _load_model_pool(tm: TeamManager) -> None:
         # Replace the entire model pool with persisted version
         team.models.clear()
         for mid, mdata in team_data.items():
-            api_key = team_secrets.get(mid, mdata.get("api_key", ""))
+            api_key = resolve_api_key(
+                mdata.get("provider", "deepseek"),
+                explicit=team_secrets.get(mid, ""),
+                plaintext_fallback=mdata.get("api_key", ""),
+            )
             model = ModelConfig(
                 model_id=mdata.get("model_id", mid),
                 provider=mdata.get("provider", "deepseek"),
@@ -205,10 +208,11 @@ def _init_harness_from_teams(tm: TeamManager) -> None:
         harness = get_chat_harness()
         for team in tm.list_teams():
             for m in team.models.values():
-                if m.is_default and m.api_key:
+                api_key = resolve_api_key(m.provider, explicit=m.api_key)
+                if m.is_default and api_key:
                     harness.update_default_provider(
                         provider=m.provider,
-                        api_key=m.api_key,
+                        api_key=api_key,
                         api_base_url=m.api_base_url,
                         model=m.name,
                     )
@@ -277,6 +281,160 @@ def _sr() -> SkillRegistry:
     return _skill_registry
 
 
+def _clone_skill_definition(skill: SkillDefinition) -> SkillDefinition:
+    """Create a team-local copy so edits and usage stats do not mutate shared registry state."""
+    cloned = copy.deepcopy(skill)
+    if not cloned.slug:
+        cloned.slug = cloned.name
+    return cloned
+
+
+def _resolve_skill_definition(team_id: str, skill_ref: str) -> Optional[SkillDefinition]:
+    """Resolve a skill reference from team-local storage, skill library, or the default registry."""
+    ref = (skill_ref or "").strip()
+    if not ref:
+        return None
+
+    team = _tm().get_team(team_id)
+    if team:
+        if ref in team.skills:
+            return team.skills[ref]
+        for skill in team.skills.values():
+            if ref in {skill.skill_id, skill.slug, skill.name}:
+                return skill
+
+    try:
+        from .skill_library import get_skill_library
+
+        lib = get_skill_library()
+        skill = lib._find_skill(team_id, ref)
+        if skill:
+            return skill
+        for item in lib.browse(team_id=team_id):
+            if ref in {item.get("skill_id", ""), item.get("slug", ""), item.get("name", "")}:
+                resolved = lib._find_skill(team_id, item.get("skill_id", "") or ref)
+                if resolved:
+                    return resolved
+    except Exception:
+        pass
+
+    registry = _sr()
+    skill = registry.get(ref) or registry.get_by_slug(ref)
+    if skill:
+        return skill
+    for item in registry.list_all():
+        if item.name == ref:
+            return item
+    return None
+
+
+def _ensure_team_skill_copy(team_id: str, skill: SkillDefinition) -> SkillDefinition:
+    """Materialize a bound skill into the team so agent bindings survive restarts."""
+    team = _get_team_or_404(team_id)
+
+    if skill.skill_id in team.skills:
+        return team.skills[skill.skill_id]
+
+    for existing in team.skills.values():
+        if skill.name == existing.name:
+            return existing
+        if skill.slug and skill.slug == existing.slug:
+            return existing
+
+    cloned = _clone_skill_definition(skill)
+    team.add_skill(cloned)
+    return cloned
+
+
+def _canonicalize_skill_bindings(team_id: str, skill_refs: List[str]) -> List[str]:
+    """Resolve incoming skill refs and store them as team-local canonical skill IDs."""
+    canonical: List[str] = []
+    seen: set[str] = set()
+
+    for skill_ref in skill_refs:
+        skill = _resolve_skill_definition(team_id, skill_ref)
+        if skill is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Skill not found: {skill_ref}")
+        team_skill = _ensure_team_skill_copy(team_id, skill)
+        if team_skill.skill_id not in seen:
+            seen.add(team_skill.skill_id)
+            canonical.append(team_skill.skill_id)
+
+    return canonical
+
+
+def _resolve_bound_skills(team_id: str, agent: AgentProfile) -> List[SkillDefinition]:
+    """Resolve an agent's bound skills into concrete definitions."""
+    resolved: List[SkillDefinition] = []
+    seen: set[str] = set()
+    for skill_ref in agent.skills or []:
+        skill = _resolve_skill_definition(team_id, skill_ref)
+        if skill is None or not skill.enabled:
+            continue
+        if skill.skill_id in seen:
+            continue
+        seen.add(skill.skill_id)
+        resolved.append(skill)
+    return resolved
+
+
+def _resolve_tool_definition(team_id: str, tool_ref: str) -> Optional[ToolDefinition]:
+    """Resolve a tool reference from team-local tools first, then the global registry."""
+    ref = (tool_ref or "").strip()
+    if not ref:
+        return None
+
+    team = _tm().get_team(team_id)
+    if team:
+        if ref in team.tools:
+            return team.tools[ref]
+        for tool in team.tools.values():
+            if ref in {tool.tool_id, tool.name}:
+                return tool
+
+    registry = _tr()
+    tool = registry.get(ref)
+    if tool:
+        return tool
+    for item in registry.list_all():
+        if item.name == ref:
+            return item
+    return None
+
+
+def _resolve_effective_tools(team_id: str, agent: AgentProfile, skills: List[SkillDefinition]) -> List[ToolDefinition]:
+    """Merge explicit agent tools with tools implied by bound skills."""
+    effective: List[ToolDefinition] = []
+    seen: set[str] = set()
+    tool_refs: List[str] = list(agent.tools or [])
+    for skill in skills:
+        tool_refs.extend(skill.required_tools or [])
+
+    for tool_ref in tool_refs:
+        tool = _resolve_tool_definition(team_id, tool_ref)
+        if tool is None or not tool.enabled or tool.tool_id in seen:
+            continue
+        seen.add(tool.tool_id)
+        effective.append(tool)
+
+    return effective
+
+
+def _build_agent_permission_context(agent: AgentProfile) -> ToolPermissionContext:
+    return PermissionResolver().build_context(agent)
+
+
+def _find_agent_across_teams(agent_id: str) -> tuple[str, AgentProfile] | tuple[None, None]:
+    target = (agent_id or "").strip()
+    if not target:
+        return None, None
+    for team in _tm().list_teams():
+        agent = team.get_agent(target)
+        if agent is not None:
+            return team.team_id, agent
+    return None, None
+
+
 # Request / Response Models
 
 
@@ -328,6 +486,7 @@ class PermissionItem(BaseModel):
     resource: str = ""
     access_level: str = "read"
     channels: List[str] = Field(default_factory=list)
+    allowed_tools: List[str] = Field(default_factory=list)
 
 
 class UpdatePermissionsRequest(BaseModel):
@@ -535,9 +694,10 @@ def _sync_default_model_to_harness(team) -> None:
             break
     if default_model is None:
         return
+    api_key = resolve_api_key(default_model.provider, explicit=default_model.api_key)
     harness.update_default_provider(
         provider=default_model.provider,
-        api_key=default_model.api_key,
+        api_key=api_key,
         api_base_url=default_model.api_base_url,
         model=default_model.name,
     )
@@ -761,6 +921,7 @@ def update_agent_tools(
 ) -> Dict[str, Any]:
     agent = _get_agent_or_404(team_id, agent_id)
     agent.tools = list(req.tool_ids)
+    _tm()._persist()
     return agent.to_dict()
 
 
@@ -772,7 +933,8 @@ def update_agent_skills(
     team_id: str, agent_id: str, req: UpdateSkillsRequest
 ) -> Dict[str, Any]:
     agent = _get_agent_or_404(team_id, agent_id)
-    agent.skills = list(req.skill_ids)
+    agent.skills = _canonicalize_skill_bindings(team_id, req.skill_ids)
+    _tm()._persist()
     return agent.to_dict()
 
 
@@ -795,9 +957,11 @@ def update_permissions(
                 resource=p.resource,
                 access_level=al,
                 channels=list(p.channels),
+                allowed_tools=list(p.allowed_tools),
             )
         )
     agent.permissions = perms
+    _tm()._persist()
     return agent.to_dict()
 
 
@@ -1038,12 +1202,14 @@ def get_agent_logs(team_id: str, agent_id: str, limit: int = 50) -> Dict[str, An
 def enable_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     if skill_id not in team.skills:
-        source = _sr().get(skill_id)
+        source = _resolve_skill_definition(team_id, skill_id)
         if source is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in registry")
-        team.add_skill(source)
-    skill = team.skills[skill_id]
+        skill = _ensure_team_skill_copy(team_id, source)
+    else:
+        skill = team.skills[skill_id]
     skill.enabled = True
+    _tm()._persist()
     return skill.to_dict()
 
 
@@ -1053,6 +1219,10 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     removed = team.skills.pop(skill_id, None)
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
+    for agent in team.agents.values():
+        if skill_id in agent.skills:
+            agent.skills.remove(skill_id)
+    _tm()._persist()
     return {"disabled": skill_id}
 
 
@@ -1109,7 +1279,7 @@ def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
     # Remove from all agents in this team
-    for agent in team.agents:
+    for agent in team.agents.values():
         if skill_id in agent.skills:
             agent.skills.remove(skill_id)
     _tm()._persist()
@@ -1332,9 +1502,22 @@ async def execute_tool(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found")
     executor = get_tool_executor()
     arguments = body.get("arguments", body)
+    permission_context = None
+    agent_id = body.get("agent_id", "")
+    team_id = body.get("team_id", "")
+    if agent_id:
+        if team_id:
+            agent = _tm().get_agent(team_id, agent_id)
+        else:
+            team_id, agent = _find_agent_across_teams(agent_id)
+        if agent is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        permission_context = _build_agent_permission_context(agent)
     result = await executor.execute(
         tool.name, arguments,
         requires_approval=tool.requires_approval,
+        agent_id=agent_id,
+        permission_context=permission_context,
     )
     return result.to_dict()
 
@@ -1521,47 +1704,50 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         if team:
             _sync_default_model_to_harness(team)
 
-    # Build tool schemas for function calling from agent's bound tools
+    resolved_skills = _resolve_bound_skills(team_id, agent) if team_id else []
+    permission_context = _build_agent_permission_context(agent)
+
+    # Build tool schemas for function calling from agent's bound tools + bound skill requirements
     tools_for_llm = None
-    tool_names_bound = set(agent.tools) if agent.tools else set()
-    if tool_names_bound:
-        all_tools = _tr().list_all()
+    effective_tools = _resolve_effective_tools(team_id, agent, resolved_skills) if team_id else []
+    if effective_tools:
         tools_for_llm = []
-        for t in all_tools:
-            if t.name in tool_names_bound or t.tool_id in tool_names_bound:
-                # Build OpenAI function calling schema
-                props = {}
-                required_params = []
-                for pname, pdef in (t.parameters or {}).items():
-                    ptype = pdef.get("type", "string")
-                    if ptype == "integer":
-                        ptype = "number"
-                    if ptype == "object":
-                        ptype = "string"
-                    if ptype == "array":
-                        ptype = "string"
-                    props[pname] = {
-                        "type": ptype,
-                        "description": pdef.get("description", ""),
-                    }
-                    if pdef.get("required"):
-                        required_params.append(pname)
-                fn_schema = {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": props,
-                            "required": required_params,
-                        },
-                    },
+        for t in effective_tools:
+            if permission_context.blocks(t.name):
+                continue
+            props = {}
+            required_params = []
+            for pname, pdef in (t.parameters or {}).items():
+                ptype = pdef.get("type", "string")
+                if ptype == "integer":
+                    ptype = "number"
+                if ptype == "object":
+                    ptype = "string"
+                if ptype == "array":
+                    ptype = "string"
+                props[pname] = {
+                    "type": ptype,
+                    "description": pdef.get("description", ""),
                 }
-                tools_for_llm.append(fn_schema)
+                if pdef.get("required"):
+                    required_params.append(pname)
+            fn_schema = {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": props,
+                        "required": required_params,
+                    },
+                },
+            }
+            tools_for_llm.append(fn_schema)
 
     # Build system prompt from agent metadata + skill instructions
-    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
+    skill_labels = [skill.name for skill in resolved_skills] if resolved_skills else list(agent.skills or [])
+    skills_str = ", ".join(skill_labels) if skill_labels else "通用"
     system_prompt = (
         f"你是 {agent.name}，角色: {agent.role}。\n"
         f"技能: {skills_str}\n"
@@ -1570,19 +1756,18 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     )
 
     # Inject bound skill instructions into system prompt
-    skill_names_bound = set(agent.skills) if agent.skills else set()
-    if skill_names_bound:
-        all_skills = _sr().list_all()
+    if resolved_skills:
         skill_instructions = []
-        for s in all_skills:
-            if (s.name in skill_names_bound or s.skill_id in skill_names_bound) and s.instructions:
-                skill_instructions.append(f"### {s.name}\n{s.instructions}")
+        for skill in resolved_skills:
+            if skill.instructions:
+                skill_instructions.append(f"### {skill.name}\n{skill.instructions}")
         if skill_instructions:
             system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
 
     result = await harness.chat(
         content,
         agent_id=agent.agent_id,
+        team_id=team_id,
         session_id=session_id,
         system_prompt=system_prompt,
         tools=tools_for_llm,
@@ -1594,7 +1779,12 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         executor = get_tool_executor()
         tool_outputs = []
         for inv in result.tool_invocations:
-            tr = await executor.execute(inv.tool_name, inv.arguments, agent_id=agent.agent_id)
+            tr = await executor.execute(
+                inv.tool_name,
+                inv.arguments,
+                agent_id=agent.agent_id,
+                permission_context=permission_context,
+            )
             inv.result = tr.output if tr.success else f"Error: {tr.error}"
             tool_outputs.append(f"[{inv.tool_name}] {'✅' if tr.success else '❌'}: {inv.result[:500]}")
         # Append tool results and get a follow-up response
@@ -1602,6 +1792,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         followup = await harness.chat(
             f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
             agent_id=agent.agent_id,
+            team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
         )
@@ -1889,6 +2080,162 @@ def _prepare_task_submission(task: AgentTask, team_id: str, token_ready: bool) -
         "workflow_steps": [s["key"] for s in wf] if wf else [],
     })
     return wf
+
+
+def _summarize_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
+    """Summarize workflow outputs into stable task artifact metadata."""
+    metadata = task.metadata or {}
+    workflow = metadata.get("workflow", []) or []
+    pipeline_dir = metadata.get("pipeline_dir") or metadata.get("artifact_dir") or _pipeline_dir(task.task_id)
+
+    changed_files: List[str] = []
+    step_artifacts: Dict[str, str] = {}
+    failed_steps: List[str] = []
+    completed_steps: List[str] = []
+    step_statuses: Dict[str, str] = {}
+    test_result: Dict[str, Any] = {}
+
+    for step in workflow:
+        step_key = str(step.get("key", "")).strip()
+        if not step_key:
+            continue
+
+        step_status = str(step.get("status", "pending"))
+        step_statuses[step_key] = step_status
+        if step_status == "completed":
+            completed_steps.append(step_key)
+        elif step_status == "failed":
+            failed_steps.append(step_key)
+
+        artifact_path = str(step.get("artifact", "")).strip()
+        if artifact_path:
+            step_artifacts[step_key] = artifact_path
+
+        step_summary = step.get("_summary") or {}
+        changed_files.extend(step_summary.get("files_changed", []) or [])
+        changed_files.extend(step.get("deliverable_paths", []) or [])
+
+        deploy_result = step.get("deploy_result") or {}
+        for branch in ("developer", "deployer"):
+            branch_result = deploy_result.get(branch) or {}
+            changed_files.extend(
+                entry.get("path", "")
+                for entry in branch_result.get("applied", [])
+                if entry.get("path")
+            )
+
+        if step_key == "test":
+            test_result = {
+                "status": step_status,
+                "verdict": step_summary.get("verdict", "UNKNOWN"),
+                "checklist": step_summary.get("checklist", []) or [],
+                "artifact": artifact_path,
+            }
+
+    deduped_changed_files: List[str] = []
+    seen_files: set[str] = set()
+    for path in changed_files:
+        normalized = str(path).strip()
+        if not normalized or normalized in seen_files:
+            continue
+        seen_files.add(normalized)
+        deduped_changed_files.append(normalized)
+
+    failure_reason = ""
+    build_outcome = "completed"
+    if task.error:
+        build_outcome = "failed"
+        failure_reason = task.error
+    elif failed_steps:
+        build_outcome = "failed"
+        failure_reason = f"workflow_failed:{','.join(failed_steps)}"
+    elif test_result.get("status") == "failed" or test_result.get("verdict") in {"FAIL", "FAILED", "BLOCKED"}:
+        build_outcome = "failed"
+        failure_reason = f"qa_verdict:{test_result.get('verdict', 'UNKNOWN')}"
+
+    return {
+        "artifact_dir": pipeline_dir,
+        "changed_files": deduped_changed_files,
+        "test_result": test_result,
+        "workflow_summary": {
+            "total_steps": len(workflow),
+            "completed_steps": completed_steps,
+            "failed_steps": failed_steps,
+            "step_statuses": step_statuses,
+        },
+        "step_artifacts": step_artifacts,
+        "build_outcome": build_outcome,
+        "failure_reason": failure_reason,
+    }
+
+
+def _attach_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
+    """Write derived execution artifacts back to the task metadata for tracing."""
+    artifacts = _summarize_task_execution_artifacts(task)
+    task.metadata["artifact_dir"] = artifacts["artifact_dir"]
+    task.metadata["changed_files"] = list(artifacts["changed_files"])
+    task.metadata["test_result"] = dict(artifacts["test_result"])
+    task.metadata["workflow_summary"] = dict(artifacts["workflow_summary"])
+    task.metadata["step_artifacts"] = dict(artifacts["step_artifacts"])
+    task.metadata["build_outcome"] = artifacts["build_outcome"]
+    task.metadata["failure_reason"] = artifacts["failure_reason"]
+    task.metadata["execution_artifacts"] = dict(artifacts)
+    return artifacts
+
+
+def _sync_evolution_from_task(task: AgentTask) -> List[str]:
+    """Propagate Plaza task execution status into linked evolution items."""
+    metadata = task.metadata or {}
+    if metadata.get("source") != "plaza":
+        return []
+
+    try:
+        import agent_team_api as _agent_team_api
+    except Exception:
+        return []
+
+    evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
+    if not evolution_engine or not hasattr(evolution_engine, "sync_task_outcome"):
+        return []
+
+    artifacts = metadata.get("execution_artifacts") or _attach_task_execution_artifacts(task)
+    evolution_status = "completed"
+    if artifacts.get("build_outcome") == "failed" or task.error:
+        evolution_status = "failed"
+
+    return evolution_engine.sync_task_outcome(
+        task.task_id,
+        status=evolution_status,
+        code_changes=artifacts.get("changed_files"),
+        artifact_dir=artifacts.get("artifact_dir", ""),
+        build_artifacts=artifacts,
+        error=task.error or artifacts.get("failure_reason", ""),
+    )
+
+
+async def _finalize_task_terminal_state(
+    task: AgentTask,
+    *,
+    force_status: Optional[str] = None,
+    error: str = "",
+) -> Optional[AgentTask]:
+    """Finalize a task with derived execution artifacts and evolution sync."""
+    artifacts = _attach_task_execution_artifacts(task)
+    final_error = error or task.error or artifacts.get("failure_reason", "")
+
+    finalized: Optional[AgentTask]
+    if force_status == "failed" or (force_status is None and artifacts.get("build_outcome") == "failed"):
+        task.error = final_error
+        task.result = dict(artifacts)
+        finalized = await _te().fail_task(task.task_id, final_error)
+    else:
+        result_payload = dict(task.result) if isinstance(task.result, dict) else {}
+        result_payload.update(artifacts)
+        finalized = await _te().complete_task(task.task_id, result=result_payload)
+
+    if finalized is not None:
+        _sync_evolution_from_task(finalized)
+    return finalized
 
 
 async def _start_task_workflow(engine, task: AgentTask, team_id: str, wf: list) -> None:
@@ -2181,7 +2528,10 @@ async def start_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
 )
 async def complete_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    task = await _te().complete_task(task_id)
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    task = await _finalize_task_terminal_state(task, force_status="completed")
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task.to_dict()
@@ -2193,7 +2543,14 @@ async def complete_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
 )
 async def fail_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    task = await _te().fail_task(task_id)
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    task = await _finalize_task_terminal_state(
+        task,
+        force_status="failed",
+        error=(task.metadata or {}).get("pipeline_failed_reason", "") or task.error,
+    )
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task.to_dict()
@@ -2349,7 +2706,7 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
     all_done = all(s["status"] in ("completed", "skipped") for s in wf)
     # Auto-complete the task when all workflow steps are done
     if all_done and task.status.value in ("pending", "running"):
-        await _te().complete_task(task_id)
+        await _finalize_task_terminal_state(task)
     return {"workflow": wf, "all_completed": all_done, "task_id": task_id}
 
 
@@ -3331,35 +3688,35 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                         f"[Harness] Pipeline complete for task {task_id}: "
                         f"{completed_count}/{len(wf)} succeeded, {failed_count} failed"
                     )
-                    # Auto-complete the task (from sync thread, schedule on event loop)
+                    # Finalize the task with execution artifacts and a truthful terminal state.
                     try:
                         import asyncio
-                        engine = _te()
-                        # Try to find a running event loop for async completion
+                        final_error = ""
+                        if failed_count:
+                            final_error = f"workflow_failed:{failed_count}_steps"
+
                         try:
                             loop = asyncio.get_running_loop()
                         except RuntimeError:
                             loop = None
+
                         if loop and loop.is_running():
                             future = asyncio.run_coroutine_threadsafe(
-                                engine.complete_task(task_id), loop
+                                _finalize_task_terminal_state(task, error=final_error), loop
                             )
-                            future.result(timeout=5)
-                            _harness_log.info(f"[Harness] Task {task_id} auto-completed")
+                            finalized = future.result(timeout=5)
                         else:
-                            # Background thread — try HTTP self-call as fallback
-                            import http.client
-                            hconn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=10)
-                            hconn.request("POST",
-                                f"/api/v1/agent-config/teams/{team_id}/tasks/{task_id}/complete")
-                            hresp = hconn.getresponse()
-                            hresp.read()
-                            hconn.close()
-                            _harness_log.info(f"[Harness] Task {task_id} auto-completed via HTTP ({hresp.status})")
+                            finalized = asyncio.run(
+                                _finalize_task_terminal_state(task, error=final_error)
+                            )
+
+                        if finalized is not None:
+                            _harness_log.info(
+                                f"[Harness] Task {task_id} finalized as "
+                                f"{finalized.status.value if hasattr(finalized.status, 'value') else finalized.status}"
+                            )
                     except Exception as ex:
-                        _harness_log.warning(f"[Harness] Could not auto-complete task: {ex}")
-                        # Fallback: directly set status
-                        task.status = task.status.__class__("completed")
+                        _harness_log.warning(f"[Harness] Could not finalize task: {ex}")
                     break
 
         except Exception as ex:
@@ -6725,6 +7082,59 @@ def get_agent_metrics(team_id: str, agent_id: str) -> Dict[str, Any]:
     return {"agent_id": agent_id, **metrics}
 
 
+class UsageBudgetUpdateRequest(BaseModel):
+    per_session_max: int = Field(default=200_000, ge=1)
+    per_agent_daily_max: int = Field(default=2_000_000, ge=1)
+    per_team_daily_max: int = Field(default=10_000_000, ge=1)
+    on_exceed: str = Field(default="halt")
+    alert_threshold: float = Field(default=0.8, ge=0.1, le=1.0)
+
+
+@router.get("/usage/summary", summary="Get token usage summary")
+def get_usage_summary(
+    agent_id: str = "",
+    team_id: str = "",
+    from_date: str = "",
+    to_date: str = "",
+) -> Dict[str, Any]:
+    summary = get_usage_store().summarize_usage(
+        agent_id=agent_id,
+        team_id=team_id,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    return {
+        "filters": {
+            "agent_id": agent_id,
+            "team_id": team_id,
+            "from_date": from_date,
+            "to_date": to_date,
+        },
+        **summary,
+    }
+
+
+@router.get("/usage/alerts", summary="Get token budget alerts")
+def get_usage_alerts() -> Dict[str, Any]:
+    guard = get_budget_guard()
+    return guard.alerts()
+
+
+@router.post("/usage/budget/update", summary="Update token budget thresholds")
+def update_usage_budget(req: UsageBudgetUpdateRequest) -> Dict[str, Any]:
+    budget = TokenBudget(
+        per_session_max=req.per_session_max,
+        per_agent_daily_max=req.per_agent_daily_max,
+        per_team_daily_max=req.per_team_daily_max,
+        on_exceed=req.on_exceed,
+        alert_threshold=req.alert_threshold,
+    )
+    save_budget_settings(budget)
+    guard = get_budget_guard()
+    guard.update_budget(budget)
+    return {"status": "updated", "budget": budget.to_dict()}
+
+
 @router.post(
     "/teams/{team_id}/agents/{agent_id}/logs",
     summary="Add agent activity log entry",
@@ -6854,6 +7264,8 @@ def update_llm_provider(req: LLMProviderConfigRequest) -> Dict[str, Any]:
         api_base_url=req.api_base_url,
         model=req.model,
     )
+    if req.api_key:
+        save_default_llm_api_key(req.api_key)
     if req.max_tokens:
         config.max_tokens = req.max_tokens
     if req.temperature >= 0:
@@ -7042,12 +7454,20 @@ class AgentLoopRequest(BaseModel):
 async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     """Execute a full plan→act→observe→reflect agentic loop."""
     harness = get_chat_harness()
+    permission_context = None
+    team_id = ""
+    if req.agent_id:
+        team_id, agent = _find_agent_across_teams(req.agent_id)
+        if agent is not None:
+            permission_context = _build_agent_permission_context(agent)
     result = await harness.agent_loop(
         req.prompt,
         agent_id=req.agent_id,
+        team_id=team_id or "",
         session_id=req.session_id,
         system_prompt=req.system_prompt,
         max_iterations=req.max_iterations,
+        permission_context=permission_context,
     )
     return result.to_dict()
 
@@ -7124,7 +7544,41 @@ async def get_openai_tools_schema(agent_id: str = "") -> List[Dict[str, Any]]:
     from .tool_registry import ToolRegistry
     registry = ToolRegistry()
     registry.load_defaults()
-    return registry.get_openai_tools_schema(agent_id)
+    if not agent_id:
+        return registry.get_openai_tools_schema(agent_id)
+
+    _, agent = _find_agent_across_teams(agent_id)
+    if agent is None:
+        return registry.get_openai_tools_schema(agent_id)
+
+    permission_context = _build_agent_permission_context(agent)
+    tools = registry.get_agent_tools(agent_id)
+    result: List[Dict[str, Any]] = []
+    for tool in tools:
+        if permission_context.blocks(tool.name):
+            continue
+        props = {}
+        required = []
+        for pname, pdef in (tool.parameters or {}).items():
+            props[pname] = {
+                "type": pdef.get("type", "string"),
+                "description": pdef.get("description", ""),
+            }
+            if pdef.get("required", False):
+                required.append(pname)
+        result.append({
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": props,
+                    "required": required,
+                },
+            },
+        })
+    return result
 
 
 @router.get("/tools/search", summary="Search tools")

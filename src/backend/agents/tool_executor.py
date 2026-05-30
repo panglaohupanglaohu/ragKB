@@ -15,7 +15,11 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from sandbox.python_runner import get_sandbox
+from .execution_registry import ToolPermissionContext
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +139,21 @@ class ToolExecutor:
 
     async def execute(
         self, tool_name: str, arguments: Dict[str, Any],
-        *, agent_id: str = "", requires_approval: bool = False,
+        *,
+        agent_id: str = "",
+        requires_approval: bool = False,
+        permission_context: Optional[ToolPermissionContext] = None,
     ) -> ToolResult:
         """Execute a tool by name with arguments."""
+        if permission_context and permission_context.blocks(tool_name):
+            result = ToolResult(
+                tool_name=tool_name,
+                success=False,
+                error=f"Tool blocked by agent permissions: {tool_name}",
+            )
+            self._history.append(result)
+            return result
+
         handler = self._handlers.get(tool_name)
         if handler is None:
             result = ToolResult(
@@ -387,20 +403,19 @@ class ToolExecutor:
         if not code:
             return ToolResult(success=False, error="code is required")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "python3", "-c", code,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            sandbox_result = await asyncio.to_thread(
+                get_sandbox().run_python,
+                code,
+                cwd=Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                timeout=timeout,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            out = stdout.decode("utf-8", errors="replace")[:3000]
-            err = stderr.decode("utf-8", errors="replace")[:1000]
-            if proc.returncode == 0:
-                return ToolResult(output=out or "(no output)")
-            return ToolResult(success=False, output=out, error=err)
-        except asyncio.TimeoutError:
-            return ToolResult(success=False, error=f"Python execution timed out after {timeout}s")
+            if sandbox_result.ok and sandbox_result.exit_code == 0:
+                return ToolResult(output=sandbox_result.stdout or "(no output)")
+            return ToolResult(
+                success=False,
+                output=(sandbox_result.stdout or "")[:3000],
+                error=(sandbox_result.error or sandbox_result.stderr or f"exit code {sandbox_result.exit_code}")[:1000],
+            )
         except Exception as e:
             return ToolResult(success=False, error=str(e)[:300])
 

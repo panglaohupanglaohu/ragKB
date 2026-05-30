@@ -16,10 +16,10 @@ import logging
 import os
 import re
 import shlex
-import subprocess
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from sandbox.python_runner import get_sandbox
 
 logger = logging.getLogger("AgentToolbox")
 
@@ -365,54 +365,13 @@ def tool_patch_file(path: str, search: str, replace: str) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
-def _run_subprocess(cmd: List[str], cwd: Path, timeout: int) -> Dict[str, Any]:
-    start = time.time()
-    try:
-        proc = subprocess.run(
-            cmd, cwd=str(cwd), capture_output=True, text=True,
-            timeout=timeout,
-            env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
-        )
-        elapsed = time.time() - start
-        out = proc.stdout or ""
-        err = proc.stderr or ""
-        if len(out) > MAX_EXEC_OUTPUT:
-            out = "…(truncated)\n" + out[-MAX_EXEC_OUTPUT:]
-        if len(err) > MAX_EXEC_OUTPUT:
-            err = "…(truncated)\n" + err[-MAX_EXEC_OUTPUT:]
-        return {
-            "ok": True,
-            "exit_code": proc.returncode,
-            "stdout": out,
-            "stderr": err,
-            "elapsed_sec": round(elapsed, 2),
-        }
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"timeout after {timeout}s"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
 def tool_run_python(code: str, timeout: int = 30) -> Dict[str, Any]:
-    venv_py = PROJECT_ROOT / "venv" / "bin" / "python"
-    py = str(venv_py) if venv_py.exists() else "python3"
     cwd = PROJECT_ROOT / "src" / "backend"
-    return _run_subprocess([py, "-c", code], cwd, timeout)
+    return get_sandbox().run_python(code, cwd=cwd, timeout=timeout).to_dict()
 
 
 def tool_run_pytest(target: str = "", timeout: int = 120) -> Dict[str, Any]:
-    venv_py = PROJECT_ROOT / "venv" / "bin" / "python"
-    py = str(venv_py) if venv_py.exists() else "python3"
-    args = [py, "-m", "pytest", "-q", "--tb=short", "--maxfail=5"]
-    if target:
-        if target.startswith("-k") or "::" in target or target.endswith(".py"):
-            if target.startswith("-k"):
-                args += target.split(maxsplit=1)
-            else:
-                args.append(target)
-        else:
-            args += ["-k", target]
-    return _run_subprocess(args, PROJECT_ROOT, timeout)
+    return get_sandbox().run_pytest(target=target, cwd=PROJECT_ROOT, timeout=timeout).to_dict()
 
 
 # ═════════════════════════════════════════════════════════════════

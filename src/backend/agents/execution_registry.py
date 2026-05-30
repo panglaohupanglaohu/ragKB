@@ -235,13 +235,19 @@ class ExecutionRegistry:
         name: str,
         args: Optional[Dict[str, Any]] = None,
         agent_id: str = "",
+        permission_context: Optional[ToolPermissionContext] = None,
     ) -> ExecutionResult:
         """Execute a tool via the ToolExecutor."""
         from .tool_executor import get_tool_executor
 
         t0 = time.monotonic()
         executor = get_tool_executor()
-        result = await executor.execute(name, args or {}, agent_id=agent_id)
+        result = await executor.execute(
+            name,
+            args or {},
+            agent_id=agent_id,
+            permission_context=permission_context,
+        )
         elapsed = (time.monotonic() - t0) * 1000
 
         return ExecutionResult(
@@ -416,7 +422,10 @@ class PortRuntime:
                         reason="Blocked by permission context",
                     ))
                     continue
-                result = await self._registry.execute_tool(match.name)
+                result = await self._registry.execute_tool(
+                    match.name,
+                    permission_context=self._permission,
+                )
                 tool_results.append(result)
             elif match.kind == "command":
                 result = self._registry.execute_command(match.name, prompt)

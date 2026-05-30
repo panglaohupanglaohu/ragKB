@@ -42,6 +42,8 @@ from .execution_registry import (
     RoutedMatch, ToolPool, assemble_tool_pool,
     PortRuntime, build_execution_registry,
 )
+from .budget import UsageRecord, get_budget_guard
+from .secret_store import load_default_llm_api_key, resolve_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +226,7 @@ class ProviderConfig:
 
         return cls(
             provider=provider,
-            api_key=os.getenv("AG_LLM_API_KEY", os.getenv("DEEPSEEK_API_KEY", "")),
+            api_key=resolve_api_key(provider.value),
             api_base_url=os.getenv("AG_LLM_BASE_URL", ""),
             model=os.getenv("AG_LLM_MODEL", "deepseek-v4-pro"),
             max_tokens=int(os.getenv("AG_LLM_MAX_TOKENS", "65536")),
@@ -243,9 +245,15 @@ class ProviderConfig:
         except ValueError:
             provider = LLMProvider.LOCAL
 
+        api_key = resolve_api_key(
+            provider.value,
+            default_secret=load_default_llm_api_key(),
+            plaintext_fallback=llm.get("api_key", ""),
+        )
+
         return cls(
             provider=provider,
-            api_key=llm.get("api_key", os.getenv("DEEPSEEK_API_KEY", "")),
+            api_key=api_key,
             api_base_url=llm.get("local", llm.get("api_base_url", "")),
             model=llm.get("model", "deepseek-v4-pro"),
             max_tokens=llm.get("max_tokens", 65536),
@@ -265,7 +273,10 @@ class ProviderConfig:
 
         return cls(
             provider=provider,
-            api_key=getattr(model_config, "api_key", ""),
+            api_key=resolve_api_key(
+                provider.value,
+                explicit=getattr(model_config, "api_key", ""),
+            ),
             api_base_url=getattr(model_config, "api_base_url", ""),
             model=getattr(model_config, "name", "deepseek-v4-pro"),
             max_tokens=getattr(model_config, "max_tokens", 65536),
@@ -509,15 +520,10 @@ class LLMClient:
             "Content-Type": "application/json",
         }
 
-        api_key = self._config.api_key
-        if not api_key:
-            # Try environment fallbacks
-            api_key = (
-                os.getenv("DEEPSEEK_API_KEY", "")
-                or os.getenv("OPENAI_API_KEY", "")
-                or os.getenv("ANTHROPIC_API_KEY", "")
-                or os.getenv("AG_LLM_API_KEY", "")
-            )
+        api_key = resolve_api_key(
+            self._config.provider.value,
+            explicit=self._config.api_key,
+        )
 
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -575,7 +581,10 @@ class LLMClient:
         if model and "qwen" in model.lower():
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         headers: Dict[str, str] = {"Content-Type": "application/json"}
-        api_key = self._config.api_key or os.getenv("DEEPSEEK_API_KEY", "")
+        api_key = resolve_api_key(
+            self._config.provider.value,
+            explicit=self._config.api_key,
+        )
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -684,6 +693,29 @@ class ChatHarness:
         if model and any(c.isalpha() for c in model):
             self._default_config.model = model
         return self._default_config
+
+    @staticmethod
+    def _estimate_tokens_from_messages(
+        messages: List[Dict[str, Any]],
+        *,
+        max_tokens: int,
+    ) -> int:
+        char_count = sum(len(str(msg.get("content", ""))) for msg in messages)
+        prompt_estimate = max(1, char_count // 4)
+        return prompt_estimate + max_tokens
+
+    @staticmethod
+    def _estimate_cost_usd(model: str, total_tokens: int) -> float:
+        lowered = (model or "").lower()
+        if "gpt-4" in lowered:
+            return round((total_tokens / 1000.0) * 0.02, 6)
+        if "claude" in lowered:
+            return round((total_tokens / 1000.0) * 0.018, 6)
+        if "deepseek" in lowered:
+            return round((total_tokens / 1000.0) * 0.002, 6)
+        if "qwen" in lowered:
+            return round((total_tokens / 1000.0) * 0.004, 6)
+        return 0.0
 
     # ── Session Management ───────────────────────────────────
 
@@ -823,6 +855,7 @@ class ChatHarness:
         prompt: str,
         *,
         agent_id: str = "",
+        team_id: str = "",
         session_id: str = "",
         system_prompt: str = "",
         tools: Optional[List[Dict[str, Any]]] = None,
@@ -839,6 +872,34 @@ class ChatHarness:
 
         messages = session.build_openai_messages()
         model = model_override or config.model
+        budget_guard = get_budget_guard()
+        estimated_tokens = self._estimate_tokens_from_messages(
+            messages,
+            max_tokens=config.max_tokens,
+        )
+        budget_check = budget_guard.check(
+            session_id=session.session_id,
+            agent_id=agent_id,
+            team_id=team_id,
+            estimated_tokens=estimated_tokens,
+        )
+        if not budget_check.allowed:
+            error_msg = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
+            fallback = (
+                f"本次请求因 token 预算限制被拦截。\n\n"
+                f"{error_msg}\n\n"
+                f"可以缩小问题范围、减少上下文，或提高预算上限后重试。"
+            )
+            session.add_assistant_message(fallback)
+            session.history.add("budget_exceeded", error_msg)
+            return TurnResult(
+                prompt=prompt,
+                response=fallback,
+                stop_reason="budget_exceeded",
+                model=model,
+                provider=config.provider.value,
+                error=error_msg,
+            )
 
         t0 = time.monotonic()
         raw = await client.chat_completion(
@@ -888,6 +949,18 @@ class ChatHarness:
             output_tokens=raw_usage.get("completion_tokens", 0),
             total_tokens=raw_usage.get("total_tokens", 0),
         )
+        budget_guard.record_usage(
+            UsageRecord(
+                session_id=session.session_id,
+                agent_id=agent_id,
+                team_id=team_id,
+                model=model,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                total_tokens=usage.total_tokens,
+                cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
+            )
+        )
         session.total_usage = session.total_usage.add(
             usage.input_tokens, usage.output_tokens
         )
@@ -921,10 +994,29 @@ class ChatHarness:
                     ),
                 },
             ]
-            second_raw = await client.chat_completion(
-                followup_messages, model=model, tools=None,
+            followup_budget = budget_guard.check(
+                session_id=session.session_id,
+                agent_id=agent_id,
+                team_id=team_id,
+                estimated_tokens=self._estimate_tokens_from_messages(
+                    followup_messages,
+                    max_tokens=config.max_tokens,
+                ),
             )
-            if not second_raw.get("error"):
+            if not followup_budget.allowed:
+                tool_invocations[0].denial_reason = followup_budget.events[0].message
+                content = (
+                    f"{content}\n\n"
+                    f"后续总结因 token 预算限制被跳过：{followup_budget.events[0].message}"
+                ).strip()
+                stop_reason = "budget_exceeded_after_tool"
+                followup_messages = []
+            second_raw = None
+            if followup_messages:
+                second_raw = await client.chat_completion(
+                    followup_messages, model=model, tools=None,
+                )
+            if second_raw and not second_raw.get("error"):
                 second_choices = second_raw.get("choices", [])
                 if second_choices:
                     second_message = second_choices[0].get("message", {})
@@ -933,6 +1025,19 @@ class ChatHarness:
                         content = final_content
                         stop_reason = "tool_result"
                     second_usage = second_raw.get("usage", {})
+                    second_total = second_usage.get("total_tokens", 0)
+                    budget_guard.record_usage(
+                        UsageRecord(
+                            session_id=session.session_id,
+                            agent_id=agent_id,
+                            team_id=team_id,
+                            model=model,
+                            input_tokens=second_usage.get("prompt_tokens", 0),
+                            output_tokens=second_usage.get("completion_tokens", 0),
+                            total_tokens=second_total,
+                            cost_usd=self._estimate_cost_usd(model, second_total),
+                        )
+                    )
                     usage = usage.add(
                         second_usage.get("prompt_tokens", 0),
                         second_usage.get("completion_tokens", 0),
@@ -963,6 +1068,7 @@ class ChatHarness:
         prompt: str,
         *,
         agent_id: str = "",
+        team_id: str = "",
         session_id: str = "",
         system_prompt: str = "",
         model_override: str = "",
@@ -975,6 +1081,27 @@ class ChatHarness:
         session.compact_if_needed()
         messages = session.build_openai_messages()
         model = model_override or config.model
+        budget_check = get_budget_guard().check(
+            session_id=session.session_id,
+            agent_id=agent_id,
+            team_id=team_id,
+            estimated_tokens=self._estimate_tokens_from_messages(
+                messages,
+                max_tokens=config.max_tokens,
+            ),
+        )
+        if not budget_check.allowed:
+            message = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
+            fallback = (
+                f"本次请求因 token 预算限制被拦截。\n\n"
+                f"{message}\n\n"
+                f"可以缩小问题范围、减少上下文，或提高预算上限后重试。"
+            )
+            session.add_assistant_message(fallback)
+            yield {"type": "message_start", "session_id": session.session_id, "model": model}
+            yield {"type": "message_delta", "text": fallback}
+            yield {"type": "message_stop", "stop_reason": "budget_exceeded"}
+            return
 
         yield {"type": "message_start", "session_id": session.session_id, "model": model}
 
@@ -1106,11 +1233,13 @@ class ChatHarness:
         prompt: str,
         *,
         agent_id: str = "",
+        team_id: str = "",
         session_id: str = "",
         system_prompt: str = "",
         tools: Optional[List[Dict[str, Any]]] = None,
         max_iterations: int = 10,
         plan_middleware: Optional[PlanMiddleware] = None,
+        permission_context: Optional[ToolPermissionContext] = None,
     ) -> "AgentLoopResult":
         """Execute a full agentic loop: plan → act → observe → reflect.
 
@@ -1153,7 +1282,12 @@ class ChatHarness:
 
                 step.status = PlanStepStatus.RUNNING
                 t0 = time.monotonic()
-                result = await executor.execute(step.tool_name, step.tool_args, agent_id=agent_id)
+                result = await executor.execute(
+                    step.tool_name,
+                    step.tool_args,
+                    agent_id=agent_id,
+                    permission_context=permission_context,
+                )
                 step.duration_ms = (time.monotonic() - t0) * 1000
 
                 if result.success:
@@ -1198,6 +1332,7 @@ class ChatHarness:
         final_result = await self.chat(
             synthesis_prompt,
             agent_id=agent_id,
+            team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
             model_override="",
@@ -1219,9 +1354,11 @@ class ChatHarness:
         prompt: str,
         *,
         agent_id: str = "",
+        team_id: str = "",
         session_id: str = "",
         system_prompt: str = "",
         max_iterations: int = 10,
+        permission_context: Optional[ToolPermissionContext] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream the agentic loop progress as SSE-compatible events."""
         from .tool_executor import get_tool_executor
@@ -1238,7 +1375,12 @@ class ChatHarness:
             if step.action == "tool_call" and step.tool_name:
                 step.status = PlanStepStatus.RUNNING
                 t0 = time.monotonic()
-                result = await executor.execute(step.tool_name, step.tool_args, agent_id=agent_id)
+                result = await executor.execute(
+                    step.tool_name,
+                    step.tool_args,
+                    agent_id=agent_id,
+                    permission_context=permission_context,
+                )
                 step.duration_ms = (time.monotonic() - t0) * 1000
                 step.status = PlanStepStatus.COMPLETED if result.success else PlanStepStatus.FAILED
                 step.result = result.output
@@ -1261,7 +1403,7 @@ class ChatHarness:
         yield {"type": "plan_complete", "progress": plan.progress}
 
         async for chunk in self.stream_chat(
-            prompt, agent_id=agent_id, session_id=session_id,
+            prompt, agent_id=agent_id, team_id=team_id, session_id=session_id,
             system_prompt=system_prompt,
         ):
             yield chunk

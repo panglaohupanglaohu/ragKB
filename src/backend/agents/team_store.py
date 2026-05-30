@@ -43,7 +43,7 @@ class TeamStore:
 
     def save_all(self, teams: Dict[str, AgentTeam]):
         """保存所有团队到 JSON."""
-        data = {tid: t.to_dict() for tid, t in teams.items()}
+        data = {tid: self._serialize_team(t) for tid, t in teams.items()}
         self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.debug(f"💾 团队已保存: {len(teams)} 个团队")
 
@@ -65,6 +65,48 @@ class TeamStore:
             return {}
 
     # ── 反序列化 ──────────────────────────────────────────
+
+    @staticmethod
+    def _serialize_team(team: AgentTeam) -> dict:
+        data = team.to_dict()
+        data["skills"] = {
+            sid: TeamStore._serialize_skill(skill)
+            for sid, skill in team.skills.items()
+        }
+        return data
+
+    @staticmethod
+    def _serialize_skill(skill: SkillDefinition) -> dict:
+        return {
+            "skill_id": skill.skill_id,
+            "name": skill.name,
+            "description": skill.description,
+            "category": skill.category.value if hasattr(skill.category, "value") else skill.category,
+            "required": skill.required,
+            "enabled": skill.enabled,
+            "icon": skill.icon,
+            "config_schema": skill.config_schema,
+            "config": skill.config,
+            "is_default": skill.is_default,
+            "source": skill.source,
+            "slug": skill.slug,
+            "required_tools": skill.required_tools,
+            "instructions": skill.instructions,
+            "lifecycle_stage": getattr(skill.lifecycle_stage, "value", skill.lifecycle_stage),
+            "quality_score": skill.quality_score,
+            "visibility": getattr(skill.visibility, "value", skill.visibility),
+            "version": skill.version,
+            "usage_count": skill.usage_count,
+            "success_count": skill.success_count,
+            "fail_count": skill.fail_count,
+            "effectiveness": skill.effectiveness,
+            "last_used_at": skill.last_used_at,
+            "adopted_by": list(skill.adopted_by),
+            "origin_team_id": skill.origin_team_id,
+            "lineage": skill.lineage,
+            "schema_version": skill.schema_version,
+            "evidence_sessions": list(skill.evidence_sessions),
+        }
 
     @staticmethod
     def _deserialize_team(data: dict) -> AgentTeam:
@@ -105,6 +147,7 @@ class TeamStore:
                 resource=p.get("resource", ""),
                 access_level=AccessLevel(p.get("access_level", "read")),
                 channels=p.get("channels", []),
+                allowed_tools=p.get("allowed_tools", []),
             )
             for p in data.get("permissions", [])
         ]
@@ -208,5 +251,19 @@ class TeamStore:
             source=data.get("source", "builtin"),
             slug=data.get("slug", ""),
             required_tools=data.get("required_tools", []),
-            instructions="",  # not serialized for security
+            instructions=data.get("instructions", ""),
+            lifecycle_stage=data.get("lifecycle_stage", "draft"),
+            quality_score=data.get("quality_score", 0.0),
+            visibility=data.get("visibility", "private"),
+            version=data.get("version", 1),
+            usage_count=data.get("usage_count", 0),
+            success_count=data.get("success_count", 0),
+            fail_count=data.get("fail_count", 0),
+            effectiveness=data.get("effectiveness", 0.0),
+            last_used_at=data.get("last_used_at", ""),
+            adopted_by=data.get("adopted_by", []),
+            origin_team_id=data.get("origin_team_id", ""),
+            lineage=data.get("lineage", ""),
+            schema_version=data.get("schema_version", 1),
+            evidence_sessions=data.get("evidence_sessions", []),
         )

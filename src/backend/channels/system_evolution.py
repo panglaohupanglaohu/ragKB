@@ -175,6 +175,8 @@ class EvolutionItem:
     build_task_id: Optional[str] = None
     assigned_agent: Optional[str] = None
     code_changes: List[str] = field(default_factory=list)  # 变更文件列表
+    build_artifacts: Dict[str, Any] = field(default_factory=dict)
+    build_error: str = ""
     source_plaza_id: str = ""
     source_discussion_id: str = ""
     source_task_ids: List[str] = field(default_factory=list)
@@ -1434,6 +1436,45 @@ class SystemEvolutionChannel(MarineChannel):
             return False
         item.status = EvolutionStatus.VERIFY_PENDING.value
         return True
+
+    def sync_task_outcome(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        code_changes: Optional[List[str]] = None,
+        artifact_dir: str = "",
+        build_artifacts: Optional[Dict[str, Any]] = None,
+        error: str = "",
+    ) -> List[str]:
+        """Sync Plaza-origin task execution results back into linked evolution items."""
+        synced: List[str] = []
+        normalized_changes = list(dict.fromkeys(code_changes or []))
+
+        for item in self.evolution_items.values():
+            if task_id not in item.source_task_ids:
+                continue
+
+            if normalized_changes:
+                item.code_changes = list(dict.fromkeys(item.code_changes + normalized_changes))
+            if artifact_dir:
+                item.artifact_dir = artifact_dir
+            if build_artifacts:
+                item.build_artifacts = dict(build_artifacts)
+            if error:
+                item.build_error = error
+
+            if status == EvolutionStatus.FAILED.value or status == "failed":
+                item.status = EvolutionStatus.FAILED.value
+            else:
+                if item.status == EvolutionStatus.DISPATCHED.value:
+                    item.status = EvolutionStatus.IN_PROGRESS.value
+                if item.code_changes or item.artifact_dir:
+                    item.status = EvolutionStatus.VERIFY_PENDING.value
+
+            synced.append(item.id)
+
+        return synced
 
     # ── 验证: 通过模拟人类操作的自动化测试 ─────────────────────
 

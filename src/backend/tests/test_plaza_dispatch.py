@@ -112,6 +112,11 @@ class TestDiscussionDispatch:
         assert first_metadata["plan_revision"] == 3
         assert first_metadata["plan_item_index"] == 0
         assert first_metadata["responsible_role"] == "developer"
+        assert first_metadata["skills_used"] == ["code_implementation", "debugging"]
+
+        second_metadata = result["tasks"][1]["metadata"]
+        assert second_metadata["responsible_role"] == "qa"
+        assert second_metadata["skills_used"] == ["testing", "test_execution", "regression_testing"]
 
         summary = await plaza_routes.get_discussion_summary(plaza.id, disc.id)
         assert summary["plan_revision"] == 3
