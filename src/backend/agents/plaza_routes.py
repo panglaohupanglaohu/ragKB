@@ -811,6 +811,17 @@ async def evolve_from_discussion(
 
     # 触发演化周期
     cycle_result = _evolution_engine.run_evolution_cycle()
+    from .api import _build_discussion_verification_state_payload
+
+    payload = _build_discussion_verification_state_payload(
+        _evolution_engine,
+        plaza_id=plaza_id,
+        discussion_id=disc.id,
+        trigger="discussion_evolved",
+        synced_item_ids=evolution_item_ids,
+    )
+    payload["cycle_result"] = cycle_result
+    await engine._broadcast(disc.id, payload)
 
     return {
         "status": "evolving",
@@ -841,33 +852,9 @@ async def get_discussion_verification_queue(plaza_id: str, disc_id: str) -> Dict
     if not _evolution_engine:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
 
-    items = []
-    for item in _evolution_engine.evolution_items.values():
-        if item.source_plaza_id != plaza_id or item.source_discussion_id != disc_id:
-            continue
-        items.append(
-            {
-                "id": item.id,
-                "title": item.title,
-                "status": item.status,
-                "verify_test_name": item.verify_test_name,
-                "verify_result": item.verify_result,
-                "verify_detail": item.verify_detail,
-                "retry_count": item.retry_count,
-                "max_retries": item.max_retries,
-                "source_task_ids": list(item.source_task_ids),
-                "requires_manual_verify": bool(
-                    item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
-                ),
-            }
-        )
-
-    items.sort(
-        key=lambda item: (
-            0 if item["requires_manual_verify"] else 1,
-            0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
-            item["id"],
-        )
+    items = _evolution_engine.get_verification_queue(
+        source_plaza_id=plaza_id,
+        source_discussion_id=disc_id,
     )
     return {
         "plaza_id": plaza_id,
@@ -904,6 +891,57 @@ async def get_discussion_verification_alerts(plaza_id: str, disc_id: str) -> Dic
         "plaza_id": plaza_id,
         "discussion_id": disc_id,
         "count": len(alerts),
+        "alerts": alerts,
+    }
+
+
+@router.post(
+    "/{plaza_id}/discussions/{disc_id}/verification-queue/run",
+    summary="运行当前讨论关联的验证队列",
+)
+async def run_discussion_verification_queue(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+    """Run verify tests for the discussion's pending evolution items and close passes."""
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    from agent_team_api import _evolution_engine
+
+    if not _evolution_engine:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
+
+    verify_result = _evolution_engine.verify_pending_items(
+        source_plaza_id=plaza_id,
+        source_discussion_id=disc_id,
+    )
+    closed = _evolution_engine.close_verified_items(
+        source_plaza_id=plaza_id,
+        source_discussion_id=disc_id,
+    )
+    alerts = _evolution_engine.get_verification_alerts(
+        source_plaza_id=plaza_id,
+        source_discussion_id=disc_id,
+    )
+    from .api import _build_discussion_verification_state_payload
+
+    payload = _build_discussion_verification_state_payload(
+        _evolution_engine,
+        plaza_id=plaza_id,
+        discussion_id=disc_id,
+        trigger="verification_queue_run",
+    )
+    payload["verify"] = verify_result
+    payload["closed"] = closed
+    await engine._broadcast(disc.id, payload)
+    return {
+        "plaza_id": plaza_id,
+        "discussion_id": disc_id,
+        "verify": verify_result,
+        "closed": closed,
         "alerts": alerts,
     }
 

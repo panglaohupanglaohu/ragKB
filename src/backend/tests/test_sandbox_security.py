@@ -11,7 +11,12 @@ import pytest
 
 from agents.agent_toolbox import tool_run_python, tool_run_pytest
 from sandbox import api as sandbox_api_module
-from sandbox.python_runner import describe_sandbox_runtime, get_sandbox, load_sandbox_config
+from sandbox.python_runner import (
+    describe_sandbox_runtime,
+    get_sandbox,
+    load_sandbox_config,
+    record_sandbox_self_check,
+)
 from sandbox.python_runner_lite import SandboxResult
 from sandbox.python_runner_docker import DockerSandbox
 
@@ -145,9 +150,28 @@ class TestSandboxModeSelection:
         assert status["image_available"] is True
         assert status["ready"] is True
         assert status["build_command"] == "./scripts/build_sandbox_image.sh"
+        assert status["last_self_check"] == {}
+
+    def test_describe_sandbox_runtime_includes_last_self_check(self, monkeypatch, tmp_path):
+        from sandbox import python_runner as runner_module
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps({"sandbox": {"mode": "lite"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner_module, "_SETTINGS_PATH", settings_path)
+        monkeypatch.setattr(runner_module, "_last_self_check", None)
+        record_sandbox_self_check({"ok": True, "checks": {"python": {"ok": True}}})
+
+        status = describe_sandbox_runtime()
+
+        assert status["last_self_check"]["ok"] is True
 
     @pytest.mark.asyncio
     async def test_runtime_self_check_reports_python_and_pytest(self, monkeypatch):
+        recorded = {}
+
         class StubSandbox:
             def run_python(self, code, *, cwd, timeout):
                 assert "sandbox-ok" in code
@@ -163,6 +187,11 @@ class TestSandboxModeSelection:
             "describe_sandbox_runtime",
             lambda: {"mode": "lite", "ready": True},
         )
+        monkeypatch.setattr(
+            sandbox_api_module,
+            "record_sandbox_self_check",
+            lambda payload: recorded.update(payload),
+        )
 
         payload = await sandbox_api_module.run_runtime_self_check()
 
@@ -170,3 +199,4 @@ class TestSandboxModeSelection:
         assert payload["runtime"]["mode"] == "lite"
         assert payload["checks"]["python"]["stdout"] == "sandbox-ok\n"
         assert payload["checks"]["pytest_collect"]["exit_code"] == 0
+        assert recorded["ok"] is True

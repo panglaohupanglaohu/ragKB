@@ -11,6 +11,7 @@ import pytest
 
 import agent_team_api as agent_team_api_module
 from agents import api as api_module
+from agents import plaza_engine as plaza_engine_module
 from agents import task_engine as task_engine_module
 from agents.task_engine import AgentTask, TaskEngine, TaskStatus
 from agents.task_store import TaskStore
@@ -236,11 +237,24 @@ class TestPlazaEvolutionSync:
         engine, tmpdir = isolated_task_engine
         evolution_engine = SystemEvolutionChannel()
         evolution_engine.initialize()
+        broadcast_events = []
+
+        class FakePlazaEngine:
+            def get_discussion(self, plaza_id, discussion_id):
+                if plaza_id == "plaza-verify" and discussion_id == "disc-verify":
+                    return object()
+                return None
+
+            async def _broadcast(self, discussion_id, event):
+                broadcast_events.append((discussion_id, event))
+
+        monkeypatch.setattr(plaza_engine_module, "get_plaza_engine", lambda: FakePlazaEngine())
         evolution_engine.evolution_items["evo-verify"] = EvolutionItem(
             id="evo-verify",
             title="需要显式验证",
             status=EvolutionStatus.DISPATCHED.value,
             verify_test_name="manual-check",
+            source_plaza_id="plaza-verify",
             source_task_ids=["task-verify"],
             source_discussion_id="disc-verify",
         )
@@ -252,6 +266,7 @@ class TestPlazaEvolutionSync:
             title="成功但待验证",
             metadata={
                 "source": "plaza",
+                "plaza_id": "plaza-verify",
                 "discussion_id": "disc-verify",
                 "pipeline_dir": tmpdir,
                 "workflow": _build_success_workflow(tmpdir),
@@ -266,6 +281,13 @@ class TestPlazaEvolutionSync:
         assert item.status == EvolutionStatus.VERIFY_PENDING.value
         assert item.verify_result == "pending"
         assert item.verify_detail == "Awaiting verify test: manual-check"
+        assert broadcast_events
+        assert broadcast_events[-1][0] == "disc-verify"
+        assert broadcast_events[-1][1]["type"] == "verification_state_updated"
+        assert broadcast_events[-1][1]["trigger"] == "task_finalized"
+        assert broadcast_events[-1][1]["alert_count"] == 1
+        assert broadcast_events[-1][1]["alerts"][0]["next_action"] == "run_verify_test:manual-check"
+        assert any(event["type"] == "verification_state_broadcasted" for event in finalized.metadata["trace_events"])
 
     @pytest.mark.asyncio
     async def test_finalize_failed_plaza_task_marks_evolution_failed(
@@ -355,6 +377,31 @@ class TestPlazaEvolutionSync:
         assert item.status == EvolutionStatus.FAILED.value
         assert item.verify_detail == "核心用例持续失败 (max retries exhausted)"
         assert evolution_engine.get_verification_alerts()[0]["alert_level"] == "critical"
+
+    def test_verify_all_pending_updates_item_escalation_tier(self):
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.evolution_items["evo-escalate"] = EvolutionItem(
+            id="evo-escalate",
+            title="验证失败升级",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-escalate",
+            retry_count=1,
+            consecutive_failures=1,
+        )
+        evolution_engine.register_verify_test(
+            "verify-escalate",
+            lambda: (False, "二次验证仍失败"),
+        )
+
+        evolution_engine.verify_all_pending()
+
+        item = evolution_engine.evolution_items["evo-escalate"]
+        assert item.escalation_tier == "corrective"
+        assert item.consecutive_failures == 2
+        alert = evolution_engine.get_verification_alerts()[0]
+        assert alert["escalation_tier"] == "corrective"
+        assert alert["escalation_label"] == "需纠正行动计划"
 
     @pytest.mark.asyncio
     async def test_task_trace_summary_endpoint_returns_linked_evolution_items(
@@ -556,3 +603,137 @@ class TestPlazaEvolutionSync:
         assert payload["count"] == 1
         assert payload["traces"][0]["task_id"] == "task-recent-plaza"
         assert payload["traces"][0]["trace_context"]["discussion_id"] == "disc-recent"
+
+    @pytest.mark.asyncio
+    async def test_recent_trace_events_endpoint_filters_by_team_source_and_type(
+        self,
+        isolated_task_engine,
+        monkeypatch,
+        team_manager,
+    ):
+        engine, tmpdir = isolated_task_engine
+        team_manager.create_team(name="追踪团队", team_id="team-build")
+        team_manager.create_team(name="其他团队", team_id="team-other")
+        monkeypatch.setattr(api_module, "_team_manager", team_manager)
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", SystemEvolutionChannel())
+
+        plaza_task = AgentTask(
+            task_id="task-event-plaza",
+            team_id="team-build",
+            title="事件 Plaza 任务",
+            metadata={
+                "source": "plaza",
+                "discussion_id": "disc-recent-events",
+                "pipeline_dir": str(Path(tmpdir) / "plaza-events"),
+                "workflow": _build_success_workflow(str(Path(tmpdir) / "plaza-events")),
+            },
+        )
+        other_task = AgentTask(
+            task_id="task-event-other",
+            team_id="team-other",
+            title="其他事件任务",
+            metadata={
+                "source": "manual",
+                "pipeline_dir": str(Path(tmpdir) / "other-events"),
+                "workflow": _build_success_workflow(str(Path(tmpdir) / "other-events")),
+            },
+        )
+        await engine.submit_batch([plaza_task, other_task])
+        api_module._emit_pipeline_event(plaza_task.task_id, "pipeline_started", {"team_id": "team-build"})
+        api_module._emit_pipeline_event(other_task.task_id, "pipeline_started", {"team_id": "team-other"})
+        await api_module._finalize_task_terminal_state(plaza_task)
+        await api_module._finalize_task_terminal_state(other_task)
+
+        payload = api_module.get_recent_trace_events(
+            limit=10,
+            team_id="team-build",
+            source="plaza",
+            event_type="pipeline_started",
+        )
+
+        assert payload["count"] == 1
+        assert payload["events"][0]["task_id"] == "task-event-plaza"
+        assert payload["events"][0]["trace_context"]["discussion_id"] == "disc-recent-events"
+        assert payload["events"][0]["type"] == "pipeline_started"
+
+    @pytest.mark.asyncio
+    async def test_trace_log_tail_reads_global_structured_log(
+        self,
+        isolated_task_engine,
+        monkeypatch,
+        team_manager,
+    ):
+        engine, tmpdir = isolated_task_engine
+        team_manager.create_team(name="追踪团队", team_id="team-build")
+        monkeypatch.setattr(api_module, "_team_manager", team_manager)
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", SystemEvolutionChannel())
+        trace_log_path = Path(tmpdir) / "global-trace-events.jsonl"
+        monkeypatch.setattr(api_module, "_global_trace_events_path", lambda: str(trace_log_path))
+
+        task = AgentTask(
+            task_id="task-log-tail",
+            team_id="team-build",
+            title="全局日志任务",
+            metadata={
+                "source": "plaza",
+                "discussion_id": "disc-log-tail",
+                "pipeline_dir": str(Path(tmpdir) / "log-tail"),
+                "workflow": _build_success_workflow(str(Path(tmpdir) / "log-tail")),
+            },
+        )
+        await engine.submit_task(task)
+        api_module._emit_pipeline_event(task.task_id, "pipeline_started", {"team_id": "team-build"})
+        await api_module._finalize_task_terminal_state(task)
+
+        payload = api_module.get_trace_log_tail(limit=10, event_type="pipeline_started")
+
+        assert trace_log_path.exists()
+        assert payload["count"] == 1
+        assert payload["events"][0]["task_id"] == "task-log-tail"
+        assert payload["events"][0]["type"] == "pipeline_started"
+
+    @pytest.mark.asyncio
+    async def test_trace_export_streams_filtered_ndjson(
+        self,
+        isolated_task_engine,
+        monkeypatch,
+        team_manager,
+    ):
+        engine, tmpdir = isolated_task_engine
+        team_manager.create_team(name="追踪团队", team_id="team-build")
+        monkeypatch.setattr(api_module, "_team_manager", team_manager)
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", SystemEvolutionChannel())
+        trace_log_path = Path(tmpdir) / "global-trace-export.jsonl"
+        monkeypatch.setattr(api_module, "_global_trace_events_path", lambda: str(trace_log_path))
+
+        task = AgentTask(
+            task_id="task-export-trace",
+            team_id="team-build",
+            title="导出日志任务",
+            metadata={
+                "source": "plaza",
+                "discussion_id": "disc-export",
+                "pipeline_dir": str(Path(tmpdir) / "trace-export"),
+                "workflow": _build_success_workflow(str(Path(tmpdir) / "trace-export")),
+            },
+        )
+        await engine.submit_task(task)
+        api_module._emit_pipeline_event(task.task_id, "pipeline_started", {"team_id": "team-build"})
+        await api_module._finalize_task_terminal_state(task)
+
+        response = api_module.export_trace_events(
+            limit=10,
+            team_id="team-build",
+            source="plaza",
+            event_type="pipeline_started",
+        )
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+        lines = [json.loads(line) for line in "".join(chunks).splitlines() if line.strip()]
+
+        assert response.media_type == "application/x-ndjson"
+        assert len(lines) == 1
+        assert lines[0]["task_id"] == "task-export-trace"
+        assert lines[0]["trace_context"]["source"] == "plaza"
+        assert lines[0]["type"] == "pipeline_started"

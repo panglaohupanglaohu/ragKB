@@ -48,6 +48,12 @@ def load_sandbox_config() -> SandboxConfig:
 
 _sandbox_instance: Optional[Any] = None
 _sandbox_signature: Optional[tuple] = None
+_last_self_check: Optional[dict] = None
+
+
+def record_sandbox_self_check(result: dict) -> None:
+    global _last_self_check
+    _last_self_check = dict(result)
 
 
 def describe_sandbox_runtime() -> dict:
@@ -67,6 +73,7 @@ def describe_sandbox_runtime() -> dict:
                 "docker_available": False,
                 "image_available": False,
                 "build_command": "./scripts/build_sandbox_image.sh",
+                "last_self_check": dict(_last_self_check or {}),
             }
         )
         return payload
@@ -88,6 +95,7 @@ def describe_sandbox_runtime() -> dict:
             "image_available": image_available,
             "build_command": "./scripts/build_sandbox_image.sh",
             "ready": docker_available and image_available,
+            "last_self_check": dict(_last_self_check or {}),
         }
     )
     return payload

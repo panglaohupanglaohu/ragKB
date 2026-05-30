@@ -1472,11 +1472,13 @@ class SystemEvolutionChannel(MarineChannel):
                 item.build_error = error
 
             if status == EvolutionStatus.FAILED.value or status == "failed":
+                self._update_item_escalation(item, False)
                 item.status = EvolutionStatus.FAILED.value
             else:
                 if item.status == EvolutionStatus.DISPATCHED.value:
                     item.status = EvolutionStatus.IN_PROGRESS.value
                 if self._can_auto_close_from_artifacts(item, build_artifacts):
+                    self._update_item_escalation(item, True)
                     now = datetime.now().isoformat()
                     if item.status not in {EvolutionStatus.VERIFIED.value, EvolutionStatus.CLOSED.value}:
                         self.total_verified += 1
@@ -1526,10 +1528,44 @@ class SystemEvolutionChannel(MarineChannel):
 
     def verify_all_pending(self) -> Dict[str, Any]:
         """运行所有待验证项的自动化测试。"""
+        return self.verify_pending_items()
+
+    def _update_item_escalation(self, item: EvolutionItem, passed: bool) -> None:
+        """Update per-item escalation state based on consecutive failures."""
+        if passed:
+            item.consecutive_failures = 0
+            item.escalation_tier = EscalationTier.NORMAL.value
+            return
+
+        item.consecutive_failures += 1
+        if item.consecutive_failures >= 4:
+            item.escalation_tier = EscalationTier.CRITICAL_HOLD.value
+        elif item.consecutive_failures >= 3:
+            item.escalation_tier = EscalationTier.MANAGEMENT_REVIEW.value
+        elif item.consecutive_failures >= 2:
+            item.escalation_tier = EscalationTier.CORRECTIVE_PLAN.value
+        else:
+            item.escalation_tier = EscalationTier.NORMAL.value
+
+    def verify_pending_items(
+        self,
+        *,
+        item_ids: Optional[List[str]] = None,
+        source_plaza_id: str = "",
+        source_discussion_id: str = "",
+    ) -> Dict[str, Any]:
+        """Run verification for a filtered set of pending items."""
         results: List[Dict[str, Any]] = []
+        item_id_filter = set(item_ids or [])
 
         for item in self.evolution_items.values():
             if item.status != EvolutionStatus.VERIFY_PENDING.value:
+                continue
+            if item_id_filter and item.id not in item_id_filter:
+                continue
+            if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                continue
+            if source_discussion_id and item.source_discussion_id != source_discussion_id:
                 continue
 
             test_fn = self._verify_registry.get(item.verify_test_name)
@@ -1555,6 +1591,7 @@ class SystemEvolutionChannel(MarineChannel):
 
             item.verify_result = "passed" if passed else "failed"
             item.verify_detail = detail
+            self._update_item_escalation(item, passed)
 
             if passed:
                 item.status = EvolutionStatus.VERIFIED.value
@@ -1610,6 +1647,9 @@ class SystemEvolutionChannel(MarineChannel):
             "retry_count": item.retry_count,
             "max_retries": item.max_retries,
             "retries_remaining": max(item.max_retries - item.retry_count, 0),
+            "consecutive_failures": item.consecutive_failures,
+            "escalation_tier": item.escalation_tier,
+            "escalation_label": self._escalation_label(item.escalation_tier),
             "alert_level": alert_level,
             "next_action": next_action,
             "source_plaza_id": item.source_plaza_id,
@@ -1642,11 +1682,70 @@ class SystemEvolutionChannel(MarineChannel):
         )
         return alerts
 
+    def get_verification_queue(
+        self,
+        *,
+        source_plaza_id: str = "",
+        source_discussion_id: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Return linked evolution items, prioritizing entries still waiting on verification."""
+        items: List[Dict[str, Any]] = []
+        for item in self.evolution_items.values():
+            if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                continue
+            if source_discussion_id and item.source_discussion_id != source_discussion_id:
+                continue
+            items.append(
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "status": item.status,
+                    "verify_test_name": item.verify_test_name,
+                    "verify_result": item.verify_result,
+                    "verify_detail": item.verify_detail,
+                    "retry_count": item.retry_count,
+                    "max_retries": item.max_retries,
+                    "source_task_ids": list(item.source_task_ids),
+                    "requires_manual_verify": bool(
+                        item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
+                    ),
+                    "consecutive_failures": item.consecutive_failures,
+                    "escalation_tier": item.escalation_tier,
+                    "escalation_label": self._escalation_label(item.escalation_tier),
+                }
+            )
+
+        items.sort(
+            key=lambda item: (
+                0 if item["requires_manual_verify"] else 1,
+                0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+                item["id"],
+            )
+        )
+        return items
+
     def close_verified(self) -> List[str]:
         """关闭所有已验证通过的演进项。"""
+        return self.close_verified_items()
+
+    def close_verified_items(
+        self,
+        *,
+        item_ids: Optional[List[str]] = None,
+        source_plaza_id: str = "",
+        source_discussion_id: str = "",
+    ) -> List[str]:
+        """Close a filtered set of verified items."""
         closed: List[str] = []
+        item_id_filter = set(item_ids or [])
         for item in self.evolution_items.values():
             if item.status == EvolutionStatus.VERIFIED.value:
+                if item_id_filter and item.id not in item_id_filter:
+                    continue
+                if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                    continue
+                if source_discussion_id and item.source_discussion_id != source_discussion_id:
+                    continue
                 item.status = EvolutionStatus.CLOSED.value
                 item.closed_at = datetime.now().isoformat()
                 self.total_closed += 1
@@ -2173,6 +2272,7 @@ class SystemEvolutionChannel(MarineChannel):
                 item.code_changes = code_changes
             return {"status": "verify_pending", "item_id": item_id}
         else:
+            self._update_item_escalation(item, False)
             item.retry_count += 1
             if item.retry_count >= item.max_retries:
                 item.status = EvolutionStatus.FAILED.value

@@ -79,13 +79,19 @@
 | F-20 | DONE | `/agent-loop` 已直接回传共享 runtime 事件流，调用方可见 plan/tool 执行过程 | `test_permissions_and_secrets.py` |
 | F-21 | DONE | 已新增 `/agent-loop/stream` SSE 入口，流式暴露共享 runtime 事件模型 | `test_permissions_and_secrets.py` |
 | F-22 | DONE | 已新增 `/api/v1/sandbox/runtime-self-check`，可直接验证当前 sandbox 的 `run_python / run_pytest` 实际可用性 | `test_sandbox_security.py` |
+| F-23 | DONE | Plaza discussion 已新增 verification queue 运行入口，只消费当前讨论关联的待验证演进项 | `test_plaza_evolution_bridge.py` |
+| F-24 | DONE | 已开放 recent trace events 聚合入口，可按 team/source/event_type 查看最近 runtime 事件流 | `test_plaza_task_artifact_bridge.py` |
+| F-25 | DONE | trace 事件已同步写入全局 `storage/traces/trace_events.jsonl`，并开放 global log tail 查询入口 | `test_plaza_task_artifact_bridge.py` |
+| F-26 | DONE | 验证失败链路已接入 item 级 `escalation_tier / consecutive_failures`，verification alerts 会带升级层级 | `test_plaza_task_artifact_bridge.py` |
+| F-27 | DONE | Plaza discussion SSE 已主动推送 `verification_state_updated` 事件，覆盖演化注入、任务终态同步和 discussion 级 verification queue run | `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
+| F-28 | DONE | 已新增全局 trace NDJSON 导出入口，外部采集器可直接消费 `storage/traces/trace_events.jsonl` 过滤后的事件流 | `test_plaza_task_artifact_bridge.py` |
 
 ### 当前工作批次（正在推进）
 
 | 卡片 | 对应问题 | 状态 | 当前结论 | 下一步 | 完成定义 |
 |------|----------|:----:|----------|--------|----------|
-| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因、verification queue、verification alerts 也已可见 | 继续把 verify queue 的消费动作、失败升级和自动提醒收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
-| W-02 | #13 缺少可观测性和 tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 已贯穿 Plaza → Task → Execution Artifacts → Evolution，并开放 task / discussion / recent traces 三级查询入口 | 继续补统一结构化日志出口和更广的跨任务检索 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
+| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因、verification queue、verification alerts、queue run 动作、discussion SSE 自动提醒，以及 item 级失败升级层级都已可见 | 把提醒消费端和自动重试策略继续收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
+| W-02 | #13 缺少可观测性和 tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 已贯穿 Plaza → Task → Execution Artifacts → Evolution，并开放 task / discussion / recent traces / recent trace events / global log tail / NDJSON export 六级查询与导出入口 | 继续补更广的跨任务检索和 Promtail / OTel 采集对接 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
 | W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭、更硬的容器限制，并可通过 runtime status / health / runtime self-check 直接查看 readiness 与可用性 | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
 | W-04 | #4 两套 AgentLoop 并存 | WIP | 已新增 `src/backend/agents/runtime/`，共享工具循环与共享计划循环都已落地；旧 `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用，plan runtime 也已补统一事件回调面，`/agent-loop` 与 `/agent-loop/stream` 都会直接暴露 runtime events | 继续统一 tracing / budget / state 事件模型，并收缩 compatibility shim | 所有 agent 执行入口复用同一 runtime，兼容层仅保留薄封装 |
 
@@ -122,23 +128,23 @@
 | 7 | 会话存储升级 | BACKLOG | 未开工 |
 | 8 | `state` 状态机治理 | BACKLOG | 未开工 |
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
-| 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue、verification alerts 都已沉淀，重试消费闭环待补 |
+| 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue、verification alerts、queue run 动作、discussion SSE 自动提醒和 item 级失败升级都已沉淀，消费端收口待补 |
 | 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源/build 脚本/runtime readiness/runtime self-check 已补，实机验证与发布链待补 |
 | 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
-| 13 | 结构化日志 / tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 与 task / discussion / recent traces 查询入口已落地，统一结构化日志出口待补 |
+| 13 | 结构化日志 / tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 与 task / discussion / recent traces / recent trace events / global log tail / NDJSON export 查询导出入口已落地，外部采集器接入待补 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
 
 ### 当前建议执行顺序
 
 1. 完成 `W-03` 的 Docker 级隔离收口
 2. 继续 `W-04 / N-03`，收口 runtime 的 tracing / state / event 模型
-3. 回到 `W-01`，把 verify queue 的消费动作、失败升级和自动提醒收口
+3. 回到 `W-01`，把失败升级和自动提醒收口
 4. 推进 `W-02`，补统一结构化日志出口与更广的跨任务检索
 5. 给 `N-04` 补前端仪表盘、更精细成本模型与长回路验证
 
 ### 当前验收快照
 
-- 后端测试：`606 passed`
+- 后端测试：`612 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
@@ -154,9 +160,15 @@
 - Trace Summary：任务会落 `trace_summary.json`，并可通过 task trace API 直接查询关联上下文
 - Trace Events：任务会落 `trace_events.jsonl`，并支持 task / discussion 两级 trace 查询
 - Recent Traces：已开放 recent traces 聚合入口，可按 team/source 查看最近链路
+- Recent Trace Events：已开放 recent trace events 聚合入口，可按 team/source/event_type 查看最近 runtime 事件
+- Global Trace Log：trace 事件已同步写入全局 `storage/traces/trace_events.jsonl`，并可通过 log tail 直接查询
+- Trace Export：trace 事件已可按 `team/source/event_type/since_ts` 过滤后导出为 NDJSON，方便外部采集器直接消费
 - Docker Sandbox：仓库已带 `docker/sandbox/Dockerfile` 与 `scripts/build_sandbox_image.sh`，docker mode 缺镜像会失败关闭
 - Verification Queue：显式 verify test 会回写等待原因，Plaza discussion 可直接查询关联 verification queue
 - Verification Alerts：人工验证等待、重试回退、重试耗尽都会产出 `alert_level / next_action`
+- Verification Escalation：验证失败会累计 `consecutive_failures`，并映射到 `escalation_tier`
+- Verification Queue Run：discussion 级待验证项可以按当前 discussion 范围直接执行 verify queue
+- Verification Broadcast：discussion SSE 会主动推送 `verification_state_updated`，覆盖演化注入、任务终态同步和 verify queue run
 - Sandbox Readiness：主健康检查和 sandbox runtime status 都会直接报告 docker/image readiness
 - Sandbox Self-Check：`/api/v1/sandbox/runtime-self-check` 可直接验证当前 sandbox 的 python / pytest 链路
 - Agent Loop Events：`/agent-loop` 已直接回传共享 runtime events，便于 UI / 调试端消费

@@ -2408,6 +2408,10 @@ def _append_task_trace_event(
         trace_path = _os.path.join(artifact_dir, "trace_events.jsonl")
         with open(trace_path, "a", encoding="utf-8") as f:
             f.write(_json.dumps(event, ensure_ascii=False) + "\n")
+        global_trace_path = _global_trace_events_path()
+        _os.makedirs(_os.path.dirname(global_trace_path), exist_ok=True)
+        with open(global_trace_path, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(event, ensure_ascii=False) + "\n")
     except Exception as exc:
         _harness_log.debug("[TraceEvents] append skipped for %s: %s", task.task_id, exc)
 
@@ -2417,6 +2421,96 @@ def _append_task_trace_event(
         recent_events = recent_events[-50:]
     task.metadata["trace_events"] = recent_events
     return event
+
+
+def _build_discussion_verification_state_payload(
+    evolution_engine: Any,
+    *,
+    plaza_id: str,
+    discussion_id: str,
+    trigger: str,
+    task_id: str = "",
+    synced_item_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Build a consistent SSE payload for Plaza verification reminders."""
+    queue_items = evolution_engine.get_verification_queue(
+        source_plaza_id=plaza_id,
+        source_discussion_id=discussion_id,
+    )
+    alerts = evolution_engine.get_verification_alerts(
+        source_plaza_id=plaza_id,
+        source_discussion_id=discussion_id,
+    )
+    status_counts: Dict[str, int] = {}
+    for item in queue_items:
+        status = str(item.get("status", "") or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    return {
+        "type": "verification_state_updated",
+        "trigger": trigger,
+        "plaza_id": plaza_id,
+        "discussion_id": discussion_id,
+        "task_id": task_id,
+        "synced_item_ids": list(synced_item_ids or []),
+        "queue_count": len(queue_items),
+        "alert_count": len(alerts),
+        "status_counts": status_counts,
+        "queue": queue_items,
+        "alerts": alerts,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _broadcast_plaza_verification_state(
+    task: AgentTask,
+    *,
+    synced_item_ids: Optional[List[str]] = None,
+    trigger: str,
+) -> None:
+    """Push verification reminder updates into Plaza SSE when a linked task changes state."""
+    metadata = task.metadata or {}
+    if metadata.get("source") != "plaza":
+        return
+
+    plaza_id = str(metadata.get("plaza_id") or "").strip()
+    discussion_id = str(metadata.get("discussion_id") or "").strip()
+    if not plaza_id or not discussion_id:
+        return
+
+    try:
+        import agent_team_api as _agent_team_api
+        from .plaza_engine import get_plaza_engine
+    except Exception:
+        return
+
+    evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
+    if not evolution_engine or not hasattr(evolution_engine, "get_verification_queue"):
+        return
+
+    plaza_engine = get_plaza_engine()
+    if not plaza_engine.get_discussion(plaza_id, discussion_id):
+        return
+
+    payload = _build_discussion_verification_state_payload(
+        evolution_engine,
+        plaza_id=plaza_id,
+        discussion_id=discussion_id,
+        trigger=trigger,
+        task_id=task.task_id,
+        synced_item_ids=synced_item_ids,
+    )
+    await plaza_engine._broadcast(discussion_id, payload)
+    _append_task_trace_event(
+        task,
+        "verification_state_broadcasted",
+        {
+            "trigger": trigger,
+            "queue_count": payload["queue_count"],
+            "alert_count": payload["alert_count"],
+            "synced_item_ids": list(synced_item_ids or []),
+        },
+    )
 
 
 def _sync_evolution_from_task(task: AgentTask) -> List[str]:
@@ -2502,7 +2596,12 @@ async def _finalize_task_terminal_state(
                 "test_result": dict(artifacts.get("test_result") or {}),
             },
         )
-        _sync_evolution_from_task(finalized)
+        synced_item_ids = _sync_evolution_from_task(finalized)
+        await _broadcast_plaza_verification_state(
+            finalized,
+            synced_item_ids=synced_item_ids,
+            trigger="task_finalized",
+        )
     return finalized
 
 
@@ -2838,6 +2937,100 @@ def get_recent_trace_summaries(
         "source": source,
         "traces": payload,
     }
+
+
+@router.get(
+    "/traces/recent-events",
+    summary="Get recent trace events across tasks",
+)
+def get_recent_trace_events(
+    limit: int = 50,
+    team_id: str = "",
+    source: str = "",
+    event_type: str = "",
+) -> Dict[str, Any]:
+    limit = max(1, min(int(limit or 50), 200))
+    tasks = _te().list_tasks()
+    if team_id:
+        tasks = [task for task in tasks if task.team_id == team_id]
+    if source:
+        tasks = [task for task in tasks if (task.metadata or {}).get("source") == source]
+
+    events: List[Dict[str, Any]] = []
+    for task in tasks:
+        for event in _read_task_trace_events(task):
+            if event_type and event.get("type") != event_type:
+                continue
+            enriched = dict(event)
+            enriched.setdefault("task_id", task.task_id)
+            enriched.setdefault("team_id", task.team_id)
+            events.append(enriched)
+
+    events.sort(key=lambda event: float(event.get("ts") or 0.0), reverse=True)
+    payload = events[:limit]
+    return {
+        "count": len(payload),
+        "limit": limit,
+        "team_id": team_id,
+        "source": source,
+        "event_type": event_type,
+        "events": payload,
+    }
+
+
+@router.get(
+    "/traces/log-tail",
+    summary="Tail the global structured trace event log",
+)
+def get_trace_log_tail(
+    limit: int = 100,
+    event_type: str = "",
+) -> Dict[str, Any]:
+    limit = max(1, min(int(limit or 100), 500))
+    events = _read_global_trace_events(event_type=event_type)
+    events = events[-limit:]
+    return {
+        "count": len(events),
+        "limit": limit,
+        "event_type": event_type,
+        "events": events,
+    }
+
+
+@router.get(
+    "/traces/export",
+    summary="Export global trace events as NDJSON",
+)
+def export_trace_events(
+    limit: int = 1000,
+    event_type: str = "",
+    team_id: str = "",
+    source: str = "",
+    since_ts: float = 0.0,
+):
+    from starlette.responses import StreamingResponse
+    import json as _json
+
+    limit = max(1, min(int(limit or 1000), 5000))
+    events = _read_global_trace_events(
+        event_type=event_type,
+        team_id=team_id,
+        source=source,
+        since_ts=since_ts,
+    )[-limit:]
+
+    def event_gen():
+        for event in events:
+            yield _json.dumps(event, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "Content-Disposition": "inline; filename=trace_events.ndjson",
+        },
+    )
 
 
 @router.delete(
@@ -4156,6 +4349,13 @@ _PIPELINE_RUNS_DIR = _os.path.join(
 )
 _os.makedirs(_PIPELINE_RUNS_DIR, exist_ok=True)
 
+_TRACE_LOG_DIR = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.dirname(_os.path.abspath(__file__))))),
+    "storage", "traces"
+)
+_os.makedirs(_TRACE_LOG_DIR, exist_ok=True)
+
 _STEP_INDEX = {
     "pm_decompose": "01", "research": "02", "architecture": "03",
     "develop": "04", "test": "05", "deploy": "06", "document": "07",
@@ -4178,6 +4378,50 @@ def _pipeline_context_dir(task_id: str) -> str:
     d = _os.path.join(_pipeline_dir(task_id), "_context")
     _os.makedirs(d, exist_ok=True)
     return d
+
+
+def _global_trace_events_path() -> str:
+    return _os.path.join(_TRACE_LOG_DIR, "trace_events.jsonl")
+
+
+def _read_global_trace_events(
+    *,
+    event_type: str = "",
+    team_id: str = "",
+    source: str = "",
+    since_ts: float = 0.0,
+) -> List[Dict[str, Any]]:
+    """Read the global trace event log with lightweight filtering."""
+    trace_path = _global_trace_events_path()
+    if not _os.path.isfile(trace_path):
+        return []
+
+    events: List[Dict[str, Any]] = []
+    try:
+        import json as _json
+
+        with open(trace_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = _json.loads(line)
+                except Exception:
+                    continue
+                if event_type and event.get("type") != event_type:
+                    continue
+                if team_id and event.get("team_id") != team_id:
+                    continue
+                trace_context = dict(event.get("trace_context") or {})
+                if source and trace_context.get("source") != source:
+                    continue
+                if since_ts and float(event.get("ts") or 0.0) < float(since_ts):
+                    continue
+                events.append(event)
+    except Exception:
+        return []
+    return events
 
 
 def _seed_project_context(task_id: str, task_title: str, task_description: str) -> str:

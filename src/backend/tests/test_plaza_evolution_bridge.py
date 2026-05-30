@@ -23,6 +23,7 @@ from agents.plaza_routes import (
     evolve_from_discussion,
     get_discussion_verification_alerts,
     get_discussion_verification_queue,
+    run_discussion_verification_queue,
 )
 from agents.plaza_store import PlazaStore
 from agents.task_engine import AgentTask, TaskEngine
@@ -117,6 +118,12 @@ class TestPlazaEvolutionBridge:
         evolution_engine.initialize()
         evolution_engine.audit_rules = []
         monkeypatch.setattr(agent_team_api_module, "_evolution_engine", evolution_engine)
+        broadcast_events = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcast_events.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
 
         created_tasks = []
 
@@ -153,6 +160,11 @@ class TestPlazaEvolutionBridge:
         assert all(item.source_task_ids == ["plaza-task-1", "plaza-task-2"] for item in stored_items)
         assert all(item.status == EvolutionStatus.DISPATCHED.value for item in stored_items)
         assert all(item.trace_context["plaza_id"] == plaza.id for item in stored_items)
+        assert broadcast_events
+        assert broadcast_events[-1][0] == disc.id
+        assert broadcast_events[-1][1]["type"] == "verification_state_updated"
+        assert broadcast_events[-1][1]["trigger"] == "discussion_evolved"
+        assert broadcast_events[-1][1]["synced_item_ids"] == [item["id"] for item in result["items"]]
 
         for task in result["tasks"]:
             metadata = task["metadata"]
@@ -241,3 +253,53 @@ class TestPlazaEvolutionBridge:
         assert payload["alerts"][0]["next_action"] == "run_verify_test:manual-check"
         assert payload["alerts"][1]["item_id"] == "evo-retry"
         assert payload["alerts"][1]["next_action"] == "redispatch_build"
+
+    @pytest.mark.asyncio
+    async def test_run_discussion_verification_queue_only_affects_current_discussion(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        broadcast_events = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcast_events.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+        evolution_engine.evolution_items["evo-pass"] = EvolutionItem(
+            id="evo-pass",
+            title="当前讨论通过项",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-pass",
+            source_plaza_id=plaza.id,
+            source_discussion_id=disc.id,
+        )
+        evolution_engine.evolution_items["evo-other"] = EvolutionItem(
+            id="evo-other",
+            title="其他讨论待验证",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-other",
+            source_plaza_id=plaza.id,
+            source_discussion_id="other-disc",
+        )
+        evolution_engine.register_verify_test("verify-pass", lambda: (True, "当前讨论验证通过"))
+        evolution_engine.register_verify_test("verify-other", lambda: (True, "不应被触发"))
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", evolution_engine)
+
+        payload = await run_discussion_verification_queue(plaza.id, disc.id)
+
+        assert payload["verify"]["count"] == 1
+        assert payload["verify"]["verified"][0]["item_id"] == "evo-pass"
+        assert payload["closed"] == ["evo-pass"]
+        assert payload["alerts"] == []
+        assert evolution_engine.evolution_items["evo-pass"].status == EvolutionStatus.CLOSED.value
+        assert evolution_engine.evolution_items["evo-other"].status == EvolutionStatus.VERIFY_PENDING.value
+        assert broadcast_events
+        assert broadcast_events[-1][0] == disc.id
+        assert broadcast_events[-1][1]["type"] == "verification_state_updated"
+        assert broadcast_events[-1][1]["trigger"] == "verification_queue_run"
+        assert broadcast_events[-1][1]["status_counts"][EvolutionStatus.CLOSED.value] == 1
+        assert broadcast_events[-1][1]["alert_count"] == 0

@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from .models import SimulationMode, SandboxStatus
 from .orchestrator import SECSOrchestrator
-from .python_runner import describe_sandbox_runtime, get_sandbox
+from .python_runner import describe_sandbox_runtime, get_sandbox, record_sandbox_self_check
 
 logger = logging.getLogger(__name__)
 
@@ -159,11 +159,13 @@ async def run_runtime_self_check() -> Dict[str, Any]:
         "pytest_collect": pytest_result.to_dict(),
     }
     ok = bool(python_result.ok and pytest_result.ok and pytest_result.exit_code == 0)
-    return {
+    payload = {
         "ok": ok,
         "runtime": runtime,
         "checks": checks,
     }
+    record_sandbox_self_check(payload)
+    return payload
 
 
 @router.get("/sessions")
