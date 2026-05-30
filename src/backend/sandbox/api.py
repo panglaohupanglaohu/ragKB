@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from .models import SimulationMode, SandboxStatus
 from .orchestrator import SECSOrchestrator
-from .python_runner import describe_sandbox_runtime
+from .python_runner import describe_sandbox_runtime, get_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,26 @@ async def set_llm_mode(enabled: bool = True) -> Dict[str, Any]:
 async def get_runtime_status() -> Dict[str, Any]:
     """Return python/pytest sandbox runtime readiness."""
     return describe_sandbox_runtime()
+
+
+@router.post("/runtime-self-check")
+async def run_runtime_self_check() -> Dict[str, Any]:
+    """Run a minimal end-to-end self-check through the configured sandbox runtime."""
+    sandbox = get_sandbox()
+    runtime = describe_sandbox_runtime()
+    repo_root = Path(__file__).resolve().parents[3]
+    python_result = sandbox.run_python("print('sandbox-ok')", cwd=repo_root, timeout=5)
+    pytest_result = sandbox.run_pytest("src/backend/tests/test_main_health.py --co", cwd=repo_root, timeout=20)
+    checks = {
+        "python": python_result.to_dict(),
+        "pytest_collect": pytest_result.to_dict(),
+    }
+    ok = bool(python_result.ok and pytest_result.ok and pytest_result.exit_code == 0)
+    return {
+        "ok": ok,
+        "runtime": runtime,
+        "checks": checks,
+    }
 
 
 @router.get("/sessions")

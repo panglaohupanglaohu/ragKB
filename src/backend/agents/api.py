@@ -7860,6 +7860,39 @@ async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     return payload
 
 
+@router.post("/agent-loop/stream", summary="Stream agentic loop events")
+async def run_agent_loop_stream(req: AgentLoopRequest):
+    """Stream plan/tool execution events as SSE."""
+    from starlette.responses import StreamingResponse
+    import json as _json_stream
+
+    harness = get_chat_harness()
+    permission_context = None
+    team_id = ""
+    if req.agent_id:
+        team_id, agent = _find_agent_across_teams(req.agent_id)
+        if agent is not None:
+            permission_context = _build_agent_permission_context(agent)
+
+    async def event_gen():
+        async for chunk in harness.agent_loop_stream(
+            req.prompt,
+            agent_id=req.agent_id,
+            team_id=team_id or "",
+            session_id=req.session_id,
+            system_prompt=req.system_prompt,
+            max_iterations=req.max_iterations,
+            permission_context=permission_context,
+        ):
+            yield f"data: {_json_stream.dumps(chunk, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 class PlanPreviewRequest(BaseModel):
     """Preview an execution plan without executing it."""
     prompt: str

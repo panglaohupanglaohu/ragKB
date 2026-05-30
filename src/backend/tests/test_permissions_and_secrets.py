@@ -56,6 +56,7 @@ class CaptureLoopHarness:
     def __init__(self):
         self.last_permission_context = None
         self.last_on_event = None
+        self.last_stream_permission_context = None
 
     async def agent_loop(self, *args, **kwargs):
         self.last_permission_context = kwargs.get("permission_context")
@@ -63,6 +64,11 @@ class CaptureLoopHarness:
         if self.last_on_event:
             self.last_on_event("plan_start", {"steps": 1})
         return type("Result", (), {"to_dict": lambda self: {"ok": True}})()
+
+    async def agent_loop_stream(self, *args, **kwargs):
+        self.last_stream_permission_context = kwargs.get("permission_context")
+        yield {"type": "plan_start", "steps": 1}
+        yield {"type": "message_stop", "stop_reason": "completed"}
 
 
 def _use_temp_secret_store(monkeypatch, tmp_path):
@@ -218,3 +224,33 @@ class TestToolPermissions:
         assert callable(harness.last_on_event)
         assert harness.last_permission_context.blocks("write_file") is True
         assert harness.last_permission_context.blocks("read_file") is False
+
+    @pytest.mark.asyncio
+    async def test_run_agent_loop_stream_returns_sse_and_passes_permission_context(
+        self,
+        isolated_api_state,
+        monkeypatch,
+    ):
+        _, _, agent = isolated_api_state
+        agent.permissions = [
+            api_module.AgentPermission(resource="code", access_level=api_module.AccessLevel.READ)
+        ]
+        harness = CaptureLoopHarness()
+        monkeypatch.setattr(api_module, "get_chat_harness", lambda: harness)
+
+        response = await api_module.run_agent_loop_stream(
+            api_module.AgentLoopRequest(
+                prompt="流式执行",
+                agent_id=agent.agent_id,
+                max_iterations=2,
+            )
+        )
+
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+
+        assert "data: {\"type\": \"plan_start\", \"steps\": 1}\n\n" in chunks
+        assert "data: {\"type\": \"message_stop\", \"stop_reason\": \"completed\"}\n\n" in chunks
+        assert harness.last_stream_permission_context is not None
+        assert harness.last_stream_permission_context.blocks("write_file") is True

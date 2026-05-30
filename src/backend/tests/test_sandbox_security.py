@@ -7,8 +7,12 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agents.agent_toolbox import tool_run_python, tool_run_pytest
+from sandbox import api as sandbox_api_module
 from sandbox.python_runner import describe_sandbox_runtime, get_sandbox, load_sandbox_config
+from sandbox.python_runner_lite import SandboxResult
 from sandbox.python_runner_docker import DockerSandbox
 
 
@@ -141,3 +145,28 @@ class TestSandboxModeSelection:
         assert status["image_available"] is True
         assert status["ready"] is True
         assert status["build_command"] == "./scripts/build_sandbox_image.sh"
+
+    @pytest.mark.asyncio
+    async def test_runtime_self_check_reports_python_and_pytest(self, monkeypatch):
+        class StubSandbox:
+            def run_python(self, code, *, cwd, timeout):
+                assert "sandbox-ok" in code
+                return SandboxResult(ok=True, exit_code=0, stdout="sandbox-ok\n")
+
+            def run_pytest(self, target="", *, cwd, timeout):
+                assert "test_main_health.py --co" in target
+                return SandboxResult(ok=True, exit_code=0, stdout="collected 1 item\n")
+
+        monkeypatch.setattr(sandbox_api_module, "get_sandbox", lambda: StubSandbox())
+        monkeypatch.setattr(
+            sandbox_api_module,
+            "describe_sandbox_runtime",
+            lambda: {"mode": "lite", "ready": True},
+        )
+
+        payload = await sandbox_api_module.run_runtime_self_check()
+
+        assert payload["ok"] is True
+        assert payload["runtime"]["mode"] == "lite"
+        assert payload["checks"]["python"]["stdout"] == "sandbox-ok\n"
+        assert payload["checks"]["pytest_collect"]["exit_code"] == 0

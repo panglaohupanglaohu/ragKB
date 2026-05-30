@@ -77,6 +77,8 @@
 | F-18 | DONE | 验证失败重试、人工验证等待、重试耗尽都已产出 `alert_level / next_action`，Plaza discussion 可直接查询 verification alerts | `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
 | F-19 | DONE | sandbox readiness 已暴露到 `/api/v1/sandbox/runtime-status` 与主健康检查 `/api/v1/health` | `test_sandbox_security.py`, `test_main_health.py` |
 | F-20 | DONE | `/agent-loop` 已直接回传共享 runtime 事件流，调用方可见 plan/tool 执行过程 | `test_permissions_and_secrets.py` |
+| F-21 | DONE | 已新增 `/agent-loop/stream` SSE 入口，流式暴露共享 runtime 事件模型 | `test_permissions_and_secrets.py` |
+| F-22 | DONE | 已新增 `/api/v1/sandbox/runtime-self-check`，可直接验证当前 sandbox 的 `run_python / run_pytest` 实际可用性 | `test_sandbox_security.py` |
 
 ### 当前工作批次（正在推进）
 
@@ -84,8 +86,8 @@
 |------|----------|:----:|----------|--------|----------|
 | W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因、verification queue、verification alerts 也已可见 | 继续把 verify queue 的消费动作、失败升级和自动提醒收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
 | W-02 | #13 缺少可观测性和 tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 已贯穿 Plaza → Task → Execution Artifacts → Evolution，并开放 task / discussion / recent traces 三级查询入口 | 继续补统一结构化日志出口和更广的跨任务检索 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
-| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭、更硬的容器限制，并可通过 runtime status / health 直接查看 readiness | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
-| W-04 | #4 两套 AgentLoop 并存 | WIP | 已新增 `src/backend/agents/runtime/`，共享工具循环与共享计划循环都已落地；旧 `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用，plan runtime 也已补统一事件回调面，`/agent-loop` 结果会直接带回 runtime events | 继续统一 tracing / budget / state 事件模型，并收缩 compatibility shim | 所有 agent 执行入口复用同一 runtime，兼容层仅保留薄封装 |
+| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭、更硬的容器限制，并可通过 runtime status / health / runtime self-check 直接查看 readiness 与可用性 | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+| W-04 | #4 两套 AgentLoop 并存 | WIP | 已新增 `src/backend/agents/runtime/`，共享工具循环与共享计划循环都已落地；旧 `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用，plan runtime 也已补统一事件回调面，`/agent-loop` 与 `/agent-loop/stream` 都会直接暴露 runtime events | 继续统一 tracing / budget / state 事件模型，并收缩 compatibility shim | 所有 agent 执行入口复用同一 runtime，兼容层仅保留薄封装 |
 
 ### 下一批（按优先级执行）
 
@@ -114,14 +116,14 @@
 | 1 | 事件总线外部化 | BACKLOG | 未开工 |
 | 2 | `channels` 真正消费 | BACKLOG | 未开工 |
 | 3 | `permissions` 接进工具调用 | DONE | Tool schema、AgentLoop、ToolExecutor 已接入 |
-| 4 | 统一 AgentLoop | WIP | 共享工具循环 + 共享计划循环已落地，legacy tool loop / evolution / `/agent-loop` 已迁入，`/agent-loop` 还会直接回传 runtime 事件 |
+| 4 | 统一 AgentLoop | WIP | 共享工具循环 + 共享计划循环已落地，legacy tool loop / evolution / `/agent-loop` 已迁入，`/agent-loop` 和 `/agent-loop/stream` 都会直接暴露 runtime 事件 |
 | 5 | UltraPlan 真正规划化 | BACKLOG | 未开工 |
 | 6 | Hermes 反馈学习 | BACKLOG | 未开工 |
 | 7 | 会话存储升级 | BACKLOG | 未开工 |
 | 8 | `state` 状态机治理 | BACKLOG | 未开工 |
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
 | 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue、verification alerts 都已沉淀，重试消费闭环待补 |
-| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源/build 脚本/runtime readiness 已补，实机验证与发布链待补 |
+| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源/build 脚本/runtime readiness/runtime self-check 已补，实机验证与发布链待补 |
 | 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
 | 13 | 结构化日志 / tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 与 task / discussion / recent traces 查询入口已落地，统一结构化日志出口待补 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
@@ -136,7 +138,7 @@
 
 ### 当前验收快照
 
-- 后端测试：`604 passed`
+- 后端测试：`606 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
@@ -156,7 +158,9 @@
 - Verification Queue：显式 verify test 会回写等待原因，Plaza discussion 可直接查询关联 verification queue
 - Verification Alerts：人工验证等待、重试回退、重试耗尽都会产出 `alert_level / next_action`
 - Sandbox Readiness：主健康检查和 sandbox runtime status 都会直接报告 docker/image readiness
+- Sandbox Self-Check：`/api/v1/sandbox/runtime-self-check` 可直接验证当前 sandbox 的 python / pytest 链路
 - Agent Loop Events：`/agent-loop` 已直接回传共享 runtime events，便于 UI / 调试端消费
+- Agent Loop SSE：`/agent-loop/stream` 已可直接流式消费共享 runtime 事件
 
 ---
 
