@@ -1564,10 +1564,14 @@ class SystemEvolutionChannel(MarineChannel):
                 item.retry_count += 1
                 if item.retry_count >= item.max_retries:
                     item.status = EvolutionStatus.FAILED.value
+                    item.verify_detail = f"{detail} (max retries exhausted)"
                     self.total_failed += 1
                 else:
                     # 退回给 Build 团队重做
                     item.status = EvolutionStatus.DISPATCHED.value
+                    item.verify_detail = (
+                        f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
+                    )
 
             results.append({
                 "item_id": item.id, "passed": passed, "detail": detail,
@@ -1575,6 +1579,68 @@ class SystemEvolutionChannel(MarineChannel):
             })
 
         return {"verified": results, "count": len(results)}
+
+    def _build_verification_alert(self, item: EvolutionItem) -> Optional[Dict[str, Any]]:
+        """Summarize verification follow-up required for an evolution item."""
+        alert_level = ""
+        next_action = ""
+        if item.status == EvolutionStatus.FAILED.value:
+            alert_level = "critical"
+            next_action = "manual_intervention"
+        elif item.status == EvolutionStatus.VERIFY_PENDING.value and item.verify_test_name:
+            alert_level = "warning"
+            next_action = f"run_verify_test:{item.verify_test_name}"
+        elif item.status == EvolutionStatus.DISPATCHED.value and item.retry_count > 0:
+            alert_level = "warning"
+            next_action = "redispatch_build"
+        elif item.retry_count > 0:
+            alert_level = "info"
+            next_action = "inspect_retry_state"
+
+        if not alert_level:
+            return None
+
+        return {
+            "item_id": item.id,
+            "title": item.title,
+            "status": item.status,
+            "verify_test_name": item.verify_test_name,
+            "verify_result": item.verify_result,
+            "verify_detail": item.verify_detail,
+            "retry_count": item.retry_count,
+            "max_retries": item.max_retries,
+            "retries_remaining": max(item.max_retries - item.retry_count, 0),
+            "alert_level": alert_level,
+            "next_action": next_action,
+            "source_plaza_id": item.source_plaza_id,
+            "source_discussion_id": item.source_discussion_id,
+            "source_task_ids": list(item.source_task_ids),
+        }
+
+    def get_verification_alerts(
+        self,
+        *,
+        source_plaza_id: str = "",
+        source_discussion_id: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Return pending/failing verification items that need follow-up."""
+        alerts: List[Dict[str, Any]] = []
+        for item in self.evolution_items.values():
+            if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                continue
+            if source_discussion_id and item.source_discussion_id != source_discussion_id:
+                continue
+            alert = self._build_verification_alert(item)
+            if alert:
+                alerts.append(alert)
+        alerts.sort(
+            key=lambda alert: (
+                0 if alert["alert_level"] == "critical" else 1,
+                0 if alert["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+                alert["item_id"],
+            )
+        )
+        return alerts
 
     def close_verified(self) -> List[str]:
         """关闭所有已验证通过的演进项。"""

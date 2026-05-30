@@ -877,6 +877,37 @@ async def get_discussion_verification_queue(plaza_id: str, disc_id: str) -> Dict
     }
 
 
+@router.get(
+    "/{plaza_id}/discussions/{disc_id}/verification-alerts",
+    summary="查看当前讨论关联的验证告警",
+)
+async def get_discussion_verification_alerts(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+    """Return only verification items that currently require follow-up."""
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    from agent_team_api import _evolution_engine
+
+    if not _evolution_engine:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
+
+    alerts = _evolution_engine.get_verification_alerts(
+        source_plaza_id=plaza_id,
+        source_discussion_id=disc_id,
+    )
+    return {
+        "plaza_id": plaza_id,
+        "discussion_id": disc_id,
+        "count": len(alerts),
+        "alerts": alerts,
+    }
+
+
 # ── 用户插话（发给议事长判断） ──────────────────────────────
 
 class InterjectRequest(BaseModel):

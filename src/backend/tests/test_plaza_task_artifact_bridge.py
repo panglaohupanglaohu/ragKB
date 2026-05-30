@@ -310,6 +310,52 @@ class TestPlazaEvolutionSync:
         assert item.build_error == "workflow_failed:test"
         assert item.build_artifacts["build_outcome"] == "failed"
 
+    def test_verify_all_pending_requeues_with_alert_detail(self):
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.evolution_items["evo-requeue"] = EvolutionItem(
+            id="evo-requeue",
+            title="验证失败重试",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-me",
+        )
+        evolution_engine.register_verify_test(
+            "verify-me",
+            lambda: (False, "核心用例仍失败"),
+        )
+
+        result = evolution_engine.verify_all_pending()
+
+        item = evolution_engine.evolution_items["evo-requeue"]
+        assert result["count"] == 1
+        assert item.status == EvolutionStatus.DISPATCHED.value
+        assert item.retry_count == 1
+        assert item.verify_detail == "核心用例仍失败 (retry queued 1/3)"
+        assert evolution_engine.get_verification_alerts()[0]["next_action"] == "redispatch_build"
+
+    def test_verify_all_pending_marks_failed_after_max_retries(self):
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.evolution_items["evo-failed"] = EvolutionItem(
+            id="evo-failed",
+            title="验证失败终止",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-stop",
+            retry_count=2,
+            max_retries=3,
+        )
+        evolution_engine.register_verify_test(
+            "verify-stop",
+            lambda: (False, "核心用例持续失败"),
+        )
+
+        evolution_engine.verify_all_pending()
+
+        item = evolution_engine.evolution_items["evo-failed"]
+        assert item.status == EvolutionStatus.FAILED.value
+        assert item.verify_detail == "核心用例持续失败 (max retries exhausted)"
+        assert evolution_engine.get_verification_alerts()[0]["alert_level"] == "critical"
+
     @pytest.mark.asyncio
     async def test_task_trace_summary_endpoint_returns_linked_evolution_items(
         self,

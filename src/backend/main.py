@@ -82,6 +82,7 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "1.0.0"
     services: Dict[str, bool] = {}
+    details: Dict[str, Any] = {}
 
 
 class LoginRequest(BaseModel):
@@ -467,7 +468,19 @@ async def auth_me(authorization: str = Header(default="")):
 async def health():
     """Health check endpoint."""
     from channels.marine_base import get_default_registry
+
     registry = get_default_registry()
+    sandbox_runtime: Dict[str, Any]
+    try:
+        from sandbox.python_runner import describe_sandbox_runtime
+
+        sandbox_runtime = describe_sandbox_runtime()
+    except Exception as exc:
+        sandbox_runtime = {
+            "mode": "unknown",
+            "ready": False,
+            "error": str(exc),
+        }
     return HealthResponse(
         status="ok",
         version="1.0.0",
@@ -475,6 +488,10 @@ async def health():
             "evolution": registry.get("system_evolution") is not None,
             "bridge_chat": registry.get("bridge_chat") is not None,
             "agent_config": _team_manager is not None,
+            "sandbox_runtime_ready": bool(sandbox_runtime.get("ready")),
+        },
+        details={
+            "sandbox_runtime": sandbox_runtime,
         },
     )
 

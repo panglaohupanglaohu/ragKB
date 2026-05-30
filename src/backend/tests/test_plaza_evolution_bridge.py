@@ -21,6 +21,7 @@ from agents.plaza_engine import PlazaEngine
 from agents.plaza_routes import (
     EvolveRequest,
     evolve_from_discussion,
+    get_discussion_verification_alerts,
     get_discussion_verification_queue,
 )
 from agents.plaza_store import PlazaStore
@@ -200,3 +201,43 @@ class TestPlazaEvolutionBridge:
         assert payload["items"][0]["id"] == "evo-manual"
         assert payload["items"][0]["requires_manual_verify"] is True
         assert payload["items"][0]["verify_detail"] == "Awaiting verify test: manual-check"
+
+    @pytest.mark.asyncio
+    async def test_discussion_verification_alerts_surface_retry_and_manual_verify(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.evolution_items["evo-manual"] = EvolutionItem(
+            id="evo-manual",
+            title="人工验证项",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="manual-check",
+            verify_result="pending",
+            verify_detail="Awaiting verify test: manual-check",
+            source_plaza_id=plaza.id,
+            source_discussion_id=disc.id,
+        )
+        evolution_engine.evolution_items["evo-retry"] = EvolutionItem(
+            id="evo-retry",
+            title="重试项",
+            status=EvolutionStatus.DISPATCHED.value,
+            verify_result="failed",
+            verify_detail="回归失败 (retry queued 1/3)",
+            retry_count=1,
+            source_plaza_id=plaza.id,
+            source_discussion_id=disc.id,
+        )
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", evolution_engine)
+
+        payload = await get_discussion_verification_alerts(plaza.id, disc.id)
+
+        assert payload["count"] == 2
+        assert payload["alerts"][0]["item_id"] == "evo-manual"
+        assert payload["alerts"][0]["alert_level"] == "warning"
+        assert payload["alerts"][0]["next_action"] == "run_verify_test:manual-check"
+        assert payload["alerts"][1]["item_id"] == "evo-retry"
+        assert payload["alerts"][1]["next_action"] == "redispatch_build"

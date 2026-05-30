@@ -74,14 +74,16 @@
 | F-15 | DONE | 共享 plan runtime 已补统一事件回调面，和共享 tool runtime 开始对齐同一套 tracing / state 口子 | `test_plan_loop_runtime.py` |
 | F-16 | DONE | 显式 verify test 的等待原因已回写到演进项/trace 摘要，Plaza discussion 也已开放 verification queue | `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
 | F-17 | DONE | 已开放 recent traces 聚合入口，可按 team/source 直接查看最近任务链路 | `test_plaza_task_artifact_bridge.py` |
+| F-18 | DONE | 验证失败重试、人工验证等待、重试耗尽都已产出 `alert_level / next_action`，Plaza discussion 可直接查询 verification alerts | `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
+| F-19 | DONE | sandbox readiness 已暴露到 `/api/v1/sandbox/runtime-status` 与主健康检查 `/api/v1/health` | `test_sandbox_security.py`, `test_main_health.py` |
 
 ### 当前工作批次（正在推进）
 
 | 卡片 | 对应问题 | 状态 | 当前结论 | 下一步 | 完成定义 |
 |------|----------|:----:|----------|--------|----------|
-| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因和 verification queue 也已可见 | 继续把重试策略、失败告警和 verify queue 消费闭环收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
+| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因、verification queue、verification alerts 也已可见 | 继续把 verify queue 的消费动作、失败升级和自动提醒收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
 | W-02 | #13 缺少可观测性和 tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 已贯穿 Plaza → Task → Execution Artifacts → Evolution，并开放 task / discussion / recent traces 三级查询入口 | 继续补统一结构化日志出口和更广的跨任务检索 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
-| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭和更硬的容器限制 | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭、更硬的容器限制，并可通过 runtime status / health 直接查看 readiness | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
 | W-04 | #4 两套 AgentLoop 并存 | WIP | 已新增 `src/backend/agents/runtime/`，共享工具循环与共享计划循环都已落地；旧 `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用，plan runtime 也已补统一事件回调面 | 继续统一 tracing / budget / state 事件模型，并收缩 compatibility shim | 所有 agent 执行入口复用同一 runtime，兼容层仅保留薄封装 |
 
 ### 下一批（按优先级执行）
@@ -117,8 +119,8 @@
 | 7 | 会话存储升级 | BACKLOG | 未开工 |
 | 8 | `state` 状态机治理 | BACKLOG | 未开工 |
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
-| 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue 都已沉淀，重试/告警待补 |
-| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源与 build 脚本已补，实机验证与发布链待补 |
+| 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue、verification alerts 都已沉淀，重试消费闭环待补 |
+| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源/build 脚本/runtime readiness 已补，实机验证与发布链待补 |
 | 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
 | 13 | 结构化日志 / tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 与 task / discussion / recent traces 查询入口已落地，统一结构化日志出口待补 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
@@ -127,13 +129,13 @@
 
 1. 完成 `W-03` 的 Docker 级隔离收口
 2. 继续 `W-04 / N-03`，收口 runtime 的 tracing / state / event 模型
-3. 回到 `W-01`，把重试策略、失败告警和 verify queue 消费闭环收口
+3. 回到 `W-01`，把 verify queue 的消费动作、失败升级和自动提醒收口
 4. 推进 `W-02`，补统一结构化日志出口与更广的跨任务检索
 5. 给 `N-04` 补前端仪表盘、更精细成本模型与长回路验证
 
 ### 当前验收快照
 
-- 后端测试：`600 passed`
+- 后端测试：`603 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
@@ -151,6 +153,8 @@
 - Recent Traces：已开放 recent traces 聚合入口，可按 team/source 查看最近链路
 - Docker Sandbox：仓库已带 `docker/sandbox/Dockerfile` 与 `scripts/build_sandbox_image.sh`，docker mode 缺镜像会失败关闭
 - Verification Queue：显式 verify test 会回写等待原因，Plaza discussion 可直接查询关联 verification queue
+- Verification Alerts：人工验证等待、重试回退、重试耗尽都会产出 `alert_level / next_action`
+- Sandbox Readiness：主健康检查和 sandbox runtime status 都会直接报告 docker/image readiness
 
 ---
 
