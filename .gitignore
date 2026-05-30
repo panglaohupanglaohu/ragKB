@@ -12,6 +12,7 @@ dist/
 *.log
 *.bak
 config/.api_keys.json
+config/.master_key
 config/users.json
 
 # Runtime-generated state. Keep curated fixtures explicitly if needed.

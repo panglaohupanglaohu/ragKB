@@ -10,7 +10,7 @@ import pytest
 from agents import api as api_module
 from agents.chat_harness import ChatHarness, ProviderConfig
 from agents.models import AgentProfile
-from agents.secret_store import load_default_llm_api_key
+from agents.secret_store import load_default_llm_api_key, load_secret_store
 from agents.skill_library import init_skill_library
 from agents.skill_registry import SkillRegistry
 from agents.tool_executor import get_tool_executor
@@ -66,6 +66,7 @@ def _use_temp_secret_store(monkeypatch, tmp_path):
 
     monkeypatch.setattr(secret_store, "_CONFIG_DIR", tmp_path)
     monkeypatch.setattr(secret_store, "_API_KEYS_PATH", tmp_path / ".api_keys.json")
+    monkeypatch.setattr(secret_store, "_MASTER_KEY_PATH", tmp_path / ".master_key")
 
 
 class TestSecretResolution:
@@ -101,7 +102,27 @@ class TestSecretResolution:
 
         assert load_default_llm_api_key() == "stored-secret"
         payload = json.loads((tmp_path / ".api_keys.json").read_text(encoding="utf-8"))
-        assert payload["__default__"]["llm"] == "stored-secret"
+        assert payload["__encrypted__"] is True
+        assert "stored-secret" not in json.dumps(payload, ensure_ascii=False)
+        assert (tmp_path / ".master_key").exists()
+
+    def test_legacy_plaintext_secret_store_is_migrated_on_read(self, monkeypatch, tmp_path):
+        _use_temp_secret_store(monkeypatch, tmp_path)
+        legacy = {
+            "__default__": {"llm": "legacy-secret"},
+            "team-a": {"model-a": "legacy-model-secret"},
+        }
+        (tmp_path / ".api_keys.json").write_text(
+            json.dumps(legacy, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        loaded = load_secret_store()
+        raw = json.loads((tmp_path / ".api_keys.json").read_text(encoding="utf-8"))
+
+        assert loaded == legacy
+        assert raw["__encrypted__"] is True
+        assert "legacy-secret" not in json.dumps(raw, ensure_ascii=False)
 
 
 class TestToolPermissions:

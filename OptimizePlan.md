@@ -38,6 +38,19 @@
 - `READY`：已明确，下一批可直接开工
 - `BACKLOG`：已收敛问题，但暂未排进当前批次
 
+### 阶段判断（2026-05-30）
+
+- 当前仍处于 **阶段一：止血**
+- **P0 必须项尚未全部完成**
+- 已完成的 P0/高风险项：
+  - `#12 API Key 明文存储`
+  - `#14 token 配额 / 成本告警` 的后端主链
+  - `#3 permissions`（虽属阶段二，但已前置完成）
+- 尚未出关的 P0 卡点：
+  - `#11 run_python / run_pytest` 仍缺 Docker 级强隔离
+  - `#4 统一 AgentLoop` 仍未开始主迁移
+  - `#14 token 配额 / 成本告警` 仍缺前端仪表盘、streaming 记录与长回路验证
+
 ### 已完成铺垫（已落地）
 
 这些工作已经不是“规划”，而是当前仓库里的已完成基础设施：
@@ -51,6 +64,7 @@
 | F-05 | DONE | Task 执行产物已回写到 task metadata，并同步到 EvolutionItem | `test_plaza_task_artifact_bridge.py` |
 | F-06 | DONE | `permissions` 已接入 LLM 工具暴露、AgentLoop 和 ToolExecutor 真正执行入口 | `test_permissions_and_secrets.py` |
 | F-07 | DONE | token usage 已落到 SQLite，预算守卫已接入 ChatHarness，并开放 summary / alerts / budget API | `test_token_budget.py` |
+| F-08 | DONE | 本地 secrets 已改为 Fernet 密文存储，支持旧明文 `.api_keys.json` 自动迁移 | `test_permissions_and_secrets.py` |
 
 ### 当前工作批次（正在推进）
 
@@ -64,7 +78,7 @@
 
 | 卡片 | 对应问题 | 状态 | 为什么现在做 | 直接交付物 | 验证口 |
 |------|----------|:----:|--------------|------------|--------|
-| N-02 | #12 API Key 明文存储 | WIP | env-first + 默认 secrets 文件已接入，tracked 配置不再承载默认 provider 密钥 | 补本地 secrets 加密/轮换，彻底摆脱 JSON 明文 secrets 文件 | 仓库与配置快照中不再出现明文 key，且本地 secrets 至少加密或系统托管 |
+| N-02 | #12 API Key 明文存储 | DONE | env-first + gitignored secret store + Fernet 加密落地；旧明文 store 自动迁移 | 后续可补 key 轮换和系统钥匙串托管 | 仓库与配置快照中不再出现明文 key，且本地 secrets 已加密存储 |
 | N-03 | #4 两套 AgentLoop 并存 | READY | runtime 继续扩前，必须先统一 | `src/backend/agents/runtime/` 单一执行循环 | 旧入口迁移后测试保持通过 |
 | N-04 | #14 无 token 配额和成本告警 | WIP | SQLite usage log、预算守卫、summary / alerts / budget API 已落地；非流式主链已接入拦截与记录 | 补前端仪表盘、streaming 用量记录、更精细成本模型 | 长任务超预算时可中止或告警，且用量可查询可告警 |
 
@@ -95,26 +109,26 @@
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
 | 10 | Plaza 计划自动派发 | WIP | 主链已通，证据闭环继续补 |
 | 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox 已落地，Docker 级隔离待补 |
-| 12 | API Key 脱离明文 JSON | WIP | env-first 与 gitignored default secrets 已接入，本地 secrets 加密待补 |
+| 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
 | 13 | 结构化日志 / tracing | WIP | 已有局部基础，待统一 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
 
 ### 当前建议执行顺序
 
 1. 完成 `W-03` 的 Docker 级隔离收口
-2. 收口 `N-02`，把本地 secrets 从 gitignored 明文文件推进到加密或系统托管
-3. `N-03` 统一 AgentLoop
-4. 回到 `W-01`，把 Plaza 闭环补到 `diff -> verify -> close`
-5. 给 `N-04` 补前端仪表盘与 streaming 用量记录
+2. `N-03` 统一 AgentLoop
+3. 回到 `W-01`，把 Plaza 闭环补到 `diff -> verify -> close`
+4. 给 `N-04` 补前端仪表盘与 streaming 用量记录
+5. 为 secrets 增加 key 轮换或系统钥匙串托管
 
 ### 当前验收快照
 
-- 后端测试：`576 passed`
+- 后端测试：`577 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
 - Permissions：未授权工具不会进入 LLM schema，也会在执行入口被稳定拒绝
-- Secrets：默认 provider 与 model pool 已改为 env-first，并支持 gitignored default secret store
+- Secrets：默认 provider 与 model pool 已改为 env-first；本地 `.api_keys.json` 已切为 Fernet 密文并完成旧明文迁移
 - Budget：token usage 已写入 SQLite，超预算请求会被优雅拦截，并可通过 `/usage/*` API 查询
 - 轻量沙箱：`run_python / run_pytest` 已接入 `LiteSandbox` 并有安全回归测试
 
