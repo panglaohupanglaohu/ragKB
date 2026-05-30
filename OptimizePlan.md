@@ -72,7 +72,7 @@
 |------|----------|:----:|----------|--------|----------|
 | W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链；已支持 discussion/task/evolution 双向追踪 | 补 `diff/patch` 级证据沉淀，补自动 verify/close 收口 | Plaza 讨论可产出任务、产物、验证状态，且全链路可追踪 |
 | W-02 | #13 缺少可观测性和 tracing | WIP | 已有 pipeline events、workflow summary、task artifacts，但还不是统一 tracing | 统一 `task_id/discussion_id/evolution_item_id` 关联字段，补结构化日志出口 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
-| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；已阻断危险 import / 调用、文件写入、明显路径越界与超时 | 补 Docker 级隔离、网络级封禁和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 入口、配置解析和失败关闭语义已补上 | 补镜像构建/发布、docker mode 真实集成验证和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
 
 ### 下一批（按优先级执行）
 
@@ -108,7 +108,7 @@
 | 8 | `state` 状态机治理 | BACKLOG | 未开工 |
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
 | 10 | Plaza 计划自动派发 | WIP | 主链已通，证据闭环继续补 |
-| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox 已落地，Docker 级隔离待补 |
+| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 入口已落地，生产级镜像与实机验证待补 |
 | 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
 | 13 | 结构化日志 / tracing | WIP | 已有局部基础，待统一 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
@@ -123,14 +123,14 @@
 
 ### 当前验收快照
 
-- 后端测试：`577 passed`
+- 后端测试：`581 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
 - Permissions：未授权工具不会进入 LLM schema，也会在执行入口被稳定拒绝
 - Secrets：默认 provider 与 model pool 已改为 env-first；本地 `.api_keys.json` 已切为 Fernet 密文并完成旧明文迁移
 - Budget：token usage 已写入 SQLite，超预算请求会被优雅拦截，并可通过 `/usage/*` API 查询
-- 轻量沙箱：`run_python / run_pytest` 已接入 `LiteSandbox` 并有安全回归测试
+- 沙箱：`run_python / run_pytest` 已接入 `LiteSandbox`，`docker` 模式入口与失败关闭语义已落地，并有安全回归测试
 
 ---
 

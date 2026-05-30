@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from agents.agent_toolbox import tool_run_python, tool_run_pytest
+from sandbox.python_runner import get_sandbox, load_sandbox_config
+from sandbox.python_runner_docker import DockerSandbox
 
 
 class TestRunPythonSandbox:
@@ -37,3 +42,64 @@ class TestRunPytestSandbox:
     def test_collect_only_still_works(self):
         result = tool_run_pytest("tests/test_models.py --co")
         assert result["ok"] is True
+
+
+class TestSandboxModeSelection:
+    def test_loads_docker_mode_from_settings(self, monkeypatch, tmp_path):
+        from sandbox import python_runner as runner_module
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "sandbox": {
+                        "mode": "docker",
+                        "docker_image": "custom-sandbox:latest",
+                        "memory_limit_mb": 128,
+                        "file_size_limit_kb": 256,
+                        "network_enabled": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner_module, "_SETTINGS_PATH", settings_path)
+
+        config = load_sandbox_config()
+
+        assert config.mode == "docker"
+        assert config.docker_image == "custom-sandbox:latest"
+
+    def test_get_sandbox_returns_docker_instance(self, monkeypatch, tmp_path):
+        from sandbox import python_runner as runner_module
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps({"sandbox": {"mode": "docker"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner_module, "_SETTINGS_PATH", settings_path)
+        monkeypatch.setattr(runner_module, "_sandbox_instance", None)
+        monkeypatch.setattr(runner_module, "_sandbox_signature", None)
+
+        sandbox = get_sandbox()
+
+        assert isinstance(sandbox, DockerSandbox)
+
+    def test_docker_mode_fails_closed_when_docker_missing(self, monkeypatch, tmp_path):
+        sandbox = DockerSandbox()
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        result = sandbox.run_python("print('hi')", cwd=Path(tmp_path), timeout=1)
+
+        assert result.ok is False
+        assert "not found" in result.error.lower()
+
+    def test_docker_pytest_command_uses_read_only_mount_and_no_network(self, tmp_path):
+        sandbox = DockerSandbox(image="sandbox:test")
+
+        command = sandbox.describe_command(cwd=Path(tmp_path), target="tests/test_models.py --co")
+
+        assert "--read-only" in command
+        assert "--network none" in command
+        assert "sandbox:test" in command

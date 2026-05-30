@@ -7,8 +7,9 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
+from .python_runner_docker import DockerSandbox
 from .python_runner_lite import LiteSandbox
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class SandboxConfig:
     memory_limit_mb: int = 256
     file_size_limit_kb: int = 512
     network_enabled: bool = False
+    docker_image: str = "agentsgroup-sandbox:python3.11"
 
 
 def load_sandbox_config() -> SandboxConfig:
@@ -39,14 +41,15 @@ def load_sandbox_config() -> SandboxConfig:
         memory_limit_mb=int(sandbox.get("memory_limit_mb", 256) or 256),
         file_size_limit_kb=int(sandbox.get("file_size_limit_kb", 512) or 512),
         network_enabled=bool(sandbox.get("network_enabled", False)),
+        docker_image=str(sandbox.get("docker_image", "agentsgroup-sandbox:python3.11") or "agentsgroup-sandbox:python3.11"),
     )
 
 
-_sandbox_instance: Optional[LiteSandbox] = None
+_sandbox_instance: Optional[Any] = None
 _sandbox_signature: Optional[tuple] = None
 
 
-def get_sandbox() -> LiteSandbox:
+def get_sandbox() -> Any:
     global _sandbox_instance, _sandbox_signature
     config = load_sandbox_config()
     signature = (
@@ -54,17 +57,25 @@ def get_sandbox() -> LiteSandbox:
         config.memory_limit_mb,
         config.file_size_limit_kb,
         config.network_enabled,
+        config.docker_image,
     )
     if _sandbox_instance is not None and _sandbox_signature == signature:
         return _sandbox_instance
 
-    if config.mode != "lite":
-        logger.warning("Sandbox mode '%s' not implemented yet, falling back to lite", config.mode)
-
-    _sandbox_instance = LiteSandbox(
-        memory_limit_mb=config.memory_limit_mb,
-        file_size_limit_kb=config.file_size_limit_kb,
-        network_enabled=config.network_enabled,
-    )
+    if config.mode == "docker":
+        _sandbox_instance = DockerSandbox(
+            image=config.docker_image,
+            memory_limit_mb=config.memory_limit_mb,
+            file_size_limit_kb=config.file_size_limit_kb,
+            network_enabled=config.network_enabled,
+        )
+    else:
+        if config.mode != "lite":
+            logger.warning("Sandbox mode '%s' not implemented, falling back to lite", config.mode)
+        _sandbox_instance = LiteSandbox(
+            memory_limit_mb=config.memory_limit_mb,
+            file_size_limit_kb=config.file_size_limit_kb,
+            network_enabled=config.network_enabled,
+        )
     _sandbox_signature = signature
     return _sandbox_instance
