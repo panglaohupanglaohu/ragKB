@@ -6,6 +6,7 @@ import time
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from ..execution_registry import ToolPermissionContext
+from .events import make_runtime_event_emitter
 
 
 def _extract_available_tool_names(tools: Optional[List[Dict[str, Any]]]) -> List[str]:
@@ -65,32 +66,33 @@ async def run_plan_loop(
         prompt,
         available_tools=_extract_available_tool_names(tools),
     )
+    _runtime_id, emit_event = make_runtime_event_emitter(
+        loop_kind="plan_loop",
+        session_id=session_id,
+        on_event=on_event,
+    )
     if plan_middleware:
         plan = plan_middleware(plan)
 
     plan.status = "running"
     observations: List[Dict[str, Any]] = []
     iteration = 0
-    if on_event:
-        on_event("plan_start", {"goal": prompt, "steps": len(plan.steps)})
+    emit_event("plan_start", {"goal": prompt, "steps": len(plan.steps)})
 
     for step in plan.steps:
         if iteration >= max_iterations:
             step.status = PlanStepStatus.SKIPPED
             step.error = "Iteration cap reached"
-            if on_event:
-                on_event("step_complete", {"step": step.to_dict()})
+            emit_event("step_complete", {"step": step.to_dict()})
             continue
         iteration += 1
-        if on_event:
-            on_event("step_start", {"step": step.to_dict()})
+        emit_event("step_start", {"step": step.to_dict()})
 
         if step.action == "tool_call" and step.tool_name:
             if not _deps_satisfied(plan, step, PlanStepStatus.COMPLETED):
                 step.status = PlanStepStatus.SKIPPED
                 step.error = "Dependencies not met"
-                if on_event:
-                    on_event("step_complete", {"step": step.to_dict()})
+                emit_event("step_complete", {"step": step.to_dict()})
                 continue
 
             step.status = PlanStepStatus.RUNNING
@@ -117,18 +119,17 @@ async def run_plan_loop(
                     "output": result.output[:1000],
                 }
             )
-            if on_event:
-                on_event(
-                    "tool_result",
-                    {
-                        "step_id": step.step_id,
-                        "tool": step.tool_name,
-                        "success": result.success,
-                        "output": result.output[:500],
-                        "duration_ms": step.duration_ms,
-                    },
-                )
-                on_event("step_complete", {"step": step.to_dict()})
+            emit_event(
+                "tool_result",
+                {
+                    "step_id": step.step_id,
+                    "tool": step.tool_name,
+                    "success": result.success,
+                    "output": result.output[:500],
+                    "duration_ms": step.duration_ms,
+                },
+            )
+            emit_event("step_complete", {"step": step.to_dict()})
             continue
 
         if step.action == "think":
@@ -139,8 +140,7 @@ async def run_plan_loop(
         elif step.action == "delegate":
             step.status = PlanStepStatus.COMPLETED
             step.result = f"已委派: {step.description}"
-        if on_event:
-            on_event("step_complete", {"step": step.to_dict()})
+        emit_event("step_complete", {"step": step.to_dict()})
 
     synthesis_prompt = _build_synthesis_prompt(prompt, plan, observations)
     final_result = await harness.chat(
@@ -153,9 +153,8 @@ async def run_plan_loop(
     )
     plan.status = "completed"
     plan.final_response = final_result.response
-    if on_event:
-        on_event("plan_complete", {"iterations": iteration, "observations": len(observations)})
-        on_event("loop_end", {"reason": "completed", "iterations": iteration})
+    emit_event("plan_complete", {"iterations": iteration, "observations": len(observations)})
+    emit_event("loop_end", {"reason": "completed", "iterations": iteration})
     return AgentLoopResult(
         plan=plan,
         observations=observations,
@@ -188,37 +187,34 @@ async def stream_plan_loop(
         prompt,
         available_tools=_extract_available_tool_names(tools),
     )
+    _runtime_id, emit_event = make_runtime_event_emitter(
+        loop_kind="plan_loop",
+        session_id=session_id,
+        on_event=on_event,
+    )
     if plan_middleware:
         plan = plan_middleware(plan)
     plan.status = "running"
     observations: List[Dict[str, Any]] = []
     iteration = 0
 
-    if on_event:
-        on_event("plan_start", {"goal": prompt, "steps": len(plan.steps)})
-    yield {"type": "plan_start", "plan": plan.to_dict()}
+    yield emit_event("plan_start", {"goal": prompt, "steps": len(plan.steps), "plan": plan.to_dict()})
 
     for step in plan.steps:
         if iteration >= max_iterations:
             step.status = PlanStepStatus.SKIPPED
             step.error = "Iteration cap reached"
-            if on_event:
-                on_event("step_complete", {"step": step.to_dict()})
-            yield {"type": "step_complete", "step": step.to_dict()}
+            yield emit_event("step_complete", {"step": step.to_dict()})
             continue
         iteration += 1
 
-        if on_event:
-            on_event("step_start", {"step": step.to_dict()})
-        yield {"type": "step_start", "step": step.to_dict()}
+        yield emit_event("step_start", {"step": step.to_dict()})
 
         if step.action == "tool_call" and step.tool_name:
             if not _deps_satisfied(plan, step, PlanStepStatus.COMPLETED):
                 step.status = PlanStepStatus.SKIPPED
                 step.error = "Dependencies not met"
-                if on_event:
-                    on_event("step_complete", {"step": step.to_dict()})
-                yield {"type": "step_complete", "step": step.to_dict()}
+                yield emit_event("step_complete", {"step": step.to_dict()})
                 continue
 
             step.status = PlanStepStatus.RUNNING
@@ -241,26 +237,17 @@ async def stream_plan_loop(
                     "output": result.output[:1000],
                 }
             )
-            yield {
-                "type": "tool_result",
-                "step_id": step.step_id,
-                "tool": step.tool_name,
-                "success": result.success,
+            yield emit_event(
+                "tool_result",
+                {
+                    "step_id": step.step_id,
+                    "tool": step.tool_name,
+                    "success": result.success,
                     "output": result.output[:500],
                     "duration_ms": step.duration_ms,
-                }
-            if on_event:
-                on_event(
-                    "tool_result",
-                    {
-                        "step_id": step.step_id,
-                        "tool": step.tool_name,
-                        "success": result.success,
-                        "output": result.output[:500],
-                        "duration_ms": step.duration_ms,
-                    },
-                )
-                on_event("step_complete", {"step": step.to_dict()})
+                },
+            )
+            yield emit_event("step_complete", {"step": step.to_dict()})
             continue
 
         step.status = PlanStepStatus.COMPLETED
@@ -268,18 +255,17 @@ async def stream_plan_loop(
             step.result = f"思考: {step.description}"
         elif step.action == "delegate":
             step.result = f"已委派: {step.description}"
-        if on_event:
-            on_event("step_complete", {"step": step.to_dict()})
-        yield {"type": "step_complete", "step": step.to_dict()}
+        yield emit_event("step_complete", {"step": step.to_dict()})
 
     plan.status = "completed"
-    if on_event:
-        on_event("plan_complete", {"iterations": iteration, "observations": len(observations)})
-    yield {
-        "type": "plan_complete",
-        "progress": plan.progress,
-        "observations": len(observations),
-    }
+    yield emit_event(
+        "plan_complete",
+        {
+            "progress": plan.progress,
+            "iterations": iteration,
+            "observations": len(observations),
+        },
+    )
 
     synthesis_prompt = _build_synthesis_prompt(prompt, plan, observations)
     async for chunk in harness.stream_chat(
@@ -290,5 +276,4 @@ async def stream_plan_loop(
         system_prompt=system_prompt,
     ):
         yield chunk
-    if on_event:
-        on_event("loop_end", {"reason": "completed", "iterations": iteration})
+    emit_event("loop_end", {"reason": "completed", "iterations": iteration})

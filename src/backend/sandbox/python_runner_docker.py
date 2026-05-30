@@ -24,6 +24,11 @@ class DockerSandbox(LiteSandbox):
         max_output_bytes: int = 32 * 1024,
         memory_limit_mb: int = 256,
         cpu_limit: float = 0.5,
+        pids_limit: int = 64,
+        tmpfs_tmp_mb: int = 64,
+        tmpfs_run_mb: int = 16,
+        nofile_limit: int = 256,
+        nproc_limit: int = 64,
         file_size_limit_kb: int = 512,
         network_enabled: bool = False,
     ) -> None:
@@ -37,6 +42,11 @@ class DockerSandbox(LiteSandbox):
         self.image = image
         self.docker_executable = docker_executable
         self.cpu_limit = cpu_limit
+        self.pids_limit = pids_limit
+        self.tmpfs_tmp_mb = tmpfs_tmp_mb
+        self.tmpfs_run_mb = tmpfs_run_mb
+        self.nofile_limit = nofile_limit
+        self.nproc_limit = nproc_limit
 
     def run_python(self, code: str, *, cwd: Path, timeout: int = 30) -> SandboxResult:
         try:
@@ -120,11 +130,17 @@ class DockerSandbox(LiteSandbox):
             str(self.cpu_limit),
             "--read-only",
             "--tmpfs",
-            "/tmp:size=64m,noexec,nosuid,nodev",
+            f"/tmp:size={self.tmpfs_tmp_mb}m,noexec,nosuid,nodev",
             "--tmpfs",
-            "/run:size=16m,noexec,nosuid,nodev",
+            f"/run:size={self.tmpfs_run_mb}m,noexec,nosuid,nodev",
             "--pids-limit",
-            "64",
+            str(self.pids_limit),
+            "--ulimit",
+            f"nofile={self.nofile_limit}:{self.nofile_limit}",
+            "--ulimit",
+            f"nproc={self.nproc_limit}:{self.nproc_limit}",
+            "--ipc",
+            "none",
             "--cap-drop",
             "ALL",
             "--security-opt",
@@ -155,6 +171,20 @@ class DockerSandbox(LiteSandbox):
         cmd.append(self.image)
         cmd.extend(inner_cmd)
         return cmd
+
+    def describe_limits(self) -> dict:
+        """Return the active resource limits for runtime status reporting."""
+        return {
+            "memory_limit_mb": self.memory_limit_mb,
+            "cpu_limit": self.cpu_limit,
+            "pids_limit": self.pids_limit,
+            "tmpfs_tmp_mb": self.tmpfs_tmp_mb,
+            "tmpfs_run_mb": self.tmpfs_run_mb,
+            "nofile_limit": self.nofile_limit,
+            "nproc_limit": self.nproc_limit,
+            "file_size_limit_kb": self.file_size_limit_kb,
+            "network_enabled": self.network_enabled,
+        }
 
     def describe_command(self, *, cwd: Path, target: str = "") -> str:
         """Testing helper: render the docker command for a pytest run."""

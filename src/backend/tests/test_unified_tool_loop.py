@@ -171,7 +171,12 @@ async def test_shared_runtime_filters_and_blocks_disallowed_tools(monkeypatch):
 
     loop_start = next(payload for kind, payload in events if kind == "loop_start")
     assert "write_file" not in loop_start["tools"]
+    assert loop_start["runtime_id"]
+    assert loop_start["loop_kind"] == "tool_loop"
+    assert loop_start["sequence"] == 1
     assert dispatch_calls == []
     assert result.ok is True
+    assert result.runtime_id == loop_start["runtime_id"]
     assert result.log[0]["name"] == "write_file"
     assert result.log[0]["ok"] is False
+    assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))

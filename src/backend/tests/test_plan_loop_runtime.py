@@ -85,6 +85,9 @@ async def test_run_plan_loop_executes_steps_and_uses_synthesis_prompt(monkeypatc
     assert harness.chat_calls[0]["session_id"] == "sess-1"
     assert [event[0] for event in events[:3]] == ["plan_start", "step_start", "tool_result"]
     assert events[-1][0] == "loop_end"
+    assert all(payload["runtime_id"] == "sess-1" for _, payload in events)
+    assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))
+    assert events[0][1]["loop_kind"] == "plan_loop"
 
 
 @pytest.mark.asyncio
@@ -139,6 +142,10 @@ async def test_stream_plan_loop_skips_after_iteration_cap_and_streams_synthesis(
     assert events[-1]["type"] == "message_stop"
     assert callback_events[0][0] == "plan_start"
     assert callback_events[-1][0] == "loop_end"
+    runtime_events = [event for event in events if event["type"] in {"plan_start", "step_start", "tool_result", "step_complete", "plan_complete"}]
+    assert runtime_events
+    assert all(event["runtime_id"] == "sess-2" for event in runtime_events)
+    assert [event["sequence"] for event in runtime_events] == list(range(1, len(runtime_events) + 1))
 
 
 @pytest.mark.asyncio

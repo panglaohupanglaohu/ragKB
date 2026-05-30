@@ -14,6 +14,7 @@ from ..agent_toolbox import dispatch_tool_call, get_tools_for_role
 from ..budget import UsageRecord, get_budget_guard
 from ..chat_harness import ChatHarness, LLMClient, ProviderConfig, UsageSummary
 from ..execution_registry import ToolPermissionContext
+from .events import make_runtime_event_emitter
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class ToolLoopResult:
     files_changed: List[str] = field(default_factory=list)
     iterations: int = 0
     log: List[Dict[str, Any]] = field(default_factory=list)
+    runtime_id: str = ""
     final_message: str = ""
     error: str = ""
     usage: UsageSummary = field(default_factory=UsageSummary)
@@ -41,6 +43,8 @@ class ToolLoopResult:
             "iterations": self.iterations,
             "log": list(self.log),
         }
+        if self.runtime_id:
+            payload["runtime_id"] = self.runtime_id
         if self.final_message:
             payload["final_message"] = self.final_message
         if self.error:
@@ -76,7 +80,7 @@ def _messages_char_count(messages: List[Dict[str, Any]]) -> int:
 
 def _compact_old_tool_results(
     messages: List[Dict[str, Any]],
-    on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    emit_event: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> None:
     total = _messages_char_count(messages)
     if total <= _CONTEXT_BUDGET_CHARS:
@@ -99,15 +103,15 @@ def _compact_old_tool_results(
             freed,
             total,
         )
-        if on_event:
-            on_event("context_compact", {"freed_chars": freed, "was": total})
+        if emit_event:
+            emit_event("context_compact", {"freed_chars": freed, "was": total})
 
 
 def _maybe_inject_nudge(
     messages: List[Dict[str, Any]],
     iteration: int,
     max_iterations: int,
-    on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    emit_event: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> None:
     threshold = int(max_iterations * _ITERATION_NUDGE_RATIO)
     if iteration != threshold:
@@ -118,8 +122,8 @@ def _maybe_inject_nudge(
         "工具提交成果；优先完成最关键的修改，不要继续大范围探索。"
     )
     messages.append({"role": "system", "content": nudge})
-    if on_event:
-        on_event("nudge", {"iteration": iteration, "max": max_iterations})
+    if emit_event:
+        emit_event("nudge", {"iteration": iteration, "max": max_iterations})
 
 
 def _summarize_result(name: str, result: Dict[str, Any]) -> str:
@@ -178,6 +182,11 @@ async def run_tool_loop(
     on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     permission_context: Optional[ToolPermissionContext] = None,
 ) -> ToolLoopResult:
+    runtime_id, emit_event = make_runtime_event_emitter(
+        loop_kind="tool_loop",
+        session_id=session_id,
+        on_event=on_event,
+    )
     tools = _filtered_tools(role, permission_context)
     tool_names = [t["function"]["name"] for t in tools]
     tool_name_set = set(tool_names)
@@ -192,12 +201,11 @@ async def run_tool_loop(
     tool_log: List[Dict[str, Any]] = []
     summary = ""
 
-    if on_event:
-        on_event("loop_start", {"role": role, "tools": tool_names})
+    emit_event("loop_start", {"role": role, "tools": tool_names})
 
     for iteration in range(max_iterations):
-        _maybe_inject_nudge(messages, iteration, max_iterations, on_event)
-        _compact_old_tool_results(messages, on_event)
+        _maybe_inject_nudge(messages, iteration, max_iterations, emit_event)
+        _compact_old_tool_results(messages, emit_event)
 
         estimated_tokens = ChatHarness._estimate_tokens_from_messages(
             messages,
@@ -211,9 +219,8 @@ async def run_tool_loop(
         )
         if not budget_check.allowed:
             error_msg = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
-            if on_event:
-                on_event("error", {"iteration": iteration, "error": error_msg})
-                on_event("loop_end", {"reason": "budget_exceeded", "iteration": iteration})
+            emit_event("error", {"iteration": iteration, "error": error_msg})
+            emit_event("loop_end", {"reason": "budget_exceeded", "iteration": iteration})
             return ToolLoopResult(
                 ok=bool(files_changed or summary),
                 summary=summary,
@@ -222,6 +229,7 @@ async def run_tool_loop(
                 log=tool_log,
                 error=error_msg,
                 usage=usage_total,
+                runtime_id=runtime_id,
             )
 
         started_at = time.monotonic()
@@ -234,15 +242,14 @@ async def run_tool_loop(
         )
         if raw.get("error"):
             error_msg = raw.get("message", "LLM call failed")
-            if on_event:
-                on_event("error", {"iteration": iteration, "error": error_msg})
-                on_event(
-                    "loop_end",
-                    {
-                        "reason": "network_error_partial" if files_changed or summary else "network_error",
-                        "iteration": iteration,
-                    },
-                )
+            emit_event("error", {"iteration": iteration, "error": error_msg})
+            emit_event(
+                "loop_end",
+                {
+                    "reason": "network_error_partial" if files_changed or summary else "network_error",
+                    "iteration": iteration,
+                },
+            )
             return ToolLoopResult(
                 ok=bool(files_changed or summary),
                 summary=summary or f"(network error after {iteration} turns)",
@@ -251,6 +258,7 @@ async def run_tool_loop(
                 log=tool_log,
                 error=error_msg,
                 usage=usage_total,
+                runtime_id=runtime_id,
             )
 
         turn_usage = _record_usage(
@@ -270,17 +278,16 @@ async def run_tool_loop(
         content = message.get("content") or message.get("reasoning") or ""
         tool_calls = message.get("tool_calls") or []
         finish_reason = choice.get("finish_reason", "")
-        if on_event:
-            on_event(
-                "model_turn",
-                {
-                    "iteration": iteration,
-                    "elapsed": round(time.monotonic() - started_at, 2),
-                    "content_chars": len(content),
-                    "tool_call_count": len(tool_calls),
-                    "finish_reason": finish_reason,
-                },
-            )
+        emit_event(
+            "model_turn",
+            {
+                "iteration": iteration,
+                "elapsed": round(time.monotonic() - started_at, 2),
+                "content_chars": len(content),
+                "tool_call_count": len(tool_calls),
+                "finish_reason": finish_reason,
+            },
+        )
 
         assistant_message: Dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
@@ -290,8 +297,7 @@ async def run_tool_loop(
         if not tool_calls:
             if not summary and content:
                 summary = content[:1000]
-            if on_event:
-                on_event("loop_end", {"reason": "no_tool_call", "iteration": iteration})
+            emit_event("loop_end", {"reason": "no_tool_call", "iteration": iteration})
             return ToolLoopResult(
                 ok=True,
                 summary=summary,
@@ -300,6 +306,7 @@ async def run_tool_loop(
                 log=tool_log,
                 final_message=content,
                 usage=usage_total,
+                runtime_id=runtime_id,
             )
 
         finished = False
@@ -308,8 +315,7 @@ async def run_tool_loop(
             function = tool_call.get("function", {}) or {}
             name = function.get("name", "")
             args_raw = function.get("arguments", "") or "{}"
-            if on_event:
-                on_event("tool_call", {"name": name, "args": args_raw[:500]})
+            emit_event("tool_call", {"name": name, "args": args_raw[:500]})
 
             if name == "finish":
                 try:
@@ -357,15 +363,14 @@ async def run_tool_loop(
                     "summary": _summarize_result(name, tool_result),
                 }
             )
-            if on_event:
-                on_event(
-                    "tool_result",
-                    {
-                        "name": name,
-                        "ok": bool(tool_result.get("ok")),
-                        "summary": tool_log[-1]["summary"],
-                    },
-                )
+            emit_event(
+                "tool_result",
+                {
+                    "name": name,
+                    "ok": bool(tool_result.get("ok")),
+                    "summary": tool_log[-1]["summary"],
+                },
+            )
             messages.append(
                 {
                     "role": "tool",
@@ -376,8 +381,7 @@ async def run_tool_loop(
             )
 
         if finished:
-            if on_event:
-                on_event("loop_end", {"reason": "finish_called", "iteration": iteration})
+            emit_event("loop_end", {"reason": "finish_called", "iteration": iteration})
             return ToolLoopResult(
                 ok=True,
                 summary=summary,
@@ -385,16 +389,16 @@ async def run_tool_loop(
                 iterations=iteration + 1,
                 log=tool_log,
                 usage=usage_total,
+                runtime_id=runtime_id,
             )
 
-    if on_event:
-        on_event(
-            "loop_end",
-            {
-                "reason": "iteration_cap_partial" if files_changed or summary else "iteration_cap",
-                "iteration": max_iterations,
-            },
-        )
+    emit_event(
+        "loop_end",
+        {
+            "reason": "iteration_cap_partial" if files_changed or summary else "iteration_cap",
+            "iteration": max_iterations,
+        },
+    )
     return ToolLoopResult(
         ok=bool(files_changed or summary),
         summary=summary or (
@@ -407,6 +411,7 @@ async def run_tool_loop(
         log=tool_log,
         error="" if files_changed or summary else f"iteration cap hit ({max_iterations})",
         usage=usage_total,
+        runtime_id=runtime_id,
     )
 
 

@@ -66,6 +66,12 @@ class TestSandboxModeSelection:
                         "mode": "docker",
                         "docker_image": "custom-sandbox:latest",
                         "memory_limit_mb": 128,
+                        "cpu_limit": 0.75,
+                        "pids_limit": 32,
+                        "tmpfs_tmp_mb": 48,
+                        "tmpfs_run_mb": 12,
+                        "nofile_limit": 128,
+                        "nproc_limit": 32,
                         "file_size_limit_kb": 256,
                         "network_enabled": False,
                     }
@@ -79,6 +85,9 @@ class TestSandboxModeSelection:
 
         assert config.mode == "docker"
         assert config.docker_image == "custom-sandbox:latest"
+        assert config.cpu_limit == 0.75
+        assert config.pids_limit == 32
+        assert config.nofile_limit == 128
 
     def test_get_sandbox_returns_docker_instance(self, monkeypatch, tmp_path):
         from sandbox import python_runner as runner_module
@@ -131,6 +140,29 @@ class TestSandboxModeSelection:
         assert "--user 65534:65534" in command
         assert "sandbox:test" in command
 
+    def test_docker_pytest_command_includes_resource_limits(self, tmp_path):
+        sandbox = DockerSandbox(
+            image="sandbox:test",
+            memory_limit_mb=384,
+            cpu_limit=1.25,
+            pids_limit=24,
+            tmpfs_tmp_mb=96,
+            tmpfs_run_mb=24,
+            nofile_limit=96,
+            nproc_limit=24,
+        )
+
+        command = sandbox.describe_command(cwd=Path(tmp_path), target="tests/test_models.py --co")
+
+        assert "--memory 384m" in command
+        assert "--cpus 1.25" in command
+        assert "--pids-limit 24" in command
+        assert "--ulimit nofile=96:96" in command
+        assert "--ulimit nproc=24:24" in command
+        assert "/tmp:size=96m,noexec,nosuid,nodev" in command
+        assert "/run:size=24m,noexec,nosuid,nodev" in command
+        assert "--ipc none" in command
+
     def test_describe_sandbox_runtime_reports_docker_readiness(self, monkeypatch, tmp_path):
         from sandbox import python_runner as runner_module
 
@@ -151,6 +183,8 @@ class TestSandboxModeSelection:
         assert status["ready"] is True
         assert status["build_command"] == "./scripts/build_sandbox_image.sh"
         assert status["last_self_check"] == {}
+        assert status["resource_limits"]["memory_limit_mb"] == 256
+        assert status["resource_limits"]["pids_limit"] == 64
 
     def test_describe_sandbox_runtime_includes_last_self_check(self, monkeypatch, tmp_path):
         from sandbox import python_runner as runner_module

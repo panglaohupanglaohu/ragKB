@@ -22,6 +22,12 @@ _SETTINGS_PATH = Path(__file__).resolve().parents[3] / "config" / "settings.json
 class SandboxConfig:
     mode: str = "lite"
     memory_limit_mb: int = 256
+    cpu_limit: float = 0.5
+    pids_limit: int = 64
+    tmpfs_tmp_mb: int = 64
+    tmpfs_run_mb: int = 16
+    nofile_limit: int = 256
+    nproc_limit: int = 64
     file_size_limit_kb: int = 512
     network_enabled: bool = False
     docker_image: str = "agentsgroup-sandbox:python3.11"
@@ -40,6 +46,12 @@ def load_sandbox_config() -> SandboxConfig:
     return SandboxConfig(
         mode=str(sandbox.get("mode", "lite") or "lite"),
         memory_limit_mb=int(sandbox.get("memory_limit_mb", 256) or 256),
+        cpu_limit=float(sandbox.get("cpu_limit", 0.5) or 0.5),
+        pids_limit=int(sandbox.get("pids_limit", 64) or 64),
+        tmpfs_tmp_mb=int(sandbox.get("tmpfs_tmp_mb", 64) or 64),
+        tmpfs_run_mb=int(sandbox.get("tmpfs_run_mb", 16) or 16),
+        nofile_limit=int(sandbox.get("nofile_limit", 256) or 256),
+        nproc_limit=int(sandbox.get("nproc_limit", 64) or 64),
         file_size_limit_kb=int(sandbox.get("file_size_limit_kb", 512) or 512),
         network_enabled=bool(sandbox.get("network_enabled", False)),
         docker_image=str(sandbox.get("docker_image", "agentsgroup-sandbox:python3.11") or "agentsgroup-sandbox:python3.11"),
@@ -65,6 +77,17 @@ def describe_sandbox_runtime() -> dict:
         "file_size_limit_kb": config.file_size_limit_kb,
         "network_enabled": config.network_enabled,
         "docker_image": config.docker_image,
+        "resource_limits": {
+            "memory_limit_mb": config.memory_limit_mb,
+            "cpu_limit": config.cpu_limit,
+            "pids_limit": config.pids_limit,
+            "tmpfs_tmp_mb": config.tmpfs_tmp_mb,
+            "tmpfs_run_mb": config.tmpfs_run_mb,
+            "nofile_limit": config.nofile_limit,
+            "nproc_limit": config.nproc_limit,
+            "file_size_limit_kb": config.file_size_limit_kb,
+            "network_enabled": config.network_enabled,
+        },
         "ready": True,
     }
     if config.mode != "docker":
@@ -84,10 +107,17 @@ def describe_sandbox_runtime() -> dict:
         sandbox = DockerSandbox(
             image=config.docker_image,
             memory_limit_mb=config.memory_limit_mb,
+            cpu_limit=config.cpu_limit,
+            pids_limit=config.pids_limit,
+            tmpfs_tmp_mb=config.tmpfs_tmp_mb,
+            tmpfs_run_mb=config.tmpfs_run_mb,
+            nofile_limit=config.nofile_limit,
+            nproc_limit=config.nproc_limit,
             file_size_limit_kb=config.file_size_limit_kb,
             network_enabled=config.network_enabled,
         )
         image_available = sandbox._docker_image_available()
+        payload["resource_limits"] = sandbox.describe_limits()
 
     payload.update(
         {
@@ -107,6 +137,12 @@ def get_sandbox() -> Any:
     signature = (
         config.mode,
         config.memory_limit_mb,
+        config.cpu_limit,
+        config.pids_limit,
+        config.tmpfs_tmp_mb,
+        config.tmpfs_run_mb,
+        config.nofile_limit,
+        config.nproc_limit,
         config.file_size_limit_kb,
         config.network_enabled,
         config.docker_image,
@@ -118,6 +154,12 @@ def get_sandbox() -> Any:
         _sandbox_instance = DockerSandbox(
             image=config.docker_image,
             memory_limit_mb=config.memory_limit_mb,
+            cpu_limit=config.cpu_limit,
+            pids_limit=config.pids_limit,
+            tmpfs_tmp_mb=config.tmpfs_tmp_mb,
+            tmpfs_run_mb=config.tmpfs_run_mb,
+            nofile_limit=config.nofile_limit,
+            nproc_limit=config.nproc_limit,
             file_size_limit_kb=config.file_size_limit_kb,
             network_enabled=config.network_enabled,
         )
