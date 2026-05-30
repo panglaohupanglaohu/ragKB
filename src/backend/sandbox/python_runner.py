@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -47,6 +48,49 @@ def load_sandbox_config() -> SandboxConfig:
 
 _sandbox_instance: Optional[Any] = None
 _sandbox_signature: Optional[tuple] = None
+
+
+def describe_sandbox_runtime() -> dict:
+    """Return the current sandbox runtime readiness and config summary."""
+    config = load_sandbox_config()
+    payload = {
+        "mode": config.mode,
+        "memory_limit_mb": config.memory_limit_mb,
+        "file_size_limit_kb": config.file_size_limit_kb,
+        "network_enabled": config.network_enabled,
+        "docker_image": config.docker_image,
+        "ready": True,
+    }
+    if config.mode != "docker":
+        payload.update(
+            {
+                "docker_available": False,
+                "image_available": False,
+                "build_command": "./scripts/build_sandbox_image.sh",
+            }
+        )
+        return payload
+
+    docker_available = bool(shutil.which("docker"))
+    image_available = False
+    if docker_available:
+        sandbox = DockerSandbox(
+            image=config.docker_image,
+            memory_limit_mb=config.memory_limit_mb,
+            file_size_limit_kb=config.file_size_limit_kb,
+            network_enabled=config.network_enabled,
+        )
+        image_available = sandbox._docker_image_available()
+
+    payload.update(
+        {
+            "docker_available": docker_available,
+            "image_available": image_available,
+            "build_command": "./scripts/build_sandbox_image.sh",
+            "ready": docker_available and image_available,
+        }
+    )
+    return payload
 
 
 def get_sandbox() -> Any:

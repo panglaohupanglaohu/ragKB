@@ -195,3 +195,67 @@ class TestTokenBudget:
         assert saved["budget"]["on_exceed"] == "warn"
         assert summary["total_tokens"] == 75
         assert summary["filters"]["agent_id"] == "agent-1"
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_records_estimated_usage_when_provider_omits_usage(self, temp_budget_env, monkeypatch):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(TokenBudget(), store=store)
+        monkeypatch.setattr("agents.chat_harness.get_budget_guard", lambda: guard)
+
+        async def fake_stream(self, messages, *, model=""):
+            yield {"choices": [{"delta": {"content": "hello "}}]}
+            yield {"choices": [{"delta": {"content": "world"}}]}
+
+        monkeypatch.setattr(LLMClient, "stream_chat_completion", fake_stream)
+
+        harness = ChatHarness(
+            default_config=ProviderConfig(model="deepseek-v4-pro", max_tokens=100)
+        )
+        chunks = [
+            chunk
+            async for chunk in harness.stream_chat(
+                "请用一句英文问候我。",
+                agent_id="agent-1",
+                team_id="team-1",
+                session_id="sess-stream-1",
+            )
+        ]
+
+        summary = store.summarize_usage(agent_id="agent-1")
+
+        assert summary["record_count"] == 1
+        assert summary["total_tokens"] > 0
+        assert chunks[-1]["type"] == "message_stop"
+        assert chunks[-1]["usage"]["total_tokens"] == summary["total_tokens"]
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_prefers_provider_usage_payload(self, temp_budget_env, monkeypatch):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(TokenBudget(), store=store)
+        monkeypatch.setattr("agents.chat_harness.get_budget_guard", lambda: guard)
+
+        async def fake_stream(self, messages, *, model=""):
+            yield {"choices": [{"delta": {"content": "hi"}}]}
+            yield {"usage": {"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17}}
+
+        monkeypatch.setattr(LLMClient, "stream_chat_completion", fake_stream)
+
+        harness = ChatHarness(
+            default_config=ProviderConfig(model="deepseek-v4-pro", max_tokens=100)
+        )
+        chunks = [
+            chunk
+            async for chunk in harness.stream_chat(
+                "say hi",
+                agent_id="agent-2",
+                team_id="team-2",
+                session_id="sess-stream-2",
+            )
+        ]
+
+        summary = store.summarize_usage(agent_id="agent-2")
+
+        assert summary["record_count"] == 1
+        assert summary["total_tokens"] == 17
+        assert chunks[-1]["usage"]["input_tokens"] == 12
+        assert chunks[-1]["usage"]["output_tokens"] == 5

@@ -113,6 +113,9 @@ class TestDiscussionDispatch:
         assert first_metadata["plan_item_index"] == 0
         assert first_metadata["responsible_role"] == "developer"
         assert first_metadata["skills_used"] == ["code_implementation", "debugging"]
+        assert first_metadata["trace_context"]["discussion_id"] == disc.id
+        assert first_metadata["trace_context"]["plaza_id"] == plaza.id
+        assert first_metadata["trace_context"]["plan_revision"] == 3
 
         second_metadata = result["tasks"][1]["metadata"]
         assert second_metadata["responsible_role"] == "qa"

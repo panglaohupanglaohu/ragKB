@@ -13,6 +13,8 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from channels.system_evolution import EvolutionStatus
+
 from .plaza import PRESET_TOPICS, SeatTier, NicheRole, DiscussionStatus
 from .plaza_engine import get_plaza_engine
 
@@ -90,6 +92,16 @@ def _build_plaza_task_metadata(
 ) -> Dict[str, Any]:
     """Normalize plaza-origin task metadata for tracing and later evolution."""
     inferred_skills = _infer_skills_from_role(responsible_role)
+    trace_context = {
+        "source": "plaza",
+        "plaza_id": plaza_id,
+        "discussion_id": discussion_id,
+        "discussion_topic": discussion_topic,
+        "team_id": team_id,
+        "plan_revision": plan_revision,
+        "plan_item_index": plan_item_index,
+        "responsible_role": responsible_role,
+    }
     return {
         "source": "plaza",
         "plaza_id": plaza_id,
@@ -102,6 +114,7 @@ def _build_plaza_task_metadata(
         "acceptance_test": acceptance_test,
         "expected_artifacts": list(expected_artifacts or []),
         "skills_used": inferred_skills,
+        "trace_context": trace_context,
     }
 
 
@@ -219,6 +232,36 @@ async def _dispatch_discussion_tasks(
     disc.plan["team_id"] = team_id
     disc.plan["dispatched_at"] = datetime.now(timezone.utc).isoformat()
     return created_tasks
+
+
+def _link_tasks_to_evolution_items(
+    plaza_id: str,
+    discussion_id: str,
+    evolution_item_ids: List[str],
+    task_ids: List[str],
+) -> None:
+    """Backfill task metadata so task -> evolution tracing is explicit."""
+    if not evolution_item_ids or not task_ids:
+        return
+
+    from .api import _te
+
+    engine = _te()
+    for task_id in task_ids:
+        task = engine.get_task(task_id)
+        if task is None:
+            continue
+        metadata = task.metadata or {}
+        metadata["evolution_item_ids"] = list(evolution_item_ids)
+        trace_context = dict(metadata.get("trace_context") or {})
+        trace_context.setdefault("source", metadata.get("source", "plaza"))
+        trace_context["plaza_id"] = plaza_id
+        trace_context["discussion_id"] = discussion_id
+        trace_context["task_id"] = task.task_id
+        trace_context["evolution_item_ids"] = list(evolution_item_ids)
+        metadata["trace_context"] = trace_context
+        task.metadata = metadata
+        engine._store.save_task(task)
 
 
 # ── 广场 CRUD ──────────────────────────────────────────────
@@ -736,6 +779,13 @@ async def evolve_from_discussion(
             source_discussion_id=disc.id,
             source_task_ids=source_task_ids,
             artifact_dir=f"storage/evolution_runs/{disc.id}",
+            trace_context={
+                "source": "plaza",
+                "plaza_id": plaza_id,
+                "discussion_id": disc.id,
+                "plan_revision": _get_plan_revision(disc),
+                "source_task_ids": list(source_task_ids),
+            },
         )
         _evolution_engine.evolution_items[item.id] = item
         evolution_items.append({
@@ -745,7 +795,19 @@ async def evolve_from_discussion(
             "priority": td.get("priority", 2),
             "source_discussion_id": item.source_discussion_id,
             "source_task_ids": item.source_task_ids,
+            "trace_context": dict(item.trace_context),
         })
+
+    evolution_item_ids = [item["id"] for item in evolution_items]
+    _link_tasks_to_evolution_items(plaza_id, disc.id, evolution_item_ids, source_task_ids)
+    for task in dispatched_tasks:
+        metadata = dict(task.get("metadata") or {})
+        metadata["evolution_item_ids"] = list(evolution_item_ids)
+        trace_context = dict(metadata.get("trace_context") or {})
+        trace_context["task_id"] = task.get("task_id", "")
+        trace_context["evolution_item_ids"] = list(evolution_item_ids)
+        metadata["trace_context"] = trace_context
+        task["metadata"] = metadata
 
     # 触发演化周期
     cycle_result = _evolution_engine.run_evolution_cycle()
@@ -757,6 +819,61 @@ async def evolve_from_discussion(
         "cycle_result": cycle_result,
         "tasks": dispatched_tasks,
         "task_count": len(dispatched_tasks),
+    }
+
+
+@router.get(
+    "/{plaza_id}/discussions/{disc_id}/verification-queue",
+    summary="查看当前讨论关联的演进验证队列",
+)
+async def get_discussion_verification_queue(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+    """Return linked evolution items, prioritizing entries still waiting on verification."""
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    from agent_team_api import _evolution_engine
+
+    if not _evolution_engine:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "演化引擎未初始化")
+
+    items = []
+    for item in _evolution_engine.evolution_items.values():
+        if item.source_plaza_id != plaza_id or item.source_discussion_id != disc_id:
+            continue
+        items.append(
+            {
+                "id": item.id,
+                "title": item.title,
+                "status": item.status,
+                "verify_test_name": item.verify_test_name,
+                "verify_result": item.verify_result,
+                "verify_detail": item.verify_detail,
+                "retry_count": item.retry_count,
+                "max_retries": item.max_retries,
+                "source_task_ids": list(item.source_task_ids),
+                "requires_manual_verify": bool(
+                    item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
+                ),
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            0 if item["requires_manual_verify"] else 1,
+            0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+            item["id"],
+        )
+    )
+    return {
+        "plaza_id": plaza_id,
+        "discussion_id": disc_id,
+        "count": len(items),
+        "items": items,
     }
 
 

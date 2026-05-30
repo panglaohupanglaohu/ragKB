@@ -705,6 +705,12 @@ class ChatHarness:
         return prompt_estimate + max_tokens
 
     @staticmethod
+    def _estimate_tokens_from_text(text: str) -> int:
+        if not text:
+            return 0
+        return max(1, len(text) // 4)
+
+    @staticmethod
     def _estimate_cost_usd(model: str, total_tokens: int) -> float:
         lowered = (model or "").lower()
         if "gpt-4" in lowered:
@@ -1076,12 +1082,13 @@ class ChatHarness:
         """Stream a chat response chunk by chunk."""
         config = self.get_provider_config(agent_id)
         client = LLMClient(config)
+        budget_guard = get_budget_guard()
         session = self.get_or_create_session(session_id, agent_id, system_prompt)
         session.add_user_message(prompt)
         session.compact_if_needed()
         messages = session.build_openai_messages()
         model = model_override or config.model
-        budget_check = get_budget_guard().check(
+        budget_check = budget_guard.check(
             session_id=session.session_id,
             agent_id=agent_id,
             team_id=team_id,
@@ -1106,6 +1113,7 @@ class ChatHarness:
         yield {"type": "message_start", "session_id": session.session_id, "model": model}
 
         full_content = ""
+        raw_usage: Dict[str, Any] = {}
         async for chunk in client.stream_chat_completion(messages, model=model):
             if chunk.get("error"):
                 yield {"type": "error", "message": chunk.get("message", "")}
@@ -1114,6 +1122,9 @@ class ChatHarness:
                 yield {"type": "message_delta", "text": fallback}
                 yield {"type": "message_stop", "stop_reason": "error_fallback"}
                 return
+
+            if chunk.get("usage"):
+                raw_usage = chunk.get("usage") or raw_usage
 
             choices = chunk.get("choices", [])
             if choices:
@@ -1124,11 +1135,47 @@ class ChatHarness:
                     yield {"type": "message_delta", "text": text}
 
         session.add_assistant_message(full_content)
+        prompt_tokens = raw_usage.get(
+            "prompt_tokens",
+            self._estimate_tokens_from_text("\n".join(str(msg.get("content", "")) for msg in messages)),
+        )
+        completion_tokens = raw_usage.get(
+            "completion_tokens",
+            self._estimate_tokens_from_text(full_content),
+        )
+        total_tokens = raw_usage.get(
+            "total_tokens",
+            prompt_tokens + completion_tokens,
+        )
+        usage = UsageSummary(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+        if usage.total_tokens:
+            budget_guard.record_usage(
+                UsageRecord(
+                    session_id=session.session_id,
+                    agent_id=agent_id,
+                    team_id=team_id,
+                    model=model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    total_tokens=usage.total_tokens,
+                    cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
+                )
+            )
+            session.total_usage = session.total_usage.add(
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            self._total_tokens += usage.total_tokens
         self._total_calls += 1
         yield {
             "type": "message_stop",
             "stop_reason": "completed",
             "full_content_length": len(full_content),
+            "usage": usage.to_dict(),
         }
 
     # ── Fallback Response Builder ────────────────────────────
@@ -1240,113 +1287,24 @@ class ChatHarness:
         max_iterations: int = 10,
         plan_middleware: Optional[PlanMiddleware] = None,
         permission_context: Optional[ToolPermissionContext] = None,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> "AgentLoopResult":
-        """Execute a full agentic loop: plan → act → observe → reflect.
+        """Execute a full agentic loop: plan → act → observe → reflect."""
+        from .runtime import run_plan_loop
 
-        Unlike simple chat(), this method:
-        1. Builds an ExecutionPlan from the prompt
-        2. Executes each plan step (tool calls, thinking, responding)
-        3. Feeds tool results back as observations
-        4. Generates a final synthesized response
-
-        Returns an AgentLoopResult with the plan, all tool results,
-        and the final response.
-        """
-        from .tool_executor import get_tool_executor
-
-        executor = get_tool_executor()
-        plan = build_plan_from_prompt(prompt)
-        if plan_middleware:
-            plan = plan_middleware(plan)
-
-        plan.status = "running"
-        observations: List[Dict[str, Any]] = []
-        iteration = 0
-
-        for step in plan.steps:
-            if iteration >= max_iterations:
-                step.status = PlanStepStatus.SKIPPED
-                continue
-            iteration += 1
-
-            if step.action == "tool_call" and step.tool_name:
-                # Check dependencies
-                deps_ok = all(
-                    plan.steps[d - 1].status == PlanStepStatus.COMPLETED
-                    for d in step.depends_on if d <= len(plan.steps)
-                )
-                if not deps_ok:
-                    step.status = PlanStepStatus.SKIPPED
-                    step.error = "Dependencies not met"
-                    continue
-
-                step.status = PlanStepStatus.RUNNING
-                t0 = time.monotonic()
-                result = await executor.execute(
-                    step.tool_name,
-                    step.tool_args,
-                    agent_id=agent_id,
-                    permission_context=permission_context,
-                )
-                step.duration_ms = (time.monotonic() - t0) * 1000
-
-                if result.success:
-                    step.status = PlanStepStatus.COMPLETED
-                    step.result = result.output
-                else:
-                    step.status = PlanStepStatus.FAILED
-                    step.error = result.error
-                    step.result = result.output
-
-                observations.append({
-                    "step": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:1000],
-                })
-
-            elif step.action == "think":
-                step.status = PlanStepStatus.COMPLETED
-                step.result = f"思考: {step.description}"
-
-            elif step.action == "respond":
-                step.status = PlanStepStatus.COMPLETED
-
-            elif step.action == "delegate":
-                step.status = PlanStepStatus.COMPLETED
-                step.result = f"已委派: {step.description}"
-
-        # Generate final response using accumulated observations
-        obs_text = "\n".join(
-            f"[{o['tool']}] {'✅' if o['success'] else '❌'}: {o['output'][:300]}"
-            for o in observations
-        )
-
-        synthesis_prompt = (
-            f"用户问题: {prompt}\n\n"
-            f"执行计划已完成 ({plan.completed_steps}/{len(plan.steps)} 步成功).\n\n"
-            f"工具调用结果:\n{obs_text}\n\n"
-            f"请根据以上结果，用中文(技术术语英文保留)给用户一个完整、专业的回答。"
-        )
-
-        final_result = await self.chat(
-            synthesis_prompt,
+        return await run_plan_loop(
+            self,
+            prompt=prompt,
+            plan_builder=build_plan_from_prompt,
             agent_id=agent_id,
             team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
-            model_override="",
-        )
-
-        plan.status = "completed"
-        plan.final_response = final_result.response
-
-        return AgentLoopResult(
-            plan=plan,
-            observations=observations,
-            final_response=final_result.response,
-            turn_result=final_result,
-            iterations=iteration,
+            tools=tools,
+            max_iterations=max_iterations,
+            plan_middleware=plan_middleware,
+            permission_context=permission_context,
+            on_event=on_event,
         )
 
     async def agent_loop_stream(
@@ -1357,54 +1315,28 @@ class ChatHarness:
         team_id: str = "",
         session_id: str = "",
         system_prompt: str = "",
+        tools: Optional[List[Dict[str, Any]]] = None,
         max_iterations: int = 10,
+        plan_middleware: Optional[PlanMiddleware] = None,
         permission_context: Optional[ToolPermissionContext] = None,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream the agentic loop progress as SSE-compatible events."""
-        from .tool_executor import get_tool_executor
+        from .runtime import stream_plan_loop
 
-        executor = get_tool_executor()
-        plan = build_plan_from_prompt(prompt)
-        plan.status = "running"
-
-        yield {"type": "plan_start", "plan": plan.to_dict()}
-
-        for step in plan.steps:
-            yield {"type": "step_start", "step": step.to_dict()}
-
-            if step.action == "tool_call" and step.tool_name:
-                step.status = PlanStepStatus.RUNNING
-                t0 = time.monotonic()
-                result = await executor.execute(
-                    step.tool_name,
-                    step.tool_args,
-                    agent_id=agent_id,
-                    permission_context=permission_context,
-                )
-                step.duration_ms = (time.monotonic() - t0) * 1000
-                step.status = PlanStepStatus.COMPLETED if result.success else PlanStepStatus.FAILED
-                step.result = result.output
-                step.error = result.error
-
-                yield {
-                    "type": "tool_result",
-                    "step_id": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:500],
-                    "duration_ms": step.duration_ms,
-                }
-            else:
-                step.status = PlanStepStatus.COMPLETED
-                yield {"type": "step_complete", "step": step.to_dict()}
-
-        # Stream the final synthesis
-        plan.status = "completed"
-        yield {"type": "plan_complete", "progress": plan.progress}
-
-        async for chunk in self.stream_chat(
-            prompt, agent_id=agent_id, team_id=team_id, session_id=session_id,
+        async for chunk in stream_plan_loop(
+            self,
+            prompt=prompt,
+            plan_builder=build_plan_from_prompt,
+            agent_id=agent_id,
+            team_id=team_id,
+            session_id=session_id,
             system_prompt=system_prompt,
+            tools=tools,
+            max_iterations=max_iterations,
+            plan_middleware=plan_middleware,
+            permission_context=permission_context,
+            on_event=on_event,
         ):
             yield chunk
 

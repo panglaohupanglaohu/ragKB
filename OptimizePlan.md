@@ -48,8 +48,8 @@
   - `#3 permissions`（虽属阶段二，但已前置完成）
 - 尚未出关的 P0 卡点：
   - `#11 run_python / run_pytest` 仍缺 Docker 级强隔离
-  - `#4 统一 AgentLoop` 仍未开始主迁移
-  - `#14 token 配额 / 成本告警` 仍缺前端仪表盘、streaming 记录与长回路验证
+  - `#4 统一 AgentLoop` 的工具流与计划流已并入 runtime，但 tracing / state / 事件模型仍未完全统一
+  - `#14 token 配额 / 成本告警` 仍缺前端仪表盘、更精细成本模型与长回路验证
 
 ### 已完成铺垫（已落地）
 
@@ -65,22 +65,32 @@
 | F-06 | DONE | `permissions` 已接入 LLM 工具暴露、AgentLoop 和 ToolExecutor 真正执行入口 | `test_permissions_and_secrets.py` |
 | F-07 | DONE | token usage 已落到 SQLite，预算守卫已接入 ChatHarness，并开放 summary / alerts / budget API | `test_token_budget.py` |
 | F-08 | DONE | 本地 secrets 已改为 Fernet 密文存储，支持旧明文 `.api_keys.json` 自动迁移 | `test_permissions_and_secrets.py` |
+| F-09 | DONE | 共享 runtime 已同时覆盖 legacy tool loop 与 `/agent-loop` 的计划流（含流式） | `test_unified_tool_loop.py`, `test_plan_loop_runtime.py` |
+| F-10 | DONE | Plaza / Evolution 任务收口已补可审阅 diff 证据（`diff_by_file` / `patch_preview`） | `test_plaza_task_artifact_bridge.py` |
+| F-11 | DONE | Plaza 派生且已带通过测试结果的演进项会自动 verify / close；显式 verify test 仍保持待验证 | `test_plaza_task_artifact_bridge.py` |
+| F-12 | DONE | `trace_context` 已贯穿 Plaza 派发、任务终态产物和 Evolution 同步，并显式回写 `evolution_item_ids` | `test_plaza_dispatch.py`, `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
+| F-13 | DONE | 任务已产出 `trace_summary`，并开放独立 trace 查询入口 | `test_plaza_task_artifact_bridge.py` |
+| F-14 | DONE | 任务已持久化 `trace_events.jsonl`，并开放 task / discussion 两级 trace 查询入口 | `test_plaza_task_artifact_bridge.py` |
+| F-15 | DONE | 共享 plan runtime 已补统一事件回调面，和共享 tool runtime 开始对齐同一套 tracing / state 口子 | `test_plan_loop_runtime.py` |
+| F-16 | DONE | 显式 verify test 的等待原因已回写到演进项/trace 摘要，Plaza discussion 也已开放 verification queue | `test_plaza_evolution_bridge.py`, `test_plaza_task_artifact_bridge.py` |
+| F-17 | DONE | 已开放 recent traces 聚合入口，可按 team/source 直接查看最近任务链路 | `test_plaza_task_artifact_bridge.py` |
 
 ### 当前工作批次（正在推进）
 
 | 卡片 | 对应问题 | 状态 | 当前结论 | 下一步 | 完成定义 |
 |------|----------|:----:|----------|--------|----------|
-| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链；已支持 discussion/task/evolution 双向追踪 | 补 `diff/patch` 级证据沉淀，补自动 verify/close 收口 | Plaza 讨论可产出任务、产物、验证状态，且全链路可追踪 |
-| W-02 | #13 缺少可观测性和 tracing | WIP | 已有 pipeline events、workflow summary、task artifacts，但还不是统一 tracing | 统一 `task_id/discussion_id/evolution_item_id` 关联字段，补结构化日志出口 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
-| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 入口、配置解析和失败关闭语义已补上 | 补镜像构建/发布、docker mode 真实集成验证和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+| W-01 | #10 执行计划是 Markdown 字符串，无法自动派发 | WIP | 已完成 `Plaza -> Task -> Execution -> Evolution` 主链，任务收口已补 `diff/patch` 证据，带通过测试结果的 Plaza 派生演进项会 auto close；显式 verify test 的等待原因和 verification queue 也已可见 | 继续把重试策略、失败告警和 verify queue 消费闭环收口 | Plaza 讨论可产出任务、产物、变更证据、验证状态，且全链路可追踪 |
+| W-02 | #13 缺少可观测性和 tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 已贯穿 Plaza → Task → Execution Artifacts → Evolution，并开放 task / discussion / recent traces 三级查询入口 | 继续补统一结构化日志出口和更广的跨任务检索 | 一次任务能按单 ID 串起讨论、执行、验证、关闭 |
+| W-03 | #11 `run_python` / `run_pytest` 无沙箱隔离 | WIP | `LiteSandbox` 已落地，共享给 `agent_toolbox` 和 `tool_executor`；`DockerSandbox` 现已带 repo 内 Dockerfile、build 脚本、缺镜像失败关闭和更硬的容器限制 | 补 docker mode 真实集成验证、镜像发布链路和更强资源控制 | 从“开发期可用轻量沙箱”升级到“生产可用强隔离沙箱” |
+| W-04 | #4 两套 AgentLoop 并存 | WIP | 已新增 `src/backend/agents/runtime/`，共享工具循环与共享计划循环都已落地；旧 `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用，plan runtime 也已补统一事件回调面 | 继续统一 tracing / budget / state 事件模型，并收缩 compatibility shim | 所有 agent 执行入口复用同一 runtime，兼容层仅保留薄封装 |
 
 ### 下一批（按优先级执行）
 
 | 卡片 | 对应问题 | 状态 | 为什么现在做 | 直接交付物 | 验证口 |
 |------|----------|:----:|--------------|------------|--------|
 | N-02 | #12 API Key 明文存储 | DONE | env-first + gitignored secret store + Fernet 加密落地；旧明文 store 自动迁移 | 后续可补 key 轮换和系统钥匙串托管 | 仓库与配置快照中不再出现明文 key，且本地 secrets 已加密存储 |
-| N-03 | #4 两套 AgentLoop 并存 | READY | runtime 继续扩前，必须先统一 | `src/backend/agents/runtime/` 单一执行循环 | 旧入口迁移后测试保持通过 |
-| N-04 | #14 无 token 配额和成本告警 | WIP | SQLite usage log、预算守卫、summary / alerts / budget API 已落地；非流式主链已接入拦截与记录 | 补前端仪表盘、streaming 用量记录、更精细成本模型 | 长任务超预算时可中止或告警，且用量可查询可告警 |
+| N-03 | #4 两套 AgentLoop 并存 | WIP | 共享工具循环 + 共享计划循环都已落地，旧入口已开始回收，plan runtime 也已对齐统一事件回调 | 继续把 tracing、状态机事件、streaming 明细收口到同一个 runtime | 旧入口迁移后测试保持通过 |
+| N-04 | #14 无 token 配额和成本告警 | WIP | SQLite usage log、预算守卫、summary / alerts / budget API 已落地；非流式与流式主链都已接入记录/拦截 | 补前端仪表盘、更精细成本模型与长回路验证 | 长任务超预算时可中止或告警，且用量可查询可告警 |
 
 ### 待排期（问题已确认）
 
@@ -101,36 +111,46 @@
 | 1 | 事件总线外部化 | BACKLOG | 未开工 |
 | 2 | `channels` 真正消费 | BACKLOG | 未开工 |
 | 3 | `permissions` 接进工具调用 | DONE | Tool schema、AgentLoop、ToolExecutor 已接入 |
-| 4 | 统一 AgentLoop | READY | 下一批 |
+| 4 | 统一 AgentLoop | WIP | 共享工具循环 + 共享计划循环已落地，legacy tool loop / evolution / `/agent-loop` 已迁入 |
 | 5 | UltraPlan 真正规划化 | BACKLOG | 未开工 |
 | 6 | Hermes 反馈学习 | BACKLOG | 未开工 |
 | 7 | 会话存储升级 | BACKLOG | 未开工 |
 | 8 | `state` 状态机治理 | BACKLOG | 未开工 |
 | 9 | Plaza 共识 / 动态退出 | BACKLOG | 未开工 |
-| 10 | Plaza 计划自动派发 | WIP | 主链已通，证据闭环继续补 |
-| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 入口已落地，生产级镜像与实机验证待补 |
+| 10 | Plaza 计划自动派发 | WIP | 主链已通，变更证据、auto close、manual verify queue 都已沉淀，重试/告警待补 |
+| 11 | `run_python` / `run_pytest` 沙箱化 | WIP | LiteSandbox + DockerSandbox 已落地，repo 内镜像来源与 build 脚本已补，实机验证与发布链待补 |
 | 12 | API Key 脱离明文 JSON | DONE | env-first + 加密 at rest + 自动迁移已落地 |
-| 13 | 结构化日志 / tracing | WIP | 已有局部基础，待统一 |
+| 13 | 结构化日志 / tracing | WIP | `trace_context`、`trace_summary`、`trace_events.jsonl` 与 task / discussion / recent traces 查询入口已落地，统一结构化日志出口待补 |
 | 14 | token 配额 / 成本告警 | WIP | 主链预算守卫已落地，前端与流式补完待续 |
 
 ### 当前建议执行顺序
 
 1. 完成 `W-03` 的 Docker 级隔离收口
-2. `N-03` 统一 AgentLoop
-3. 回到 `W-01`，把 Plaza 闭环补到 `diff -> verify -> close`
-4. 给 `N-04` 补前端仪表盘与 streaming 用量记录
-5. 为 secrets 增加 key 轮换或系统钥匙串托管
+2. 继续 `W-04 / N-03`，收口 runtime 的 tracing / state / event 模型
+3. 回到 `W-01`，把重试策略、失败告警和 verify queue 消费闭环收口
+4. 推进 `W-02`，补统一结构化日志出口与更广的跨任务检索
+5. 给 `N-04` 补前端仪表盘、更精细成本模型与长回路验证
 
 ### 当前验收快照
 
-- 后端测试：`581 passed`
+- 后端测试：`600 passed`
 - 前端构建：`npm run build` 通过
 - Plaza 主链：讨论 -> 任务 -> 产物 -> Evolution 同步已打通
 - Agent / Skill：绑定、持久化、运行时注入已打通
 - Permissions：未授权工具不会进入 LLM schema，也会在执行入口被稳定拒绝
 - Secrets：默认 provider 与 model pool 已改为 env-first；本地 `.api_keys.json` 已切为 Fernet 密文并完成旧明文迁移
 - Budget：token usage 已写入 SQLite，超预算请求会被优雅拦截，并可通过 `/usage/*` API 查询
+- Streaming Budget：`stream_chat` 已在结束时写入 usage，provider 无 usage 时会回退到估算值
 - 沙箱：`run_python / run_pytest` 已接入 `LiteSandbox`，`docker` 模式入口与失败关闭语义已落地，并有安全回归测试
+- Unified Runtime：共享工具循环 + 共享计划循环都已落地，legacy `AgentLoop`、API tool loop、EvolutionExecutor、`/agent-loop` 已开始复用同一 runtime
+- Diff Evidence：任务终态已补 `diff_by_file` 与 `patch_preview`，Plaza / Evolution 链路可直接看到变更证据
+- Auto Close：Plaza 派生且已通过真实测试的演进项会自动 verify / close；显式 verify test 仍按待验证处理
+- Trace Context：`discussion_id / plan_revision / task_id / evolution_item_ids` 已能跨 Plaza、Task、Evolution 传递与回写
+- Trace Summary：任务会落 `trace_summary.json`，并可通过 task trace API 直接查询关联上下文
+- Trace Events：任务会落 `trace_events.jsonl`，并支持 task / discussion 两级 trace 查询
+- Recent Traces：已开放 recent traces 聚合入口，可按 team/source 查看最近链路
+- Docker Sandbox：仓库已带 `docker/sandbox/Dockerfile` 与 `scripts/build_sandbox_image.sh`，docker mode 缺镜像会失败关闭
+- Verification Queue：显式 verify test 会回写等待原因，Plaza discussion 可直接查询关联 verification queue
 
 ---
 
@@ -182,20 +202,18 @@
 
 ---
 
-## 📅 四阶段路线图
+## 📋 四阶段 TODO 看板
 
-### 时间轴总览
+### 阶段总览
 
-```
-Week 1-2          Week 3-4          Week 5-7          Week 8-10
-──────────        ──────────        ──────────        ──────────
-阶段一: 止血      阶段二: 补漏      阶段三: 增智      阶段四: 稳态
-P0 必须           让设计稿变代码    真正智能化         生产级运维
-```
+- **阶段一：止血**：先把安全、统一执行引擎、成本守门员做硬
+- **阶段二：补漏**：把现有设计里“有模型没执行”的部分真正接起来
+- **阶段三：增智**：把规划、共识、反馈学习从规则驱动推进到更智能的闭环
+- **阶段四：稳态**：把 tracing、持久化、多实例和密钥治理推到生产可用级别
 
 ---
 
-## 🩹 阶段一：止血（Week 1-2）— P0 必须先做
+## 🩹 阶段一：止血 — P0 必须先做
 
 > 目标：消除安全风险 + 统一执行引擎 + 控制成本
 
@@ -203,8 +221,6 @@ P0 必须           让设计稿变代码    真正智能化         生产级�
 
 **问题编号：** #11
 **优先级：** 🔴 P0 致命
-**预估工时：** 3 天
-
 #### 当前风险
 
 ```python
@@ -312,8 +328,6 @@ class LiteSandbox:
 
 **问题编号：** #4
 **优先级：** 🔴 P0
-**预估工时：** 5 天
-
 #### 当前重复代码
 
 | 文件 | 风格 | 用途 |
@@ -382,19 +396,19 @@ class UnifiedAgentLoop:
 
 #### 迁移步骤
 
-1. **Day 1-2**: 拆分代码
+1. 拆分代码
    - 把 `chat_harness.py` 中的 `LLMClient` 单独成文件
    - 把 `agent_loop.py` 的 safeguards 提取为独立类
 
-2. **Day 3**: 实现 `UnifiedAgentLoop`
+2. 实现 `UnifiedAgentLoop`
    - 异步骨架
    - 集成 safeguards chain
 
-3. **Day 4**: 改造调用方
+3. 改造调用方
    - `agent_team_api.py` / `bridge_chat.py` 等所有调用点改用新 Loop
-   - 删除旧的 `AgentLoop` 类（保留文件作 deprecation shim 1 周）
+   - 删除旧的 `AgentLoop` 类（保留文件作短期 deprecation shim）
 
-4. **Day 5**: 测试 + 文档
+4. 测试 + 文档
    - 跑全部已有 pytest，零退化
    - 更新 README 中的 Agent 执行流程图
 
@@ -411,8 +425,6 @@ class UnifiedAgentLoop:
 
 **问题编号：** #14
 **优先级：** 🔴 P0
-**预估工时：** 2 天
-
 #### 当前状态
 
 ```python
@@ -517,41 +529,7 @@ POST /api/usage/budget/update            # 调整预算
 
 ---
 
-## 🔧 阶段二：补漏（Week 3-4）— 让设计稿变成代码
-
-> 目标：让 `channels` / `permissions` / `state` 真正工作
-
-### 2.1 Channels 落地——真正的 Agent 间通信
-
-**问题编号：** #1, #2
-**优先级：** 🟡 P1
-**预估工时：** 5 天
-
-#### 当前状态
-
-```python
-# models.py
-@dataclass
-class AgentChannelConfig:
-    channel: str = ""
-    subscribe: bool = True
-    publish: bool = False
-    priority: int = 0
-    # ... 这些字段从未被任何代码读取
-```
-
-Plaza 讨论完全绕过 channel 系统，PM 派发任务靠硬编码逻辑。
-
-#### 实施方案
-
-**新模块：`src/backend/agents/messaging/`**
-
-```
-messaging/
-├── __init__.py
-├── channel_bus.py          # 核心总线
-├── message_models.py       # AgentMessage 等
-├── persistence.py          # WAL 持久化（SQLite）
+## 🔧 阶段二：补漏
 └── subscriber_runtime.py   # Agent 后台监听任务
 ```
 
@@ -676,8 +654,6 @@ PM agent 发布任务 "实现用户登录"  →  publish 到 coding_bus
 
 **问题编号：** #3
 **优先级：** 🟡 P1
-**预估工时：** 3 天
-
 #### 当前状态
 
 `AgentPermission` 字段定义了，但工具调用时不检查 Agent 的 permissions。
@@ -768,8 +744,6 @@ CREATE TABLE permission_denials (
 
 **问题编号：** #8
 **优先级：** 🟡 P1
-**预估工时：** 3 天
-
 #### 实施方案
 
 **状态机：**
@@ -868,7 +842,7 @@ async def state_stream():
 
 ---
 
-## 🧠 阶段三：增智（Week 5-7）— 让 Agent 真的"智能"
+## 🧠 阶段三：增智— 让 Agent 真的"智能"
 
 > 目标：把 UltraPlan 和 Plaza 从"流程框架"升级成"自适应系统"
 
@@ -876,8 +850,6 @@ async def state_stream():
 
 **问题编号：** #5
 **优先级：** 🟢 P2
-**预估工时：** 5 天
-
 #### 当前问题
 
 ```python
@@ -985,8 +957,6 @@ class UnifiedAgentLoop:
 
 **问题编号：** #6
 **优先级：** 🟢 P2
-**预估工时：** 4 天
-
 #### 实施方案
 
 **Thompson Sampling 自适应概率：**
@@ -1075,8 +1045,6 @@ class AdaptiveToolsetSelector:
 
 **问题编号：** #9
 **优先级：** 🟢 P2
-**预估工时：** 4 天
-
 #### 实施方案
 
 **共识评估器：**
@@ -1199,8 +1167,6 @@ prompt += f"""
 
 **问题编号：** #10
 **优先级：** 🟢 P2
-**预估工时：** 4 天
-
 #### 实施方案
 
 **结构化 PlanItem：**
@@ -1308,7 +1274,7 @@ POST /api/plaza/{plaza_id}/discussions/{disc_id}/dispatch
 
 ---
 
-## 🏗️ 阶段四：稳态（Week 8-10）— 生产级运维
+## 🏗️ 阶段四：稳态— 生产级运维
 
 > 目标：可观测、可扩展、可运营
 
@@ -1316,8 +1282,6 @@ POST /api/plaza/{plaza_id}/discussions/{disc_id}/dispatch
 
 **问题编号：** #13
 **优先级：** 🔵 P3
-**预估工时：** 4 天
-
 #### 实施方案
 
 **集成 OpenTelemetry SDK：**
@@ -1387,8 +1351,6 @@ GET /api/traces/slow?threshold=5s  # 慢请求分析
 
 **问题编号：** #7
 **优先级：** 🔵 P3
-**预估工时：** 5 天
-
 #### 实施方案
 
 **SQLite Schema：**
@@ -1488,8 +1450,6 @@ python scripts/migrate_sessions_to_sqlite.py \
 
 **问题编号：** #1（横向扩展）
 **优先级：** 🔵 P3
-**预估工时：** 6 天
-
 #### 实施方案
 
 **抽象事件总线接口：**
@@ -1581,8 +1541,6 @@ class DistributedTaskQueue:
 
 **问题编号：** #12
 **优先级：** 🔵 P3
-**预估工时：** 2 天
-
 #### 实施方案
 
 **加密层：**
@@ -1692,28 +1650,14 @@ npm run start
 
 ---
 
-## 💰 预估投入产出
+## 🎯 推荐推进方式
 
-| 阶段 | 工时（人日） | 主要风险消除 | 主要能力提升 |
-|------|:-----------:|------------|-------------|
-| 一 | 10 | 安全漏洞、成本失控、维护双套代码 | 可生产基础线 |
-| 二 | 11 | 设计稿变废纸 | Agent 真正自主协作 |
-| 三 | 17 | 智能不智能 | 自适应、自收敛、可派发 |
-| 四 | 17 | 单点故障、不可扩展、不可观测 | 生产级运维能力 |
-| **合计** | **55 人日** | | **从 Demo → 生产级** |
-
-按 1 人开发约 11 周；2 人并行（注意依赖）约 6-7 周。
-
----
-
-## 🎬 选择起点建议
-
-| 你的目标 | 推荐范围 | 工期 |
+| 你的目标 | 推荐范围 | 说明 |
 |---------|---------|------|
-| 演示 / 学术展示 | 阶段一 + 3.3（共识度量） | 3 周 |
-| 小团队内部使用 | 阶段一 + 二 完整 | 4-5 周 |
-| 对外开源精品项目 | 阶段一二三 + 4.1 | 7-8 周 |
-| 走向商业化产品 | 完整四阶段 | 10-11 周 |
+| 演示 / 学术展示 | 阶段一 + 3.3（共识度量） | 先把安全和执行闭环做稳，再补一个高辨识度产品点 |
+| 小团队内部使用 | 阶段一 + 二 完整 | 优先保证统一 runtime、权限、状态和 channels 真的可用 |
+| 对外开源精品项目 | 阶段一二三 + 4.1 | 先把“智能”闭环做成，再补 tracing 让外部能看懂系统 |
+| 走向商业化产品 | 完整四阶段 | 最后再把多实例、持久化、密钥治理全部补齐 |
 
 ---
 
@@ -1785,7 +1729,7 @@ npm run start
 | 风险 | 缓解措施 |
 |------|---------|
 | Docker 沙箱在某些环境不可用 | 提供 lite 模式 fallback |
-| 异步 AgentLoop 引入新 bug | 保留旧 AgentLoop 一个迭代周期作为 deprecation shim |
+| 异步 AgentLoop 引入新 bug | 保留旧 AgentLoop 一个短期兼容 shim |
 | Redis 引入运维复杂度 | `mode: single` 默认走本地，仅在需要时切换 |
 | 向量化模型增加内存占用 | 用 small 版本（< 100MB），按需加载 |
 
@@ -1799,4 +1743,4 @@ npm run start
 
 ---
 
-**下一步行动：** 建议从 `1.1 沙箱化` 开始，因为它是最大的安全风险，且独立于其他改造，做完即收益。
+**下一步行动：** 以看板优先级持续推进 `W-03 → W-04 → W-01 → N-04`，每完成一项就立即回写状态并进入下一项。

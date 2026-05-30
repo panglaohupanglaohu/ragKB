@@ -2141,6 +2141,9 @@ def _summarize_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
         seen_files.add(normalized)
         deduped_changed_files.append(normalized)
 
+    diff_evidence = _build_diff_evidence(deduped_changed_files, workflow)
+    trace_context = _build_task_trace_context(task)
+
     failure_reason = ""
     build_outcome = "completed"
     if task.error:
@@ -2164,8 +2167,82 @@ def _summarize_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
             "step_statuses": step_statuses,
         },
         "step_artifacts": step_artifacts,
+        "diff_by_file": diff_evidence["diff_by_file"],
+        "patch_preview": diff_evidence["patch_preview"],
+        "trace_context": trace_context,
         "build_outcome": build_outcome,
         "failure_reason": failure_reason,
+    }
+
+
+def _build_diff_evidence(
+    changed_files: List[str],
+    workflow: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build small diff artifacts from deploy backups and current files."""
+    import difflib
+
+    project_root = _mp_os.path.dirname(_mp_os.path.dirname(_mp_os.path.dirname(
+        _mp_os.path.dirname(_mp_os.path.abspath(__file__)))))
+    backup_map: Dict[str, str] = {}
+
+    for step in workflow:
+        deploy_result = step.get("deploy_result") or {}
+        for branch in ("developer", "deployer"):
+            branch_result = deploy_result.get(branch) or {}
+            for entry in branch_result.get("backup", []) or []:
+                path = str(entry.get("path", "")).strip()
+                backup = str(entry.get("backup", "")).strip()
+                if path and backup and path not in backup_map:
+                    backup_map[path] = backup
+
+    diff_by_file: Dict[str, List[str]] = {}
+    patch_chunks: List[str] = []
+
+    for rel_path in changed_files[:20]:
+        abs_path = _mp_os.path.join(project_root, rel_path)
+        backup_path = backup_map.get(rel_path, "")
+
+        if not _mp_os.path.isfile(abs_path):
+            continue
+
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                after_text = f.read()
+        except Exception:
+            continue
+
+        before_text = ""
+        if backup_path and _mp_os.path.isfile(backup_path):
+            try:
+                with open(backup_path, "r", encoding="utf-8", errors="replace") as f:
+                    before_text = f.read()
+            except Exception:
+                before_text = ""
+
+        diff_lines = list(
+            difflib.unified_diff(
+                before_text.splitlines(),
+                after_text.splitlines(),
+                fromfile=f"{rel_path} (before)",
+                tofile=f"{rel_path} (after)",
+                lineterm="",
+            )
+        )
+        if not diff_lines:
+            continue
+
+        preview_lines = diff_lines[:80]
+        diff_by_file[rel_path] = preview_lines
+        patch_chunks.append("\n".join(diff_lines[:200]))
+
+    patch_preview = "\n\n".join(patch_chunks)
+    if len(patch_preview) > 24000:
+        patch_preview = patch_preview[:24000] + "\n... (truncated)"
+
+    return {
+        "diff_by_file": diff_by_file,
+        "patch_preview": patch_preview,
     }
 
 
@@ -2177,10 +2254,169 @@ def _attach_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
     task.metadata["test_result"] = dict(artifacts["test_result"])
     task.metadata["workflow_summary"] = dict(artifacts["workflow_summary"])
     task.metadata["step_artifacts"] = dict(artifacts["step_artifacts"])
+    task.metadata["diff_by_file"] = dict(artifacts["diff_by_file"])
+    task.metadata["patch_preview"] = artifacts["patch_preview"]
+    task.metadata["trace_context"] = dict(artifacts["trace_context"])
     task.metadata["build_outcome"] = artifacts["build_outcome"]
     task.metadata["failure_reason"] = artifacts["failure_reason"]
     task.metadata["execution_artifacts"] = dict(artifacts)
+    trace_summary = _build_task_trace_summary(task, artifacts)
+    task.metadata["trace_summary"] = trace_summary
+    _persist_trace_summary(task, trace_summary)
     return artifacts
+
+
+def _build_task_trace_context(task: AgentTask) -> Dict[str, Any]:
+    """Build a stable trace context for task/execution/evolution joins."""
+    metadata = task.metadata or {}
+    existing = dict(metadata.get("trace_context") or {})
+    context = {
+        "source": metadata.get("source", existing.get("source", "")),
+        "task_id": task.task_id,
+        "team_id": task.team_id,
+        "agent_id": task.agent_id,
+        "plaza_id": metadata.get("plaza_id", existing.get("plaza_id", "")),
+        "discussion_id": metadata.get("discussion_id", existing.get("discussion_id", "")),
+        "discussion_topic": metadata.get("discussion_topic", existing.get("discussion_topic", "")),
+        "plan_revision": metadata.get("plan_revision", existing.get("plan_revision")),
+        "plan_item_index": metadata.get("plan_item_index", existing.get("plan_item_index")),
+        "evolution_item_ids": list(metadata.get("evolution_item_ids", existing.get("evolution_item_ids", [])) or []),
+    }
+    for key, value in existing.items():
+        context.setdefault(key, value)
+    return context
+
+
+def _build_task_trace_summary(
+    task: AgentTask,
+    artifacts: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a compact trace summary for UI/debug endpoints."""
+    artifacts = artifacts or dict(task.metadata.get("execution_artifacts") or {})
+    trace_context = dict(artifacts.get("trace_context") or _build_task_trace_context(task))
+    recent_events = _read_task_trace_events(task)
+    linked_items = []
+    try:
+        import agent_team_api as _agent_team_api
+
+        evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
+        if evolution_engine:
+            for item_id in trace_context.get("evolution_item_ids", []) or []:
+                item = evolution_engine.evolution_items.get(item_id)
+                if item:
+                    linked_items.append(
+                        {
+                            "id": item.id,
+                            "status": item.status,
+                            "title": item.title,
+                            "verify_test_name": item.verify_test_name,
+                            "verify_result": item.verify_result,
+                            "verify_detail": item.verify_detail,
+                            "retry_count": item.retry_count,
+                            "max_retries": item.max_retries,
+                        }
+                    )
+    except Exception:
+        linked_items = []
+
+    return {
+        "task_id": task.task_id,
+        "team_id": task.team_id,
+        "agent_id": task.agent_id,
+        "status": task.status.value,
+        "source": task.metadata.get("source", ""),
+        "trace_context": trace_context,
+        "workflow_summary": dict(artifacts.get("workflow_summary") or {}),
+        "changed_files": list(artifacts.get("changed_files") or []),
+        "test_result": dict(artifacts.get("test_result") or {}),
+        "build_outcome": artifacts.get("build_outcome", ""),
+        "failure_reason": artifacts.get("failure_reason", ""),
+        "linked_evolution_items": linked_items,
+        "trace_event_count": len(recent_events),
+        "recent_trace_events": recent_events[-10:],
+    }
+
+
+def _persist_trace_summary(task: AgentTask, trace_summary: Dict[str, Any]) -> None:
+    """Persist a stable trace summary alongside pipeline artifacts when available."""
+    artifact_dir = str(task.metadata.get("artifact_dir") or "").strip()
+    if not artifact_dir:
+        return
+    try:
+        _os.makedirs(artifact_dir, exist_ok=True)
+        trace_path = _os.path.join(artifact_dir, "trace_summary.json")
+        import json as _json
+
+        with open(trace_path, "w", encoding="utf-8") as f:
+            _json.dump(trace_summary, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        _harness_log.debug("[TraceSummary] persist skipped for %s: %s", task.task_id, exc)
+
+
+def _read_task_trace_events(task: AgentTask) -> List[Dict[str, Any]]:
+    """Read persisted structured trace events for a task."""
+    artifact_dir = str(task.metadata.get("artifact_dir") or task.metadata.get("pipeline_dir") or "").strip()
+    if not artifact_dir:
+        artifact_dir = _pipeline_dir(task.task_id)
+    trace_path = _os.path.join(artifact_dir, "trace_events.jsonl")
+    if not _os.path.isfile(trace_path):
+        return []
+
+    events: List[Dict[str, Any]] = []
+    try:
+        import json as _json
+
+        with open(trace_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(_json.loads(line))
+                except Exception:
+                    continue
+    except Exception as exc:
+        _harness_log.debug("[TraceEvents] read skipped for %s: %s", task.task_id, exc)
+    return events
+
+
+def _append_task_trace_event(
+    task: AgentTask,
+    event_type: str,
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Persist a structured trace event and keep a small in-memory tail on the task."""
+    payload = dict(payload or {})
+    artifact_dir = str(task.metadata.get("artifact_dir") or task.metadata.get("pipeline_dir") or "").strip()
+    if not artifact_dir:
+        artifact_dir = _pipeline_dir(task.task_id)
+        task.metadata.setdefault("pipeline_dir", artifact_dir)
+    trace_context = _build_task_trace_context(task)
+    event = {
+        "type": event_type,
+        "ts": _time.time(),
+        "task_id": task.task_id,
+        "team_id": task.team_id,
+        "status": task.status.value,
+        "trace_context": trace_context,
+        "payload": payload,
+    }
+    try:
+        import json as _json
+
+        _os.makedirs(artifact_dir, exist_ok=True)
+        trace_path = _os.path.join(artifact_dir, "trace_events.jsonl")
+        with open(trace_path, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        _harness_log.debug("[TraceEvents] append skipped for %s: %s", task.task_id, exc)
+
+    recent_events = list(task.metadata.get("trace_events") or [])
+    recent_events.append(event)
+    if len(recent_events) > 50:
+        recent_events = recent_events[-50:]
+    task.metadata["trace_events"] = recent_events
+    return event
 
 
 def _sync_evolution_from_task(task: AgentTask) -> List[str]:
@@ -2203,7 +2439,7 @@ def _sync_evolution_from_task(task: AgentTask) -> List[str]:
     if artifacts.get("build_outcome") == "failed" or task.error:
         evolution_status = "failed"
 
-    return evolution_engine.sync_task_outcome(
+    synced_item_ids = evolution_engine.sync_task_outcome(
         task.task_id,
         status=evolution_status,
         code_changes=artifacts.get("changed_files"),
@@ -2211,6 +2447,28 @@ def _sync_evolution_from_task(task: AgentTask) -> List[str]:
         build_artifacts=artifacts,
         error=task.error or artifacts.get("failure_reason", ""),
     )
+    if synced_item_ids:
+        synced_items = []
+        for item_id in synced_item_ids:
+            item = evolution_engine.evolution_items.get(item_id)
+            if not item:
+                continue
+            synced_items.append(
+                {
+                    "id": item.id,
+                    "status": item.status,
+                    "title": item.title,
+                }
+            )
+        _append_task_trace_event(
+            task,
+            "evolution_synced",
+            {
+                "evolution_status": evolution_status,
+                "items": synced_items,
+            },
+        )
+    return synced_item_ids
 
 
 async def _finalize_task_terminal_state(
@@ -2234,6 +2492,16 @@ async def _finalize_task_terminal_state(
         finalized = await _te().complete_task(task.task_id, result=result_payload)
 
     if finalized is not None:
+        _append_task_trace_event(
+            finalized,
+            "task_finalized",
+            {
+                "build_outcome": artifacts.get("build_outcome", ""),
+                "failure_reason": final_error,
+                "changed_files": list(artifacts.get("changed_files") or []),
+                "test_result": dict(artifacts.get("test_result") or {}),
+            },
+        )
         _sync_evolution_from_task(finalized)
     return finalized
 
@@ -2472,6 +2740,104 @@ def get_task_detail(team_id: str, task_id: str) -> Dict[str, Any]:
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task.to_dict()
+
+
+@router.get(
+    "/teams/{team_id}/tasks/{task_id}/trace-summary",
+    summary="Get task trace summary",
+)
+def get_task_trace_summary(team_id: str, task_id: str) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return _build_task_trace_summary(task)
+
+
+@router.get(
+    "/teams/{team_id}/tasks/{task_id}/trace-events",
+    summary="Get task trace events",
+)
+def get_task_trace_events(team_id: str, task_id: str) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    events = _read_task_trace_events(task)
+    return {
+        "task_id": task.task_id,
+        "team_id": task.team_id,
+        "count": len(events),
+        "events": events,
+    }
+
+
+@router.get(
+    "/teams/{team_id}/discussions/{discussion_id}/trace-summary",
+    summary="Get trace summaries for all tasks linked to a discussion",
+)
+def get_discussion_trace_summary(team_id: str, discussion_id: str) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    tasks = [
+        task
+        for task in _te().get_team_tasks(team_id)
+        if (task.metadata or {}).get("discussion_id") == discussion_id
+    ]
+    summaries = [_build_task_trace_summary(task) for task in tasks]
+    return {
+        "team_id": team_id,
+        "discussion_id": discussion_id,
+        "count": len(summaries),
+        "tasks": summaries,
+    }
+
+
+@router.get(
+    "/traces/recent",
+    summary="Get recent task trace summaries across teams",
+)
+def get_recent_trace_summaries(
+    limit: int = 20,
+    team_id: str = "",
+    source: str = "",
+) -> Dict[str, Any]:
+    limit = max(1, min(int(limit or 20), 100))
+    tasks = _te().list_tasks()
+    if team_id:
+        tasks = [task for task in tasks if task.team_id == team_id]
+    if source:
+        tasks = [task for task in tasks if (task.metadata or {}).get("source") == source]
+
+    summaries = []
+    for task in tasks:
+        metadata = task.metadata or {}
+        if not (metadata.get("trace_summary") or metadata.get("artifact_dir") or metadata.get("pipeline_dir")):
+            continue
+        summary = _build_task_trace_summary(task)
+        recent_events = summary.get("recent_trace_events") or []
+        if recent_events:
+            sort_ts = float(recent_events[-1].get("ts") or 0.0)
+        else:
+            sort_ts = 0.0
+            for value in (task.completed_at, task.started_at, task.created_at):
+                if not value:
+                    continue
+                try:
+                    sort_ts = datetime.fromisoformat(value).timestamp()
+                except Exception:
+                    continue
+                break
+        summaries.append((sort_ts, summary))
+
+    summaries.sort(key=lambda item: item[0], reverse=True)
+    payload = [summary for _, summary in summaries[:limit]]
+    return {
+        "count": len(payload),
+        "limit": limit,
+        "team_id": team_id,
+        "source": source,
+        "traces": payload,
+    }
 
 
 @router.delete(
@@ -2893,6 +3259,12 @@ def _emit_pipeline_event(task_id: str, event_type: str, data: Dict[str, Any]) ->
     # Keep last 200 events per task
     if len(_pipeline_events[task_id]) > 200:
         _pipeline_events[task_id] = _pipeline_events[task_id][-200:]
+    try:
+        task = _te().get_task(task_id)
+    except Exception:
+        task = None
+    if task is not None:
+        _append_task_trace_event(task, event_type, data)
     # Push to SSE subscribers
     for q in _pipeline_subscribers.get(task_id, []):
         try:
@@ -5733,9 +6105,11 @@ def _run_tool_loop(
     and execute the codebase via tool calls instead of single-shot text completion.
     """
     try:
-        from agents.agent_loop import AgentLoop
+        from agents.chat_harness import ProviderConfig
+        from agents.runtime import run_tool_loop_sync
     except ImportError:
-        from .agent_loop import AgentLoop  # type: ignore
+        from .chat_harness import ProviderConfig  # type: ignore
+        from .runtime import run_tool_loop_sync  # type: ignore
 
     session["lines"].append(f"🔗 API: {api_base_url}\n模型: {model}\n角色: {role}\n")
     session["lines"].append(f"{'─'*60}\n\n")
@@ -5780,14 +6154,24 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
-    loop = AgentLoop(
-        api_key=api_key, api_base_url=api_base_url, model=model,
-        role=role, system_prompt=system,
+    result = run_tool_loop_sync(
+        prompt=prompt,
+        config=ProviderConfig(
+            api_key=api_key,
+            api_base_url=api_base_url,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            thinking={"type": "enabled"},
+            reasoning_effort="high",
+        ),
+        role=role,
+        system_prompt=system,
         max_iterations=max_iterations,
-        max_tokens=max_tokens, temperature=temperature,
+        max_tokens=max_tokens,
+        temperature=temperature,
         on_event=on_event,
     )
-    result = loop.run(prompt)
 
     session["tool_loop_log"] = result.get("log", [])
     session["files_changed"] = result.get("files_changed", [])

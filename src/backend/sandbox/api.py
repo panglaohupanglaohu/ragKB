@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from .models import SimulationMode, SandboxStatus
 from .orchestrator import SECSOrchestrator
+from .python_runner import describe_sandbox_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,12 @@ async def set_llm_mode(enabled: bool = True) -> Dict[str, Any]:
     orch = get_orchestrator()
     orch.set_llm_mode(enabled)
     return {"llm_mode": enabled}
+
+
+@router.get("/runtime-status")
+async def get_runtime_status() -> Dict[str, Any]:
+    """Return python/pytest sandbox runtime readiness."""
+    return describe_sandbox_runtime()
 
 
 @router.get("/sessions")

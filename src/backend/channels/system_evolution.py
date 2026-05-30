@@ -181,6 +181,7 @@ class EvolutionItem:
     source_discussion_id: str = ""
     source_task_ids: List[str] = field(default_factory=list)
     artifact_dir: str = ""
+    trace_context: Dict[str, Any] = field(default_factory=dict)
 
     # 验证
     verify_test_name: Optional[str] = None   # 用于验证的测试函数名
@@ -1461,6 +1462,12 @@ class SystemEvolutionChannel(MarineChannel):
                 item.artifact_dir = artifact_dir
             if build_artifacts:
                 item.build_artifacts = dict(build_artifacts)
+                trace_context = build_artifacts.get("trace_context") or {}
+                if trace_context:
+                    merged = dict(item.trace_context)
+                    merged.update(trace_context)
+                    merged.setdefault("evolution_item_id", item.id)
+                    item.trace_context = merged
             if error:
                 item.build_error = error
 
@@ -1469,12 +1476,47 @@ class SystemEvolutionChannel(MarineChannel):
             else:
                 if item.status == EvolutionStatus.DISPATCHED.value:
                     item.status = EvolutionStatus.IN_PROGRESS.value
-                if item.code_changes or item.artifact_dir:
+                if self._can_auto_close_from_artifacts(item, build_artifacts):
+                    now = datetime.now().isoformat()
+                    if item.status not in {EvolutionStatus.VERIFIED.value, EvolutionStatus.CLOSED.value}:
+                        self.total_verified += 1
+                    if item.status != EvolutionStatus.CLOSED.value:
+                        self.total_closed += 1
+                    item.verify_result = "passed"
+                    item.verify_detail = "Auto-verified from task test results"
+                    item.completed_at = item.completed_at or now
+                    item.closed_at = now
+                    item.status = EvolutionStatus.CLOSED.value
+                elif item.code_changes or item.artifact_dir:
+                    if item.verify_test_name:
+                        item.verify_result = "pending"
+                        item.verify_detail = f"Awaiting verify test: {item.verify_test_name}"
                     item.status = EvolutionStatus.VERIFY_PENDING.value
 
             synced.append(item.id)
 
         return synced
+
+    def _can_auto_close_from_artifacts(
+        self,
+        item: EvolutionItem,
+        build_artifacts: Optional[Dict[str, Any]],
+    ) -> bool:
+        """Allow Plaza-derived items with passing task evidence to close automatically."""
+        if not build_artifacts:
+            return False
+        if item.verify_test_name:
+            return False
+        if self._get_rule_by_id(item.build_task_id):
+            return False
+        test_result = build_artifacts.get("test_result") or {}
+        verdict = str(test_result.get("verdict", "")).upper()
+        test_status = str(test_result.get("status", "")).lower()
+        return (
+            build_artifacts.get("build_outcome") == "completed"
+            and test_status == "completed"
+            and verdict in {"PASS", "PASSED", "OK"}
+        )
 
     # ── 验证: 通过模拟人类操作的自动化测试 ─────────────────────
 

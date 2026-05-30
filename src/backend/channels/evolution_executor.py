@@ -243,19 +243,29 @@ class EvolutionExecutor:
         on_event: Callable,
     ) -> Dict[str, Any]:
         """在线程中同步运行 AgentLoop."""
-        from ..agents.agent_loop import AgentLoop
+        try:
+            from agents.chat_harness import ProviderConfig
+            from agents.runtime import run_tool_loop_sync
+        except ImportError:
+            from src.backend.agents.chat_harness import ProviderConfig  # type: ignore
+            from src.backend.agents.runtime import run_tool_loop_sync  # type: ignore
 
-        agent = AgentLoop(
-            api_key=config["api_key"],
-            api_base_url=config["api_base_url"],
-            model=config["model"],
+        return run_tool_loop_sync(
+            prompt=user_prompt,
+            config=ProviderConfig(
+                api_key=config["api_key"],
+                api_base_url=config["api_base_url"],
+                model=config["model"],
+                max_tokens=65536,
+                temperature=0.2,
+                thinking={"type": "enabled"},
+                reasoning_effort="high",
+            ),
             role="developer",
             system_prompt=system_prompt,
             max_iterations=DEFAULT_MAX_ITERATIONS,
             on_event=on_event,
         )
-
-        return agent.run(user_prompt)
 
     def get_result(self, item_id: str) -> Optional[Dict[str, Any]]:
         """获取执行结果 (None 表示尚未完成)."""

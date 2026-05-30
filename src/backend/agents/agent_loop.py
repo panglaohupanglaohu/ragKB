@@ -22,6 +22,8 @@ from .agent_toolbox import (
     dispatch_tool_call,
     get_tools_for_role,
 )
+from .chat_harness import ProviderConfig
+from .runtime import run_tool_loop_sync
 
 logger = logging.getLogger("AgentLoop")
 
@@ -147,155 +149,25 @@ class AgentLoop:
     # ────────────────────────────────────────────────
     def run(self, user_prompt: str) -> Dict[str, Any]:
         """Run the agent loop. Returns {ok, summary, files_changed, iterations, log}."""
-        self.messages.append({"role": "user", "content": user_prompt})
-        self._emit("loop_start", {"role": self.role, "tools": [t["function"]["name"] for t in self.tools]})
-
-        for it in range(self.max_iterations):
-            # ── Safeguard 1: nudge agent when approaching iteration cap ──
-            self._maybe_inject_nudge(it)
-            # ── Safeguard 2: compact old tool results when context too large ──
-            self._compact_old_tool_results()
-
-            t0 = time.time()
-            try:
-                resp = self._post_chat()
-            except Exception as e:
-                logger.exception("[AgentLoop] HTTP error on iteration %d (after retries)", it)
-                self._emit("error", {"iteration": it, "error": str(e)})
-                # If we have already done useful work, don't discard it —
-                # treat as a graceful early stop instead of hard failure.
-                if self.files_changed or self.summary:
-                    logger.info(
-                        "[AgentLoop] Partial progress (%d files, %d chars summary) — "
-                        "returning partial success",
-                        len(self.files_changed), len(self.summary),
-                    )
-                    self._emit("loop_end", {"reason": "network_error_partial", "iteration": it})
-                    return {
-                        "ok": True, "error": str(e),
-                        "summary": self.summary or f"(network error after {it} turns)",
-                        "files_changed": self.files_changed,
-                        "iterations": it, "log": self.tool_call_log,
-                    }
-                return {
-                    "ok": False, "error": str(e),
-                    "summary": self.summary, "files_changed": self.files_changed,
-                    "iterations": it, "log": self.tool_call_log,
-                }
-
-            choice = (resp.get("choices") or [{}])[0]
-            msg = choice.get("message", {}) or {}
-            content = msg.get("content") or ""
-            tool_calls = msg.get("tool_calls") or []
-            finish_reason = choice.get("finish_reason", "")
-
-            self._emit("model_turn", {
-                "iteration": it,
-                "elapsed": round(time.time() - t0, 2),
-                "content_chars": len(content),
-                "tool_call_count": len(tool_calls),
-                "finish_reason": finish_reason,
-            })
-
-            # Append assistant turn
-            assistant_msg: Dict[str, Any] = {"role": "assistant", "content": content}
-            if tool_calls:
-                assistant_msg["tool_calls"] = tool_calls
-            self.messages.append(assistant_msg)
-
-            # No tool calls → model is done talking
-            if not tool_calls:
-                if not self.summary and content:
-                    self.summary = content[:1000]
-                self._emit("loop_end", {"reason": "no_tool_call", "iteration": it})
-                return {
-                    "ok": True, "summary": self.summary,
-                    "files_changed": self.files_changed,
-                    "iterations": it + 1, "log": self.tool_call_log,
-                    "final_message": content,
-                }
-
-            # Process each tool call
-            finished = False
-            for tc in tool_calls:
-                tc_id = tc.get("id", "")
-                fn = tc.get("function", {}) or {}
-                name = fn.get("name", "")
-                args_raw = fn.get("arguments", "") or "{}"
-                self._emit("tool_call", {"name": name, "args": args_raw[:500]})
-
-                if name == "finish":
-                    try:
-                        a = json.loads(args_raw or "{}")
-                        self.summary = a.get("summary", "")
-                        for fc in a.get("files_changed") or []:
-                            if fc not in self.files_changed:
-                                self.files_changed.append(fc)
-                    except Exception:
-                        self.summary = args_raw[:500]
-                    self.messages.append({
-                        "role": "tool", "tool_call_id": tc_id, "name": name,
-                        "content": json.dumps({"ok": True, "ack": "finished"}),
-                    })
-                    self.tool_call_log.append({"name": name, "args": args_raw, "ok": True})
-                    finished = True
-                    continue
-
-                result = dispatch_tool_call(name, args_raw)
-                # Track writes
-                if name in ("write_file", "patch_file") and result.get("ok"):
-                    try:
-                        a = json.loads(args_raw or "{}")
-                        path = a.get("path", "")
-                        if path and path not in self.files_changed:
-                            self.files_changed.append(path)
-                    except Exception:
-                        pass
-
-                self.tool_call_log.append({
-                    "name": name, "args": args_raw[:1000],
-                    "ok": bool(result.get("ok")),
-                    "summary": self._summarize_result(name, result),
-                })
-                self._emit("tool_result", {
-                    "name": name, "ok": bool(result.get("ok")),
-                    "summary": self.tool_call_log[-1]["summary"],
-                })
-                self.messages.append({
-                    "role": "tool", "tool_call_id": tc_id, "name": name,
-                    "content": json.dumps(result, ensure_ascii=False)[:32_000],
-                })
-
-            if finished:
-                self._emit("loop_end", {"reason": "finish_called", "iteration": it})
-                return {
-                    "ok": True, "summary": self.summary,
-                    "files_changed": self.files_changed,
-                    "iterations": it + 1, "log": self.tool_call_log,
-                }
-
-        # Hit iteration cap
-        # ── Safeguard 3: partial success if agent produced useful work ──
-        if self.files_changed or self.summary:
-            logger.info(
-                "[AgentLoop] Iteration cap hit but agent produced work "
-                "(%d files, %d chars summary) — treating as partial success",
-                len(self.files_changed), len(self.summary),
-            )
-            self._emit("loop_end", {"reason": "iteration_cap_partial", "iteration": self.max_iterations})
-            return {
-                "ok": True,
-                "error": f"iteration cap hit ({self.max_iterations}) — partial result",
-                "summary": self.summary or f"(completed {len(self.files_changed)} file changes before cap)",
-                "files_changed": self.files_changed,
-                "iterations": self.max_iterations, "log": self.tool_call_log,
-            }
-        self._emit("loop_end", {"reason": "iteration_cap", "iteration": self.max_iterations})
-        return {
-            "ok": False, "error": f"iteration cap hit ({self.max_iterations})",
-            "summary": self.summary, "files_changed": self.files_changed,
-            "iterations": self.max_iterations, "log": self.tool_call_log,
-        }
+        config = ProviderConfig(
+            api_key=self.api_key,
+            api_base_url=self.api_base_url,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            thinking={"type": "enabled"},
+            reasoning_effort="high",
+        )
+        return run_tool_loop_sync(
+            prompt=user_prompt,
+            config=config,
+            role=self.role,
+            system_prompt=self.messages[0]["content"],
+            max_iterations=self.max_iterations,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            on_event=self.on_event,
+        )
 
     def _summarize_result(self, name: str, result: Dict[str, Any]) -> str:
         if not result.get("ok"):

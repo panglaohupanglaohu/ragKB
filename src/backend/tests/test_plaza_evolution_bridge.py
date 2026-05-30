@@ -11,15 +11,21 @@ import pytest
 import agent_team_api as agent_team_api_module
 from agents import api as api_module
 from agents import plaza_engine as plaza_engine_module
+from agents import task_engine as task_engine_module
 from channels.system_evolution import (
     EvolutionItem,
     EvolutionStatus,
     SystemEvolutionChannel,
 )
 from agents.plaza_engine import PlazaEngine
-from agents.plaza_routes import EvolveRequest, evolve_from_discussion
+from agents.plaza_routes import (
+    EvolveRequest,
+    evolve_from_discussion,
+    get_discussion_verification_queue,
+)
 from agents.plaza_store import PlazaStore
-from agents.task_engine import AgentTask
+from agents.task_engine import AgentTask, TaskEngine
+from agents.task_store import TaskStore
 
 
 @pytest.fixture
@@ -29,6 +35,14 @@ def isolated_plaza_engine(monkeypatch):
         engine._store = PlazaStore(base_dir=Path(tmpdir))
         engine._plazas = {}
         monkeypatch.setattr(plaza_engine_module, "_engine", engine)
+        yield engine
+
+
+@pytest.fixture
+def isolated_task_engine(monkeypatch):
+    with TemporaryDirectory() as tmpdir:
+        engine = TaskEngine(store=TaskStore(base_dir=Path(tmpdir) / "tasks"))
+        monkeypatch.setattr(task_engine_module, "_engine", engine)
         yield engine
 
 
@@ -91,7 +105,12 @@ class TestEvolutionCycleGuards:
 
 class TestPlazaEvolutionBridge:
     @pytest.mark.asyncio
-    async def test_evolve_from_discussion_creates_traceable_items(self, isolated_plaza_engine, monkeypatch):
+    async def test_evolve_from_discussion_creates_traceable_items(
+        self,
+        isolated_plaza_engine,
+        isolated_task_engine,
+        monkeypatch,
+    ):
         plaza, disc = _seed_discussion(isolated_plaza_engine)
         evolution_engine = SystemEvolutionChannel()
         evolution_engine.initialize()
@@ -110,6 +129,7 @@ class TestPlazaEvolutionBridge:
                 metadata=kwargs["metadata"],
             )
             created_tasks.append(task)
+            await isolated_task_engine.submit_task(task)
             return task
 
         monkeypatch.setattr(api_module, "_submit_internal_task", fake_submit_internal_task)
@@ -123,6 +143,7 @@ class TestPlazaEvolutionBridge:
         for item in result["items"]:
             assert item["source_discussion_id"] == disc.id
             assert item["source_task_ids"] == ["plaza-task-1", "plaza-task-2"]
+            assert item["trace_context"]["discussion_id"] == disc.id
 
         stored_items = list(evolution_engine.evolution_items.values())
         assert len(stored_items) == 2
@@ -130,3 +151,52 @@ class TestPlazaEvolutionBridge:
         assert all(item.source_discussion_id == disc.id for item in stored_items)
         assert all(item.source_task_ids == ["plaza-task-1", "plaza-task-2"] for item in stored_items)
         assert all(item.status == EvolutionStatus.DISPATCHED.value for item in stored_items)
+        assert all(item.trace_context["plaza_id"] == plaza.id for item in stored_items)
+
+        for task in result["tasks"]:
+            metadata = task["metadata"]
+            assert len(metadata["evolution_item_ids"]) == 2
+            assert metadata["trace_context"]["task_id"] == task["task_id"]
+            assert metadata["trace_context"]["evolution_item_ids"] == metadata["evolution_item_ids"]
+
+        linked_task = isolated_task_engine.get_task("plaza-task-1")
+        assert linked_task is not None
+        assert len(linked_task.metadata["evolution_item_ids"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_discussion_verification_queue_surfaces_manual_verify_items(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.evolution_items["evo-manual"] = EvolutionItem(
+            id="evo-manual",
+            title="人工验证项",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="manual-check",
+            verify_result="pending",
+            verify_detail="Awaiting verify test: manual-check",
+            source_plaza_id=plaza.id,
+            source_discussion_id=disc.id,
+            source_task_ids=["plaza-task-1"],
+        )
+        evolution_engine.evolution_items["evo-other"] = EvolutionItem(
+            id="evo-other",
+            title="其他讨论",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="other-check",
+            source_plaza_id=plaza.id,
+            source_discussion_id="other-disc",
+            source_task_ids=["task-x"],
+        )
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", evolution_engine)
+
+        payload = await get_discussion_verification_queue(plaza.id, disc.id)
+
+        assert payload["count"] == 1
+        assert payload["items"][0]["id"] == "evo-manual"
+        assert payload["items"][0]["requires_manual_verify"] is True
+        assert payload["items"][0]["verify_detail"] == "Awaiting verify test: manual-check"
