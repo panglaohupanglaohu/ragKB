@@ -34,7 +34,7 @@
   </div>
   <!-- Main -->
   <div class="main" id="main-content">
-    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button></div></div>
+    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button><button class="btn btn-sm btn-ghost" onclick="deleteTeam()" style="color:var(--red)">🗑 删除团队</button></div></div>
     <!-- Views -->
     <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
 <!-- 演进状态摘要 -->

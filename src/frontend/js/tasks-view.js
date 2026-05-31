@@ -343,6 +343,17 @@ async function taskAction(id,action){
 
 // ── Create team ──
 el('btn-ct').onclick=async()=>{const n=el('ct-name').value.trim();if(!n){toast('请输入名称');return}el('btn-ct').disabled=true;el('btn-ct').textContent='创建中...';try{const r=await api(`${A}/teams`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,description:el('ct-desc').value.trim()})});if(r&&r.team_id){toast('✅ 团队创建成功');closeModal('modal-create-team');el('ct-name').value='';el('ct-desc').value='';tid=r.team_id;loadTeams()}else{toast('❌ 创建失败，请检查后端日志')}}finally{el('btn-ct').disabled=false;el('btn-ct').textContent='创建'}};
+
+// ── Delete team ──
+window.deleteTeam=async function(){
+  if(!tid){toast('请先在顶部下拉列表中选择要删除的团队');return}
+  const teams=await api(`${A}/teams`);
+  const t=teams.find(x=>x.team_id===tid);
+  const name=t?t.name:tid;
+  if(!confirm(`⚠️ 确定要删除团队「${name}」吗？此操作不可撤销，团队下的所有模型、智能体、任务都会被删除。`)) return;
+  const r=await api(`${A}/teams/${tid}`,{method:'DELETE'});
+  if(r){toast(`✅ 团队「${name}」已删除`);tid='';_teamsListCache=null;loadTeams()}else{toast('❌ 删除失败，请检查后端日志')}
+};
 // ── Add model ──
 el('btn-am').onclick=async()=>{const n=el('am-name').value.trim();if(!n){toast('请输入模型名');return}const r=await api(`${A}/teams/${tid}/models`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:el('am-prov').value,name:n,max_tokens:+el('am-tok').value,temperature:+el('am-temp').value,api_key:el('am-key').value,api_base_url:el('am-url').value,is_default:el('am-def').value==='true'})});if(r){toast('添加成功');closeModal('modal-add-model');el('am-name').value='';el('am-key').value='';el('am-url').value='';loadModels()}else toast('失败')};
 // ── Submit task ──
