@@ -364,6 +364,14 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ Cost Gate API failed: {e}")
 
+        # 4f-bis. Token Factory API (LLM inference health & management)
+        try:
+            from token_factory import router as tf_router
+            app.include_router(tf_router)
+            logger.info("✅ Token Factory API mounted (/api/v1/token-factory)")
+        except Exception as e:
+            logger.warning(f"⚠️ Token Factory API failed: {e}")
+
         # 4g. K8s Webhook for cost label injection
         try:
             from agents.k8s_webhook_handler import webhook_router as k8s_webhook_router
