@@ -288,14 +288,14 @@ async function taskAction(id,action){
   if(action==='delete'){
     if(!confirm('确定要永久删除此任务吗？')) return;
     const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
-    if(r){toast('任务已删除');loadTasks()}else{toast('删除失败，请检查后端')}
+    if(r){toast('✅ 已删除');loadTasks()}else{toast('❌ 删除失败 — 请检查后端日志','error')}
   }
   else if(action==='cancel'){
     if(!confirm('确定要取消此任务吗？这将终止正在运行的进程。')) return;
-    // First try to stop the session, then cancel the task
-    await api(`${A}/teams/${tid}/tasks/${id}/stop`,{method:'POST'});
-    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
-    toast('任务已取消');loadTasks();
+    toast('⏳ 正在取消...');
+    await api(`${A}/teams/${tid}/tasks/${id}/stop`,{method:'POST'}).catch(()=>{});
+    const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
+    if(r){toast('✅ 已取消');loadTasks()}else{toast('❌ 取消失败 — 请检查后端','error')}
   }
   else if(action==='start'){
     // Pre-execution environment check — advisory only. Backend is the source of truth.
