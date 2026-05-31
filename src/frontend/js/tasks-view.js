@@ -260,13 +260,13 @@ async function loadTasks(){hideViewLoading("view-tasks");
     const hasWf=t.metadata&&t.metadata.workflow&&t.metadata.workflow.length>0;
     const wfAllDone=hasWf&&t.metadata.workflow.every(s=>s.status==='completed'||s.status==='skipped');
     const delBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:oklch(0.55 0.005 110)" onclick="taskAction('${t.task_id}','delete')" title="删除任务">🗑</button>`;
-    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button> <button class="btn btn-danger btn-sm" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
+    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
     else if(t.status==='running'){
+      const cancelBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">⏹ 取消</button>`;
       if(hasWf&&!wfAllDone){
-        // Workflow in progress — only show fail button, no manual complete
-        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>`;
+        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn}`;
       } else {
-        actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>`;
+        actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn} ${delBtn}`;
       }
     }
     else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span> ${delBtn}`;
@@ -287,9 +287,12 @@ async function loadTasks(){hideViewLoading("view-tasks");
 async function taskAction(id,action){
   if(action==='delete'){
     if(!confirm('确定要永久删除此任务吗？')) return;
-    await fetch(`${A}/teams/${tid}/tasks/${id}/remove`,{method:'DELETE'});toast('任务已删除');
+    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});toast('任务已删除');loadTasks();
   }
-  else if(action==='cancel'){await fetch(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});toast('已取消')}
+  else if(action==='cancel'){
+    if(!confirm('确定要取消此任务吗？')) return;
+    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});toast('已取消');loadTasks();
+  }
   else if(action==='start'){
     // Pre-execution environment check — advisory only. Backend is the source of truth.
     toast('⏳ 正在检查执行环境...');
@@ -357,6 +360,19 @@ document.querySelectorAll('.modal-overlay').forEach(o=>{o.addEventListener('mous
 
 // Export to global scope for HTML onclick access
 window.loadTasks = loadTasks;
+window.cancelAllTasks = async function(){
+  if(!confirm('取消所有运行中和待执行的任务？此操作不可撤销。')) return;
+  const tasks=await api(`${A}/teams/${tid}/tasks`);
+  if(!tasks||!tasks.length){toast('暂无任务');return}
+  let count=0;
+  for(const t of tasks){
+    if(t.status==='running'||t.status==='pending'){
+      await api(`${A}/teams/${tid}/tasks/${t.task_id}`,{method:'DELETE'});
+      count++;
+    }
+  }
+  toast(`已清理 ${count} 个任务`);loadTasks();
+};
 window.taskAction = taskAction;
 window.startClaudeForTask = startClaudeForTask;
 window.toggleTaskTerm = toggleTaskTerm;

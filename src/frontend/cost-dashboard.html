@@ -220,10 +220,10 @@
       if (svc) params.set('service', svc);
 
       // Fetch summary, trends, pods in parallel
-      const [summary, trends, pods] = await Promise.all([
-        fetchJSON(`${API_BASE}/summary?${params.toString()}`),
-        fetchJSON(`${API_BASE}/trends?${params.toString()}`),
-        fetchJSON(`${API_BASE}/pods?${params.toString()}`),
+      const [summary, trends, breakdown] = await Promise.all([
+        fetchJSON(`${API_BASE}/summary?window=${window}`),
+        fetchJSON(`${API_BASE}/trends?window=${window}`),
+        fetchJSON(`${API_BASE}/by-${agg}?window=${window}`),
       ]);
 
       // Update status
@@ -231,9 +231,8 @@
 
       // Render sections
       renderSummary(summary);
-      renderBreakdown(summary, agg);
+      renderBreakdown(breakdown, agg);
       renderTrends(trends);
-      renderPodsTable(pods);
 
       // Last refresh
       const now = new Date().toLocaleTimeString('zh-CN');
@@ -244,24 +243,15 @@
       const dot = document.getElementById('status-dot');
       const text = document.getElementById('status-text');
       const cache = document.getElementById('cache-age');
-
       dot.className = 'status-dot';
-      if (data && data.opencost_healthy) {
+      if (data && data.summary) {
         dot.classList.add('healthy');
         text.textContent = '已连接';
         text.style.color = 'var(--lime)';
-      } else if (data && !data.opencost_healthy) {
-        dot.classList.add('unhealthy');
-        text.textContent = '未连接';
-        text.style.color = 'var(--pink)';
+        cache.textContent = `服务: ${data.summary.service_count||0} · 容器: ${data.summary.container_count||0}`;
       } else {
         dot.classList.add('unknown');
-        text.textContent = '未知';
-      }
-
-      if (data && data.cache_age_seconds != null) {
-        cache.textContent = `缓存: ${Math.round(data.cache_age_seconds)}s`;
-      } else {
+        text.textContent = '无数据';
         cache.textContent = '';
       }
     }
@@ -298,17 +288,12 @@
       `;
     }
 
-    function renderBreakdown(data, dimension) {
+    function renderBreakdown(items, dimension) {
       const container = document.getElementById('breakdown-chart');
-      if (!data || !data.summary) {
-        container.innerHTML = '<div class="empty-state"><div class="icon">📊</div><div>无数据</div></div>';
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📊</div><div>该维度下暂无数据</div></div>';
         return;
       }
-
-      let items;
-      if (dimension === 'service') items = data.summary.by_service || [];
-      else if (dimension === 'environment') items = data.summary.by_environment || [];
-      else items = data.summary.by_team || [];
 
       if (!items || items.length === 0) {
         container.innerHTML = '<div class="empty-state"><div style="font-size:12px">该维度下暂无数据</div></div>';
