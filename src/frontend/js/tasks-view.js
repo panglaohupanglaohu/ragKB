@@ -171,7 +171,7 @@ function connectTaskTerminal(termId){
   if(!body)return;
 
   // First fetch existing output
-  fetch(`${A}/claude-sessions/${sid}`).then(r=>r.json()).then(d=>{
+  fetch(`${A}/claude-sessions/${sid}`).then(r=>{if(!r.ok)throw new Error('gone');return r.json()}).then(d=>{
     if(d.output&&d.output.length){
       d.output.forEach(line=>{
         const div=document.createElement('div');
@@ -286,16 +286,16 @@ async function loadTasks(){hideViewLoading("view-tasks");
 }
 async function taskAction(id,action){
   if(action==='delete'){
-    if(!confirm('确定要永久删除此任务吗？')) return;
-    const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
-    if(r){toast('✅ 已删除');loadTasks()}else{toast('❌ 删除失败 — 请检查后端日志','error')}
+    if(!confirm('确定要永久删除此任务吗？此操作不可撤销。')) return;
+    const r=await api(`${A}/teams/${tid}/tasks/${id}/remove`,{method:'DELETE'});
+    if(r){toast('✅ 已永久删除');loadTasks()}else{toast('❌ 删除失败','error')}
   }
   else if(action==='cancel'){
-    if(!confirm('确定要取消此任务吗？这将终止正在运行的进程。')) return;
+    if(!confirm('确定要取消此任务吗？')) return;
     toast('⏳ 正在取消...');
     await api(`${A}/teams/${tid}/tasks/${id}/stop`,{method:'POST'}).catch(()=>{});
-    const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
-    if(r){toast('✅ 已取消');loadTasks()}else{toast('❌ 取消失败 — 请检查后端','error')}
+    const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'}); // 只标记 cancelled
+    if(r){toast('✅ 已取消');loadTasks()}else{toast('❌ 取消失败','error')}
   }
   else if(action==='start'){
     // Pre-execution environment check — advisory only. Backend is the source of truth.
@@ -394,8 +394,8 @@ window.cancelAllTasks = async function(){
 
   let count=0;
   for(const t of matched){
-    if(t.status==='running') await api(`${A}/teams/${tid}/tasks/${t.task_id}/stop`,{method:'POST'});
-    await api(`${A}/teams/${tid}/tasks/${t.task_id}`,{method:'DELETE'});
+    if(t.status==='running') await api(`${A}/teams/${tid}/tasks/${t.task_id}/stop`,{method:'POST'}).catch(()=>{});
+    await api(`${A}/teams/${tid}/tasks/${t.task_id}/remove`,{method:'DELETE'});
     count++;
   }
   toast(`已清理 ${count} 个任务`);loadTasks();
