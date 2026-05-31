@@ -3062,6 +3062,32 @@ async def cancel_task(team_id: str, task_id: str) -> Dict[str, Any]:
     return task.to_dict()
 
 
+@router.post(
+    "/teams/{team_id}/tasks/{task_id}/stop",
+    summary="Force stop a running task",
+)
+async def stop_task(team_id: str, task_id: str) -> Dict[str, Any]:
+    """Kill all Claude Code sessions for this task, then cancel it."""
+    _get_team_or_404(team_id)
+    killed = 0
+    to_remove = []
+    for sid, s in _claude_sessions.items():
+        if s.get("task_id") == task_id:
+            proc = s.get("proc")
+            if proc and proc.poll() is None:
+                try: proc.terminate(); proc.wait(timeout=5)
+                except Exception:
+                    try: proc.kill()
+                    except Exception: pass
+                killed += 1
+            s["status"] = "stopped"
+            to_remove.append(sid)
+    for sid in to_remove:
+        _claude_sessions.pop(sid, None)
+    task = await _te().cancel_task(task_id)
+    return {"task_id": task_id, "killed_sessions": killed, "status": task.status if task else "unknown"}
+
+
 @router.delete(
     "/teams/{team_id}/tasks/{task_id}/remove",
     summary="Permanently delete a task",

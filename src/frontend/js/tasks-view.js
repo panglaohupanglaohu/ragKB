@@ -287,11 +287,15 @@ async function loadTasks(){hideViewLoading("view-tasks");
 async function taskAction(id,action){
   if(action==='delete'){
     if(!confirm('确定要永久删除此任务吗？')) return;
-    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});toast('任务已删除');loadTasks();
+    const r=await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
+    if(r){toast('任务已删除');loadTasks()}else{toast('删除失败，请检查后端')}
   }
   else if(action==='cancel'){
-    if(!confirm('确定要取消此任务吗？')) return;
-    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});toast('已取消');loadTasks();
+    if(!confirm('确定要取消此任务吗？这将终止正在运行的进程。')) return;
+    // First try to stop the session, then cancel the task
+    await api(`${A}/teams/${tid}/tasks/${id}/stop`,{method:'POST'});
+    await api(`${A}/teams/${tid}/tasks/${id}`,{method:'DELETE'});
+    toast('任务已取消');loadTasks();
   }
   else if(action==='start'){
     // Pre-execution environment check — advisory only. Backend is the source of truth.
@@ -372,15 +376,27 @@ document.querySelectorAll('.modal-overlay').forEach(o=>{o.addEventListener('mous
 // Export to global scope for HTML onclick access
 window.loadTasks = loadTasks;
 window.cancelAllTasks = async function(){
-  if(!confirm('取消所有运行中和待执行的任务？此操作不可撤销。')) return;
+  const choice=prompt('选择要清理的任务类型:\n  r = 仅运行中\n  p = 仅待执行\n  a = 全部(运行中+待执行)\n  f = 仅失败\n  输入后确认:');
+  if(!choice) return;
+  const ch=choice.trim().toLowerCase();
+  const targets=[];
+  if(ch==='r') targets.push('running');
+  else if(ch==='p') targets.push('pending');
+  else if(ch==='a') targets.push('running','pending');
+  else if(ch==='f') targets.push('failed');
+  else {toast('无效选择，请输入 r/p/a/f');return}
+
   const tasks=await api(`${A}/teams/${tid}/tasks`);
   if(!tasks||!tasks.length){toast('暂无任务');return}
+  const matched=tasks.filter(t=>targets.includes(t.status));
+  if(!matched.length){toast(`没有 ${targets.join('/')} 状态的任务`);return}
+  if(!confirm(`确定要清理 ${matched.length} 个任务 (${targets.join(',')})？`)) return;
+
   let count=0;
-  for(const t of tasks){
-    if(t.status==='running'||t.status==='pending'){
-      await api(`${A}/teams/${tid}/tasks/${t.task_id}`,{method:'DELETE'});
-      count++;
-    }
+  for(const t of matched){
+    if(t.status==='running') await api(`${A}/teams/${tid}/tasks/${t.task_id}/stop`,{method:'POST'});
+    await api(`${A}/teams/${tid}/tasks/${t.task_id}`,{method:'DELETE'});
+    count++;
   }
   toast(`已清理 ${count} 个任务`);loadTasks();
 };
