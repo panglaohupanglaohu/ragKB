@@ -20,3 +20,7 @@ storage/
 src/storage/
 src/docs/workflow_artifacts/
 src/docs/agent_handoffs/
+
+# Build output
+/dist/
+/node_modules/

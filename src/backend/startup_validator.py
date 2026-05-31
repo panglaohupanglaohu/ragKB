@@ -307,6 +307,15 @@ class StartupValidator:
     async def _check_bridge_chat(self) -> CheckResult:
         """检查聊天通道"""
         async def check():
+            # Fetch CSRF token first for the state-changing request
+            csrf_resp = await self.client.get(f"{self.base_url}/api/v1/auth/csrf-token")
+            csrf_token = ""
+            if csrf_resp.status_code == 200:
+                csrf_data = csrf_resp.json()
+                csrf_token = csrf_data.get("csrf_token", "")
+            headers = {}
+            if csrf_token:
+                headers["X-CSRF-Token"] = csrf_token
             resp = await self.client.post(
                 f"{self.base_url}/api/v1/bridge-chat/send",
                 json={
@@ -314,6 +323,7 @@ class StartupValidator:
                     "session_id": "startup_validation",
                     "agent_id": "default_agent",
                 },
+                headers=headers,
             )
             if resp.status_code != 200:
                 return CheckResult(

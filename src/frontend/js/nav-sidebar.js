@@ -223,7 +223,7 @@
   function checkBackend() {
     const dot = document.getElementById('ob-conn-dot');
     if (!dot) return;
-    fetch('/health', { signal: AbortSignal.timeout(3000) })
+    fetch('/api/v1/health', { signal: AbortSignal.timeout(3000) })
       .then(r => {
         dot.className = r.ok ? 'ob-dot ob-dot-ok' : 'ob-dot ob-dot-warning';
         dot.title = r.ok ? 'Backend connected' : 'Backend error';
@@ -278,11 +278,11 @@
     app.appendChild(main);
     document.body.appendChild(app);
 
-    // Start clock + health check
+    // Start clock + health check (pause when tab hidden)
     updateClock();
-    setInterval(updateClock, 1000);
+    setInterval(function(){ if (!document.hidden) updateClock(); }, 1000);
     checkBackend();
-    setInterval(checkBackend, 10000);
+    setInterval(function(){ if (!document.hidden) checkBackend(); }, 10000);
   }
 
   // Run when DOM is ready

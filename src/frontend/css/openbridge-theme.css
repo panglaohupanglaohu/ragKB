@@ -5,8 +5,6 @@
    Font: Noto Sans (required by OpenBridge spec)
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700&family=Noto+Serif:wght@200;300;400;600;900&family=Noto+Serif+SC:wght@200;300;400;600;900&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
-
 /* ── Global Primitives ─────────────────────────────────────── */
 :root {
   --ob-font: 'Noto Sans SC', system-ui, -apple-system, sans-serif;

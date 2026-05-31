@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -296,9 +296,17 @@ async def create_plaza(req: CreatePlazaRequest) -> Dict[str, Any]:
 
 
 @router.get("", summary="列出所有广场")
-async def list_plazas() -> List[Dict[str, Any]]:
+async def list_plazas(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)) -> Dict[str, Any]:
     engine = get_plaza_engine()
-    return [p.to_dict() for p in engine.list_plazas()]
+    items = [p.to_dict() for p in engine.list_plazas()]
+    sliced = items[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": len(items),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < len(items),
+    }
 
 
 @router.get("/presets", summary="获取预设话题模板")

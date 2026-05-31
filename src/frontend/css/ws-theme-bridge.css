@@ -102,8 +102,8 @@
 
 /* ── Night mode body overrides ────────────────────────────── */
 [data-obc-theme='night'] body {
-  background: rgb(0,0,0) !important;
-  color: rgb(71,71,0) !important;
+  background: rgb(0,0,0);
+  color: rgb(71,71,0);
 }
 [data-obc-theme='night'] body::before {
   background-image: none !important;
@@ -111,8 +111,8 @@
 
 /* ── Dusk mode body overrides ─────────────────────────────── */
 [data-obc-theme='dusk'] body, body {
-  background: #1A1F25 !important;
-  color: #D7DEE4 !important;
+  background: #1A1F25;
+  color: #D7DEE4;
 }
 [data-obc-theme='dusk'] body::before, body::before {
   background-image: radial-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),radial-gradient(rgba(255,255,255,0.008) 1px,transparent 1px) !important;
@@ -120,46 +120,47 @@
 
 /* ── Bright mode body overrides ───────────────────────────── */
 [data-obc-theme='bright'] body {
-  background: #ffffff !important;
-  color: #1a1a1a !important;
+  background: #ffffff;
+  color: #1a1a1a;
 }
 
 /* ═══════════════════════════════════════════════════════════
    UI Helper Variables — used by agent-team-config and pages
    ═══════════════════════════════════════════════════════════ */
 
-/* Dusk (default) */
-[data-obc-theme='dusk'], :root {
+/* Dusk (default — dark theme) — :root ensures variables are always available */
+:root,
+[data-obc-theme='dusk'] {
   --ws-sidebar-bg: #21272D;
-  --ws-hover-bg: rgba(166,176,186,0.08);
+  --ws-hover-bg: rgba(255,255,255,0.05);
   --ws-active-bg: rgba(107,196,127,0.12);
-  --ws-border: #4A535C;
+  --ws-border: #3B434C;
   --ws-border-light: #3B434C;
-  --ws-border-subtle: rgba(255,255,255,0.04);
-  --ws-panel-bg: #1A1F25;
-  --ws-panel2-bg: #21272D;
-  --ws-input-bg: #21272D;
-  --ws-soul-bg: #21272D;
-  --ws-memory-bg: #2A3037;
-  --ws-focus-bg: #2A3037;
-  --ws-hover-row: rgba(166,176,186,0.04);
-  --ws-zebra: rgba(166,176,186,0.02);
-  --ws-btn-hover: rgba(166,176,186,0.08);
-  --ws-danger-bg: rgba(224,112,112,0.10);
-  --ws-danger-border: rgba(224,112,112,0.20);
-  --ws-toast-bg: #2A3037;
-  --ws-toast-border: #4A535C;
-  --ws-toast-error-bg: #2D1F1F;
-  --ws-toast-success-bg: #1F2D1F;
-  --ws-toast-warn-bg: #2D2A1F;
-  --ws-scrollbar: #3B434C;
+  --ws-border-subtle: rgba(255,255,255,0.06);
+  --ws-panel-bg: #21272D;
+  --ws-panel2-bg: #1A1F25;
+  --ws-input-bg: #1A1F25;
+  --ws-soul-bg: #1A1F25;
+  --ws-memory-bg: #21272D;
+  --ws-focus-bg: rgba(255,255,255,0.03);
+  --ws-hover-row: rgba(255,255,255,0.03);
+  --ws-zebra: rgba(255,255,255,0.02);
+  --ws-btn-hover: rgba(255,255,255,0.06);
+  --ws-danger-bg: rgba(224,112,112,0.08);
+  --ws-danger-border: rgba(224,112,112,0.2);
+  --ws-toast-bg: #30363D;
+  --ws-toast-border: #3B434C;
+  --ws-toast-error-bg: rgba(224,112,112,0.12);
+  --ws-toast-success-bg: rgba(107,196,127,0.10);
+  --ws-toast-warn-bg: rgba(212,164,74,0.10);
+  --ws-scrollbar: #424A52;
   --ws-scrollbar-hover: #64707A;
   --ws-shadow: rgba(0,0,0,0.20);
   --ws-shadow-md: rgba(0,0,0,0.30);
   --ws-shadow-lg: rgba(0,0,0,0.40);
 }
 
-/* Day */
+/* Day (light theme) */
 [data-obc-theme='day'] {
   --ws-sidebar-bg: #f5f7fa;
   --ws-hover-bg: rgba(0,80,180,0.06);

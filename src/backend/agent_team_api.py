@@ -8,7 +8,7 @@ Agent Team API Routes - 双团队管理 REST API
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
@@ -254,19 +254,37 @@ async def evolution_summary():
 
 
 @router.get("/evolution/items")
-async def evolution_items(status: Optional[str] = None):
-    """获取演进项列表，可按状态过滤。"""
+async def evolution_items(status: Optional[str] = None, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """获取演进项列表，可按状态过滤、分页。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_evolution_items(status=status)
+    items = _evolution_engine.get_evolution_items(status=status)
+    total = len(items)
+    sliced = items[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/evolution/rules")
-async def evolution_rules():
-    """获取审查规则列表。"""
+async def evolution_rules(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """获取审查规则列表（分页）。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return [r.to_dict() for r in _evolution_engine.audit_rules]
+    items = [r.to_dict() for r in _evolution_engine.audit_rules]
+    total = len(items)
+    sliced = items[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.post("/evolution/audit")
@@ -353,8 +371,8 @@ async def evolution_close():
 
 
 @router.get("/evolution/history")
-async def evolution_audit_history():
-    """获取审查历史记录。"""
+async def evolution_audit_history(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """获取审查历史记录（分页）。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
     raw = _evolution_engine.get_audit_history()
@@ -365,7 +383,15 @@ async def evolution_audit_history():
         entry.setdefault("timestamp", entry.pop("time", None))
         entry.setdefault("total", (entry.get("passed") or 0) + (entry.get("failed") or 0) + (entry.get("skipped") or 0))
         result.append(entry)
-    return result
+    total = len(result)
+    sliced = result[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/evolution/analytics")
@@ -484,11 +510,20 @@ async def evolution_monitoring():
 
 
 @router.get("/evolution/audit-trail")
-async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = 50):
-    """获取审计轨迹日志。"""
+async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """获取审计轨迹日志（分页）。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    return _evolution_engine.get_audit_trail(event_type=event_type, limit=limit)
+    items = _evolution_engine.get_audit_trail(event_type=event_type)
+    total = len(items)
+    sliced = items[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -563,10 +598,18 @@ async def evolution_optimize(body: Dict[str, Any]):
 
 
 @router.get("/evolution/optimize/runs")
-async def evolution_optimize_runs(target_type: Optional[str] = None, limit: int = 20):
-    """列出优化运行记录."""
+async def evolution_optimize_runs(target_type: Optional[str] = None, limit: int = Query(default=20, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """列出优化运行记录（分页）。"""
     from agents.evolution.optimizer import list_runs
-    return list_runs(target_type=target_type, limit=limit)
+    items = list_runs(target_type=target_type, limit=limit + offset)
+    sliced = items[offset:offset + limit]
+    return {
+        "items": sliced,
+        "total": len(items),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < len(items),
+    }
 
 
 @router.get("/evolution/optimize/{run_id}")

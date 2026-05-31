@@ -25,10 +25,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
+import traceback
 
 # ── Logging ──
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s  %(message)s")
@@ -307,6 +310,7 @@ async def startup():
     except Exception as e:
         logger.warning(f"⚠️ Startup Check API failed: {e}")
 
+    _clean_expired_csrf()
     logger.info("🎉 AgentsGroup2026 ready")
 
     # 6. 异步执行启动验证（不阻塞启动）
@@ -396,6 +400,57 @@ elif "admin" not in _USERS:
 _TOKENS: Dict[str, dict] = {}
 _TOKEN_TTL = 86400 * 7  # 7 days
 
+# CSRF protection
+_CSRF_TOKENS: Dict[str, float] = {}
+_CSRF_TTL = 3600  # 1 hour
+
+
+def _generate_csrf_token() -> str:
+    token = secrets.token_hex(24)
+    _CSRF_TOKENS[token] = _time.time()
+    return token
+
+
+def _validate_csrf_token(token: str) -> bool:
+    entry = _CSRF_TOKENS.get(token)
+    if not entry:
+        return False
+    if _time.time() - entry > _CSRF_TTL:
+        del _CSRF_TOKENS[token]
+        return False
+    return True
+
+
+def _clean_expired_csrf():
+    now = _time.time()
+    expired = [t for t, ts in _CSRF_TOKENS.items() if now - ts > _CSRF_TTL]
+    for t in expired:
+        del _CSRF_TOKENS[t]
+
+
+@app.get("/api/v1/auth/csrf-token")
+async def csrf_token():
+    """Return a fresh CSRF token."""
+    _clean_expired_csrf()
+    return {"csrf_token": _generate_csrf_token()}
+
+
+# CSRF validation middleware
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        path = request.url.path
+        # Skip CSRF for auth endpoints
+        if path not in ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/csrf-token", "/api/v1/log/client-error") and not path.startswith("/api/v1/startup-check"):
+            csrf_header = request.headers.get("x-csrf-token", "")
+            if not csrf_header or not _validate_csrf_token(csrf_header):
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": True, "detail": "CSRF token invalid or expired, please refresh the page", "status_code": 403},
+                )
+    response = await call_next(request)
+    return response
+
 
 def _clean_expired_tokens():
     """Remove expired tokens."""
@@ -437,8 +492,18 @@ async def register(req: RegisterRequest):
     _USERS[username] = _hash_password(req.password)
     _save_users(_USERS)
     token = _create_token(username)
+    csrf = _generate_csrf_token()
     logger.info(f"✅ New user registered: {username}")
-    return {"token": token, "username": username}
+    resp = JSONResponse({"token": token, "username": username, "csrf_token": csrf})
+    resp.set_cookie(
+        key="ag-token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=86400 * 7,
+        secure=False,  # set True in production with HTTPS
+    )
+    return resp
 
 
 @app.post("/api/v1/auth/login")
@@ -447,26 +512,113 @@ async def login(req: LoginRequest):
     if req.username not in _USERS or not _verify_password(req.password, _USERS[req.username]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = _create_token(req.username)
-    return {"token": token, "username": req.username}
+    csrf = _generate_csrf_token()
+    resp = JSONResponse({"token": token, "username": req.username, "csrf_token": csrf})
+    resp.set_cookie(
+        key="ag-token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=86400 * 7,
+        secure=False,
+    )
+    return resp
 
 
 @app.get("/api/v1/auth/me")
-async def auth_me(authorization: str = Header(default="")):
-    """Check current auth status."""
+async def auth_me(authorization: str = Header(default=""), request: Request = None):
+    """Check current auth status — checks Authorization header first, then cookie."""
+    # Try Authorization header first
     token = authorization.replace("Bearer ", "") if authorization else ""
     username = _validate_token(token)
     if username:
         return {"username": username, "authenticated": True}
+    # Fall back to httpOnly cookie
+    if request:
+        cookie_token = request.cookies.get("ag-token", "")
+        if cookie_token:
+            username = _validate_token(cookie_token)
+            if username:
+                return {"username": username, "authenticated": True}
     return {"username": "guest", "authenticated": False}
 
+
+# ══════════════════════════════════════════════════════════════════# ══════════════════════════════════════════════════════════════════
+# Unified Exception Handler
+# ══════════════════════════════════════════════════════════════════
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "detail": exc.detail,
+            "status_code": exc.status_code,
+        },
+    )
+
+@app.exception_handler(PydanticValidationError)
+async def validation_exception_handler(request: Request, exc: PydanticValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": True,
+            "detail": f"输入参数校验失败: {exc.errors()[0]['msg'] if exc.errors() else str(exc)}",
+            "status_code": 422,
+            "fields": [{"field": e["loc"][-1], "msg": e["msg"]} for e in exc.errors()],
+        },
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catches unhandled exceptions — returns safe error without stack trace."""
+    logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "detail": "服务器内部错误，请查看后端日志",
+            "status_code": 500,
+        },
+    )
+
+# ══════════════════════════════════════════════════════════════════
+# Pagination Helper
+# ══════════════════════════════════════════════════════════════════
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
+
+class PaginationParams(BaseModel):
+    limit: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    offset: int = Field(default=0, ge=0)
+
+def paginate(items: list, limit: int, offset: int = 0) -> dict:
+    """Wrap any list with pagination metadata."""
+    total = len(items)
+    return {
+        "items": items[offset:offset + limit],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 # ══════════════════════════════════════════════════════════════════
 # Health & Info
 # ══════════════════════════════════════════════════════════════════
 
+# Health check registry — modules can register their own checks
+_health_checks: list[tuple[str, callable]] = []
+
+def register_health_check(name: str, check_fn: callable) -> None:
+    """Register a health check function by name."""
+    _health_checks.append((name, check_fn))
+
 @app.get("/api/v1/health")
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint with per-subsystem status."""
     from channels.marine_base import get_default_registry
 
     registry = get_default_registry()
@@ -481,6 +633,19 @@ async def health():
             "ready": False,
             "error": str(exc),
         }
+
+    # Run registered health checks
+    check_results: Dict[str, Any] = {}
+    for name, check_fn in _health_checks:
+        try:
+            result = check_fn()
+            check_results[name] = {"ok": True, "data": result}
+        except Exception as e:
+            check_results[name] = {"ok": False, "error": str(e)}
+
+    if not hasattr(health, "_started_at"):
+        health._started_at = _time.time()
+
     return HealthResponse(
         status="ok",
         version="1.0.0",
@@ -492,6 +657,8 @@ async def health():
         },
         details={
             "sandbox_runtime": sandbox_runtime,
+            "health_checks": check_results,
+            "uptime_seconds": round(_time.time() - health._started_at, 1),
         },
     )
 
@@ -822,3 +989,23 @@ if __name__ == "__main__":
         reload=args.reload,
         log_level="info",
     )
+
+
+# ═══ Client Error Log Endpoint ═══
+
+@app.post("/api/v1/log/client-error")
+async def log_client_error(request: Request):
+    """Receive client-side error reports for monitoring.
+    Accepts sendBeacon (text/plain) and regular JSON posts."""
+    body = await request.body()
+    try:
+        data = json.loads(body) if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        data = {}
+    msg = str(data.get("msg", ""))[:120]
+    url = str(data.get("url", ""))
+    line = data.get("line", 0)
+    stack = str(data.get("stack", ""))[:200]
+    err_type = str(data.get("type", "error"))
+    logger.warning("[ClientError] %s | %s | %s:%s | %s", err_type, msg, url, line, stack)
+    return {"ok": True}

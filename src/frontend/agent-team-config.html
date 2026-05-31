@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgentsGroup2026 — 智能体团队管理</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,17 +13,19 @@
   <link rel="stylesheet" href="/css/ws-theme-bridge.css">
 </head>
 <body>
+<a href="#main-content" class="skip-link">跳转到主内容</a>
 <div class="app">
   <!-- Sidebar -->
   <div class="sidebar">
     <div class="sb-header"><h2><span class="seal">智</span> AgentsGroup</h2><select class="fi" id="team-select" style="font-size:12px;padding:6px 8px"></select></div>
-    <div class="sb-nav">
-      <a class="active" data-view="overview" onclick="switchView('overview')"><span class="seal">览</span> 仪表盘</a>
+    <div class="sb-nav" role="list">
+      <a class="active" aria-current="page" data-view="overview" onclick="switchView('overview')"><span class="seal">览</span> 仪表盘</a>
       <a data-view="models" onclick="switchView('models')"><span class="seal">腦</span> 模型与连接</a>
       <a data-view="tools" onclick="switchView('tools')"><span class="seal seal-koke">具</span> 工具</a>
       <a data-view="skills" onclick="switchView('skills')"><span class="seal seal-kitsune">能</span> 技能</a>
       <a data-view="tasks" onclick="switchView('tasks')"><span class="seal">务</span> 任务</a>
       <a data-view="sessions" onclick="switchView('sessions')"><span class="seal">存</span> 会话存档</a>
+      <a data-view="runtime" onclick="switchView('runtime')"><span class="seal">波</span> 运行时</a>
       <a data-view="registry" onclick="switchView('registry')"><span class="seal">厂</span> Token 工厂</a>
     </div>
     <div class="sb-section">团队成员</div>
@@ -30,12 +33,14 @@
     <div class="sb-footer"><button class="btn btn-pink btn-sm" onclick="openWizard()" style="width:100%;justify-content:center">＋ 新建智能体</button></div>
   </div>
   <!-- Main -->
-  <div class="main">
-    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"><span class="cur">智能体团队</span><a href="/plaza.html">议事广场</a><a href="/skill-extract.html">技能萃取/赋予</a><a href="/digital-twin-cli.html">数字孪生</a><a href="/sandbox-twin.html">SECS沙箱</a><a href="/system-evolution.html">系统演进</a></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button></div></div>
+  <div class="main" id="main-content">
+    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button></div></div>
     <!-- Views -->
     <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
 <!-- 演进状态摘要 -->
 <div class="section" id="evo-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>演进状态</span><a href="/system-evolution.html" class="btn btn-sm">→ 系统演进</a></div><div id="evo-compliance" class="card-grid"></div></div>
+<div class="section" id="budget-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>预算与告警</span><div style="display:flex;gap:8px;align-items:center"><select class="fi" id="budget-trend-days" onchange="refreshBudgetPanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="7">最近 7 天</option><option value="30">最近 30 天</option></select><button class="btn btn-sm" onclick="refreshBudgetPanel()">刷新</button></div></div><div id="budget-summary" class="card-grid"></div><div id="budget-trend"></div><div id="budget-alerts"></div></div>
+<div class="section" id="trace-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>最近运行痕迹</span><div style="display:flex;gap:8px;align-items:center"><select class="fi" id="trace-source-filter" onchange="refreshTracePanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="">全部来源</option><option value="plaza">Plaza</option><option value="evolution">Evolution</option></select><select class="fi" id="trace-event-filter" onchange="refreshTracePanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="">全部事件</option><option value="plan_start">plan_start</option><option value="tool_result">tool_result</option><option value="pipeline_started">pipeline_started</option><option value="pipeline_completed">pipeline_completed</option><option value="pipeline_failed">pipeline_failed</option><option value="verification_state_broadcasted">verification_state_broadcasted</option></select><a id="trace-export-link" href="#" target="_blank" rel="noopener" class="btn btn-sm">导出 NDJSON</a><button class="btn btn-sm" onclick="refreshTracePanel()">刷新</button></div></div><div id="trace-summaries"></div><div id="trace-events"></div><div id="trace-detail"></div></div>
 </div></div>
     <div id="view-models" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🧠 模型与连接</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('llm')">🔌 LLM / TTS</button><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-model')">＋ 添加模型</button></div></div><table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>提供商</th><th>Max Tokens</th><th>温度</th><th>默认</th><th>操作</th></tr></thead><tbody id="models-tb"></tbody></table></div></div>
     <div id="view-tools" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🔧 可用工具</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('registry')">🏭 Token 工厂</button><button class="btn btn-sm" onclick="showToolSearch()">🔍 搜索</button></div></div><div id="tools-search-bar" class="hidden" style="margin-bottom:12px"><div style="display:flex;gap:10px"><input class="fi" id="tools-search-input" placeholder="搜索工具..." oninput="filterToolCards(this.value)" style="flex:1"><button class="btn btn-sm" onclick="el('tools-search-bar').classList.add('hidden')">✕</button></div></div><div id="tools-cards"></div></div></div>
@@ -104,6 +109,20 @@
         </div>
       </div>
       <div id="rt-results" class="card hidden" style="padding:20px"><div class="section-title" style="margin-top:0;margin-bottom:12px">📊 路由结果</div><div id="rt-results-content"></div></div>
+      <div class="card" style="margin-top:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">📡 Agent Loop Runtime</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">预览执行计划，并直接查看共享 runtime 回传的 plan / tool 事件。</p>
+        <div style="display:grid;gap:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">Prompt</label><textarea class="fi" id="al-prompt" rows="3" placeholder="例: 阅读 README 并总结当前系统的优化重点"></textarea></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div class="form-group" style="margin:0"><label class="form-label">Agent ID (可选)</label><input class="fi" id="al-agent-id" placeholder="默认使用当前选中的 agent"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Session ID</label><input class="fi" id="al-session-id" placeholder="runtime-demo"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">最大迭代</label><input class="fi" id="al-max-iterations" type="number" value="4" min="1" max="20"></div>
+          </div>
+          <div style="display:flex;gap:10px"><button class="btn" onclick="doAgentLoopPreview()">🗺️ 预览计划</button><button class="btn btn-pink" onclick="doAgentLoopRun()">▶ 运行并采集事件</button></div>
+        </div>
+        <div id="al-results" style="margin-top:16px"></div>
+      </div>
       <div class="card" style="margin-top:20px;padding:20px">
         <div class="section-title" style="margin-top:0;margin-bottom:12px">🏊 Tool Pool 装配</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:14px">按权限上下文装配工具池 — 模拟 Clawith / claw-code-parity ToolPool</p>
@@ -190,7 +209,7 @@
 <div class="modal-overlay" id="modal-create-team"><div class="modal"><h3>➕ 创建新团队</h3><div class="form-group"><label class="form-label">团队名称 <span class="req">*</span></label><input class="fi" id="ct-name" maxlength="128" placeholder="例：导航决策团队"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="ct-desc" placeholder="团队职责描述"></textarea></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-create-team')">取消</button><button class="btn btn-pink" id="btn-ct">创建</button></div></div></div>
 <div class="modal-overlay" id="modal-add-model"><div class="modal"><h3>🧠 添加模型</h3><div class="form-group"><label class="form-label">提供商</label><select class="fi" id="am-prov"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="github">GitHub Copilot</option><option value="qwen">Qwen</option><option value="openrouter">OpenRouter</option><option value="local">本地 (Ollama/vLLM)</option></select></div><div class="form-group"><label class="form-label">模型名称 <span class="req">*</span></label><input class="fi" id="am-name" placeholder="deepseek-v4-pro"></div><div class="form-group"><label class="form-label">Max Tokens</label><input class="fi" id="am-tok" type="number" value="8192"></div><div class="form-group"><label class="form-label">温度</label><input class="fi" id="am-temp" type="number" value="0.7" min="0" max="2" step="0.1"></div><div class="form-group"><label class="form-label">API Key</label><input class="fi" id="am-key" type="password" placeholder="sk-..."></div><div class="form-group"><label class="form-label">API Base URL (可选)</label><input class="fi" id="am-url" placeholder="留空使用默认"></div><div class="form-group"><label class="form-label">设为默认</label><select class="fi" id="am-def"><option value="false">否</option><option value="true">是</option></select></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-add-model')">取消</button><button class="btn btn-pink" id="btn-am">添加</button></div></div></div>
 <div class="modal-overlay" id="modal-edit-model"><div class="modal" style="max-height:90vh"><h3 id="em-title">✏️ 编辑模型</h3><div class="form-group"><label class="form-label">提供商</label><select class="fi" id="em-prov" onchange="updateEmUrlHint()"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="github">GitHub Copilot</option><option value="qwen">Qwen</option><option value="openrouter">OpenRouter</option><option value="local">本地 (Ollama/vLLM)</option></select></div><div class="form-group"><label class="form-label">模型名称 <span class="req">*</span></label><input class="fi" id="em-name" placeholder="deepseek-v4-pro"></div><div class="form-group"><label class="form-label">Max Tokens</label><input class="fi" id="em-tok" type="number" value="8192"></div><div class="form-group"><label class="form-label">温度</label><input class="fi" id="em-temp" type="number" value="0.7" min="0" max="2" step="0.1"></div><div class="form-group"><label class="form-label">API Key (留空不修改)</label><input class="fi" id="em-key" type="password" placeholder="留空保留原密钥"></div><div class="form-group"><label class="form-label">API Base URL</label><input class="fi" id="em-url"><div id="em-url-hint" style="font-size:11px;color:var(--muted);margin-top:4px"></div></div><div class="form-group"><label class="form-label">设为默认</label><select class="fi" id="em-def"><option value="false">否</option><option value="true">是</option></select></div><div id="em-test-result" class="hidden" style="margin-bottom:16px;padding:14px;border-radius:0;border:1px solid var(--line);font-size:13px"></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-edit-model')">取消</button><button class="btn" onclick="testModelInEdit()" id="em-test-btn">🧪 测试连接</button><button class="btn btn-pink" onclick="submitEditModel()">保存修改</button></div></div></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" aria-live="polite"></div>
 <div class="modal-overlay" id="modal-add-task"><div class="modal"><h3>📋 提交任务</h3><div class="form-group"><label class="form-label">标题 <span class="req">*</span></label><input class="fi" id="tk-title" placeholder="任务标题"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="tk-desc" placeholder="任务描述"></textarea></div><div class="form-group"><label class="form-label">分配给 Agent</label><select class="fi" id="tk-agent"><option value="">自动分配</option></select></div><div class="form-group"><label class="form-label">优先级</label><select class="fi" id="tk-prio"><option value="0">紧急 (0)</option><option value="1">高 (1)</option><option value="2" selected>普通 (2)</option><option value="3">低 (3)</option></select></div><div class="form-group"><label class="form-label">依赖任务 ID (逗号分隔)</label><input class="fi" id="tk-deps" placeholder="task-id-1, task-id-2"></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-add-task')">取消</button><button class="btn btn-pink" id="btn-tk">提交</button></div></div></div>
 <div class="modal-overlay" id="modal-batch-task"><div class="modal"><h3>📦 批量提交任务</h3><p style="color:var(--muted);font-size:12px;margin-bottom:14px">输入 JSON 数组，每项含 title, description, agent_id, priority, dependencies</p><div class="form-group"><textarea class="fi" id="bt-json" rows="10" style="font-family:'IBM Plex Mono',monospace;font-size:12px" placeholder='[{"title":"代码审查","agent_id":"dev_lead","priority":1},{"title":"写测试","agent_id":"qa_engineer","priority":2,"dependencies":["上一个task_id"]}]'></textarea></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-batch-task')">取消</button><button class="btn btn-pink" id="btn-bt">批量提交</button></div></div></div>
 <div class="modal-overlay" id="modal-import-openclaw"><div class="modal"><h3>🔗 新建智能体</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px"><div class="tmpl-card" id="oc-mode-platform" onclick="setOcMode('platform')" style="text-align:left;padding:14px"><div style="font-weight:600;margin-bottom:4px">平台托管</div><div style="font-size:11px;color:var(--muted)">在 AgentsGroup2026 平台上运行的完整 Agent</div></div><div class="tmpl-card selected" id="oc-mode-openclaw" onclick="setOcMode('openclaw')" style="text-align:left;padding:14px"><div style="font-weight:600;margin-bottom:4px">连接 OpenClaw <span class="badge" style="background:rgba(255,77,141,0.15);color:var(--pink);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px">Lab</span></div><div style="font-size:11px;color:var(--muted)">连接你现有的 OpenClaw Agent</div></div></div><div id="oc-form"><div class="card" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:2px">连接 OpenClaw Agent <span class="badge" style="background:rgba(255,77,141,0.15);color:var(--pink);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px">Lab</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">为你的 OpenClaw Agent 命名并添加描述。LLM 模型、人格和技能在你的 OpenClaw 实例上配置。</p><div class="form-group"><label class="form-label">名称 <span class="req">*</span></label><input class="fi" id="oc-name" placeholder="例如：我的 OpenClaw Bot"></div><div class="form-group"><label class="form-label">👤 角色</label><input class="fi" id="oc-role" placeholder="例如：在我的 Mac 上运行的个人助手"></div><div class="form-group"><label class="form-label">OpenClaw Gateway URL <span class="req">*</span></label><input class="fi" id="oc-url" placeholder="https://gateway.openclaw.ai 或 http://localhost:3008"><p style="font-size:11px;color:var(--dim);margin-top:4px">OpenClaw 实例的 Gateway 地址，支持 HTTP/WebSocket</p></div><div class="form-group"><label class="form-label">API Token <span class="req">*</span></label><div style="position:relative"><input class="fi" id="oc-token" type="password" placeholder="oc_pat_xxxxxxxxxxxx" style="padding-right:40px"><button type="button" class="btn-ghost" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:14px;cursor:pointer;border:none;background:none;color:var(--muted);padding:4px" onclick="const i=el('oc-token');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🔒'">👁</button></div><p style="font-size:11px;color:var(--dim);margin-top:4px">在 OpenClaw Settings → API Keys 中生成 Personal Access Token</p></div><div class="form-group"><label class="form-label">权限设置</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="tmpl-card selected" id="oc-vis-public" onclick="setOcVis('public')" style="padding:12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:var(--pink);font-size:18px">●</span><div><div style="font-weight:600">全公司可见</div><div style="font-size:11px;color:var(--muted)">所有人都可以使用此智能体</div></div></div></div><div class="tmpl-card" id="oc-vis-private" onclick="setOcVis('private')" style="padding:12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:18px">●</span><div><div style="font-weight:600">仅自己</div><div style="font-size:11px;color:var(--muted)">仅创建者本人可使用</div></div></div></div></div></div></div></div><div class="form-group"><label class="form-label">目标团队</label><select class="fi" id="oc-team"></select></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-import-openclaw')">取消</button><button class="btn btn-pink" id="btn-oc">连接 Agent</button></div></div></div>
@@ -213,7 +232,15 @@
     </div>
   </div>
 </div>
+<script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/agent-team-config.js"></script>
+<script src="/js/tools-skills.js"></script>
+<script src="/js/wizard.js"></script>
+<script src="/js/tasks-view.js"></script>
+<script src="/js/agent-detail.js"></script>
+<script src="/js/sessions-runtime.js"></script>
+<script src="/js/token-factory.js"></script>
 <script>
 // Wabi-Sabi: auto-convert emoji to 方印 seals
 (function(){
@@ -224,5 +251,25 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 })();
 </script>
 <script src="/js/i18n.js"></script>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+  <script src="/js/global-nav.js" data-page="agents"></script>
 </body>
 </html>

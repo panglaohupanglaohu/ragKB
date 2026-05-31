@@ -2,15 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SECS 协同沙箱 — AgentsGroup2026</title>
+  <link rel="stylesheet" href="/css/variables.css">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 /* ══════════════════════════════════════════════════════════════
    SECS — Self-Evolving Collaborative Sandbox Dashboard
    四维一体: MADTwin × AAS × TwinLoop × DT-MADDPG
    ══════════════════════════════════════════════════════════════ */
-:root {
+:root{
   --bg: #0d1117;
   --bg2: #111820;
   --panel: #161d27;
@@ -18,10 +20,7 @@
   --panel3: #263040;
   --border: #2d3a4d;
   --border-active: #40587a;
-  --text: #e2e8f0;
   --text2: #cbd5e1;
-  --muted: #8b9ab5;
-  --dim: #576375;
   --cyan: #22d3ee;
   --cyan-dim: rgba(34,211,238,0.15);
   --green: #34d399;
@@ -316,6 +315,14 @@ body {
 .status-dot.idle { background: var(--dim); }
 .status-dot.error { background: var(--red); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.runtime-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-top:8px; }
+.runtime-card { background: var(--panel2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; }
+.runtime-k { font-size:11px; color:var(--muted); margin-bottom:4px; }
+.runtime-v { font-size:13px; color:var(--cyan); font-weight:600; }
+.runtime-chip-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.runtime-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; font-size:11px; border:1px solid var(--border); border-radius:999px; background: rgba(255,255,255,0.02); }
+.runtime-list { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+.runtime-list-item { padding:8px 10px; background: var(--panel2); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); }
 
 /* ── Full-width panel ────────────────────────────── */
 .full-width { grid-column: 1 / -1; }
@@ -459,7 +466,22 @@ body {
     <div class="rec-list" id="rec-list"></div>
   </div>
 
-  <!-- Panel 5: SOP Library (full width) -->
+  <!-- Panel 5: Sandbox Runtime -->
+  <div class="panel full-width">
+    <div class="panel-header">
+      <span class="panel-title">🛡️ Runtime / Self-Check</span>
+      <span class="panel-badge" id="runtime-ready-badge">检查中</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="btn" onclick="loadRuntimeStatus()">刷新 Runtime</button>
+      <button class="btn btn-primary" onclick="runRuntimeSelfCheck()">执行自检</button>
+    </div>
+    <div id="runtime-panel">
+      <div style="color: var(--dim); font-size: 12px;">正在加载运行时状态...</div>
+    </div>
+  </div>
+
+  <!-- Panel 6: SOP Library (full width) -->
   <div class="panel full-width">
     <div class="panel-header">
       <span class="panel-title">📋 协作SOP库 (AAS Zero-Exp)</span>
@@ -471,292 +493,28 @@ body {
   </div>
 </div>
 
+<script src="/js/sandbox-twin.js" defer></script>
+
 <script>
-/* ══════════════════════════════════════════════════════════════
-   SECS Frontend — sandbox-viz.js (inline)
-   ══════════════════════════════════════════════════════════════ */
-
-const API = '/api/v1/sandbox';
-let currentSessionId = null;
-let rewardHistory = [];
-let eventSource = null;
-
-// ── API Helpers ────────────────────────────────────────────
-
-async function apiFetch(path, options = {}) {
-  const resp = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || resp.statusText);
-  }
-  return resp.json();
-}
-
-// ── Load Stats ─────────────────────────────────────────────
-
-async function loadStats() {
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
   try {
-    const stats = await apiFetch('/stats');
-    document.getElementById('stat-sessions').textContent = stats.twin_loop?.total_sessions || 0;
-    document.getElementById('stat-steps').textContent = stats.twin_loop?.total_steps || 0;
-    document.getElementById('stat-sops').textContent = stats.zero_exp?.total_sops || 0;
-    document.getElementById('stat-experiences').textContent = stats.zero_exp?.total_experiences || 0;
-    document.getElementById('stat-drifts').textContent = stats.drift_detector?.total_drifts || 0;
-    const maxScore = stats.critic?.max_score;
-    document.getElementById('stat-score').textContent = maxScore ? maxScore.toFixed(3) : '—';
-  } catch (e) {
-    console.warn('Stats load failed:', e);
-  }
-
-  // Load SOPs
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
   try {
-    const sopData = await apiFetch('/sops');
-    renderSOPs(sopData.sops || []);
-  } catch (e) {}
-}
-
-// ── Create & Run Simulation ────────────────────────────────
-
-async function createAndRun() {
-  const mode = document.getElementById('sim-mode').value;
-  const maxSteps = parseInt(document.getElementById('sim-steps').value);
-  const speed = parseFloat(document.getElementById('sim-speed').value);
-  const branches = parseInt(document.getElementById('sim-branches').value);
-
-  setStatus('正在创建沙箱会话...');
-  document.getElementById('btn-run').disabled = true;
-
-  try {
-    // Create session
-    const session = await apiFetch('/sessions', {
-      method: 'POST',
-      body: JSON.stringify({
-        team_id: 'default',
-        mode,
-        max_steps: maxSteps,
-        speed_factor: speed,
-        parallel_branches: branches,
-        trigger_description: '手动触发仿真',
-      }),
-    });
-
-    currentSessionId = session.session_id;
-    setStatus(`会话创建成功: ${session.session_id.slice(0, 8)}... 正在启动仿真...`);
-    rewardHistory = [];
-    document.getElementById('timeline').innerHTML = '';
-
-    // Connect SSE stream
-    connectStream(currentSessionId);
-
-    // Run simulation
-    const result = await apiFetch(`/sessions/${currentSessionId}/run`, { method: 'POST' });
-    
-    // Update UI with results
-    if (result.alignment) {
-      updateEvaluation(result.alignment.evaluation);
-      if (result.alignment.best_sop) {
-        document.getElementById('btn-inject').disabled = false;
-      }
-    }
-
-    setStatus(`✅ 仿真完成: ${result.total_steps} 步 | 评分: ${result.alignment?.evaluation?.global_score?.toFixed(3) || '—'}`);
-
-  } catch (e) {
-    setStatus(`❌ 错误: ${e.message}`);
-  } finally {
-    document.getElementById('btn-run').disabled = false;
-    loadStats();
-  }
-}
-
-// ── SSE Stream ─────────────────────────────────────────────
-
-function connectStream(sessionId) {
-  if (eventSource) eventSource.close();
-
-  eventSource = new EventSource(`${API}/sessions/${sessionId}/stream`);
-
-  eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'step') {
-      addTimelineStep(data);
-      rewardHistory.push(data.global_reward);
-      drawChart();
-      document.getElementById('step-counter').textContent = `${rewardHistory.length} 步`;
-    } else if (data.type === 'complete') {
-      eventSource.close();
-      setStatus(`仿真完成: ${data.total_steps} 步`);
-    }
-  };
-
-  eventSource.onerror = () => {
-    eventSource.close();
-  };
-}
-
-// ── Inject Strategy ────────────────────────────────────────
-
-async function injectStrategy() {
-  if (!currentSessionId) return;
-  try {
-    const result = await apiFetch(`/sessions/${currentSessionId}/inject`, {
-      method: 'POST',
-      body: JSON.stringify({ confirm: true }),
-    });
-    setStatus(`💉 策略注入成功: ${result.sop_name}`);
-    document.getElementById('btn-inject').disabled = true;
-  } catch (e) {
-    setStatus(`❌ 注入失败: ${e.message}`);
-  }
-}
-
-// ── UI Renderers ───────────────────────────────────────────
-
-function addTimelineStep(data) {
-  const timeline = document.getElementById('timeline');
-  // Remove placeholder
-  if (timeline.children.length === 1 && timeline.children[0].style.textAlign === 'center') {
-    timeline.innerHTML = '';
-  }
-
-  const rewardClass = data.global_reward > 0.15 ? 'positive' : data.global_reward < 0 ? 'negative' : 'neutral';
-  const actions = Object.entries(data.agent_actions || {})
-    .map(([id, action]) => `${id.slice(0, 6)}: ${action}`)
-    .join(' | ');
-
-  const el = document.createElement('div');
-  el.className = 'timeline-step';
-  el.innerHTML = `
-    <span class="step-num">#${data.step_id}</span>
-    <div class="step-content">
-      <div class="step-actions">${actions || '—'}</div>
-    </div>
-    <span class="step-reward ${rewardClass}">${data.global_reward.toFixed(3)}</span>
-  `;
-  timeline.prepend(el);
-}
-
-function updateEvaluation(eval) {
-  if (!eval) return;
-
-  const dims = [
-    ['task', eval.task_completion],
-    ['comm', eval.communication_efficiency],
-    ['resource', eval.resource_utilization],
-    ['conflict', eval.conflict_avoidance],
-    ['convergence', eval.convergence_speed],
-    ['global', eval.global_score],
-  ];
-
-  dims.forEach(([key, value]) => {
-    const bar = document.getElementById(`bar-${key}`);
-    const val = document.getElementById(`val-${key}`);
-    if (bar && val) {
-      const pct = (value * 100).toFixed(0);
-      bar.style.width = `${pct}%`;
-      bar.className = `score-bar-fill ${value > 0.6 ? 'high' : value > 0.3 ? 'mid' : 'low'}`;
-      val.textContent = `${pct}%`;
-    }
-  });
-
-  // Recommendations
-  const recList = document.getElementById('rec-list');
-  recList.innerHTML = (eval.recommendations || [])
-    .map(r => `<div class="rec-item">${r}</div>`)
-    .join('');
-}
-
-function renderSOPs(sops) {
-  const container = document.getElementById('sop-list');
-  if (!sops.length) {
-    container.innerHTML = '<div style="color: var(--dim); font-size: 12px;">尚未提取任何 SOP...</div>';
-    return;
-  }
-  container.innerHTML = sops.map(sop => `
-    <div style="background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; min-width: 200px;">
-      <div style="font-size: 13px; font-weight: 500; color: var(--cyan);">${sop.name}</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">
-        奖励: ${sop.avg_reward.toFixed(3)} | 成功率: ${(sop.success_rate * 100).toFixed(0)}%
-      </div>
-      <div style="font-size: 11px; color: var(--dim); margin-top: 2px;">
-        状态: <span style="color: ${sop.status === 'validated' ? 'var(--green)' : 'var(--amber)'};">${sop.status}</span>
-      </div>
-    </div>
-  `).join('');
-}
-
-function setStatus(msg) {
-  document.getElementById('sim-status').textContent = msg;
-}
-
-// ── Reward Chart (Canvas) ──────────────────────────────────
-
-function drawChart() {
-  const canvas = document.getElementById('reward-chart');
-  const ctx = canvas.getContext('2d');
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width * 2;
-  canvas.height = rect.height * 2;
-  ctx.scale(2, 2);
-  const w = rect.width;
-  const h = rect.height;
-
-  ctx.clearRect(0, 0, w, h);
-
-  if (rewardHistory.length < 2) return;
-
-  // Grid
-  ctx.strokeStyle = '#2d3a4d';
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i <= 4; i++) {
-    const y = (h / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-  }
-
-  // Data
-  const maxVal = Math.max(0.5, ...rewardHistory);
-  const minVal = Math.min(0, ...rewardHistory);
-  const range = maxVal - minVal || 1;
-
-  ctx.beginPath();
-  ctx.strokeStyle = '#22d3ee';
-  ctx.lineWidth = 1.5;
-
-  rewardHistory.forEach((val, i) => {
-    const x = (i / (rewardHistory.length - 1)) * w;
-    const y = h - ((val - minVal) / range) * (h - 20) - 10;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Fill
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(34, 211, 238, 0.08)';
-  ctx.fill();
-
-  // Labels
-  ctx.fillStyle = '#8b9ab5';
-  ctx.font = '10px JetBrains Mono';
-  ctx.fillText(`max: ${maxVal.toFixed(3)}`, 4, 12);
-  ctx.fillText(`steps: ${rewardHistory.length}`, w - 60, h - 4);
-}
-
-// ── Init ───────────────────────────────────────────────────
-window.addEventListener('load', () => {
-  loadStats();
-  // Auto-refresh every 30s
-  setInterval(loadStats, 30000);
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
 });
 </script>
+  <script src="/js/global-nav.js" data-page="sandbox"></script>
+
+  <script src="/js/utils.js"></script>
 </body>
 </html>

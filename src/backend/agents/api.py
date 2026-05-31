@@ -8028,12 +8028,24 @@ class TestModelRequest(BaseModel):
     api_base_url: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
+    model_id: str = ""  # If set, lookup stored key when api_key is empty
 
 
 @router.post("/llm/test-model", summary="Test a specific model config")
 async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
     """Test a specific provider/model/key combo without altering global config."""
     from .chat_harness import ChatHarness, ProviderConfig, LLMProvider
+
+    # If api_key is empty and model_id is given, look up the stored key
+    api_key = req.api_key
+    if not api_key and req.model_id:
+        secrets = load_model_api_keys()
+        # Search all teams for this model's stored key
+        for team_id, team_secrets in secrets.items():
+            stored = team_secrets.get(req.model_id, "")
+            if stored:
+                api_key = resolve_api_key(req.provider or "deepseek", explicit=stored)
+                break
 
     try:
         provider = LLMProvider(req.provider)
@@ -8042,7 +8054,7 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
 
     config = ProviderConfig(
         provider=provider,
-        api_key=req.api_key,
+        api_key=api_key,
         api_base_url=req.api_base_url,
         model=req.name,
         max_tokens=req.max_tokens,
