@@ -6033,7 +6033,10 @@ def _is_ollama_backend() -> bool:
 
 
 def _get_deepseek_credentials() -> tuple:
-    """Get DeepSeek API key and base URL from ~/.claude/settings.json.
+    """Get DeepSeek API key and base URL, preferring RTK proxy when available.
+
+    Checks for RTK proxy at localhost:11435 (configured in Token Factory).
+    If RTK is reachable, uses it instead of direct DeepSeek API to save tokens.
 
     Returns (api_key, base_url, model) or (None, None, None) if unavailable.
     """
@@ -6054,7 +6057,20 @@ def _get_deepseek_credentials() -> tuple:
             }
             model = _MODEL_MAP.get(model, model)
             if api_key:
-                # Use OpenAI-compatible endpoint for direct API calls
+                # Prefer RTK proxy if available (saves 60-90% tokens)
+                rtk_base = "http://127.0.0.1:11435/v1"
+                try:
+                    import http.client as _hc
+                    conn = _hc.HTTPConnection("127.0.0.1", 11435, timeout=1.0)
+                    conn.request("GET", "/health")
+                    resp = conn.get_response()
+                    if resp.status < 500:
+                        _harness_log.info("[RTK] Proxy detected at 127.0.0.1:11435 — using RTK for token savings")
+                        return api_key, rtk_base, model
+                    conn.close()
+                except Exception:
+                    pass
+                # Fall back to direct DeepSeek API
                 return api_key, "https://api.deepseek.com/v1", model
     except Exception:
         pass
