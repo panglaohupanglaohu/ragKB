@@ -40,7 +40,9 @@ _TOOL_RESULT_TRUNC = 500  # truncate old tool results to this when over budget
 
 
 class AgentLoop:
-    """Multi-turn function-calling driver against an OpenAI-compatible endpoint."""
+    """Thin shim over ``agents.runtime.tool_loop.run_tool_loop_sync``.
+    .. deprecated:: Use the runtime module directly. This class will be removed.
+    """
 
     def __init__(
         self,

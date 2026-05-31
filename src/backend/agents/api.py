@@ -722,14 +722,20 @@ def remove_model(team_id: str, model_id: str) -> Dict[str, str]:
 
 
 @router.get("/tools", summary="List all available tools")
-def list_all_tools() -> List[Dict[str, Any]]:
-    return [t.to_dict() for t in _tr().list_all()]
+def list_all_tools(limit: int = 0, offset: int = 0) -> Any:
+    items = [t.to_dict() for t in _tr().list_all()]
+    if limit > 0 or offset > 0:
+        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
+    return items  # backward compat: plain list
 
 
 @router.get("/teams/{team_id}/tools", summary="List team tools")
-def list_team_tools(team_id: str) -> List[Dict[str, Any]]:
+def list_team_tools(team_id: str, limit: int = 0, offset: int = 0) -> Any:
     team = _get_team_or_404(team_id)
-    return [t.to_dict() for t in team.tools.values()]
+    items = [t.to_dict() for t in team.tools.values()]
+    if limit > 0 or offset > 0:
+        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
+    return items
 
 
 @router.post(
@@ -817,8 +823,11 @@ def delete_tool(team_id: str, tool_id: str) -> Dict[str, str]:
 
 
 @router.get("/skills", summary="List all available skills")
-def list_all_skills() -> List[Dict[str, Any]]:
-    return [s.to_dict() for s in _sr().list_all()]
+def list_all_skills(limit: int = 0, offset: int = 0) -> Any:
+    items = [s.to_dict() for s in _sr().list_all()]
+    if limit > 0 or offset > 0:
+        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
+    return items
 
 
 @router.get("/skills/required", summary="List required skills")
@@ -827,16 +836,19 @@ def list_required_skills() -> List[Dict[str, Any]]:
 
 
 @router.get("/teams/{team_id}/skills", summary="List team skills")
-def list_team_skills(team_id: str) -> List[Dict[str, Any]]:
+def list_team_skills(team_id: str, limit: int = 0, offset: int = 0) -> Any:
     team = _get_team_or_404(team_id)
-    return [s.to_dict() for s in team.skills.values()]
+    items = [s.to_dict() for s in team.skills.values()]
+    if limit > 0 or offset > 0:
+        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
+    return items
 
 
 # TAB 5 -- AGENTS (5-step wizard)
 
 
 @router.get("/agents", summary="List all agents")
-def list_all_agents() -> List[Dict[str, Any]]:
+def list_all_agents(limit: int = 0, offset: int = 0) -> Any:
     agents: List[Dict[str, Any]] = []
     for team in _tm().list_teams():
         team_agents = team.agents.values() if isinstance(team.agents, dict) else team.agents
@@ -846,6 +858,8 @@ def list_all_agents() -> List[Dict[str, Any]]:
                 "team_id": team.team_id,
                 "team_name": team.name,
             })
+    if limit > 0 or offset > 0:
+        return {"items": agents[offset:offset+limit], "total": len(agents), "limit": limit, "offset": offset}
     return agents
 
 
@@ -857,9 +871,12 @@ def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
 
 
 @router.get("/teams/{team_id}/agents", summary="List agents in team")
-def list_agents(team_id: str) -> List[Dict[str, Any]]:
+def list_agents(team_id: str, limit: int = 0, offset: int = 0) -> Any:
     _get_team_or_404(team_id)
-    return [a.to_dict() for a in _tm().list_agents(team_id)]
+    items = [a.to_dict() for a in _tm().list_agents(team_id)]
+    if limit > 0 or offset > 0:
+        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
+    return items
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}", summary="Get agent detail")

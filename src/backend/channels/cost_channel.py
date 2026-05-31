@@ -44,7 +44,6 @@ class CostMonitoringChannel(MarineChannel):
     ):
         super().__init__(name=name, description=description)
         self._priority = ChannelPriority.P1
-        self._status = ChannelStatus.OK
         self._budget_thresholds: Dict[str, float] = budget_thresholds or {
             "default": 1000.0,  # USD/month
             "production": 2000.0,
@@ -58,11 +57,35 @@ class CostMonitoringChannel(MarineChannel):
 
     # ── MarineChannel Interface ──────────────────────────
 
+    def initialize(self) -> bool:
+        """Initialize the cost monitoring channel."""
+        self._initialized = True
+        self._set_health(ChannelStatus.OK, "Cost monitoring channel ready")
+        logger.info("💰 Cost Monitoring Channel initialized (threshold=%d%%)", self._alert_threshold_pct)
+        return True
+
+    def shutdown(self) -> bool:
+        """Shutdown the cost monitoring channel."""
+        self._initialized = False
+        self._set_health(ChannelStatus.OFF, "Cost monitoring channel shutdown")
+        return True
+
     def get_priority(self) -> ChannelPriority:
         return self._priority
 
-    def get_status(self) -> ChannelStatus:
-        return self._status
+    def get_status(self) -> Dict[str, Any]:
+        """Get current channel status (MarineChannel contract)."""
+        return {
+            "name": self.name,
+            "initialized": self._initialized,
+            "health": self._health.status.value,
+            "priority": self._priority.value,
+            "active_alerts": len(self._active_alerts),
+            "alerts": self._active_alerts,
+            "last_check": self._last_check,
+            "budget_thresholds": dict(self._budget_thresholds),
+            "cost_summary": self._cost_summary,
+        }
 
     async def process_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """Process a cost monitoring event.
@@ -95,7 +118,7 @@ class CostMonitoringChannel(MarineChannel):
             agg = get_cost_aggregator()
 
             if not agg.opencost_healthy and agg.cache_age_seconds > 1800:
-                self._status = ChannelStatus.ERROR
+                self._set_health(ChannelStatus.ERROR, "OpenCost unreachable, cache stale > 30min")
                 return {
                     "status": "error",
                     "message": "OpenCost unreachable, cache stale > 30min",
@@ -141,12 +164,12 @@ class CostMonitoringChannel(MarineChannel):
             self._last_check = datetime.now(timezone.utc).isoformat()
 
             if self._active_alerts:
-                self._status = ChannelStatus.WARN
+                self._set_health(ChannelStatus.WARN, f"{len(self._active_alerts)} budget alerts active")
             else:
-                self._status = ChannelStatus.OK
+                self._set_health(ChannelStatus.OK, "All budgets within threshold")
 
             return {
-                "status": self._status.value,
+                "status": self._health.status.value,
                 "checked_at": self._last_check,
                 "summary": self._cost_summary,
                 "alerts": len(self._active_alerts),
@@ -155,7 +178,7 @@ class CostMonitoringChannel(MarineChannel):
 
         except Exception as exc:
             logger.error("Cost health check failed: %s", exc, exc_info=True)
-            self._status = ChannelStatus.ERROR
+            self._set_health(ChannelStatus.ERROR, str(exc)[:200])
             return {
                 "status": "error",
                 "message": str(exc),
@@ -184,19 +207,11 @@ class CostMonitoringChannel(MarineChannel):
         """Reset all active alerts."""
         count = len(self._active_alerts)
         self._active_alerts = []
-        self._status = ChannelStatus.OK
+        self._set_health(ChannelStatus.OK, "Alerts cleared")
         return {"status": "ok", "cleared": count}
 
     # ── Additional API ───────────────────────────────────
 
     def get_monitoring_status(self) -> Dict[str, Any]:
         """Get current monitoring status for external consumers."""
-        return {
-            "channel": self.name,
-            "priority": self._priority.value,
-            "status": self._status.value,
-            "alerts_count": len(self._active_alerts),
-            "alerts": self._active_alerts,
-            "last_check": self._last_check,
-            "budget_thresholds": dict(self._budget_thresholds),
-        }
+        return self.get_status()

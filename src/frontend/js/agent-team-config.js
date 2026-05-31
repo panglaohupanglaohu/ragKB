@@ -1,4 +1,4 @@
-// Use var for cross-script access (tools-skills.js, tasks-view.js, etc. depend on these)
+// Shared globals — var for cross-script access (tools-skills.js, tasks-view.js, etc.)
 var A='/api/v1/agent-config',AT='/api/v1/agent-teams',TF='/api/v1/token-factory';
 var tid='',aid='',atab='ag-status',wzD={},wzS=1;
 var _offline=false;
@@ -7,6 +7,14 @@ var _teamsListCacheAt=0;
 var _currentOverviewTeam=null;
 var _currentTraceSummaries=[];
 var TEAMS_LIST_CACHE_MS=60000;
+
+// Sync AG.state from globals — allows gradual migration to namespaced access
+window.AG.state = window.AG.state || {};
+setInterval(function(){
+  window.AG.state.tid=tid; window.AG.state.aid=aid;
+  window.AG.state.atab=atab; window.AG.state.wzD=wzD; window.AG.state.wzS=wzS;
+  window.AG.state._teamsListCache=_teamsListCache; window.AG.state._teamsListCacheAt=_teamsListCacheAt;
+},1000);
 
 function toast(m,type){
   const e=document.getElementById('toast');

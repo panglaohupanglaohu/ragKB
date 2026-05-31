@@ -68,6 +68,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Auth Configuration ──
+# AG_AUTH_COOKIE_ONLY=1 → login/register return only httpOnly cookie, no JSON token
+_AUTH_COOKIE_ONLY = os.getenv("AG_AUTH_COOKIE_ONLY", "").lower() in {"1", "true", "yes"}
+# AG_AUTH_RETURN_TOKEN_JSON=1 → also return token JSON (default: enabled for backward compat)
+_AUTH_RETURN_TOKEN_JSON = os.getenv("AG_AUTH_RETURN_TOKEN_JSON", "1").lower() in {"1", "true", "yes"}
+
+# ── Rate Limiting (in-memory) ──
+_RATE_LIMIT_WINDOW = 60  # 1 minute window
+_RATE_LIMIT_LOGIN: Dict[str, list] = {}  # username → list of timestamps
+_RATE_LIMIT_IP: Dict[str, list] = {}  # ip → list of timestamps
+_RATE_LOGIN_LIMIT = int(os.getenv("AG_RATE_LOGIN_LIMIT", "5"))  # 5 attempts per minute
+
+def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
+    """Return True if request is allowed, False if rate-limited."""
+    now = _time.time()
+    entries = store.get(key, [])
+    entries = [t for t in entries if now - t < window]
+    if len(entries) >= limit:
+        store[key] = entries
+        return False
+    entries.append(now)
+    store[key] = entries
+    return True
+
+def _clean_rate_limits():
+    """Periodically clean expired rate limit entries."""
+    now = _time.time()
+    for store in (_RATE_LIMIT_LOGIN, _RATE_LIMIT_IP):
+        expired_keys = [k for k, v in store.items() if all(now - t > _RATE_LIMIT_WINDOW for t in v)]
+        for k in expired_keys:
+            del store[k]
+
 
 # ══════════════════════════════════════════════════════════════════
 # Request / Response Models
@@ -150,6 +182,27 @@ async def startup():
         registry.register(_chat_channel)
         _chat_channel.initialize()
         logger.info("✅ BridgeChatChannel registered")
+
+        # Storage Lifecycle (S3 Intelligent-Tiering)
+        try:
+            from channels.storage_lifecycle import StorageLifecycleChannel
+            storage_ch = StorageLifecycleChannel()
+            registry.register(storage_ch)
+            storage_ch.initialize()
+            logger.info("✅ StorageLifecycleChannel registered")
+        except Exception as se:
+            logger.warning(f"⚠️ StorageLifecycleChannel registration failed: {se}")
+
+        # Network Egress (CDN/VPC Endpoint)
+        try:
+            from channels.network_egress import NetworkEgressChannel
+            network_ch = NetworkEgressChannel()
+            registry.register(network_ch)
+            network_ch.initialize()
+            logger.info("✅ NetworkEgressChannel registered")
+        except Exception as ne:
+            logger.warning(f"⚠️ NetworkEgressChannel registration failed: {ne}")
+
     except Exception as e:
         _handle_startup_failure("channels", e, critical=True)
 
@@ -204,6 +257,18 @@ async def startup():
             _team_manager._teams[xops_team_obj.team_id] = xops_team_obj
         except Exception as e:
             logger.warning(f"⚠️ xOPs team not loaded: {e}")
+
+        # 云平台运维运营团队 (storage lifecycle + network egress)
+        try:
+            from agents.teams.cloud_ops_team import create_cloud_ops_team
+            cloud_ops_obj = create_cloud_ops_team()
+            _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
+            logger.info(
+                f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
+                f"— {len(cloud_ops_obj.members)} agents"
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
 
         init_agent_config(_team_manager)
         app.include_router(agent_config_router)
@@ -282,6 +347,30 @@ async def startup():
             logger.info("✅ Skill Extract WebSocket mounted (/ws/skill-extract/{team_id})")
         except Exception as e:
             logger.warning(f"⚠️ Skill Extract WebSocket failed: {e}")
+
+        # 4f. Cost Monitoring API (OpenCost integration)
+        try:
+            from agents.cost_routes import router as cost_router
+            app.include_router(cost_router, prefix="/api/v1")
+            logger.info("✅ Cost Monitoring API mounted (/api/v1/cost)")
+        except Exception as e:
+            logger.warning(f"⚠️ Cost Monitoring API failed: {e}")
+
+        # 4f-bis. CI/CD Cost Gate API (Terraform Policy evaluation)
+        try:
+            from agents.cost_gate_routes import cost_gate_router
+            app.include_router(cost_gate_router)
+            logger.info("✅ Cost Gate API mounted (/api/v1/cost-gate)")
+        except Exception as e:
+            logger.warning(f"⚠️ Cost Gate API failed: {e}")
+
+        # 4g. K8s Webhook for cost label injection
+        try:
+            from agents.k8s_webhook_handler import webhook_router as k8s_webhook_router
+            app.include_router(k8s_webhook_router, prefix="/api/v1")
+            logger.info("✅ K8s Webhook mounted (/api/v1/webhook/mutate-cost-labels)")
+        except Exception as e:
+            logger.warning(f"⚠️ K8s Webhook failed: {e}")
 
     except Exception as e:
         _handle_startup_failure("agent_config_api", e, critical=True)
@@ -441,7 +530,7 @@ async def csrf_middleware(request: Request, call_next):
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         path = request.url.path
         # Skip CSRF for auth endpoints
-        if path not in ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/csrf-token", "/api/v1/log/client-error") and not path.startswith("/api/v1/startup-check"):
+        if path not in ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/logout", "/api/v1/auth/csrf-token", "/api/v1/log/client-error") and not path.startswith("/api/v1/startup-check"):
             csrf_header = request.headers.get("x-csrf-token", "")
             if not csrf_header or not _validate_csrf_token(csrf_header):
                 return JSONResponse(
@@ -480,8 +569,14 @@ def _validate_token(token: str) -> str | None:
 
 
 @app.post("/api/v1/auth/register")
-async def register(req: RegisterRequest):
+async def register(req: RegisterRequest, request: Request = None):
     """Register a new user."""
+    # Rate limit: 5 registrations per minute per IP
+    if request:
+        client_ip = request.client.host if request.client else "unknown"
+        if not _check_rate_limit(_RATE_LIMIT_IP, f"register:{client_ip}", _RATE_LOGIN_LIMIT):
+            raise HTTPException(status_code=429, detail="注册请求过于频繁，请稍后再试")
+
     username = req.username.strip()
     if not username or len(username) < 2:
         raise HTTPException(status_code=400, detail="用户名至少需要2个字符")
@@ -494,7 +589,12 @@ async def register(req: RegisterRequest):
     token = _create_token(username)
     csrf = _generate_csrf_token()
     logger.info(f"✅ New user registered: {username}")
-    resp = JSONResponse({"token": token, "username": username, "csrf_token": csrf})
+
+    # Build response: cookie-only mode → no JSON token
+    body: dict = {"username": username, "csrf_token": csrf}
+    if not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON:
+        body["token"] = token
+    resp = JSONResponse(body)
     resp.set_cookie(
         key="ag-token",
         value=token,
@@ -507,13 +607,28 @@ async def register(req: RegisterRequest):
 
 
 @app.post("/api/v1/auth/login")
-async def login(req: LoginRequest):
-    """Simple token-based login."""
-    if req.username not in _USERS or not _verify_password(req.password, _USERS[req.username]):
+async def login(req: LoginRequest, request: Request = None):
+    """Token-based login with cookie and optional JSON token."""
+    # Rate limit: 5 attempts per minute per username
+    username = req.username.strip()
+    if request:
+        client_ip = request.client.host if request.client else "unknown"
+        if not _check_rate_limit(_RATE_LIMIT_LOGIN, username, _RATE_LOGIN_LIMIT):
+            raise HTTPException(status_code=429, detail="登录尝试过于频繁，请1分钟后再试")
+        if not _check_rate_limit(_RATE_LIMIT_IP, f"login:{client_ip}", _RATE_LOGIN_LIMIT * 2):
+            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+
+    if username not in _USERS or not _verify_password(req.password, _USERS[username]):
+        logger.warning(f"Failed login attempt for user: {username}")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    token = _create_token(req.username)
+    token = _create_token(username)
     csrf = _generate_csrf_token()
-    resp = JSONResponse({"token": token, "username": req.username, "csrf_token": csrf})
+
+    body: dict = {"username": username, "csrf_token": csrf}
+    if not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON:
+        body["token"] = token
+
+    resp = JSONResponse(body)
     resp.set_cookie(
         key="ag-token",
         value=token,
@@ -522,6 +637,14 @@ async def login(req: LoginRequest):
         max_age=86400 * 7,
         secure=False,
     )
+    return resp
+
+
+@app.post("/api/v1/auth/logout")
+async def logout():
+    """Clear the auth cookie."""
+    resp = JSONResponse({"message": "已登出"})
+    resp.delete_cookie(key="ag-token", path="/", samesite="strict")
     return resp
 
 

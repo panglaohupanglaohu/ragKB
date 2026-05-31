@@ -14,6 +14,7 @@
     { id: 'digital-twin',  label: '数字孪生',   href: '/digital-twin-cli.html' },
     { id: 'sandbox',       label: 'SECS沙箱',   href: '/sandbox-twin.html' },
     { id: 'evolution',     label: '系统演进',   href: '/system-evolution.html' },
+    { id: 'cost',          label: '💰 成本监控', href: '/cost-dashboard.html' },
   ];
 
   var script = document.querySelector('script[data-page]');
