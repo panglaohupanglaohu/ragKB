@@ -71,12 +71,17 @@ def record_sandbox_self_check(result: dict) -> None:
 def describe_sandbox_runtime() -> dict:
     """Return the current sandbox runtime readiness and config summary."""
     config = load_sandbox_config()
+    build_command = "./scripts/build_sandbox_image.sh"
+    self_check_command = "./scripts/build_sandbox_image.sh --self-check"
     payload = {
         "mode": config.mode,
         "memory_limit_mb": config.memory_limit_mb,
         "file_size_limit_kb": config.file_size_limit_kb,
         "network_enabled": config.network_enabled,
         "docker_image": config.docker_image,
+        "fail_closed": config.mode == "docker",
+        "build_command": build_command,
+        "self_check_command": self_check_command,
         "resource_limits": {
             "memory_limit_mb": config.memory_limit_mb,
             "cpu_limit": config.cpu_limit,
@@ -95,8 +100,8 @@ def describe_sandbox_runtime() -> dict:
             {
                 "docker_available": False,
                 "image_available": False,
-                "build_command": "./scripts/build_sandbox_image.sh",
                 "last_self_check": dict(_last_self_check or {}),
+                "ready_reason": "lite sandbox active",
             }
         )
         return payload
@@ -123,9 +128,15 @@ def describe_sandbox_runtime() -> dict:
         {
             "docker_available": docker_available,
             "image_available": image_available,
-            "build_command": "./scripts/build_sandbox_image.sh",
             "ready": docker_available and image_available,
             "last_self_check": dict(_last_self_check or {}),
+            "ready_reason": (
+                "docker image ready"
+                if docker_available and image_available
+                else "docker executable missing"
+                if not docker_available
+                else "docker image missing"
+            ),
         }
     )
     return payload

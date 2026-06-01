@@ -7,6 +7,7 @@
 (function () {
   'use strict';
 
+  var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
   var api = window.api = {};
 
   // Last error for debugging
@@ -22,17 +23,92 @@
   api._csrfPromise = null;
   api._csrfHeaderName = 'X-CSRF-Token';
 
+  api.setCsrfToken = function (token) {
+    api._csrfToken = token || '';
+    api._csrfPromise = api._csrfToken ? Promise.resolve(api._csrfToken) : null;
+    return api._csrfToken;
+  };
+
+  api.clearCsrfToken = function () {
+    api._csrfToken = null;
+    api._csrfPromise = null;
+  };
+
+  function withCredentials(opts) {
+    opts = opts || {};
+    if (!opts.credentials) opts.credentials = 'same-origin';
+    return opts;
+  }
+
+  function isStateChanging(method) {
+    method = (method || 'GET').toUpperCase();
+    return method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+  }
+
+  function getRequestUrl(input) {
+    if (typeof input === 'string') return input;
+    if (input && typeof input.url === 'string') return input.url;
+    return '';
+  }
+
+  function isSameOrigin(input) {
+    var url = getRequestUrl(input);
+    if (!url) return false;
+    try {
+      return new URL(url, window.location.origin).origin === window.location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function hasHeader(headers, name) {
+    if (!headers || typeof headers.has !== 'function') return false;
+    return headers.has(name) || headers.has(name.toLowerCase());
+  }
+
+  async function prepareRequest(input, opts) {
+    if (!isSameOrigin(input)) {
+      return [input, opts];
+    }
+
+    var requestLike = (typeof Request !== 'undefined') && input instanceof Request;
+    var method = (opts && opts.method) || (requestLike ? input.method : 'GET');
+    var headers = new Headers((opts && opts.headers) || (requestLike ? input.headers : undefined) || undefined);
+
+    if (isStateChanging(method)) {
+      await api.fetchCsrfToken();
+      if (api._csrfToken && !hasHeader(headers, api._csrfHeaderName)) {
+        headers.set(api._csrfHeaderName, api._csrfToken);
+      }
+    }
+
+    var finalOpts = {};
+    if (opts) {
+      Object.keys(opts).forEach(function (key) {
+        if (key !== 'headers') finalOpts[key] = opts[key];
+      });
+    }
+    finalOpts.headers = headers;
+    if (!finalOpts.credentials) {
+      finalOpts.credentials = (requestLike && input.credentials) || 'same-origin';
+    }
+
+    if (requestLike) {
+      return [new Request(input, finalOpts), undefined];
+    }
+    return [input, finalOpts];
+  }
+
   /**
    * Fetch a fresh CSRF token from the server and cache it.
    */
   api.fetchCsrfToken = function () {
     if (api._csrfToken) return Promise.resolve(api._csrfToken);
     if (api._csrfPromise) return api._csrfPromise;
-    api._csrfPromise = fetch('/api/v1/auth/csrf-token')
+    api._csrfPromise = nativeFetch('/api/v1/auth/csrf-token', withCredentials())
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        api._csrfToken = d.csrf_token || '';
-        return api._csrfToken;
+        return api.setCsrfToken(d.csrf_token || '');
       })
       .catch(function () {
         api._csrfPromise = null;
@@ -40,9 +116,6 @@
       });
     return api._csrfPromise;
   };
-  // Pre-fetch at load time
-  api.fetchCsrfToken();
-
   /**
    * Main request function.
    * @param {string} url  - Full or relative URL
@@ -50,20 +123,9 @@
    * @returns {object|null} - Parsed JSON response, or null on error
    */
   api.request = async function (url, opts) {
-    // Auto-inject CSRF token for state-changing requests
-    var method = (opts && opts.method) ? opts.method.toUpperCase() : 'GET';
-    if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
-      await api.fetchCsrfToken();
-      if (api._csrfToken) {
-        opts = opts || {};
-        opts.headers = opts.headers || {};
-        if (!opts.headers[api._csrfHeaderName] && !opts.headers[api._csrfHeaderName.toLowerCase()]) {
-          opts.headers[api._csrfHeaderName] = api._csrfToken;
-        }
-      }
-    }
     try {
-      var r = await fetch(url, opts);
+      var prepared = await prepareRequest(url, opts);
+      var r = await nativeFetch(prepared[0], prepared[1]);
       if (api._offline) {
         api._offline = false;
         if (api._onOffline) api._onOffline(false);
@@ -104,22 +166,13 @@
    * Automatically includes CSRF token for state-changing requests.
    */
   api.send = async function (url, method, body) {
-    await api.fetchCsrfToken();
     var opts = {
       method: method,
       headers: { 'Content-Type': 'application/json' },
     };
-    if (api._csrfToken) {
-      opts.headers[api._csrfHeaderName] = api._csrfToken;
-    }
     if (body !== undefined) opts.body = JSON.stringify(body);
     return api.request(url, opts);
   };
-
-  /**
-   * Bootstrap: fetch CSRF token from server.
-   */
-  api.fetchCsrfToken();
 
   /**
    * POST shorthand
@@ -147,6 +200,12 @@
     return api.request(url, opts);
   };
 
+  api.logout = async function () {
+    var result = await api.post('/api/v1/auth/logout');
+    api.clearCsrfToken();
+    return result;
+  };
+
   /**
    * Pagination wrapper — adds limit/offset/query params to a list GET
    * Returns { items, total, limit, offset, has_more }
@@ -161,17 +220,17 @@
   // Global CSRF-aware fetch wrapper for direct fetch() calls in other scripts.
   // Usage: replace fetch(url, opts) with window._agFetch(url, opts) for state-changing requests.
   window._agFetch = async function (url, opts) {
-    var method = (opts && opts.method) ? opts.method.toUpperCase() : 'GET';
-    if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
-      await api.fetchCsrfToken();
-      if (api._csrfToken) {
-        opts = opts || {};
-        opts.headers = opts.headers || {};
-        if (!opts.headers[api._csrfHeaderName] && !opts.headers[api._csrfHeaderName.toLowerCase()]) {
-          opts.headers[api._csrfHeaderName] = api._csrfToken;
-        }
-      }
-    }
-    return fetch(url, opts);
+    var prepared = await prepareRequest(url, opts);
+    return nativeFetch(prepared[0], prepared[1]);
   };
+
+  if (nativeFetch) {
+    window.fetch = async function (input, opts) {
+      var prepared = await prepareRequest(input, opts);
+      return nativeFetch(prepared[0], prepared[1]);
+    };
+  }
+
+  // Pre-fetch at load time
+  api.fetchCsrfToken();
 })();

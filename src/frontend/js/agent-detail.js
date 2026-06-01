@@ -54,14 +54,20 @@ function renderATab(d){
       c.innerHTML=html;
     });
   } else if(atab==='ag-skills'){
-    api(`${A}/skills`).then(all=>{
-      const bound=new Set(d.skills||[]);
-      const cats={};(all||[]).forEach(s=>{const c=(s.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(s)});
-      let html=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 已配置技能</div><span style="color:var(--dim);font-size:12px">${bound.size} / ${(all||[]).length} 已启用</span></div>`;
-      Object.keys(cats).sort().forEach(cat=>{
-        html+=`<div class="sb-section" style="margin-top:12px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">${cat}</div>`;
-        cats[cat].forEach(s=>{const on=bound.has(s.skill_id)||bound.has(s.name);
-          html+=`<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b> <span style="color:var(--dim);font-size:11px">${s.category||''}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkill('${s.skill_id}','${s.name}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm${on?' btn-danger':''}" onclick="togAgentSkill('${s.skill_id}',${!on})">${on?'解绑':'绑定'}</button></span></div>`})});
+    api(`${A}/teams/${tid}/skills`).then(teamSkills=>{
+      const all=Array.isArray(teamSkills)?teamSkills:(teamSkills&&teamSkills.items)||[];
+      const boundRefs=new Set(d.skills||[]);
+      const boundSkills=[];const availableSkills=[];
+      all.forEach(s=>{
+        const isBound=boundRefs.has(s.skill_id)||boundRefs.has(s.name)||boundRefs.has(s.slug);
+        (isBound?boundSkills:availableSkills).push(s);
+      });
+      const renderSkillRow=(s,isBound)=>`<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b> <span style="color:var(--dim);font-size:11px">${s.category||''}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button>${isBound?`<button class="btn btn-sm btn-ghost" onclick="deleteSkill('${s.skill_id}','${s.name}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
+      let html=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 当前团队技能</div><span style="color:var(--dim);font-size:12px">${boundSkills.length} / ${all.length} 已绑定</span></div>`;
+      html+=`<div class="sb-section" style="margin-top:12px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">已绑定技能</div>`;
+      html+=boundSkills.length?boundSkills.map(s=>renderSkillRow(s,true)).join(''):'<p style="color:var(--dim);padding:0 14px 12px">该智能体当前没有已绑定技能</p>';
+      html+=`<div class="sb-section" style="margin-top:16px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">团队可用技能</div>`;
+      html+=availableSkills.length?availableSkills.map(s=>renderSkillRow(s,false)).join(''):'<p style="color:var(--dim);padding:0 14px 4px">当前团队没有更多可绑定技能</p>';
       html+=`</div>`;
       c.innerHTML=html;
     });

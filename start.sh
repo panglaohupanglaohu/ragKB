@@ -1,8 +1,9 @@
 #!/bin/bash
 # AgentsGroup2026 — Quick Start Script
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
+ROOT_DIR="$(pwd)"
 
 echo "🚀 AgentsGroup2026 Starting..."
 echo ""
@@ -24,17 +25,69 @@ check_port() {
 check_port 8080
 check_port 5173
 
+# Python bootstrap helpers
+PYTHON_CORE_MODULES=(fastapi uvicorn pydantic httpx cryptography)
+PYTHON_OPTIONAL_MODULES=(aiohttp pytest pytest_asyncio)
+
+list_missing_modules() {
+    local python_bin="$1"
+    shift
+    "$python_bin" - "$@" <<'PY'
+import importlib.util
+import sys
+
+mods = sys.argv[1:]
+missing = [name for name in mods if importlib.util.find_spec(name) is None]
+print(" ".join(missing))
+raise SystemExit(0 if not missing else 1)
+PY
+}
+
+has_modules() {
+    local python_bin="$1"
+    shift
+    list_missing_modules "$python_bin" "$@" >/dev/null 2>&1
+}
+
 # Create venv if needed
 if [ ! -d "venv" ]; then
-    echo "📦 Creating Python virtual environment..."
-    python3 -m venv venv
+    echo "📦 Creating Python virtual environment (reusing system site-packages when available)..."
+    python3 -m venv --system-site-packages venv
 fi
 
-source venv/bin/activate
+VENV_PY="${ROOT_DIR}/venv/bin/python"
+RUNTIME_PY="$VENV_PY"
 
-# Install Python deps
-echo "📦 Installing Python dependencies..."
-pip install -q -e ".[dev]" 2>/dev/null || pip install -e ".[dev]"
+echo "📦 Checking Python dependencies..."
+if has_modules "$VENV_PY" "${PYTHON_CORE_MODULES[@]}"; then
+    echo "   ✅ Using project virtualenv"
+elif has_modules python3 "${PYTHON_CORE_MODULES[@]}"; then
+    echo "   ⚠️  Virtualenv is missing core packages; falling back to system Python"
+    echo "   ℹ️  Delete ./venv later if you want it recreated cleanly"
+    RUNTIME_PY="python3"
+else
+    echo "   ⚠️  Core packages missing; trying direct wheel install (without editable build)..."
+    if "$VENV_PY" -m pip install --disable-pip-version-check \
+        fastapi 'uvicorn[standard]' pydantic httpx cryptography aiohttp pytest pytest-asyncio; then
+        if has_modules "$VENV_PY" "${PYTHON_CORE_MODULES[@]}"; then
+            echo "   ✅ Installed core Python dependencies into virtualenv"
+        else
+            echo "   ❌ Python dependencies are still incomplete after install attempt"
+            exit 1
+        fi
+    else
+        echo "   ❌ Unable to install missing Python packages automatically."
+        echo "      This machine can still start with system Python only if it already has:"
+        echo "      ${PYTHON_CORE_MODULES[*]}"
+        exit 1
+    fi
+fi
+
+OPTIONAL_MISSING="$(list_missing_modules "$RUNTIME_PY" "${PYTHON_OPTIONAL_MODULES[@]}" 2>/dev/null || true)"
+if [ -n "${OPTIONAL_MISSING}" ]; then
+    echo "   ⚠️  Optional Python modules missing: ${OPTIONAL_MISSING}"
+    echo "      Some cost/OpenCost or dev-only features may stay degraded until they are installed."
+fi
 
 # Install Node deps
 if [ ! -d "node_modules" ]; then
@@ -52,7 +105,7 @@ echo ""
 # Start backend
 echo "🔧 Starting backend on port 8080..."
 cd src/backend
-python main.py --port 8080 &
+"${RUNTIME_PY}" main.py --port 8080 &
 BACKEND_PID=$!
 cd ../..
 

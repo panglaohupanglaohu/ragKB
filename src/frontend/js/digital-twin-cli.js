@@ -7,7 +7,7 @@ window.S=S;
 var _csrfTk='',_csrfPr=null;
 function _csrf(){if(_csrfTk)return Promise.resolve(_csrfTk);if(_csrfPr)return _csrfPr;_csrfPr=fetch('/api/v1/auth/csrf-token').then(function(r){return r.json()}).then(function(d){_csrfTk=d.csrf_token||'';return _csrfTk}).catch(function(){_csrfPr=null;return''});return _csrfPr}
 _csrf();
-async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}return fetch(url,opts)}
+async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}return (window._agFetch||fetch)(url,opts)}
 async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);

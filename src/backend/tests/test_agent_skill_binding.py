@@ -136,3 +136,60 @@ class TestAgentSkillBinding:
 
         assert result["status"] == "deleted"
         assert agent.skills == []
+
+    def test_delete_skill_removes_shared_skill_from_all_teams_and_agents(self, isolated_api_state):
+        team_manager, team, agent = isolated_api_state
+        team.skills["skill-shared"] = SkillDefinition(
+            skill_id="skill-shared",
+            name="shared_skill",
+            instructions="共享技能指令",
+            slug="shared_skill",
+        )
+        agent.skills = ["skill-shared"]
+
+        other_team = team_manager.create_team(name="另一个团队", team_id="team-other")
+        other_agent = AgentProfile(agent_id="agent-other", name="另一个代理", role="operator")
+        other_team.add_agent(other_agent)
+        other_team.skills["skill-shared"] = SkillDefinition(
+            skill_id="skill-shared",
+            name="shared_skill",
+            instructions="共享技能指令",
+            slug="shared_skill",
+        )
+        other_agent.skills = ["skill-shared"]
+        team_manager._persist()
+
+        result = api_module.delete_skill(team.team_id, "skill-shared")
+
+        assert result["status"] == "deleted"
+        assert set(result["removed_from_teams"]) == {"team-bind", "team-other"}
+        assert agent.skills == []
+        assert other_agent.skills == []
+
+        reloaded = team_manager._store.load_all()
+        assert "skill-shared" not in reloaded["team-bind"].skills
+        assert "skill-shared" not in reloaded["team-other"].skills
+        assert reloaded["team-bind"].agents["agent-bind"].skills == []
+        assert reloaded["team-other"].agents["agent-other"].skills == []
+
+    def test_list_team_skills_includes_effective_builtin_skills_bound_to_agents(self, isolated_api_state):
+        _, team, agent = isolated_api_state
+        agent.skills = ["code_implementation", "debugging"]
+
+        result = api_module.list_team_skills(team.team_id)
+
+        names = {item["name"] for item in result}
+        assert "code_implementation" in names
+        assert "debugging" in names
+        code_item = next(item for item in result if item["name"] == "code_implementation")
+        assert code_item["bound_agent_count"] == 1
+
+    def test_delete_skill_unbinds_builtin_skill_refs_even_without_team_local_copy(self, isolated_api_state):
+        _, team, agent = isolated_api_state
+        agent.skills = ["code_implementation"]
+
+        result = api_module.delete_skill(team.team_id, "code_implementation")
+
+        assert result["status"] == "deleted"
+        assert result["removed_agent_bindings"] == 1
+        assert agent.skills == []

@@ -134,3 +134,117 @@ class TestCsrfEndpoint:
             results.append(resp.status_code)
         # Later attempts should be rate-limited
         assert 429 in results[-3:], f"Expected rate limiting, got: {results}"
+
+
+@pytest.fixture
+def isolated_auth_store(monkeypatch, tmp_path):
+    import main
+
+    previous_users = dict(main._USERS)
+    previous_tokens = dict(main._TOKENS)
+    previous_csrf = dict(main._CSRF_TOKENS)
+
+    monkeypatch.setattr(main, "_USER_STORE", tmp_path / "users.json")
+    monkeypatch.setattr(main, "_AUTH_COOKIE_ONLY", False)
+    monkeypatch.setattr(main, "_AUTH_RETURN_TOKEN_JSON", True)
+    monkeypatch.setattr(main, "_RATE_LIMIT_LOGIN", {})
+    monkeypatch.setattr(main, "_RATE_LIMIT_IP", {})
+    main._USERS.clear()
+    main._TOKENS.clear()
+    main._CSRF_TOKENS.clear()
+
+    yield main
+
+    main._USERS.clear()
+    main._USERS.update(previous_users)
+    main._TOKENS.clear()
+    main._TOKENS.update(previous_tokens)
+    main._CSRF_TOKENS.clear()
+    main._CSRF_TOKENS.update(previous_csrf)
+
+
+class TestCookieAuthModes:
+    @pytest.fixture
+    def client(self):
+        import sys
+        from pathlib import Path
+        backend_dir = Path(__file__).resolve().parents[3] / "src" / "backend"
+        sys.path.insert(0, str(backend_dir))
+        from main import app
+        return TestClient(app)
+
+    def test_register_cookie_only_mode_omits_token_json(self, client, isolated_auth_store, monkeypatch):
+        monkeypatch.setattr(isolated_auth_store, "_AUTH_COOKIE_ONLY", True)
+
+        resp = client.post(
+            "/api/v1/auth/register",
+            json={"username": "cookie_user", "password": "password123"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["auth_mode"] == "cookie-only"
+        assert payload["token_json_enabled"] is False
+        assert "token" not in payload
+        assert resp.headers["x-ag-auth-mode"] == "cookie-only"
+        assert resp.cookies.get("ag-token")
+
+    def test_login_default_mode_returns_deprecated_token_json(self, client, isolated_auth_store):
+        client.post(
+            "/api/v1/auth/register",
+            json={"username": "compat_user", "password": "password123"},
+        )
+
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "compat_user", "password": "password123"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["auth_mode"] == "cookie+token"
+        assert payload["token_json_enabled"] is True
+        assert payload["token"]
+        assert resp.headers["x-ag-token-json"] == "deprecated"
+
+    def test_logout_revokes_token_and_clears_auth_status(self, client, isolated_auth_store):
+        login_resp = client.post(
+            "/api/v1/auth/register",
+            json={"username": "logout_user", "password": "password123"},
+        )
+        token = login_resp.json()["token"]
+
+        me_before = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert me_before.json()["authenticated"] is True
+
+        logout_resp = client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert logout_resp.status_code == 200
+        assert logout_resp.json()["revoked"] is True
+
+        me_after = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert me_after.json()["authenticated"] is False
+
+    def test_auth_me_exposes_cookie_mode_metadata(self, client, isolated_auth_store, monkeypatch):
+        monkeypatch.setattr(isolated_auth_store, "_AUTH_COOKIE_ONLY", True)
+        client.post(
+            "/api/v1/auth/register",
+            json={"username": "meta_user", "password": "password123"},
+        )
+
+        resp = client.get("/api/v1/auth/me")
+        payload = resp.json()
+
+        assert payload["authenticated"] is True
+        assert payload["auth_mode"] == "cookie-only"
+        assert payload["cookie_only"] is True
+        assert payload["token_json_enabled"] is False

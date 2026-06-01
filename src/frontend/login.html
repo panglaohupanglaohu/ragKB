@@ -314,7 +314,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">密码</label>
-        <input class="form-input" type="password" id="reg-password" placeholder="至少4个字符" autocomplete="new-password" required minlength="4">
+        <input class="form-input" type="password" id="reg-password" placeholder="至少8个字符" autocomplete="new-password" required minlength="8">
       </div>
       <div class="form-group">
         <label class="form-label">确认密码</label>
@@ -427,8 +427,8 @@
           showError('用户名至少需要2个字符');
           return false;
         }
-        if (password.length < 4) {
-          showError('密码至少需要4个字符');
+        if (password.length < 8) {
+          showError('密码至少需要8个字符');
           return false;
         }
         if (password !== password2) {

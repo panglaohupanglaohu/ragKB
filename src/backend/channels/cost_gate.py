@@ -108,12 +108,14 @@ class CostGateChannel(MarineChannel):
             if "max_history" in self._config:
                 self._max_history = self._config["max_history"]
 
+            self._initialized = True
             self._health.status = ChannelStatus.OK
             self._health.message = f"Cost Gate initialized with {len(self._engine.resource_configs)} resource policies"
             logger.info("✅ Cost Gate Channel initialized: %d resource policies", len(self._engine.resource_configs))
             return True
 
         except Exception as e:
+            self._initialized = False
             self._health.status = ChannelStatus.ERROR
             self._health.message = f"Initialization failed: {e}"
             logger.error("❌ Cost Gate initialization failed: %s", e)

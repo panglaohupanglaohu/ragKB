@@ -25,12 +25,29 @@ describe('api.js - request', () => {
       _csrfPromise: null,
       _csrfHeaderName: 'X-CSRF-Token',
 
+      setCsrfToken(token) {
+        this._csrfToken = token || '';
+        this._csrfPromise = this._csrfToken ? Promise.resolve(this._csrfToken) : null;
+        return this._csrfToken;
+      },
+
+      clearCsrfToken() {
+        this._csrfToken = null;
+        this._csrfPromise = null;
+      },
+
+      withCredentials(opts) {
+        opts = opts || {};
+        if (!opts.credentials) opts.credentials = 'same-origin';
+        return opts;
+      },
+
       fetchCsrfToken() {
         if (this._csrfToken) return Promise.resolve(this._csrfToken);
         if (this._csrfPromise) return this._csrfPromise;
-        this._csrfPromise = fetch('/api/v1/auth/csrf-token')
+        this._csrfPromise = fetch('/api/v1/auth/csrf-token', this.withCredentials())
           .then(r => r.json())
-          .then(d => { this._csrfToken = d.csrf_token || ''; return this._csrfToken; })
+          .then(d => this.setCsrfToken(d.csrf_token || ''))
           .catch(() => { this._csrfPromise = null; return ''; });
         return this._csrfPromise;
       },
@@ -46,7 +63,7 @@ describe('api.js - request', () => {
           }
         }
         try {
-          const r = await fetch(url, opts);
+          const r = await fetch(url, this.withCredentials(opts));
           if (this._offline) {
             this._offline = false;
             if (this._onOffline) this._onOffline(false);
@@ -81,6 +98,11 @@ describe('api.js - request', () => {
       post(url, body) { return this.send(url, 'POST', body); },
       put(url, body) { return this.send(url, 'PUT', body); },
       del(url) { return this.send(url, 'DELETE'); },
+      async logout() {
+        const result = await this.post('/api/v1/auth/logout');
+        this.clearCsrfToken();
+        return result;
+      },
 
       list(baseUrl, limit, offset) {
         limit = limit || 50;
@@ -104,7 +126,7 @@ describe('api.js - request', () => {
 
       const result = await api.get('/api/v1/teams');
       expect(result).toEqual({ teams: ['a', 'b'] });
-      expect(fetch).toHaveBeenCalledWith('/api/v1/teams', undefined);
+      expect(fetch).toHaveBeenCalledWith('/api/v1/teams', { credentials: 'same-origin' });
     });
 
     it('returns null on 404', async () => {
@@ -167,6 +189,12 @@ describe('api.js - request', () => {
       await api.get('/api/v1/teams');
       expect(fetch).toHaveBeenCalledTimes(1); // Only GET, no CSRF fetch
     });
+
+    it('allows pages to prime CSRF after login/register', async () => {
+      api.setCsrfToken('preset-token');
+
+      expect(api._csrfToken).toBe('preset-token');
+    });
   });
 
   describe('pagination', () => {
@@ -177,7 +205,7 @@ describe('api.js - request', () => {
       });
 
       await api.list('/api/v1/teams', 25, 10);
-      expect(fetch).toHaveBeenCalledWith('/api/v1/teams?limit=25&offset=10', undefined);
+      expect(fetch).toHaveBeenCalledWith('/api/v1/teams?limit=25&offset=10', { credentials: 'same-origin' });
     });
 
     it('uses ? or & correctly', async () => {
@@ -187,7 +215,7 @@ describe('api.js - request', () => {
       });
 
       await api.list('/api/v1/teams?status=active', 50, 0);
-      expect(fetch).toHaveBeenCalledWith('/api/v1/teams?status=active&limit=50&offset=0', undefined);
+      expect(fetch).toHaveBeenCalledWith('/api/v1/teams?status=active&limit=50&offset=0', { credentials: 'same-origin' });
     });
   });
 
@@ -202,6 +230,18 @@ describe('api.js - request', () => {
 
       await api.get('/api/v1/health');
       expect(api._offline).toBe(false);
+    });
+
+    it('clears the cached csrf token on logout', async () => {
+      api.setCsrfToken('to-clear');
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ ok: true }),
+        });
+
+      await api.logout();
+      expect(api._csrfToken).toBeNull();
     });
   });
 });

@@ -72,6 +72,18 @@ class TestPlanParsing:
 
 class TestDiscussionDispatch:
     @pytest.mark.asyncio
+    async def test_list_discussions_supports_optional_pagination(self, isolated_plaza_engine):
+        plaza, _ = _seed_discussion(isolated_plaza_engine)
+        isolated_plaza_engine.create_discussion(plaza.id, "第二个议题", "dispatch", "", 3)
+
+        payload = await plaza_routes.list_discussions(plaza.id, limit=1, offset=1)
+
+        assert payload["total"] == 2
+        assert payload["limit"] == 1
+        assert payload["offset"] == 1
+        assert len(payload["items"]) == 1
+
+    @pytest.mark.asyncio
     async def test_dispatch_tasks_updates_discussion_plan(self, isolated_plaza_engine, monkeypatch):
         plaza, disc = _seed_discussion(isolated_plaza_engine)
         submitted = []
@@ -177,3 +189,10 @@ class TestDiscussionDispatch:
         result = await plaza_routes.get_discussion_tasks(plaza.id, disc.id)
         assert result["task_count"] == 2
         assert [task["task_id"] for task in result["tasks"]] == ["task-1", "task-2"]
+
+        paged = await plaza_routes.get_discussion_tasks(plaza.id, disc.id, limit=1, offset=1)
+        assert paged["task_count"] == 2
+        assert paged["limit"] == 1
+        assert paged["offset"] == 1
+        assert paged["has_more"] is False
+        assert [task["task_id"] for task in paged["tasks"]] == ["task-2"]

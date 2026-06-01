@@ -182,6 +182,8 @@ class TestSandboxModeSelection:
         assert status["image_available"] is True
         assert status["ready"] is True
         assert status["build_command"] == "./scripts/build_sandbox_image.sh"
+        assert status["self_check_command"] == "./scripts/build_sandbox_image.sh --self-check"
+        assert status["ready_reason"] == "docker image ready"
         assert status["last_self_check"] == {}
         assert status["resource_limits"]["memory_limit_mb"] == 256
         assert status["resource_limits"]["pids_limit"] == 64
@@ -201,6 +203,7 @@ class TestSandboxModeSelection:
         status = describe_sandbox_runtime()
 
         assert status["last_self_check"]["ok"] is True
+        assert status["ready_reason"] == "lite sandbox active"
 
     @pytest.mark.asyncio
     async def test_runtime_self_check_reports_python_and_pytest(self, monkeypatch):

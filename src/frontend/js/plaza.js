@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { buildExtractRouting } from './extract-routing.js';
 
 /* ═══════════ GLOBALS ═══════════ */
 const API = '/api/v1/agent-config';
@@ -11,6 +12,7 @@ const deepLinkPlazaId = Q.get('plaza_id') || '';
 const deepLinkDiscussionId = Q.get('discussion_id') || '';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const asItems = payload => Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
 
 function toast(m) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
@@ -388,6 +390,9 @@ const MAX_VISIBLE_BUBBLES = 3;
 const MAX_BUBBLE_LINES = 5;
 const MAX_WINDOW_CHARS = 100;
 const SPEECH_GAP_MS = 250;
+const bubbleProjectPos = new THREE.Vector3();
+let bubbleContainerRect = null;
+let lastBubbleCameraState = '';
 
 // Audio autoplay unlock: create silent AudioContext on first user gesture
 let _audioUnlocked = false;
@@ -471,21 +476,48 @@ function trimBubbleHistory() {
   }
 }
 
+function getBubbleContainerRect() {
+  if (!bubbleContainerRect) bubbleContainerRect = container.getBoundingClientRect();
+  return bubbleContainerRect;
+}
+
+function invalidateBubbleLayout() {
+  bubbleContainerRect = null;
+  bubbles.forEach(b => { b._measureDirty = true; });
+}
+
+function getBubbleCameraState() {
+  return [
+    camera.position.x.toFixed(3),
+    camera.position.y.toFixed(3),
+    camera.position.z.toFixed(3),
+    camera.quaternion.x.toFixed(4),
+    camera.quaternion.y.toFixed(4),
+    camera.quaternion.z.toFixed(4),
+    camera.quaternion.w.toFixed(4),
+    controls.target.x.toFixed(3),
+    controls.target.y.toFixed(3),
+    controls.target.z.toFixed(3),
+  ].join('|');
+}
+
+function positionVisibleBubbles() {
+  bubbles.forEach(positionSpeechBubble);
+}
+
 function positionSpeechBubble(entry) {
   const bubbleEntry = agentMeshes.get(entry.agentId);
   if (!bubbleEntry?.group?.parent || !entry.bubble?.isConnected) return;
-  const pos = new THREE.Vector3();
-  bubbleEntry.group.getWorldPosition(pos);
-  pos.y += bubbleEntry.group.userData.bubbleOffsetY || 4.2;
-  const projected = pos.clone().project(camera);
-  // Cache container rect, refresh every 5 calls to stay accurate
-  if (!entry._rectCache || entry._rectAge === undefined || entry._rectAge >= 5) {
-    entry._rectCache = container.getBoundingClientRect();
-    entry._rectAge = 0;
-  } else {
-    entry._rectAge++;
+  bubbleEntry.group.getWorldPosition(bubbleProjectPos);
+  bubbleProjectPos.y += bubbleEntry.group.userData.bubbleOffsetY || 4.2;
+  const projected = bubbleProjectPos.clone().project(camera);
+  if (entry._measureDirty || !entry._bubbleW || !entry._bubbleH) {
+    const bubbleRect = entry.bubble.getBoundingClientRect();
+    entry._bubbleW = bubbleRect.width || entry._bubbleW || 120;
+    entry._bubbleH = bubbleRect.height || entry._bubbleH || 60;
+    entry._measureDirty = false;
   }
-  const rect = entry._rectCache;
+  const rect = getBubbleContainerRect();
   const bw = entry._bubbleW || 120;
   const bh = entry._bubbleH || 60;
   const sx = (projected.x * 0.5 + 0.5) * rect.width;
@@ -524,8 +556,13 @@ async function playSpeechItem(item, token) {
   b.className = 'speech-bubble speaking'; b.dataset.agent = item.agentId;
   b.style.setProperty('--bubble-color', entry.group.userData.labelColor || '#D7DEE4');
   b.innerHTML = `<div class="sb-name">${esc(item.name)}</div><div class="sb-text"></div>`;
-  container.appendChild(b); requestAnimationFrame(() => b.classList.add('show'));
-  const bubbleState = { agentId: item.agentId, bubble: b, textNode: b.querySelector('.sb-text') };
+  const bubbleState = { agentId: item.agentId, bubble: b, textNode: b.querySelector('.sb-text'), _measureDirty: true };
+  container.appendChild(b);
+  requestAnimationFrame(() => {
+    b.classList.add('show');
+    bubbleState._measureDirty = true;
+    positionSpeechBubble(bubbleState);
+  });
   bubbles.push(bubbleState);
   trimBubbleHistory();
   positionSpeechBubble(bubbleState);
@@ -537,6 +574,7 @@ async function playSpeechItem(item, token) {
       bubbleState.textNode.textContent += '\n' + item.windows[index];
     }
     bubbleState.textNode.scrollTop = bubbleState.textNode.scrollHeight;
+    bubbleState._measureDirty = true;
     positionSpeechBubble(bubbleState);
     await ttsSpeak(item.windows[index], token, item.name);
     if (index < item.windows.length - 1) await wait(SPEECH_GAP_MS);
@@ -820,11 +858,11 @@ function animate() {
   updateCameraLookAt();
   controls.update();
 
-  // Only update bubble positions if camera moved
-  var cp = camera.position;
-  if (!window._lastCamPos || Math.abs(cp.x - window._lastCamPos.x) > 0.01 || Math.abs(cp.y - window._lastCamPos.y) > 0.01 || Math.abs(cp.z - window._lastCamPos.z) > 0.01) {
-    bubbles.forEach(positionSpeechBubble);
-    window._lastCamPos = cp.clone();
+  // Only update bubble positions when the camera transform or target actually changes
+  const cameraState = getBubbleCameraState();
+  if (cameraState !== lastBubbleCameraState) {
+    positionVisibleBubbles();
+    lastBubbleCameraState = cameraState;
   }
 
   // Chairman breathing
@@ -847,9 +885,8 @@ function onResize() {
   const w = container.clientWidth, h = container.clientHeight;
   if (!w || !h) return;
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
-  // Reposition bubbles after resize
-  bubbles.forEach(b => { b._rectAge = 100; });
-  bubbles.forEach(positionSpeechBubble);
+  invalidateBubbleLayout();
+  positionVisibleBubbles();
 }
 window.addEventListener('resize', onResize);
 new ResizeObserver(onResize).observe(container);
@@ -857,7 +894,8 @@ onResize(); animate();
 
 /* ═══════════ PLAZA CRUD ═══════════ */
 async function loadPlazas() {
-  const ps = await api(`${API}/plaza`);
+  const payload = await api(`${API}/plaza`);
+  const ps = asItems(payload);
   const list = $('plaza-list');
   if (!ps || !ps.length) { list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">无广场</div>'; return; }
   list.innerHTML = ps.map(p =>
@@ -1453,7 +1491,8 @@ window.doCreateDisc = async function() {
   if (desc.length > 2000) { toast('背景内容过长，请缩减到2000字以内'); return; }
   const body = { topic, goal: $('inp-dg').value.trim(), description: desc, moderator_agent_id: $('inp-dm').value, max_rounds: parseInt($('inp-dr').value) };
   try {
-    const resp = await fetch(`${API}/plaza/${curPlaza}/discussions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const request = window._agFetch || fetch;
+    const resp = await request(`${API}/plaza/${curPlaza}/discussions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!resp.ok) { const err = await resp.json().catch(() => null); toast(err?.detail?.[0]?.msg || err?.detail || '创建失败，请检查输入'); return; }
     const r = await resp.json();
     closeM('m-disc'); $('inp-dt').value=''; $('inp-dg').value=''; $('inp-dd').value=''; toast('讨论已创建'); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300);
@@ -1578,12 +1617,13 @@ window.extractFromDisc = async function(event, discId) {
   }));
   // Pass participating teams to extract page
   const plaza = await api(`${API}/plaza/${curPlaza}`);
-  if (plaza?.participants) {
-    const teamIds = [...new Set(plaza.participants.map(p => p.team_id).filter(Boolean))];
-    if (teamIds.length) sessionStorage.setItem('extract_teams', JSON.stringify(teamIds));
-  }
+  const routing = buildExtractRouting(plaza, disc);
+  if (routing.teamIds.length) sessionStorage.setItem('extract_teams', JSON.stringify(routing.teamIds));
+  if (routing.preferredTeamId) sessionStorage.setItem('extract_team_id', routing.preferredTeamId);
   toast('正在跳转萃取页面…');
-  window.location.href = '/skill-extract.html';
+  const targetUrl = new URL('/skill-extract.html', window.location.origin);
+  if (routing.preferredTeamId) targetUrl.searchParams.set('team_id', routing.preferredTeamId);
+  window.location.href = targetUrl.pathname + targetUrl.search;
 };
 
 window.exportDiscPDF = async function(event, discId) {

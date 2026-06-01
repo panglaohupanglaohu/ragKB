@@ -20,7 +20,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiohttp
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None
 
 from .cost_models import (
     AggregatedCostItem,
@@ -124,6 +127,11 @@ class CostAggregator:
 
     async def start(self):
         """Start the background polling loop."""
+        if aiohttp is None:
+            self._opencost_ok = False
+            self._last_error = "aiohttp is not installed; OpenCost polling disabled"
+            logger.warning("CostAggregator polling disabled: aiohttp is not installed")
+            return
         if self._poll_task is not None:
             return
         self._poll_task = asyncio.create_task(self._poll_loop())
@@ -156,6 +164,11 @@ class CostAggregator:
 
     async def _fetch_and_cache(self):
         """Fetch allocation data from OpenCost and update cache."""
+        if aiohttp is None:
+            self._opencost_ok = False
+            self._last_error = "aiohttp is not installed; OpenCost polling disabled"
+            raise RuntimeError(self._last_error)
+
         url = f"{self._opencost_url}{OPENCOST_ALLOCATION_PATH}"
         window = self._build_opencost_window("7d")
 

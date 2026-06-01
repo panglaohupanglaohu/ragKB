@@ -14,6 +14,13 @@ from typing import Any, Dict, List, Optional
 
 router = APIRouter(prefix="/api/v1/agent-teams", tags=["Agent Teams"])
 
+try:
+    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
+    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
+except Exception:
+    _DEFAULT_PAGE_SIZE = 50
+    _MAX_PAGE_SIZE = 200
+
 
 # ---------------------------------------------------------------------------
 # 全局引用（在 main.py startup 时注入）
@@ -22,6 +29,27 @@ _build_team = None
 _execution_team = None
 _scheduler = None
 _evolution_engine = None
+
+
+def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
+    """Preserve old array responses by default while enabling optional pagination."""
+    limit = getattr(limit, "default", limit)
+    offset = getattr(offset, "default", offset)
+    limit = int(limit or 0)
+    offset = max(int(offset or 0), 0)
+    if limit <= 0 and offset <= 0:
+        return items
+    if limit <= 0:
+        limit = _DEFAULT_PAGE_SIZE
+    limit = min(limit, _MAX_PAGE_SIZE)
+    total = len(items)
+    return {
+        "items": items[offset:offset + limit],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 def set_teams(build_team, execution_team, scheduler, evolution_engine=None):
@@ -113,18 +141,28 @@ async def build_assign_task(body: TaskAssignment):
 
 
 @router.get("/build/reports")
-async def build_reports(limit: int = 10):
+async def build_reports(
+    limit: int = Query(default=10, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
     if not _build_team:
         raise HTTPException(503, "Build team not initialized")
-    reports = _build_team.hourly_reports[-limit:]
-    return [r.to_dict() for r in reports]
+    items = [r.to_dict() for r in _build_team.hourly_reports]
+    if limit > 0 and offset == 0:
+        items = items[-limit:]
+        return items
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/build/issues")
-async def build_issues():
+async def build_issues(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
     if not _build_team:
         raise HTTPException(503, "Build team not initialized")
-    return _build_team.issue_backlog
+    items = list(_build_team.issue_backlog)
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------
@@ -149,18 +187,28 @@ async def execution_agent_detail(agent_id: str):
 
 
 @router.get("/execution/reports")
-async def execution_reports(limit: int = 10):
+async def execution_reports(
+    limit: int = Query(default=10, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
     if not _execution_team:
         raise HTTPException(503, "Execution team not initialized")
-    reports = _execution_team.execution_reports[-limit:]
-    return [r.to_dict() for r in reports]
+    items = [r.to_dict() for r in _execution_team.execution_reports]
+    if limit > 0 and offset == 0:
+        items = items[-limit:]
+        return items
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/execution/feedback")
-async def execution_feedback():
+async def execution_feedback(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
     if not _execution_team:
         raise HTTPException(503, "Execution team not initialized")
-    return [item.to_dict() for item in _execution_team.feedback_queue]
+    items = [item.to_dict() for item in _execution_team.feedback_queue]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post("/execution/feedback")

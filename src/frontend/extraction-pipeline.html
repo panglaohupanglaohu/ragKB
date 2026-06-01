@@ -160,6 +160,7 @@ tr:hover { background:var(--hover); }
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="/js/api.js"></script>
 <script>
 // ═══════════════════════════════════════
 // Constants
@@ -209,7 +210,8 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 // API helpers
 // ═══════════════════════════════════════
 async function api(url, opts={}) {
-  const resp = await fetch(API + url, {
+  const requester = window._agFetch || fetch;
+  const resp = await requester(API + url, {
     headers: {'Content-Type':'application/json', ...opts.headers},
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,

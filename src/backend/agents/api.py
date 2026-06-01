@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from .models import (
@@ -77,6 +77,13 @@ from .skill_registry import SkillRegistry, get_default_skills
 from .team_manager import TeamManager
 from .tool_registry import ToolRegistry, get_default_tools
 
+try:
+    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
+    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
+except Exception:
+    _DEFAULT_PAGE_SIZE = 50
+    _MAX_PAGE_SIZE = 200
+
 
 router = APIRouter(prefix="/api/v1/agent-config", tags=["agent-config"])
 
@@ -94,6 +101,36 @@ _CONFIG_DIR = _mp_os.path.join(
     "config",
 )
 _MODEL_POOL_PATH = _mp_os.path.join(_CONFIG_DIR, "model_pool.json")
+
+
+def _normalize_pagination(limit: int, offset: int) -> tuple[int, int, bool]:
+    """Normalize optional limit/offset while preserving old unpaginated callers."""
+    limit = getattr(limit, "default", limit)
+    offset = getattr(offset, "default", offset)
+    limit = int(limit or 0)
+    offset = max(int(offset or 0), 0)
+    if limit < 0:
+        limit = 0
+    if limit > _MAX_PAGE_SIZE:
+        limit = _MAX_PAGE_SIZE
+    if offset > 0 and limit <= 0:
+        limit = _DEFAULT_PAGE_SIZE
+    return limit, offset, bool(limit > 0 or offset > 0)
+
+
+def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
+    """Return either the legacy plain list or a paginated response envelope."""
+    limit, offset, paginate = _normalize_pagination(limit, offset)
+    if not paginate:
+        return items
+    total = len(items)
+    return {
+        "items": items[offset:offset + limit],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 def _save_model_pool() -> None:
@@ -363,6 +400,68 @@ def _canonicalize_skill_bindings(team_id: str, skill_refs: List[str]) -> List[st
     return canonical
 
 
+def _delete_skill_across_teams(skill_id: str) -> Dict[str, Any]:
+    """Delete a skill from every team and unbind it from every agent that references it."""
+    removed_identifiers: set[str] = {skill_id}
+    removed_agent_count = 0
+    removed_teams: List[str] = []
+
+    resolved: Optional[SkillDefinition] = None
+    for team in _tm().list_teams():
+        resolved = _resolve_skill_definition(team.team_id, skill_id)
+        if resolved is not None:
+            removed_identifiers.update(
+                identifier for identifier in (resolved.skill_id, resolved.slug, resolved.name) if identifier
+            )
+            break
+
+    for team in _tm().list_teams():
+        removed_any = False
+        for existing_skill_id, existing_skill in list(team.skills.items()):
+            identifiers = {existing_skill_id, existing_skill.skill_id, existing_skill.slug, existing_skill.name}
+            if removed_identifiers.intersection(identifier for identifier in identifiers if identifier):
+                team.skills.pop(existing_skill_id, None)
+                removed_any = True
+                removed_identifiers.update(
+                    identifier for identifier in identifiers if identifier
+                )
+        if removed_any:
+            removed_teams.append(team.team_id)
+
+    for team in _tm().list_teams():
+        for agent in team.agents.values():
+            if not agent.skills:
+                continue
+            before = len(agent.skills)
+            agent.skills = [
+                skill_ref
+                for skill_ref in agent.skills
+                if skill_ref not in removed_identifiers
+            ]
+            removed_agent_count += before - len(agent.skills)
+
+    if not removed_teams and removed_agent_count <= 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
+
+    _tm()._persist()
+
+    try:
+        from .skill_library import get_skill_library
+
+        lib = get_skill_library()
+        if lib and lib._skill_store:
+            lib._skill_store.delete(skill_id)
+    except Exception:
+        pass
+
+    return {
+        "status": "deleted",
+        "skill_id": skill_id,
+        "removed_from_teams": removed_teams,
+        "removed_agent_bindings": removed_agent_count,
+    }
+
+
 def _resolve_bound_skills(team_id: str, agent: AgentProfile) -> List[SkillDefinition]:
     """Resolve an agent's bound skills into concrete definitions."""
     resolved: List[SkillDefinition] = []
@@ -510,8 +609,11 @@ class UpdateChannelsRequest(BaseModel):
 
 
 @router.get("/teams", summary="List all teams")
-def list_teams() -> List[Dict[str, Any]]:
-    return [
+def list_teams(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = [
         {
             "team_id": t.team_id,
             "name": t.name,
@@ -521,10 +623,14 @@ def list_teams() -> List[Dict[str, Any]]:
         }
         for t in _tm().list_teams()
     ]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams-tree", summary="All teams with agents tree")
-def teams_tree() -> List[Dict[str, Any]]:
+def teams_tree(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     """返回团队→智能体树状结构，供广场选人使用."""
     result = []
     for t in _tm().list_teams():
@@ -543,7 +649,7 @@ def teams_tree() -> List[Dict[str, Any]]:
                 for a in agents_list
             ],
         })
-    return result
+    return _paginate_optional(result, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}", summary="Get team detail")
@@ -586,9 +692,14 @@ def _get_team_or_404(team_id: str):
 
 
 @router.get("/teams/{team_id}/models", summary="List team models")
-def list_models(team_id: str) -> List[Dict[str, Any]]:
+def list_models(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     team = _get_team_or_404(team_id)
-    return [m.to_dict() for m in team.models.values()]
+    items = [m.to_dict() for m in team.models.values()]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post(
@@ -722,20 +833,23 @@ def remove_model(team_id: str, model_id: str) -> Dict[str, str]:
 
 
 @router.get("/tools", summary="List all available tools")
-def list_all_tools(limit: int = 0, offset: int = 0) -> Any:
+def list_all_tools(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     items = [t.to_dict() for t in _tr().list_all()]
-    if limit > 0 or offset > 0:
-        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
-    return items  # backward compat: plain list
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}/tools", summary="List team tools")
-def list_team_tools(team_id: str, limit: int = 0, offset: int = 0) -> Any:
+def list_team_tools(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     team = _get_team_or_404(team_id)
     items = [t.to_dict() for t in team.tools.values()]
-    if limit > 0 or offset > 0:
-        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
-    return items
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post(
@@ -823,11 +937,12 @@ def delete_tool(team_id: str, tool_id: str) -> Dict[str, str]:
 
 
 @router.get("/skills", summary="List all available skills")
-def list_all_skills(limit: int = 0, offset: int = 0) -> Any:
+def list_all_skills(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     items = [s.to_dict() for s in _sr().list_all()]
-    if limit > 0 or offset > 0:
-        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
-    return items
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/skills/required", summary="List required skills")
@@ -836,19 +951,42 @@ def list_required_skills() -> List[Dict[str, Any]]:
 
 
 @router.get("/teams/{team_id}/skills", summary="List team skills")
-def list_team_skills(team_id: str, limit: int = 0, offset: int = 0) -> Any:
+def list_team_skills(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     team = _get_team_or_404(team_id)
-    items = [s.to_dict() for s in team.skills.values()]
-    if limit > 0 or offset > 0:
-        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
-    return items
+    effective_skills: Dict[str, Dict[str, Any]] = {}
+
+    for skill in team.skills.values():
+        payload = skill.to_dict()
+        payload["bound_agent_count"] = 0
+        effective_skills[skill.skill_id] = payload
+
+    for agent in team.agents.values():
+        for skill_ref in agent.skills or []:
+            skill = _resolve_skill_definition(team_id, skill_ref)
+            if skill is None:
+                continue
+            if skill.skill_id not in effective_skills:
+                payload = skill.to_dict()
+                payload["bound_agent_count"] = 0
+                effective_skills[skill.skill_id] = payload
+            effective_skills[skill.skill_id]["bound_agent_count"] += 1
+
+    items = sorted(effective_skills.values(), key=lambda item: ((item.get("category") or "").lower(), (item.get("name") or "").lower()))
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 # TAB 5 -- AGENTS (5-step wizard)
 
 
 @router.get("/agents", summary="List all agents")
-def list_all_agents(limit: int = 0, offset: int = 0) -> Any:
+def list_all_agents(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     agents: List[Dict[str, Any]] = []
     for team in _tm().list_teams():
         team_agents = team.agents.values() if isinstance(team.agents, dict) else team.agents
@@ -858,9 +996,7 @@ def list_all_agents(limit: int = 0, offset: int = 0) -> Any:
                 "team_id": team.team_id,
                 "team_name": team.name,
             })
-    if limit > 0 or offset > 0:
-        return {"items": agents[offset:offset+limit], "total": len(agents), "limit": limit, "offset": offset}
-    return agents
+    return _paginate_optional(agents, limit=limit, offset=offset)
 
 
 def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
@@ -871,12 +1007,14 @@ def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
 
 
 @router.get("/teams/{team_id}/agents", summary="List agents in team")
-def list_agents(team_id: str, limit: int = 0, offset: int = 0) -> Any:
+def list_agents(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
     items = [a.to_dict() for a in _tm().list_agents(team_id)]
-    if limit > 0 or offset > 0:
-        return {"items": items[offset:offset+limit], "total": len(items), "limit": limit, "offset": offset}
-    return items
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}", summary="Get agent detail")
@@ -1255,7 +1393,7 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
         from .skill_library import get_skill_library
         lib = get_skill_library()
         if lib:
-            skill = lib._find_skill(skill_id, team_id)
+            skill = lib._find_skill(team_id, skill_id)
         if skill is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
         # Add to team for editing
@@ -1290,25 +1428,9 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
     "/teams/{team_id}/skills/{skill_id}",
     summary="Delete skill from team",
 )
-def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
-    team = _get_team_or_404(team_id)
-    removed = team.skills.pop(skill_id, None)
-    if removed is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
-    # Remove from all agents in this team
-    for agent in team.agents.values():
-        if skill_id in agent.skills:
-            agent.skills.remove(skill_id)
-    _tm()._persist()
-    # Also remove from skill store
-    try:
-        from .skill_library import get_skill_library
-        lib = get_skill_library()
-        if lib and lib._skill_store:
-            lib._skill_store.delete(skill_id)
-    except Exception:
-        pass
-    return {"status": "deleted", "skill_id": skill_id}
+def delete_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    return _delete_skill_across_teams(skill_id)
 
 
 # ── Digital Twin Routes ──────────────────────────────────────────────────
@@ -1665,9 +1787,15 @@ def get_agent_relationships(team_id: str, agent_id: str) -> Dict[str, Any]:
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}/sessions", summary="List agent sessions")
-def list_agent_sessions(team_id: str, agent_id: str) -> List[Dict[str, Any]]:
+def list_agent_sessions(
+    team_id: str,
+    agent_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_agent_or_404(team_id, agent_id)
-    return [s for s in _sessions.values() if s.get("agent_id") == agent_id]
+    items = [s for s in _sessions.values() if s.get("agent_id") == agent_id]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post(
@@ -1881,14 +2009,22 @@ async def send_session_message(
 
 
 @router.get("/teams/{team_id}/delegations", summary="List delegations for a team")
-def list_team_delegations(team_id: str) -> List[Dict[str, Any]]:
+def list_team_delegations(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
-    return [t for t in _delegated_tasks if t.get("team_id") == team_id]
+    items = [t for t in _delegated_tasks if t.get("team_id") == team_id]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/delegations", summary="List all delegated tasks")
-def list_delegations() -> List[Dict[str, Any]]:
-    return _delegated_tasks
+def list_delegations(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    return _paginate_optional(_delegated_tasks, limit=limit, offset=offset)
 
 
 @router.get("/delegations/stats", summary="Delegation statistics")
@@ -2841,9 +2977,14 @@ async def submit_batch_tasks(
 
 
 @router.get("/teams/{team_id}/tasks", summary="List all tasks for a team")
-def list_team_tasks(team_id: str) -> List[Dict[str, Any]]:
+def list_team_tasks(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
-    return [t.to_dict() for t in _te().get_team_tasks(team_id)]
+    items = [t.to_dict() for t in _te().get_team_tasks(team_id)]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get(
@@ -8009,10 +8150,14 @@ def set_agent_llm_provider(agent_id: str, req: LLMProviderConfigRequest) -> Dict
 
 
 @router.get("/llm/sessions", summary="List active chat sessions")
-def list_llm_sessions() -> List[Dict[str, Any]]:
+def list_llm_sessions(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     """List all active chat sessions managed by the harness."""
     harness = get_chat_harness()
-    return [s.to_dict() for s in harness.list_sessions()]
+    items = [s.to_dict() for s in harness.list_sessions()]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/agents/{agent_id}/model-status", summary="Get agent model name and LLM availability")
@@ -8416,10 +8561,23 @@ async def persist_session(session_id: str) -> Dict[str, Any]:
 
 
 @router.get("/sessions/persisted", summary="List persisted sessions")
-async def list_persisted_sessions() -> Dict[str, Any]:
+async def list_persisted_sessions(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Dict[str, Any]:
     """List all session IDs saved to disk."""
     harness = get_chat_harness()
     session_ids = harness.list_persisted_sessions()
+    limit, offset, paginate = _normalize_pagination(limit, offset)
+    if paginate:
+        items = session_ids[offset:offset + limit]
+        return {
+            "sessions": items,
+            "count": len(session_ids),
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + limit < len(session_ids),
+        }
     return {"sessions": session_ids, "count": len(session_ids)}
 
 

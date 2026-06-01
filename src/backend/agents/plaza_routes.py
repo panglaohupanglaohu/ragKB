@@ -21,6 +21,13 @@ from .plaza_engine import get_plaza_engine
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plaza", tags=["Plaza"])
 
+try:
+    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
+    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
+except Exception:
+    _DEFAULT_PAGE_SIZE = 50
+    _MAX_PAGE_SIZE = 200
+
 
 # ── Request Models ────────────────────────────────────────
 
@@ -57,6 +64,27 @@ class CreateDiscussionRequest(BaseModel):
 
 class SetVisualModeRequest(BaseModel):
     mode: str = Field(default="modern")  # modern | rome_320ad | senedd
+
+
+def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
+    """Keep old array responses by default, but support stable optional pagination."""
+    limit = getattr(limit, "default", limit)
+    offset = getattr(offset, "default", offset)
+    limit = int(limit or 0)
+    offset = max(int(offset or 0), 0)
+    if limit <= 0 and offset <= 0:
+        return items
+    if limit <= 0:
+        limit = _DEFAULT_PAGE_SIZE
+    limit = min(limit, _MAX_PAGE_SIZE)
+    total = len(items)
+    return {
+        "items": items[offset:offset + limit],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
 
 
 def _get_plan_source(disc) -> str:
@@ -416,9 +444,14 @@ async def create_discussion(
 
 
 @router.get("/{plaza_id}/discussions", summary="列出讨论")
-async def list_discussions(plaza_id: str) -> List[Dict[str, Any]]:
+async def list_discussions(
+    plaza_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     engine = get_plaza_engine()
-    return [d.to_dict() for d in engine.list_discussions(plaza_id)]
+    items = [d.to_dict() for d in engine.list_discussions(plaza_id)]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/{plaza_id}/discussions/{disc_id}", summary="获取讨论详情")
@@ -454,7 +487,12 @@ async def get_discussion_summary(plaza_id: str, disc_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{plaza_id}/discussions/{disc_id}/tasks", summary="获取讨论关联任务")
-async def get_discussion_tasks(plaza_id: str, disc_id: str) -> Dict[str, Any]:
+async def get_discussion_tasks(
+    plaza_id: str,
+    disc_id: str,
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Dict[str, Any]:
     engine = get_plaza_engine()
     disc = engine.get_discussion(plaza_id, disc_id)
     if not disc:
@@ -470,11 +508,23 @@ async def get_discussion_tasks(plaza_id: str, disc_id: str) -> Dict[str, Any]:
         and task.metadata.get("discussion_id") == disc_id
     ]
     tasks.sort(key=lambda item: item.get("metadata", {}).get("plan_item_index", 0))
+    paged = _paginate_optional(tasks, limit=limit, offset=offset)
+    if isinstance(paged, list):
+        paged_tasks = paged
+        pagination = {}
+    else:
+        paged_tasks = paged["items"]
+        pagination = {
+            "limit": paged["limit"],
+            "offset": paged["offset"],
+            "has_more": paged["has_more"],
+        }
     return {
         "discussion_id": disc_id,
         "plaza_id": plaza_id,
         "task_count": len(tasks),
-        "tasks": tasks,
+        "tasks": paged_tasks,
+        **pagination,
     }
 
 

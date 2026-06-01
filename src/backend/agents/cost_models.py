@@ -145,11 +145,11 @@ class CostDashboardResponse(BaseModel):
 class CostLabelConfig(BaseModel):
     """Configuration for automatic cost label injection."""
     enabled: bool = True
-    default_environment: str = "production"
+    default_environment: str = "development"
     default_team: str = "platform"
     label_prefix: str = "cost.opencost.io"
     inject_labels: List[str] = Field(
-        default_factory=lambda: ["app", "environment", "team", "component"]
+        default_factory=lambda: ["app", "environment", "team", "service", "component"]
     )
     webhook_port: int = 9443
     webhook_path: str = "/mutate-cost-labels"

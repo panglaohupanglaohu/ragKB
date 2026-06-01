@@ -33,6 +33,36 @@ from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 import traceback
 
+try:
+    from config import ALLOWED_ORIGINS as CONFIG_ALLOWED_ORIGINS
+    from config import ALLOW_DEFAULT_ADMIN as CONFIG_ALLOW_DEFAULT_ADMIN
+    from config import CORS_ALLOW_CREDENTIALS as CONFIG_CORS_ALLOW_CREDENTIALS
+    from config import CSRF_TTL as CONFIG_CSRF_TTL
+    from config import DEFAULT_PAGE_SIZE as CONFIG_DEFAULT_PAGE_SIZE
+    from config import MAX_PAGE_SIZE as CONFIG_MAX_PAGE_SIZE
+    from config import PBKDF2_ITERATIONS as CONFIG_PBKDF2_ITERATIONS
+    from config import STRICT_STARTUP as CONFIG_STRICT_STARTUP
+    from config import TOKEN_TTL as CONFIG_TOKEN_TTL
+    from config import USER_STORE_PATH as CONFIG_USER_STORE_PATH
+    from config import VERSION as CONFIG_VERSION
+except Exception:
+    CONFIG_ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+    CONFIG_ALLOW_DEFAULT_ADMIN = False
+    CONFIG_CORS_ALLOW_CREDENTIALS = True
+    CONFIG_CSRF_TTL = 3600
+    CONFIG_DEFAULT_PAGE_SIZE = 50
+    CONFIG_MAX_PAGE_SIZE = 200
+    CONFIG_PBKDF2_ITERATIONS = 260_000
+    CONFIG_STRICT_STARTUP = True
+    CONFIG_TOKEN_TTL = 86400 * 7
+    CONFIG_USER_STORE_PATH = Path(__file__).resolve().parents[2] / "config" / "users.json"
+    CONFIG_VERSION = "1.0.0"
+
 # ── Logging ──
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s  %(message)s")
 logger = logging.getLogger("agentsgroup")
@@ -41,21 +71,11 @@ logger = logging.getLogger("agentsgroup")
 app = FastAPI(
     title="AgentsGroup2026",
     description="Standalone Agent Management, Evolution & Chat Platform",
-    version="1.0.0",
+    version=CONFIG_VERSION,
 )
 
-_DEFAULT_CORS_ORIGINS = (
-    "http://localhost:5173,"
-    "http://127.0.0.1:5173,"
-    "http://localhost:8080,"
-    "http://127.0.0.1:8080"
-)
-_allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("AG_ALLOWED_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",")
-    if origin.strip()
-]
-_allow_credentials = os.getenv("AG_CORS_ALLOW_CREDENTIALS", "1").lower() not in {"0", "false", "no"}
+_allowed_origins = list(CONFIG_ALLOWED_ORIGINS)
+_allow_credentials = bool(CONFIG_CORS_ALLOW_CREDENTIALS)
 if "*" in _allowed_origins and _allow_credentials:
     logger.warning("AG_ALLOWED_ORIGINS contains '*' with credentials; disabling credentials for CORS")
     _allow_credentials = False
@@ -136,7 +156,7 @@ class RegisterRequest(BaseModel):
 
 _team_manager = None
 _chat_channel = None
-_STRICT_STARTUP = os.getenv("AG_STRICT_STARTUP", "1").lower() not in {"0", "false", "no"}
+_STRICT_STARTUP = bool(CONFIG_STRICT_STARTUP)
 
 
 def _handle_startup_failure(name: str, exc: Exception, *, critical: bool) -> None:
@@ -434,8 +454,8 @@ import time as _time
 import os as _os
 
 # User store: username -> password hash.
-_USER_STORE = Path(__file__).resolve().parents[2] / "config" / "users.json"
-_PBKDF2_ITERATIONS = 260_000
+_USER_STORE = Path(CONFIG_USER_STORE_PATH)
+_PBKDF2_ITERATIONS = CONFIG_PBKDF2_ITERATIONS
 
 
 def _hash_password(password: str) -> str:
@@ -490,16 +510,20 @@ elif _os.environ.get("AG_ALLOW_DEFAULT_ADMIN", "").lower() in {"1", "true", "yes
     logger.warning("⚠️ AG_ALLOW_DEFAULT_ADMIN enabled; using insecure development admin password")
     _USERS.setdefault("admin", _hash_password("admin123"))
     _save_users(_USERS)
+elif CONFIG_ALLOW_DEFAULT_ADMIN:
+    logger.warning("⚠️ config.ALLOW_DEFAULT_ADMIN enabled; using insecure development admin password")
+    _USERS.setdefault("admin", _hash_password("admin123"))
+    _save_users(_USERS)
 elif "admin" not in _USERS:
     logger.warning("⚠️ ADMIN_PASSWORD is not set; default admin account is disabled")
 
 # Token store: token -> {"username": str, "created_at": float}
 _TOKENS: Dict[str, dict] = {}
-_TOKEN_TTL = 86400 * 7  # 7 days
+_TOKEN_TTL = CONFIG_TOKEN_TTL
 
 # CSRF protection
 _CSRF_TOKENS: Dict[str, float] = {}
-_CSRF_TTL = 3600  # 1 hour
+_CSRF_TTL = CONFIG_CSRF_TTL
 
 
 def _generate_csrf_token() -> str:
@@ -576,6 +600,78 @@ def _validate_token(token: str) -> str | None:
     return entry["username"]
 
 
+def _revoke_token(token: str) -> bool:
+    """Invalidate a token if it is still present."""
+    if not token:
+        return False
+    return _TOKENS.pop(token, None) is not None
+
+
+def _extract_bearer_token(authorization: str = "") -> str:
+    """Normalize the Authorization header into a raw token."""
+    value = (authorization or "").strip()
+    if value.lower().startswith("bearer "):
+        return value[7:].strip()
+    return value
+
+
+def _extract_request_token(request: Request | None = None, authorization: str = "") -> str:
+    """Read auth token from header first, then cookie."""
+    token = _extract_bearer_token(authorization)
+    if token:
+        return token
+    if request is None:
+        return ""
+    return (request.cookies.get("ag-token", "") or "").strip()
+
+
+def _get_auth_mode() -> str:
+    """Describe the current auth delivery mode for clients."""
+    if _AUTH_COOKIE_ONLY:
+        return "cookie-only"
+    if _AUTH_RETURN_TOKEN_JSON:
+        return "cookie+token"
+    return "cookie"
+
+
+def _build_auth_response(username: str, token: str, csrf: str) -> JSONResponse:
+    """Build a login/register response with stable auth metadata."""
+    auth_mode = _get_auth_mode()
+    body: dict[str, Any] = {
+        "username": username,
+        "csrf_token": csrf,
+        "auth_mode": auth_mode,
+        "token_json_enabled": bool(not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON),
+    }
+    if not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON:
+        body["token"] = token
+
+    resp = JSONResponse(body)
+    resp.headers["X-AG-Auth-Mode"] = auth_mode
+    if "token" in body:
+        resp.headers["X-AG-Token-JSON"] = "deprecated"
+    resp.set_cookie(
+        key="ag-token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=86400 * 7,
+        secure=False,  # set True in production with HTTPS
+    )
+    return resp
+
+
+def _build_auth_status(username: str | None) -> Dict[str, Any]:
+    """Return a consistent auth status payload."""
+    return {
+        "username": username or "guest",
+        "authenticated": bool(username),
+        "auth_mode": _get_auth_mode(),
+        "cookie_only": _AUTH_COOKIE_ONLY,
+        "token_json_enabled": bool(not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON),
+    }
+
+
 @app.post("/api/v1/auth/register")
 async def register(req: RegisterRequest, request: Request = None):
     """Register a new user."""
@@ -597,21 +693,7 @@ async def register(req: RegisterRequest, request: Request = None):
     token = _create_token(username)
     csrf = _generate_csrf_token()
     logger.info(f"✅ New user registered: {username}")
-
-    # Build response: cookie-only mode → no JSON token
-    body: dict = {"username": username, "csrf_token": csrf}
-    if not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON:
-        body["token"] = token
-    resp = JSONResponse(body)
-    resp.set_cookie(
-        key="ag-token",
-        value=token,
-        httponly=True,
-        samesite="strict",
-        max_age=86400 * 7,
-        secure=False,  # set True in production with HTTPS
-    )
-    return resp
+    return _build_auth_response(username, token, csrf)
 
 
 @app.post("/api/v1/auth/login")
@@ -631,27 +713,14 @@ async def login(req: LoginRequest, request: Request = None):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = _create_token(username)
     csrf = _generate_csrf_token()
-
-    body: dict = {"username": username, "csrf_token": csrf}
-    if not _AUTH_COOKIE_ONLY and _AUTH_RETURN_TOKEN_JSON:
-        body["token"] = token
-
-    resp = JSONResponse(body)
-    resp.set_cookie(
-        key="ag-token",
-        value=token,
-        httponly=True,
-        samesite="strict",
-        max_age=86400 * 7,
-        secure=False,
-    )
-    return resp
+    return _build_auth_response(username, token, csrf)
 
 
 @app.post("/api/v1/auth/logout")
-async def logout():
-    """Clear the auth cookie."""
-    resp = JSONResponse({"message": "已登出"})
+async def logout(request: Request = None, authorization: str = Header(default="")):
+    """Clear the auth cookie and revoke the current token when available."""
+    revoked = _revoke_token(_extract_request_token(request, authorization))
+    resp = JSONResponse({"message": "已登出", "revoked": revoked, "auth_mode": _get_auth_mode()})
     resp.delete_cookie(key="ag-token", path="/", samesite="strict")
     return resp
 
@@ -659,19 +728,11 @@ async def logout():
 @app.get("/api/v1/auth/me")
 async def auth_me(authorization: str = Header(default=""), request: Request = None):
     """Check current auth status — checks Authorization header first, then cookie."""
-    # Try Authorization header first
-    token = authorization.replace("Bearer ", "") if authorization else ""
+    token = _extract_request_token(request, authorization)
     username = _validate_token(token)
     if username:
-        return {"username": username, "authenticated": True}
-    # Fall back to httpOnly cookie
-    if request:
-        cookie_token = request.cookies.get("ag-token", "")
-        if cookie_token:
-            username = _validate_token(cookie_token)
-            if username:
-                return {"username": username, "authenticated": True}
-    return {"username": "guest", "authenticated": False}
+        return _build_auth_status(username)
+    return _build_auth_status(None)
 
 
 # ══════════════════════════════════════════════════════════════════# ══════════════════════════════════════════════════════════════════
@@ -718,8 +779,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Pagination Helper
 # ══════════════════════════════════════════════════════════════════
 
-DEFAULT_PAGE_SIZE = 50
-MAX_PAGE_SIZE = 200
+DEFAULT_PAGE_SIZE = CONFIG_DEFAULT_PAGE_SIZE
+MAX_PAGE_SIZE = CONFIG_MAX_PAGE_SIZE
 
 class PaginationParams(BaseModel):
     limit: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
@@ -779,7 +840,7 @@ async def health():
 
     return HealthResponse(
         status="ok",
-        version="1.0.0",
+        version=CONFIG_VERSION,
         services={
             "evolution": registry.get("system_evolution") is not None,
             "bridge_chat": registry.get("bridge_chat") is not None,
@@ -799,7 +860,7 @@ async def info():
     """System info endpoint for external integrations."""
     return {
         "name": "AgentsGroup2026",
-        "version": "1.0.0",
+        "version": CONFIG_VERSION,
         "description": "Standalone Agent Management, Evolution & Chat Platform",
         "capabilities": ["agent_management", "system_evolution", "chat", "openclaw_integration"],
         "api_prefix": "/api/v1",

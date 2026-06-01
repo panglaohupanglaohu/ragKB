@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { prioritizeExtractTeams } from './extract-routing.js';
 
 // ── Globals ─────────────────────────────────────────────────────
 let scene, camera, renderer, controls, clock;
@@ -50,7 +51,7 @@ var _af_sk = async function(url, opts) {
       opts.headers['x-csrf-token'] = _csrfToken_sk;
     }
   }
-  return fetch(url, opts);
+  return (window._agFetch || fetch)(url, opts);
 };
 
 async function api(path, opts = {}) {
@@ -62,7 +63,7 @@ async function api(path, opts = {}) {
       await _ensureCsrf_sk();
       if (_csrfToken_sk) headers['x-csrf-token'] = _csrfToken_sk;
     }
-    const r = await fetch(API_BASE + path, {
+    const r = await (window._agFetch || fetch)(API_BASE + path, {
       headers: headers,
       ...opts,
     });
@@ -84,7 +85,7 @@ async function routerApi(path, opts = {}) {
       await _ensureCsrf_sk();
       if (_csrfToken_sk) headers['x-csrf-token'] = _csrfToken_sk;
     }
-    const r = await fetch('/api/v1/skill-router' + path, {
+    const r = await (window._agFetch || fetch)('/api/v1/skill-router' + path, {
       headers: headers,
       ...opts,
     });
@@ -104,28 +105,32 @@ async function loadTeams() {
 
   // Check for participant teams from plaza (via sessionStorage)
   let participantTeamIds = null;
+  let preferredTeamId = '';
   const storedTeams = sessionStorage.getItem('extract_teams');
   if (storedTeams) {
     try { participantTeamIds = JSON.parse(storedTeams); } catch(e) {}
     sessionStorage.removeItem('extract_teams');
   }
+  const storedPreferredTeam = sessionStorage.getItem('extract_team_id');
+  if (storedPreferredTeam) {
+    preferredTeamId = storedPreferredTeam;
+    sessionStorage.removeItem('extract_team_id');
+  }
 
   // Render team chips — dynamic add/remove
   const container = document.getElementById('team-chips');
-  let displayTeams = participantTeamIds
-    ? teams.filter(t => participantTeamIds.includes(t.team_id))
-    : teams;
+  const params = new URLSearchParams(location.search);
+  const urlTeam = params.get('team_id');
+  if (urlTeam) preferredTeamId = urlTeam;
+  let displayTeams = prioritizeExtractTeams(teams, participantTeamIds, preferredTeamId);
   if (!displayTeams.length && teams.length) displayTeams.push(...teams);
 
   // Store active team IDs for add/remove
   window._activeTeamIds = displayTeams.map(t => t.team_id);
   renderTeamChips();
 
-  // Check URL params for team_id
-  const params = new URLSearchParams(location.search);
-  const urlTeam = params.get('team_id');
-  if (urlTeam && displayTeams.find(t => t.team_id === urlTeam)) {
-    selectTeamChip(container.querySelector(`[data-tid="${urlTeam}"]`), urlTeam);
+  if (preferredTeamId && displayTeams.find(t => t.team_id === preferredTeamId)) {
+    selectTeamChip(container.querySelector(`[data-tid="${preferredTeamId}"]`), preferredTeamId);
   } else if (displayTeams.length) {
     const first = displayTeams[0];
     selectTeamChip(container.querySelector(`[data-tid="${first.team_id}"]`), first.team_id);

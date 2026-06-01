@@ -42,6 +42,7 @@ h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;bor
 </head>
 <body>
 <script src="/js/nav-sidebar.js" data-active="tasks"></script>
+<script src="/js/api.js"></script>
 <div class="container">
   <h1>任务中心 <span class="badge" id="total-badge">0</span></h1>
   <div class="stats-bar" id="stats-bar"></div>
@@ -153,7 +154,8 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s || 
 
 async function taskAction(url, method, label) {
   try {
-    const r = await fetch(url, { method });
+    const requester = window._agFetch || fetch;
+    const r = await requester(url, { method });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
       window.api && window.api._lastViewError ? null : null; toast(`${label}失败: ${d.detail || r.status}`, 'error');
