@@ -698,7 +698,7 @@ async function ttsSpeak(text, playbackToken, agentName) {
   console.log('[TTS] Fetching audio for:', agentName, text.slice(0, 30));
 
   try {
-    const resp = await fetch('/api/v1/tts', {
+    const resp = await (window._agFetch || fetch)('/api/v1/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, text_lang: 'zh', speed_factor: 1.0, agent_name: agentName || '' })

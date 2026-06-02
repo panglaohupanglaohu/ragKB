@@ -7,6 +7,7 @@
  */
 (function(){
 'use strict';
+const csrfFetch = (...args) => (window._agFetch || fetch)(...args);
 let _tfPollTimer=null;
 function _startTfPoll(){if(_tfPollTimer)clearInterval(_tfPollTimer);_tfPollTimer=setInterval(()=>{if(document.querySelector('#view-registry:not(.hidden)'))loadTokenFactory();else{clearInterval(_tfPollTimer);_tfPollTimer=null}},5000)}
 async function loadTokenFactory(){hideViewLoading("view-registry");
@@ -66,7 +67,7 @@ async function tfTunnelStart(){
   try{
     const ctrl=new AbortController();
     const tmr=setTimeout(()=>ctrl.abort(),15000);
-    const r=await fetch(`${TF}/tunnel/start`,{method:'POST',signal:ctrl.signal});
+    const r=await csrfFetch(`${TF}/tunnel/start`,{method:'POST',signal:ctrl.signal});
     clearTimeout(tmr);
     const d=await r.json();
     if(d&&d.ok){
@@ -89,7 +90,7 @@ async function tfTunnelStop(){
   try{
     const ctrl=new AbortController();
     const tmr=setTimeout(()=>ctrl.abort(),10000);
-    const r=await fetch(`${TF}/tunnel/stop`,{method:'POST',signal:ctrl.signal});
+    const r=await csrfFetch(`${TF}/tunnel/stop`,{method:'POST',signal:ctrl.signal});
     clearTimeout(tmr);
     const d=await r.json();
     toast('隧道已停止');
@@ -111,7 +112,7 @@ async function tfTestClaude(){
   toast('正在测试 Claude Code CLI...');
   const ctrl=new AbortController();const tmr=setTimeout(()=>ctrl.abort(),15000);
   try{
-    const r=await fetch(`${TF}/probe/claude`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:'hi'}),signal:ctrl.signal});
+    const r=await csrfFetch(`${TF}/probe/claude`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:'hi'}),signal:ctrl.signal});
     clearTimeout(tmr);
     const d=await r.json();
     let html='';
@@ -147,7 +148,7 @@ async function tfTestClaudeReady(){
   toast('正在测试 Claude → DeepSeek 就绪...');
   const ctrl=new AbortController();const tmr=setTimeout(()=>ctrl.abort(),15000);
   try{
-    const r=await fetch(`${TF}/probe/claude`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:'hi'}),signal:ctrl.signal});
+    const r=await csrfFetch(`${TF}/probe/claude`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:'hi'}),signal:ctrl.signal});
     clearTimeout(tmr);
     const d=await r.json();
     if(d.ok){

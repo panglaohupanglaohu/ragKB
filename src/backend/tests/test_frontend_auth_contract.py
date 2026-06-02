@@ -13,6 +13,9 @@ STATE_CHANGING_FILES = [
     FRONTEND_DIR / "js" / "tasks-view.js",
     FRONTEND_DIR / "js" / "wizard.js",
     FRONTEND_DIR / "js" / "agent-team-config.js",
+    FRONTEND_DIR / "js" / "token-factory.js",
+    FRONTEND_DIR / "js" / "plaza.js",
+    FRONTEND_DIR / "datacenter-ratchet-evolution.html",
 ]
 
 FORBIDDEN_TOKEN_PATTERNS = [
@@ -41,6 +44,16 @@ def test_state_changing_pages_use_csrf_aware_fetch_wrapper():
     for path in STATE_CHANGING_FILES:
         text = path.read_text(encoding="utf-8")
         assert "window._agFetch || fetch" in text, f"{path.name} should declare the shared CSRF-aware fetch wrapper"
+        assert not RAW_MUTATION_FETCH.search(text), f"{path.name} still contains a raw state-changing fetch() call"
+
+
+def test_frontend_sources_do_not_contain_raw_state_changing_fetch_calls():
+    for path in FRONTEND_DIR.rglob("*"):
+        if path.suffix not in {".js", ".html"}:
+            continue
+        if "__tests__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
         assert not RAW_MUTATION_FETCH.search(text), f"{path.name} still contains a raw state-changing fetch() call"
 
 

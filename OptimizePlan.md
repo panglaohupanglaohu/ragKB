@@ -1,6 +1,6 @@
 # OptimizePlan — 前后端整体优化总看板
 
-> 更新日期：2026-06-02  
+> 更新日期：2026-06-03  
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill  
 > 输入材料：`FrontBackEndOptimize.md`、`FrontBackEndTodos.md`、`OptimizePlan1.md`、`OptimizePlan1Todos.md`、当前前后端代码。  
 > 说明：仓库中未找到用户提到的 `FrontEndOptimize.md`，本版用现有前端专项内容和当前代码状态补齐。  
@@ -40,9 +40,9 @@
 |------|:--------:|------|
 | 前端构建 | ⚠️ 本机环境阻塞 | 本轮验证：`rtk npm run build` 未启动成功；当前被本机 Rollup 原生模块 / optional dependency 问题阻塞（`@rollup/rollup-darwin-arm64`），不是源码语法报错 |
 | 前端单测 | ⚠️ 本机环境阻塞 | 本轮验证：`vitest` 启动同样受 Rollup 原生模块问题影响；上次有效基线为 `api/csrf-pages/extract-routing/agent-config` 局部通过 |
-| 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_retry_escalation.py` + `test_plaza_consensus.py` → `17 passed`；上一轮更广覆盖为 `45 passed` |
-| 后端全量 | ✅ 通过 | 本轮验证：`./venv/bin/python -m pytest -q src/backend/tests` → `866 passed, 1 skipped` |
-| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 本轮验证：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
+| 后端定向回归 | ✅ 通过 | 本轮验证：`test_frontend_auth_contract.py` + `test_auth_csrf.py` → `21 passed` |
+| 后端全量 | ✅ 通过 | 最近一次稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `870 passed, 4 skipped` |
+| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
 | 后端规模 | 147 Python / 25 backend tests | 以当前 `src/backend` 文件统计为准 |
 | `.huashu-skills` | 不纳入 | 用户明确要求一直不动 |
@@ -100,6 +100,7 @@
 | FE-DONE-14 | DONE | 全局导航已接入统一登出动作 | `global-nav.js` + `api.logout()` |
 | FE-DONE-15 | DONE | Plaza 计划面板已展示 verification / consensus / escalations，并可在讨论维度处理升级项 | `plaza.js`, `plaza.html` |
 | FE-DONE-17 | DONE | Agent Detail / Tasks View / Wizard / Agent Team Config 的高频写请求已显式收口到 `_agFetch` | cookie-only / CSRF 主链不再依赖隐式全局 `fetch` 包装 |
+| FE-DONE-18 | DONE | Datacenter Ratchet / Token Factory / Plaza TTS 的剩余 POST 写请求已切到 `_agFetch`，并纳入前端 auth contract | cookie-only 收尾时不再留后门页面 |
 
 ### 2.3 后端平台质量
 
@@ -130,7 +131,7 @@
 
 | ID | 领域 | 状态 | 优先级 | 当前结论 | 下一步完成定义 |
 |----|------|:----:|:------:|----------|----------------|
-| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地 | 仅剩 cookie-only 模式下全页面验收 |
+| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐 | 仅剩 cookie-only 模式下全页面验收 |
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | WIP | P1 | login/register 5/min 已落地；通用 API 与按路由 bucket 仍缺 | login/register 保持现状；补通用 API 60/min 与测试覆盖 |
 | RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；当前机器缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
@@ -162,14 +163,14 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 条件 | 当前状态 | 出关标准 |
 |------|:--------:|----------|
-| 安全认证 | WIP | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；还缺全页面验收 |
+| 安全认证 | WIP | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；主要遗留页面的 POST 已切回共享 wrapper；还缺全页面验收 |
 | 沙箱执行 | WIP | docker image 可构建；`run_python/run_pytest` 在 docker 模式跑通安全测试 |
 | Runtime 单一入口 | WIP | 旧 AgentLoop 已不再保留独立逻辑；同步 tool-loop 调用面只剩兼容调用，plan/chat 侧仍需继续收束 |
 | Plaza/Evolution 闭环 | WIP | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见 |
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；但本机 build/vitest 当前被 Rollup 环境问题阻塞 |
 
-当前判断：**P0 功能主链约 93%-95% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱远端首轮实机验收、AgentLoop 最后一层兼容面收口、cookie-only 全页面浏览器验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 94%-96% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱远端首轮实机验收、AgentLoop 最后一层兼容面收口、cookie-only 全页面浏览器验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 

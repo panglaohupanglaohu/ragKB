@@ -323,6 +323,7 @@ let HERITAGE = [], POLICIES = [], EVENTS = [], PUE_HIST = [];
 let autoTimer = null, ws = null;
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const csrfFetch = (...args) => (window._agFetch || fetch)(...args);
 
 /* ═══════════════════ BOOT ═══════════════════ */
 window.addEventListener('load', async () => {
@@ -553,7 +554,7 @@ async function animateLoop(result){
     highlightEdge(4, 5, true);
     await sleep(600);
     try{
-      await fetch(`${API}/evolve`, { method: 'POST',
+      await csrfFetch(`${API}/evolve`, { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `Closed-loop gain from ${result.decided_policy||'tick'}`,
@@ -589,11 +590,11 @@ function flyPacket(fromSel, toSel){
 
 /* ═══════════════════ ACTIONS ═══════════════════ */
 async function triggerLoop(){
-  try{ const r = await fetch(`${API}/loop/tick`, {method:'POST'}); const result = await r.json(); await animateLoop(result); }catch(e){ console.error(e); }
+  try{ const r = await csrfFetch(`${API}/loop/tick`, {method:'POST'}); const result = await r.json(); await animateLoop(result); }catch(e){ console.error(e); }
 }
 async function triggerRatchet(){
   try{
-    await fetch(`${API}/evolve`, { method:'POST',
+    await csrfFetch(`${API}/evolve`, { method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ title: `Manual ratchet @ R${(STATE.evolution_round||0)+1}`,
         category: 'general', delta_pue: -0.008, delta_kwh_day: 10.0 })});
@@ -605,7 +606,7 @@ async function applyOne(pid){
   const card = $(`.policy[data-pid="${pid}"]`);
   if(card) card.classList.add('picked');
   try{
-    await fetch(`${API}/policies/apply`, { method:'POST',
+    await csrfFetch(`${API}/policies/apply`, { method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ policy_id: pid, fitness: 0.88 })});
     await animateLoop({ snapshot:{a:1,b:2,c:3,d:4},

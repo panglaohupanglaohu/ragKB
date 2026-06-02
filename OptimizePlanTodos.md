@@ -1,13 +1,13 @@
 # OptimizePlan — 前后端统一 TODOs
 
 > 基于 `OptimizePlan.md`（总看板）+ 当前代码状态生成的最新待办清单。
-> 更新日期：2026-06-02（已按源码核对状态）
+> 更新日期：2026-06-03（已按源码核对状态）
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`17 passed`（`test_plaza_retry_escalation.py` + `test_plaza_consensus.py`）
-> - 后端全量：`866 passed, 1 skipped`（`src/backend/tests`）
+> - 后端定向回归：`21 passed`（`test_frontend_auth_contract.py` + `test_auth_csrf.py`）
+> - 后端全量：`870 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
 > - 前端 build / vitest：当前被本机 `@rollup/rollup-darwin-arm64` 原生模块问题阻塞
 
 ---
@@ -66,6 +66,7 @@
 | FE-08 | i18n key 入口 | `data-i18n` 与 `window.t(key)` 已开始接入侧栏导航 |
 | RUN-02-1 | AgentLoop shim 收窄 | `agent_loop.py` 精简为真正 shim；同步 tool-loop 调用面统一到 `run_tool_loop_sync_with_provider` |
 | SEC-01-7 | Cookie-only 前端契约 | `agent-detail/tasks-view/wizard/agent-team-config` 写请求显式走 `_agFetch`；新增 `test_frontend_auth_contract.py` |
+| SEC-01-8 | Cookie-only 页面补漏 | `datacenter-ratchet-evolution.html`、`token-factory.js`、`plaza.js` 的剩余 POST 写请求已切到 `_agFetch`，并纳入前端 auth contract |
 
 ---
 
@@ -103,6 +104,7 @@
 - [x] 全局导航注入「登出」按钮（`global-nav.js`）
 - [x] 清理残留 `localStorage.getItem('ag-token')` 引用（已确认无残留）
 - [x] 高频写请求页面显式切到 `_agFetch`（`agent-detail/tasks-view/wizard/agent-team-config`）
+- [x] Datacenter Ratchet / Token Factory / Plaza TTS 的剩余写请求显式切到 `_agFetch`
 - [x] 前端 cookie-only 契约测试（`test_frontend_auth_contract.py`）
 - [ ] cookie-only 模式下所有页面验收
 
