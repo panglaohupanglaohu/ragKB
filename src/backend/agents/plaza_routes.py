@@ -1309,10 +1309,23 @@ async def monitoring_report_event(event: Dict[str, Any]) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════════
 
 @router.get("/escalations", summary="获取失败升级队列")
-async def get_escalation_queue() -> Dict[str, Any]:
+async def get_escalation_queue(
+    plaza_id: str = Query(default="", description="按广场过滤"),
+    discussion_id: str = Query(default="", description="按讨论过滤"),
+    entry_status: str = Query(default="", alias="status", description="按状态过滤"),
+) -> Dict[str, Any]:
     """Return all pending escalation entries for human review."""
     engine = get_plaza_engine()
-    queue = engine.get_escalation_queue()
+    queue = [
+        {"index": index, **entry}
+        for index, entry in enumerate(engine.get_escalation_queue())
+    ]
+    if plaza_id:
+        queue = [entry for entry in queue if entry.get("plaza_id") == plaza_id]
+    if discussion_id:
+        queue = [entry for entry in queue if entry.get("discussion_id") == discussion_id]
+    if entry_status:
+        queue = [entry for entry in queue if entry.get("status") == entry_status]
     pending = [e for e in queue if e.get("status") == "pending"]
     return {
         "items": queue,

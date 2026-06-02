@@ -7,6 +7,9 @@ const API = '/api/v1/agent-config';
 let curPlaza = null, curDisc = null, curDiscData = null, evtSrc = null;
 let allTeams = [], allParticipants = [];
 let curVerificationState = null;
+let curConsensusState = null;
+let curEscalationState = null;
+let discussionSignalTimer = null;
 const Q = new URLSearchParams(window.location.search);
 const deepLinkPlazaId = Q.get('plaza_id') || '';
 const deepLinkDiscussionId = Q.get('discussion_id') || '';
@@ -15,7 +18,10 @@ const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 const asItems = payload => Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
 
 function toast(m) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
+  const text = String(m ?? '');
+  const shouldDecorate = /失败|错误|异常|不可用|未找到|无法|无效|请求失败/.test(text);
+  const finalText = shouldDecorate && window.api?.decorateErrorMessage ? window.api.decorateErrorMessage(text) : text;
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = finalText;
   $('toasts').appendChild(t); setTimeout(() => t.remove(), 3500);
 }
 function openM(id) { $(id).classList.add('open') }
@@ -1207,12 +1213,17 @@ window.selectDisc = async function(discId, opts) {
   $('btn-start').textContent = disc.status === 'open' ? '开始' : disc.status === 'closed' ? '重新讨论' : disc.status === 'in_progress' ? '进行中' : '总结中';
   $('status-text').textContent = disc.goal ? `目标: ${disc.goal}` : '';
   curVerificationState = null;
+  clearDiscussionSignals();
   if (disc.status === 'closed' && disc.summary) {
     renderPlan(disc);
     refreshVerificationState(true);
+    refreshConsensusState(true);
+    refreshEscalationState(true);
   } else if (disc.plan && disc.plan.content) {
     renderLivePlan(disc.plan);
     refreshVerificationState(true);
+    refreshConsensusState(true);
+    refreshEscalationState(true);
   } else {
     $('plan-panel').style.display = 'none';
   }
@@ -1269,6 +1280,36 @@ function verificationAlertLabel(alert) {
   return alert.escalation_label || '需关注';
 }
 
+function consensusTrendLabel(trend) {
+  return {
+    rising: '收敛提升',
+    stable: '基本稳定',
+    falling: '分歧加深',
+  }[trend] || trend || '未知';
+}
+
+function consensusTrendColor(trend) {
+  return {
+    rising: '#6A8E6A',
+    stable: '#8A9097',
+    falling: '#C05C5C',
+  }[trend] || '#8A9097';
+}
+
+function escalationStatusLabel(status) {
+  return {
+    pending: '待处理',
+    resolved: '已解决',
+  }[status] || status || '未知';
+}
+
+function latestDiscussionRound() {
+  const explicitRound = Number(curDiscData?.current_round || 0);
+  if (explicitRound > 0) return explicitRound;
+  const messages = Array.isArray(curDiscData?.messages) ? curDiscData.messages : [];
+  return messages.reduce((maxRound, msg) => Math.max(maxRound, Number(msg?.round_number || 0)), 0);
+}
+
 function summarizeVerificationStatus(queue) {
   const counts = {};
   (queue || []).forEach(item => {
@@ -1290,6 +1331,32 @@ function normalizeVerificationState(payload = {}) {
     status_counts: payload.status_counts || summarizeVerificationStatus(queue),
     synced_item_ids: Array.isArray(payload.synced_item_ids) ? payload.synced_item_ids : [],
     updated_at: payload.updated_at || '',
+  };
+}
+
+function normalizeConsensusState(payload = {}) {
+  const consensus = payload?.consensus || {};
+  const dissentingMessages = Array.isArray(payload?.dissenting_messages) ? payload.dissenting_messages : [];
+  return {
+    discussion_id: payload?.discussion_id || curDisc || '',
+    round_number: payload?.round_number ?? (latestDiscussionRound() || 0),
+    score: Number(consensus?.score ?? 0.5),
+    agreement_count: Number(consensus?.agreement_count ?? 0),
+    disagreement_count: Number(consensus?.disagreement_count ?? 0),
+    neutral_count: Number(consensus?.neutral_count ?? 0),
+    dissenting_agents: Array.isArray(consensus?.dissenting_agents) ? consensus.dissenting_agents : [],
+    convergence_trend: consensus?.convergence_trend || 'stable',
+    can_early_exit: Boolean(consensus?.can_early_exit),
+    dissenting_messages: dissentingMessages,
+  };
+}
+
+function normalizeEscalationState(payload = {}) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return {
+    items,
+    total: Number(payload?.total ?? items.length),
+    pending_count: Number(payload?.pending_count ?? items.filter(item => item?.status === 'pending').length),
   };
 }
 
@@ -1343,6 +1410,130 @@ function renderVerificationState() {
   else root.insertAdjacentHTML('beforeend', html);
 }
 
+function renderConsensusState() {
+  const root = $('plan-panel')?.querySelector('.plan-card');
+  if (!root) return;
+  const existing = root.querySelector('.consensus-state');
+  const state = curConsensusState;
+  if (!state) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  const scorePercent = Math.max(0, Math.min(100, Math.round((state.score || 0) * 100)));
+  const trendColor = consensusTrendColor(state.convergence_trend);
+  const summaryChips = [
+    `<span class="verify-chip">轮次 ${esc(state.round_number || '全部')}</span>`,
+    `<span class="verify-chip">同意 ${state.agreement_count}</span>`,
+    `<span class="verify-chip">分歧 ${state.disagreement_count}</span>`,
+    `<span class="verify-chip">中立 ${state.neutral_count}</span>`,
+  ].join('');
+  const dissentHtml = (state.dissenting_messages || []).slice(0, 4).map(item => `
+    <div class="dissent-item">
+      <div class="row">
+        <div class="title">${esc(item.agent_name || item.agent_id || '未命名智能体')}</div>
+        <div class="meta">R${esc(item.round_number || 0)}</div>
+      </div>
+      <div class="detail">${esc(item.content_preview || '')}</div>
+    </div>
+  `).join('');
+  const html = `<div class="plan-subsection consensus-state">
+    <div class="plan-subtitle">CONSENSUS</div>
+    <div class="consensus-hero">
+      <div>
+        <div class="consensus-score">${scorePercent}<span>%</span></div>
+        <div class="consensus-meta">${state.can_early_exit ? '已满足提前收敛条件' : '仍建议继续讨论或人工判断'}</div>
+      </div>
+      <div class="consensus-trend" style="color:${trendColor};border-color:${trendColor}40;background:${trendColor}12">${esc(consensusTrendLabel(state.convergence_trend))}</div>
+    </div>
+    <div class="consensus-meter"><div class="consensus-meter-fill" style="width:${scorePercent}%;background:${trendColor}"></div></div>
+    <div class="verify-summary">${summaryChips}</div>
+    <div class="consensus-grid">
+      <div class="consensus-stat">
+        <div class="label">EARLY EXIT</div>
+        <div class="value">${state.can_early_exit ? 'YES' : 'NO'}</div>
+      </div>
+      <div class="consensus-stat">
+        <div class="label">DISSENT</div>
+        <div class="value">${state.dissenting_agents.length}</div>
+      </div>
+    </div>
+    <div class="consensus-dissent">
+      <div class="plan-subtitle" style="margin-bottom:4px">DISSENT NOTES</div>
+      <div class="verify-list">${dissentHtml || `<div class="verify-empty">当前没有明显反方意见。</div>`}</div>
+    </div>
+    <div class="verify-actions">
+      <button class="plan-btn" onclick="refreshConsensusState()">刷新共识</button>
+    </div>
+  </div>`;
+
+  if (existing) existing.outerHTML = html;
+  else root.insertAdjacentHTML('beforeend', html);
+}
+
+function renderEscalationState() {
+  const root = $('plan-panel')?.querySelector('.plan-card');
+  if (!root) return;
+  const existing = root.querySelector('.escalation-state');
+  const state = curEscalationState;
+  if (!state) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  const listHtml = (state.items || []).slice(0, 6).map(item => {
+    const color = item.status === 'resolved' ? '#6A8E6A' : '#C05C5C';
+    return `<div class="escalation-item">
+      <div class="row">
+        <div>
+          <div class="title">${esc(item.agent_name || item.agent_id || '未命名智能体')}</div>
+          <div class="meta">${item.round_number ? `R${esc(item.round_number)}` : 'R?'}${item.error ? ` · ${esc(item.error)}` : ''}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
+          <span class="verify-badge" style="color:${color};border-color:${color}40;background:${color}12">${esc(escalationStatusLabel(item.status))}</span>
+          ${item.status === 'pending' ? `<button class="plan-btn danger" onclick="resolveEscalation(${Number(item.index)})">标记已处理</button>` : ''}
+        </div>
+      </div>
+      ${item.prompt_preview ? `<div class="detail">${esc(item.prompt_preview)}</div>` : ''}
+      ${item.discussion_topic ? `<div class="meta" style="margin-top:4px">${esc(item.discussion_topic)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const html = `<div class="plan-subsection escalation-state">
+    <div class="plan-subtitle">ESCALATIONS</div>
+    <div class="verify-summary">
+      <span class="verify-chip">总计 ${state.total}</span>
+      <span class="verify-chip">待处理 ${state.pending_count}</span>
+    </div>
+    <div class="verify-list">${listHtml || `<div class="verify-empty">当前讨论没有升级项。</div>`}</div>
+    <div class="verify-actions">
+      <button class="plan-btn" onclick="refreshEscalationState()">刷新升级项</button>
+    </div>
+  </div>`;
+
+  if (existing) existing.outerHTML = html;
+  else root.insertAdjacentHTML('beforeend', html);
+}
+
+function clearDiscussionSignals() {
+  curConsensusState = null;
+  curEscalationState = null;
+  if (discussionSignalTimer) {
+    clearTimeout(discussionSignalTimer);
+    discussionSignalTimer = null;
+  }
+}
+
+function scheduleDiscussionSignalRefresh(delay = 600) {
+  if (!curPlaza || !curDisc || !$('plan-panel') || $('plan-panel').style.display === 'none') return;
+  if (discussionSignalTimer) clearTimeout(discussionSignalTimer);
+  discussionSignalTimer = setTimeout(() => {
+    discussionSignalTimer = null;
+    refreshConsensusState(true);
+    refreshEscalationState(true);
+  }, delay);
+}
+
 function renderPlanCard(planContent, revised = false) {
   const p = $('plan-panel'); p.style.display = '';
   const opts = allTeams.map(t => `<option value="${esc(t.team_id)}">${esc(t.name)}</option>`).join('');
@@ -1355,6 +1546,8 @@ function renderPlanCard(planContent, revised = false) {
       <button class="plan-btn accent" onclick="enterEvolution()">进入演化</button>
       <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
     </div></div>`;
+  renderConsensusState();
+  renderEscalationState();
   renderVerificationState();
 }
 
@@ -1441,6 +1634,39 @@ window.refreshVerificationState = async function(silent = false) {
   if (!silent && (curVerificationState.queue_count || curVerificationState.alert_count)) {
     toast(`验证队列 ${curVerificationState.queue_count} 项 · 告警 ${curVerificationState.alert_count} 项`);
   }
+};
+
+window.refreshConsensusState = async function(silent = false) {
+  if (!curPlaza || !curDisc) return;
+  const latestRound = latestDiscussionRound();
+  const query = latestRound > 0 ? `?round_number=${latestRound}` : '';
+  const payload = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/consensus${query}`);
+  if (!payload) return;
+  curConsensusState = normalizeConsensusState(payload);
+  renderConsensusState();
+  if (!silent) toast(`共识 ${Math.round((curConsensusState.score || 0) * 100)}% · ${consensusTrendLabel(curConsensusState.convergence_trend)}`);
+};
+
+window.refreshEscalationState = async function(silent = false) {
+  if (!curPlaza || !curDisc) return;
+  const payload = await api(`${API}/plaza/escalations?plaza_id=${encodeURIComponent(curPlaza)}&discussion_id=${encodeURIComponent(curDisc)}`);
+  if (!payload) return;
+  curEscalationState = normalizeEscalationState(payload);
+  renderEscalationState();
+  if (!silent && curEscalationState.total) {
+    toast(`升级项 ${curEscalationState.total} 条 · 待处理 ${curEscalationState.pending_count}`);
+  }
+};
+
+window.resolveEscalation = async function(index) {
+  if (!Number.isFinite(Number(index))) return;
+  const result = await api(`${API}/plaza/escalations/${Number(index)}/resolve`, { method: 'POST' });
+  if (!result) {
+    toast('升级项处理失败');
+    return;
+  }
+  toast(`升级项 #${Number(index)} 已标记处理`);
+  await refreshEscalationState(true);
 };
 
 window.runVerificationQueue = async function() {
@@ -1662,8 +1888,10 @@ window.refreshPlan = async function() {
     method: 'POST',
   });
   if (r && r.plan) {
+    if (curDiscData) curDiscData = { ...curDiscData, plan: r.plan };
     renderLivePlan(r.plan);
     if (r.message) { appendMsg(r.message); }
+    scheduleDiscussionSignalRefresh(200);
     toast('执行计划已更新');
   } else {
     toast('刷新失败');
@@ -1685,6 +1913,14 @@ function connectSSE(discId) {
       if (d.type === 'status') { init = true; return; }
       if (d.type === 'message' && init) {
         const m = d.message, log = $('msg-log');
+        if (curDiscData) {
+          const nextMessages = Array.isArray(curDiscData.messages) ? [...curDiscData.messages, m] : [m];
+          curDiscData = {
+            ...curDiscData,
+            messages: nextMessages,
+            current_round: Math.max(Number(curDiscData.current_round || 0), Number(m.round_number || 0)),
+          };
+        }
         if (log.querySelector('[style*="text-align:center"]')) log.innerHTML = '';
         const isMod = m.niche_role === 'moderator';
         const isUser = m.niche_role === 'human';
@@ -1698,6 +1934,7 @@ function connectSSE(discId) {
         log.scrollTop = log.scrollHeight;
         $('status-text').textContent = `R${m.round_number} · ${m.agent_name}`;
         if (!isUser) showSpeechBubble(m.agent_id, m.agent_name, m.content);
+        scheduleDiscussionSignalRefresh(750);
       }
       if (d.type === 'interjection_state') {
         $('status-text').textContent = d.state === 'paused' ? '纠偏中…' : '讨论继续';
@@ -1709,7 +1946,9 @@ function connectSSE(discId) {
         }
       }
       if (d.type === 'plan_updated' && d.plan) {
+        if (curDiscData) curDiscData = { ...curDiscData, plan: d.plan };
         renderLivePlan(d.plan);
+        scheduleDiscussionSignalRefresh(200);
       }
       if (d.type === 'verification_state_updated') {
         curVerificationState = normalizeVerificationState(d);
@@ -1725,6 +1964,7 @@ function connectSSE(discId) {
         } else if (d.trigger === 'discussion_evolved') {
           toast(`演进项已进入验证队列`);
         }
+        scheduleDiscussionSignalRefresh(300);
       }
       if (d.type === 'discussion_start') { clearSpeechPlayback(); $('btn-start').disabled = true; $('btn-start').textContent = '进行中'; $('msg-log').innerHTML = ''; }
       if (d.type === 'round_start') $('status-text').textContent = `R${d.round}/${d.max_rounds}`;
@@ -1732,6 +1972,7 @@ function connectSSE(discId) {
       if (d.type === 'discussion_end') {
         $('btn-start').disabled = false; $('btn-start').textContent = '重新讨论'; $('status-text').textContent = 'DONE';
         evtSrc.close(); evtSrc = null; toast('讨论结束');
+        scheduleDiscussionSignalRefresh(200);
         const refreshDelay = Math.max(2600, Math.min(120000, 1500 + getQueuedSpeechDuration()));
         _discEndTimer = setTimeout(() => { _discEndTimer = null; selectDisc(discId, { keepSpeech: true }); }, refreshDelay);
       }

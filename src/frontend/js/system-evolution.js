@@ -17,7 +17,10 @@ const deepLinkItemId = Q.get('item_id') || '';
 function el(id) { return document.getElementById(id); }
 function escapeHtml(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function toast(m) {
-  const e = el('toast'); e.textContent = m; e.classList.add('show');
+  const text = String(m ?? '');
+  const shouldDecorate = /失败|错误|异常|不可用|未找到|无法|无效|请求失败/.test(text);
+  const finalText = shouldDecorate && window.api?.decorateErrorMessage ? window.api.decorateErrorMessage(text) : text;
+  const e = el('toast'); e.textContent = finalText; e.classList.add('show');
   setTimeout(() => e.classList.remove('show'), 2500);
 }
 // Button loading state helper

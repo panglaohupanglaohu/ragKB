@@ -17,6 +17,7 @@ if str(_backend_root) not in sys.path:
 
 from agents.plaza import Participant, SeatTier, NicheRole
 from agents.plaza_engine import PlazaEngine, _MAX_RETRIES, _RETRY_BACKOFF_BASE
+from agents import plaza_routes
 
 
 @pytest.fixture
@@ -83,13 +84,24 @@ class TestRetryAndEscalation:
 
         engine._chat_fn = always_fail
 
-        content = await engine._generate_agent_content(participant, "test prompt")
+        content = await engine._generate_agent_content(
+            participant,
+            "test prompt",
+            plaza_id="plaza-1",
+            discussion_id="disc-1",
+            discussion_topic="讨论主题",
+            round_number=2,
+        )
         assert "暂时离线" in content
         assert len(engine._escalation_queue) == 1
         entry = engine._escalation_queue[0]
         assert entry["agent_id"] == "test-agent"
         assert entry["status"] == "pending"
         assert "permanent failure" in entry["error"]
+        assert entry["plaza_id"] == "plaza-1"
+        assert entry["discussion_id"] == "disc-1"
+        assert entry["discussion_topic"] == "讨论主题"
+        assert entry["round_number"] == 2
 
     def test_resolve_escalation(self, engine):
         engine._escalation_queue.append({
@@ -121,3 +133,53 @@ class TestRetryAndEscalation:
 
         await engine._generate_agent_content(participant, "test")
         assert call_count[0] == _MAX_RETRIES
+
+    @pytest.mark.asyncio
+    async def test_escalation_route_filters_by_discussion_and_includes_index(self, engine, monkeypatch):
+        engine._escalation_queue.extend([
+            {
+                "agent_id": "a-1",
+                "agent_name": "Agent 1",
+                "status": "pending",
+                "error": "boom",
+                "timestamp": "2026-06-02T00:00:00Z",
+                "plaza_id": "plaza-a",
+                "discussion_id": "disc-a",
+                "discussion_topic": "Topic A",
+                "round_number": 2,
+            },
+            {
+                "agent_id": "a-2",
+                "agent_name": "Agent 2",
+                "status": "resolved",
+                "error": "done",
+                "timestamp": "2026-06-02T00:00:01Z",
+                "plaza_id": "plaza-a",
+                "discussion_id": "disc-a",
+                "discussion_topic": "Topic A",
+                "round_number": 3,
+            },
+            {
+                "agent_id": "b-1",
+                "agent_name": "Agent 3",
+                "status": "pending",
+                "error": "elsewhere",
+                "timestamp": "2026-06-02T00:00:02Z",
+                "plaza_id": "plaza-b",
+                "discussion_id": "disc-b",
+                "discussion_topic": "Topic B",
+                "round_number": 1,
+            },
+        ])
+        monkeypatch.setattr(plaza_routes, "get_plaza_engine", lambda: engine)
+
+        payload = await plaza_routes.get_escalation_queue(
+            plaza_id="plaza-a",
+            discussion_id="disc-a",
+            entry_status="pending",
+        )
+
+        assert payload["total"] == 1
+        assert payload["pending_count"] == 1
+        assert payload["items"][0]["index"] == 0
+        assert payload["items"][0]["discussion_id"] == "disc-a"

@@ -17,6 +17,7 @@ var _teamsListCacheAt = 0;
 var _currentOverviewTeam = null;
 var _currentTraceSummaries = [];
 var TEAMS_LIST_CACHE_MS = 60000;
+var _lastRequestId = '';
 
 // Bi-directional sync: AG.state ↔ bare globals (runs each frame to catch mutations)
 setInterval(function(){
@@ -36,7 +37,11 @@ window.AG.setAgentId = function(v) { aid = v; window.AG.state.aid = v; };
 function toast(m,type){
   const e=document.getElementById('toast');
   e.className='toast'+(type?' toast-'+type:'');
-  e.textContent=m;e.classList.add('show');
+  var text=String(m??'');
+  var requestId=_lastRequestId||api._lastError?.request_id||'';
+  var shouldDecorate=type==='error'||/失败|错误|异常|不可用|未找到|无法|无效|请求失败/.test(text);
+  e.textContent=shouldDecorate&&requestId&&text.indexOf('请求ID:')===-1?`${text} · 请求ID: ${requestId}`:text;
+  e.classList.add('show');
   const dur=type==='error'?5000:2500;
   setTimeout(()=>e.classList.remove('show'),dur);
 }
@@ -113,9 +118,12 @@ function _apiMakeOpts(o) {
   }
   // Attach CSRF token for state-changing methods
   var method = (opts.method || 'GET').toUpperCase();
+  opts.headers = opts.headers || {};
   if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
-    opts.headers = opts.headers || {};
     if (_csrfToken) opts.headers['x-csrf-token'] = _csrfToken;
+  }
+  if (!opts.headers['x-request-id']) {
+    opts.headers['x-request-id'] = `ag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
   }
   return opts;
 }
@@ -129,12 +137,15 @@ async function api(p, o) {
       return cached.data;
     }
     try {
-      var r = await fetch(p, o);
+      var getOpts = _apiMakeOpts(o);
+      var getReqId = getOpts.headers && getOpts.headers['x-request-id'] || '';
+      var r = await fetch(p, getOpts);
+      _lastRequestId = r.headers && typeof r.headers.get === 'function' ? (r.headers.get('X-Request-ID') || getReqId) : getReqId;
       if (_offline) { hideOfflineBanner(); }
       if (!r.ok) {
         var msg = '';
         try { var d = await r.json(); msg = d.detail || d.message || ''; } catch(e) {}
-        api._lastError = {status: r.status, message: msg, url: p};
+        api._lastError = {status: r.status, message: msg, url: p, request_id: _lastRequestId || getReqId};
         return null;
       }
       var data = await r.json();
@@ -144,11 +155,12 @@ async function api(p, o) {
       api._lastError = null;
       return data;
     } catch(e) {
+      _lastRequestId = _lastRequestId || '';
       if (e.name === 'TypeError' || (e.message && e.message.indexOf('fetch') !== -1)) {
         _offline = true;
         showOfflineBanner();
       }
-      api._lastError = {status: 0, message: e.message, url: p, network: true};
+      api._lastError = {status: 0, message: e.message, url: p, network: true, request_id: _lastRequestId || ''};
       return null;
     }
   }
@@ -159,11 +171,18 @@ async function api(p, o) {
   var opts = _apiMakeOpts(o);
   try {
     var r2 = await fetch(p, opts);
-    if (!r2.ok) { api._lastError = {status: r2.status, url: p}; return null; }
+    var reqId = opts.headers && opts.headers['x-request-id'] || '';
+    _lastRequestId = r2.headers && typeof r2.headers.get === 'function' ? (r2.headers.get('X-Request-ID') || reqId) : reqId;
+    if (!r2.ok) {
+      var msg2 = '';
+      try { var d2 = await r2.json(); msg2 = d2.detail || d2.message || ''; } catch(e3) {}
+      api._lastError = {status: r2.status, message: msg2, url: p, request_id: _lastRequestId || reqId};
+      return null;
+    }
     api._lastError = null;
     return await r2.json();
   } catch(e2) {
-    api._lastError = {status: 0, message: e2.message, url: p, network: true};
+    api._lastError = {status: 0, message: e2.message, url: p, network: true, request_id: _lastRequestId || ''};
     return null;
   }
 }
@@ -265,6 +284,8 @@ function selectAgent(id){aid=id;switchView('agent',id)}
 
 // ── Overview ──
 let _ovTimer=null;
+let _traceDetailTaskId='';
+let _traceRequestIds={summaries:'',events:'',detail:''};
 async function loadOverview(){
   if(_ovTimer)clearInterval(_ovTimer);
   const [teamsList,ov]=await Promise.all([
@@ -295,6 +316,7 @@ async function loadOverview(){
       aa.forEach(a=>{tbody.innerHTML+=`<tr><td><b>${escapeHtml(a.name||a.agent_id)}</b></td><td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td><td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td><td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+s+'</span>').join('')}</td><td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td></tr>`});
     }
     if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
+    refreshTracePanel();
     _ovTimer=setInterval(()=>{
       if(document.hidden||!document.querySelector('#view-overview:not(.hidden)')){
         clearInterval(_ovTimer);
@@ -307,6 +329,90 @@ async function loadOverview(){
     },10000);
     loadEvolution(ov?.evolution?.compliance_rating||null);
   }
+}
+
+function _traceReqText(id){
+  return id?`请求ID: ${escapeHtml(id)}`:'';
+}
+
+function _formatTraceTime(ts){
+  if(!ts)return '-';
+  const ms=Number(ts)*1000;
+  if(Number.isNaN(ms))return '-';
+  return new Date(ms).toLocaleString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function _traceStatusColor(status){
+  return {
+    completed:'var(--lime)',
+    failed:'var(--red)',
+    running:'var(--cyan)',
+    queued:'var(--amber)',
+    pending:'var(--amber)',
+  }[status]||'var(--muted)';
+}
+
+function _renderTraceSummaries(payload, requestId){
+  const wrap=el('trace-summaries');
+  if(!wrap)return;
+  const traces=payload?.traces||[];
+  if(!traces.length){
+    wrap.innerHTML=`<div style="color:var(--dim);font-size:12px;padding:8px 0">暂无运行痕迹${requestId?` · ${_traceReqText(requestId)}`:''}</div>`;
+    return;
+  }
+  wrap.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 6px"><div style="font-size:12px;color:var(--muted)">任务概览 (${traces.length})</div><div style="font-size:11px;color:var(--dim);font-family:var(--font-mono)">${_traceReqText(requestId)}</div></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">${traces.map(t=>{const ctx=t.trace_context||{};const wf=t.workflow_summary||{};const test=t.test_result||{};const verify=t.linked_evolution_items||[];return `<div style="padding:10px 12px;background:var(--panel2);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><div style="font-size:12px;font-weight:600">${escapeHtml(t.task_id?.slice(0,8)||'')}</div><div style="font-size:11px;color:var(--dim);margin-top:3px">${escapeHtml(ctx.source||t.source||'task')} · ${escapeHtml(ctx.discussion_topic||ctx.discussion_id||t.agent_id||'-')}</div></div><div style="font-size:11px;color:${_traceStatusColor(t.status)};font-weight:600">${escapeHtml(t.status||'-')}</div></div><div style="font-size:11px;color:var(--text);line-height:1.7;margin-top:8px">事件 ${t.trace_event_count||0} · 变更 ${(t.changed_files||[]).length} · 测试 ${escapeHtml(test.verdict||t.build_outcome||wf.verdict||'-')}</div><div style="font-size:11px;color:var(--dim);line-height:1.6;margin-top:4px">${verify.length?`关联演进 ${verify.length} 项 · `:''}${(t.recent_trace_events||[]).length?_formatTraceTime(t.recent_trace_events[t.recent_trace_events.length-1].ts):'无最近事件'}</div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn btn-sm" onclick="showTraceDetail('${t.task_id}')">查看明细</button>${ctx.discussion_id?`<a class="btn btn-sm" href="/plaza.html?plaza_id=${encodeURIComponent(ctx.plaza_id||'')}&discussion_id=${encodeURIComponent(ctx.discussion_id)}">讨论</a>`:''}</div></div>`;}).join('')}</div>`;
+}
+
+function _renderTraceEvents(payload, requestId){
+  const wrap=el('trace-events');
+  if(!wrap)return;
+  const events=payload?.events||[];
+  wrap.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px"><div style="font-size:12px;color:var(--muted)">最近事件 (${events.length})</div><div style="font-size:11px;color:var(--dim);font-family:var(--font-mono)">${_traceReqText(requestId)}</div></div>${events.length?`<div style="display:flex;flex-direction:column;gap:6px">${events.slice(0,12).map(ev=>`<div style="padding:8px 10px;background:var(--panel2);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px"><div style="font-size:12px"><b>${escapeHtml(ev.type||'-')}</b> · <span style="color:var(--dim)">${escapeHtml(ev.task_id?.slice(0,8)||'')}</span></div><div style="font-size:11px;color:var(--dim)">${_formatTraceTime(ev.ts)}</div></div><div style="font-size:11px;color:var(--text);margin-top:4px;line-height:1.6">${escapeHtml(ev.trace_context?.discussion_topic||ev.trace_context?.discussion_id||ev.trace_context?.source||'-')}</div></div>`).join('')}</div>`:`<div style="color:var(--dim);font-size:12px;padding:4px 0">暂无匹配事件</div>`}`;
+}
+
+function _renderTraceDetail(taskId, payload, requestId){
+  const wrap=el('trace-detail');
+  if(!wrap)return;
+  const events=payload?.events||[];
+  wrap.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px"><div style="font-size:12px;color:var(--muted)">任务明细 ${escapeHtml(taskId?.slice(0,8)||'')}</div><div style="font-size:11px;color:var(--dim);font-family:var(--font-mono)">${_traceReqText(requestId)}</div></div>${events.length?`<div style="display:flex;flex-direction:column;gap:8px">${events.map(ev=>`<div style="padding:10px 12px;background:var(--panel2);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px"><div style="font-size:12px;font-weight:600">${escapeHtml(ev.type||'-')}</div><div style="font-size:11px;color:var(--dim)">${_formatTraceTime(ev.ts)}</div></div><div style="font-size:11px;color:var(--dim);margin-top:4px">${escapeHtml(ev.trace_context?.discussion_topic||ev.trace_context?.discussion_id||ev.trace_context?.source||'-')}</div><pre style="margin-top:8px;white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.6;color:var(--text);background:rgba(0,0,0,0.12);padding:8px;border:1px solid var(--line)">${escapeHtml(JSON.stringify(ev.payload||{},null,2))}</pre></div>`).join('')}</div>`:`<div style="color:var(--dim);font-size:12px;padding:4px 0">没有可展示的事件明细</div>`}`;
+}
+
+async function refreshTracePanel(){
+  if(!tid)return;
+  const source=el('trace-source-filter')?.value||'';
+  const eventType=el('trace-event-filter')?.value||'';
+  const exportLink=el('trace-export-link');
+  if(exportLink){
+    const params=new URLSearchParams({team_id:tid,limit:'500'});
+    if(source)params.set('source',source);
+    if(eventType)params.set('event_type',eventType);
+    exportLink.href=`${A}/traces/export?${params.toString()}`;
+  }
+  const summaryUrl=`${A}/traces/recent?team_id=${encodeURIComponent(tid)}${source?`&source=${encodeURIComponent(source)}`:''}`;
+  const summaries=await api(summaryUrl);
+  const summariesReqId=_lastRequestId||'';
+  _traceRequestIds.summaries=summariesReqId;
+  _renderTraceSummaries(summaries,summariesReqId);
+
+  const eventsUrl=`${A}/traces/recent-events?team_id=${encodeURIComponent(tid)}${source?`&source=${encodeURIComponent(source)}`:''}${eventType?`&event_type=${encodeURIComponent(eventType)}`:''}`;
+  const events=await api(eventsUrl);
+  const eventsReqId=_lastRequestId||'';
+  _traceRequestIds.events=eventsReqId;
+  _renderTraceEvents(events,eventsReqId);
+
+  if(_traceDetailTaskId){
+    showTraceDetail(_traceDetailTaskId,true);
+  }
+}
+
+async function showTraceDetail(taskId, silent){
+  if(!tid||!taskId)return;
+  _traceDetailTaskId=taskId;
+  const payload=await api(`${A}/teams/${tid}/tasks/${taskId}/trace-events`);
+  const detailReqId=_lastRequestId||'';
+  _traceRequestIds.detail=detailReqId;
+  _renderTraceDetail(taskId,payload,detailReqId);
+  if(!silent&&payload){toast(`已加载任务明细 ${taskId.slice(0,8)}`)}
 }
 
 // ── System Evolution (自我演进) ──

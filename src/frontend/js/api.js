@@ -22,6 +22,8 @@
   api._csrfToken = null;
   api._csrfPromise = null;
   api._csrfHeaderName = 'X-CSRF-Token';
+  api._requestIdHeaderName = 'X-Request-ID';
+  api._lastRequestId = '';
 
   api.setCsrfToken = function (token) {
     api._csrfToken = token || '';
@@ -32,6 +34,17 @@
   api.clearCsrfToken = function () {
     api._csrfToken = null;
     api._csrfPromise = null;
+  };
+
+  api.getLastRequestId = function () {
+    return api._lastRequestId || '';
+  };
+
+  api.decorateErrorMessage = function (message, requestId) {
+    var text = String(message || '');
+    var id = requestId || api.getLastRequestId() || (api._lastError && api._lastError.request_id) || '';
+    if (!id || text.indexOf('请求ID:') !== -1) return text;
+    return text + ' · 请求ID: ' + id;
   };
 
   function withCredentials(opts) {
@@ -66,6 +79,23 @@
     return headers.has(name) || headers.has(name.toLowerCase());
   }
 
+  function nextRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'ag-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function getRequestIdFromPrepared(input, opts) {
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      return input.headers.get(api._requestIdHeaderName) || '';
+    }
+    if (opts && opts.headers && typeof opts.headers.get === 'function') {
+      return opts.headers.get(api._requestIdHeaderName) || '';
+    }
+    return '';
+  }
+
   async function prepareRequest(input, opts) {
     if (!isSameOrigin(input)) {
       return [input, opts];
@@ -80,6 +110,9 @@
       if (api._csrfToken && !hasHeader(headers, api._csrfHeaderName)) {
         headers.set(api._csrfHeaderName, api._csrfToken);
       }
+    }
+    if (!hasHeader(headers, api._requestIdHeaderName)) {
+      headers.set(api._requestIdHeaderName, nextRequestId());
     }
 
     var finalOpts = {};
@@ -125,7 +158,9 @@
   api.request = async function (url, opts) {
     try {
       var prepared = await prepareRequest(url, opts);
+      var outgoingRequestId = getRequestIdFromPrepared(prepared[0], prepared[1]);
       var r = await nativeFetch(prepared[0], prepared[1]);
+      api._lastRequestId = r.headers && r.headers.get ? (r.headers.get(api._requestIdHeaderName) || outgoingRequestId) : outgoingRequestId;
       if (api._offline) {
         api._offline = false;
         if (api._onOffline) api._onOffline(false);
@@ -134,7 +169,7 @@
         var msg = '';
         try { var d = await r.json(); msg = d.detail || d.message || ''; } catch (e) { /* ignore parse errors */ }
         console.warn('API ' + r.status + ': ' + url, msg);
-        api._lastError = { status: r.status, message: msg, url: url };
+        api._lastError = { status: r.status, message: msg, url: url, request_id: api._lastRequestId || outgoingRequestId };
         if (api._onError) api._onError(msg || 'HTTP ' + r.status);
         api._lastViewError = msg || 'HTTP ' + r.status;
         return null;
@@ -143,11 +178,12 @@
       return await r.json();
     } catch (e) {
       console.error('API error: ' + url, e);
+      api._lastRequestId = api._lastRequestId || outgoingRequestId || '';
       if (e.name === 'TypeError' || (e.message && e.message.indexOf('fetch') !== -1)) {
         api._offline = true;
         if (api._onOffline) api._onOffline(true);
       }
-      api._lastError = { status: 0, message: e.message, url: url, network: true };
+      api._lastError = { status: 0, message: e.message, url: url, network: true, request_id: api._lastRequestId || outgoingRequestId || '' };
       if (api._onError) api._onError(e.message);
       api._lastViewError = e.message;
       return null;

@@ -410,6 +410,10 @@ class PlazaEngine:
         disc.summary = await self._generate_agent_content(
             moderator,
             final_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.max_rounds,
         )
         # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
         disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
@@ -452,7 +456,14 @@ class PlazaEngine:
         prompt: str, round_number: int, niche_role: str = "",
     ) -> Optional[PlazaMessage]:
         """让一个 Agent 在广场中发言."""
-        content = await self._generate_agent_content(participant, prompt)
+        content = await self._generate_agent_content(
+            participant,
+            prompt,
+            plaza_id=disc.plaza_id,
+            discussion_id=disc.id,
+            discussion_topic=disc.topic,
+            round_number=round_number,
+        )
         content = self._shape_debate_message(
             content,
             is_moderator=(niche_role == "moderator"),
@@ -607,7 +618,14 @@ class PlazaEngine:
                 f"NEXT: 候选中的 agent_id\n"
                 f"只输出这两行。"
             )
-            decision_text = await self._generate_agent_content(moderator, redirect_prompt)
+            decision_text = await self._generate_agent_content(
+                moderator,
+                redirect_prompt,
+                plaza_id=plaza_id,
+                discussion_id=discussion_id,
+                discussion_topic=disc.topic,
+                round_number=disc.current_round,
+            )
             moderator_reply_text, chosen = self._parse_interjection_decision(
                 decision_text,
                 speakers,
@@ -702,7 +720,14 @@ class PlazaEngine:
                 f"列出 3-6 个任务，按优先级排序。必须体现用户刚提出的问题/建议的处理方式。\n\n"
                 f"只输出以上内容，不要客套。"
             )
-            plan_text = await self._generate_agent_content(moderator, plan_prompt)
+            plan_text = await self._generate_agent_content(
+                moderator,
+                plan_prompt,
+                plaza_id=plaza_id,
+                discussion_id=discussion_id,
+                discussion_topic=disc.topic,
+                round_number=disc.current_round,
+            )
 
             # 存储修订计划
             disc.plan = self._build_plan_payload(disc, plan_text, user_message)
@@ -737,6 +762,11 @@ class PlazaEngine:
         self,
         participant: Participant,
         prompt: str,
+        *,
+        plaza_id: str = "",
+        discussion_id: str = "",
+        discussion_topic: str = "",
+        round_number: int = 0,
     ) -> str:
         last_error = None
         for attempt in range(_MAX_RETRIES):
@@ -758,11 +788,27 @@ class PlazaEngine:
                 await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
 
         # All retries exhausted — escalate
-        self._escalate_failure(participant, prompt, last_error)
+        self._escalate_failure(
+            participant,
+            prompt,
+            last_error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
         return f"[{participant.agent_name} 暂时离线]"
 
     def _escalate_failure(
-        self, participant: Participant, prompt: str, error: Exception | None
+        self,
+        participant: Participant,
+        prompt: str,
+        error: Exception | None,
+        *,
+        plaza_id: str = "",
+        discussion_id: str = "",
+        discussion_topic: str = "",
+        round_number: int = 0,
     ) -> None:
         """Record a failure for human review in the escalation queue."""
         entry = {
@@ -772,6 +818,10 @@ class PlazaEngine:
             "prompt_preview": prompt[:200],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "pending",
+            "plaza_id": plaza_id,
+            "discussion_id": discussion_id,
+            "discussion_topic": discussion_topic,
+            "round_number": round_number,
         }
         self._escalation_queue.append(entry)
         logger.error(
@@ -831,7 +881,14 @@ class PlazaEngine:
             f"列出 3-6 个任务，按优先级排序。\n\n"
             f"只输出以上内容，不要客套。"
         )
-        plan_text = await self._generate_agent_content(moderator, plan_prompt)
+        plan_text = await self._generate_agent_content(
+            moderator,
+            plan_prompt,
+            plaza_id=plaza_id,
+            discussion_id=disc_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round or 1,
+        )
 
         disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
 

@@ -4,6 +4,11 @@
 > 更新日期：2026-06-02（已按源码核对状态）
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
+>
+> 当前验证快照：
+> - 后端定向回归：`17 passed`（`test_plaza_retry_escalation.py` + `test_plaza_consensus.py`）
+> - 后端全量：`247 passed` 后卡在 `test_cost_monitor.py`
+> - 前端 build / vitest：当前被本机 `@rollup/rollup-darwin-arm64` 原生模块问题阻塞
 
 ---
 
@@ -47,9 +52,17 @@
 | SEC-02 | 安全响应头 | `main.py` 中间件: X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS(环境变量开启) |
 | OBS-01-1 | 结构化日志 | `AG_LOG_FORMAT=json` 切换 JSON 行日志；`LOG_LEVEL` 环境变量控制级别 |
 | OBS-01-2 | request_id | 每请求生成 `X-Request-ID`（或接受上游传入），注入 `request.state` |
+| OBS-01-3 | 前端 request_id 透传 | `api.js` 自动附带并缓存 `X-Request-ID`，错误上下文可回溯 |
+| OBS-01-4 | 页面错误提示 request_id | Agent Team / Plaza / System Evolution 错误 toast 自动拼接请求编号 |
+| OBS-01-5 | Trace drill-down request_id | Agent Team trace 面板支持 task 明细，并显示每次 trace 请求编号 |
 | BE-03-3 | config.py .env | `config.py` 加入 python-dotenv 支持；新增 `RATE_LOGIN_LIMIT` / `RATE_LIMIT_WINDOW` 配置项 |
 | BE-P0-01 | 分页补齐 | `/skills/required` / `/templates` / `/tools/execution-history` / `/skill-library` / `/skill-library/suggestions` / `/skills/search` / `/tools/search` 全部加 `limit/offset` |
 | PLAZA-01 | 重试+升级 | `plaza_engine._generate_agent_content` 3次重试+指数退避；`_escalation_queue` 失败升级队列；`/plaza/escalations` API |
+| RUN-03-code | 状态机与 watchdog | `runtime/state_machine.py` + `TimeoutWatchdog` + 45 项相关测试 |
+| RUN-04-code | Event bridge | `channels/event_bridge.py` 实现 EventBus ↔ Channel 桥接 |
+| PLAZA-02-code | 共识度量 | `plaza_consensus.py` + `/plaza/.../consensus` API |
+| OBS-02-code | OTel tracing 模块 | `monitoring/tracing.py` + `pyproject.toml[otel]` + startup hook |
+| FE-08 | i18n key 入口 | `data-i18n` 与 `window.t(key)` 已开始接入侧栏导航 |
 
 ---
 
@@ -100,7 +113,20 @@
 - [ ] 确认所有入口（chat / task / plan）只复用统一 runtime，无残留独立逻辑
 - [ ] 覆盖所有入口行为的回归测试
 
-### PLAZA-01 � Plaza 闭环：重试与失败升级
+### FE-05 🔴 恢复本机前端构建 / Vitest 可执行性
+
+```
+位置: package-lock.json, node_modules, 前端测试脚本
+难度: ⚡ 中   优先级: P0
+状态: WIP — 测试文件已在仓库，但当前被 @rollup/rollup-darwin-arm64 原生模块问题阻塞
+```
+
+- [x] `api` / `csrf-pages` / `extract-routing` / `agent-config` 测试文件已存在
+- [ ] 修复本机 Rollup optional dependency / code-signature 问题
+- [ ] 恢复 `npm run build`
+- [ ] 恢复 `vitest` 可执行
+
+### PLAZA-01 Plaza 闭环：重试与失败升级
 
 ```
 位置: src/backend/agents/plaza_engine.py, src/backend/agents/plaza_routes.py
@@ -111,10 +137,11 @@
 - [x] LLM 调用自动重试（3 次 + 指数退避 1.5s/3s/6s）
 - [x] 重试耗尽后的失败升级（`_escalation_queue` + `_escalate_failure()`）
 - [x] 升级队列 API（`GET /plaza/escalations` + `POST /plaza/escalations/{index}/resolve`）
-- [ ] 前端计划面板可见重试/升级状态
+- [x] 前端计划面板可见重试/升级状态
+- [x] 前端计划面板显示 discussion 级 consensus / dissent / escalations
 - [ ] 端到端回归测试
 
-### BE-P0-01 � 列表 API 分页补齐（存量）
+### BE-P0-01 列表 API 分页补齐（存量）
 
 ```
 位置: src/backend/agents/api.py
@@ -130,7 +157,7 @@
 
 ## P1 — 质量加固
 
-### SEC-02 � 生产安全响应头
+### SEC-02 生产安全响应头
 
 ```
 位置: src/backend/main.py
@@ -159,7 +186,20 @@
 - [x] 补充 Channel 事件桥接测试 (`test_channel_event_bridge.py`)
 - [ ] CI 配置 `npm run test:backend`
 
-### BE-03 � main.py 常量迁移到 config.py
+### SEC-03 🟡 通用 API 限流补齐
+
+```
+位置: src/backend/main.py
+难度: ⚡ 小   优先级: P1
+状态: WIP — login/register 5 次/分钟已落地，通用 API bucket 仍未统一
+```
+
+- [x] login/register 内存限流
+- [ ] 通用 API 60/min
+- [ ] 按路由 / 敏感接口细分 bucket
+- [ ] 限流测试覆盖
+
+### BE-03 main.py 常量迁移到 config.py
 
 ```
 位置: src/backend/main.py, src/backend/config.py
@@ -197,18 +237,34 @@
 - [ ] 移除 `tid/aid/wzD/wzS` 等裸全局别名
 - [ ] 只暴露少量公共 API
 
-### OBS-01 � 结构化日志 + request_id
+### FE-05-EXT 🔵 前端单测继续扩面
+
+```
+位置: src/frontend/__tests__/
+难度: ⚡ 中   优先级: P1
+状态: WIP — 基础测试文件已在仓库，待先恢复本机 vitest 再继续扩面
+```
+
+- [x] `api.js` / `csrf-pages` / `extract-routing` / `agent-config` 测试文件
+- [ ] 扩到 `utils.js`
+- [ ] 扩到登录链 / logout / cookie-only 流程
+- [ ] 扩到 Plaza 数据归一化与 runtime helper
+
+### OBS-01 结构化日志 + request_id
 
 ```
 位置: src/backend/main.py
 难度: ⚡ 中   优先级: P1
-状态: DONE — JSON 日志 + request_id middleware 已落地
+状态: DONE — JSON 日志 + request_id middleware 已落地，前端 API 客户端已自动透传/缓存 request_id
 ```
 
 - [x] 日志格式改为 JSON 行输出（`AG_LOG_FORMAT=json`）
 - [x] 日志级别通过环境变量配置（`LOG_LEVEL`）
 - [x] 为每个请求添加 request_id（`request_id_middleware`，响应头 `X-Request-ID`）
-- [ ] 单次请求可串联到后端 log、trace、前端错误（需前端传递 request_id）
+- [x] API 客户端自动透传并缓存 `X-Request-ID`
+- [x] 主要运行页错误 toast 显示 request_id
+- [x] Agent Team trace drill-down 显示 request_id
+- [ ] 其他页面 trace / detail 继续统一显示 request_id
 
 ---
 
@@ -219,7 +275,7 @@
 ```
 位置: 多个 JS 文件
 难度: ⚡ 中   优先级: P2
-状态: PARTIAL — 侧栏导航已标记 data-i18n，DICT 已注册翻译键
+状态: PARTIAL — 侧栏导航已标记 data-i18n，DICT 已注册翻译键，`window.t(key)` 已可用
 ```
 
 - [x] 为常用 UI 字符串添加 `data-i18n` 翻译属性（侧栏导航 8 项）
@@ -253,12 +309,13 @@
 ```
 位置: src/backend/agents/runtime/state_machine.py
 难度: ⚡ 中   优先级: P2
-状态: DONE — 统一状态机 + TimeoutWatchdog + 测试
+状态: WIP — 模块与测试已就绪，但还未成为 task/session/agent 的统一状态源
 ```
 
 - [x] 统一状态机定义（AgentState / TaskState / SessionState 转换图）
 - [x] 超时 watchdog（TimeoutWatchdog 自动转换过期状态）
 - [x] 回调机制 on_transition（可接 SSE 推送）
+- [ ] 将 task/session/agent 主链接到统一状态机
 - [ ] SSE 状态变更事件（需前端对接）
 
 ### RUN-04 🔵 Channels 真正消费
@@ -266,7 +323,7 @@
 ```
 位置: src/backend/channels/event_bridge.py
 难度: ⚡⚡ 大   优先级: P2
-状态: DONE — ChannelEventBridge 实现 EventBus↔Channel 桥接
+状态: WIP — ChannelEventBridge 已实现 EventBus↔Channel 桥接，主链消费与演示仍缺
 ```
 
 - [x] channels 成为 runtime 事件总线的一等公民（ChannelEventBridge）
@@ -279,26 +336,30 @@
 ```
 位置: src/backend/agents/plaza_consensus.py, plaza_routes.py
 难度: ⚡⚡ 大   优先级: P2
-状态: DONE — 共识度量 + 反方检测 + API 端点
+状态: WIP — 共识度量 + 反方检测 + API 已就绪，前端计划面板已消费，尚未真正控制讨论退出/轮次
 ```
 
 - [x] 共识度量（measure_consensus → score/trend/can_early_exit）
 - [x] 反方意见机制（highlight_dissent 自动检测强反对）
 - [x] API 端点 GET /plaza/{id}/discussions/{id}/consensus
+- [x] 前端计划面板展示 score / trend / dissent
 - [ ] 动态退出（参与者可在一定条件下自动离场）
+- [ ] 将共识结果接入 planner / round 控制
 
 ### OBS-02 🔵 OpenTelemetry / OTel Export
 
 ```
 位置: src/backend/monitoring/tracing.py
 难度: ⚡⚡ 大   优先级: P2
-状态: DONE — 模块完成，NoOp fallback，AG_OTEL_ENABLED=1 激活
+状态: WIP — 模块完成，NoOp fallback 与 startup hook 已就绪，真实 exporter smoke 未补
 ```
 
 - [x] OTel span 覆盖 LLM / tool / task / plaza 调用（trace_llm_call / trace_tool_execution / trace_plaza_discussion）
 - [x] 支持 Jaeger / OTLP 导出（OTLPSpanExporter → AG_OTEL_ENDPOINT）
 - [x] 保留 NoOp 降级（无依赖时全部 no-op）
 - [x] pyproject.toml 新增 `[otel]` optional dependency group
+- [ ] 真实 Jaeger / OTLP smoke 验证
+- [ ] span naming / attributes 规范化文档
 
 ---
 
@@ -310,6 +371,7 @@
 RUN-01 [~] Docker Sandbox — 代码备，实机验收待补 ...... 🔨
 SEC-01 [✓] Cookie-Only Auth — 登出按钮已加，仅剩页面验收 ✅
 RUN-02 [~] 统一 AgentLoop — shim 已备，待收束 ........... ⏳
+FE-05  [~] 前端 build/vitest 恢复 .................... ⏳
 PLAZA-01 [✓] 重试 + 失败升级 — 3次重试+升级队列+API .. ✅
 BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 ```
@@ -320,8 +382,10 @@ BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 SEC-02 [✓] 生产安全响应头 — 中间件已落地 ........... ✅
 BE-04  [✓] 测试覆盖提升 — 新增45+测试用例 ......... ✅
 BE-03  [✓] main.py 常量 → config.py + .env 支持 .... ✅
+SEC-03 [~] 通用 API 限流补齐 ....................... ⏳
 BE-06  [~] Pydantic 校验全面化（已 ~75%） ........... ⏳
 FE-02-2 [~] 全局状态收口（window.AG 已建） ........ ⏳
+FE-05-EXT [~] 前端单测扩面 ........................ ⏳
 OBS-01 [✓] 结构化日志 + request_id — 已落地 ....... ✅
 ```
 
@@ -331,10 +395,10 @@ OBS-01 [✓] 结构化日志 + request_id — 已落地 ....... ✅
 FE-08  [~] i18n 绑定到 UI — 侧栏已标记 ........... ⏳
 FE-11  [ ] 国际化引擎升级 ...................... ⏳
 FE-09  [ ] SPA 单页应用评估 .................... ⏳
-RUN-03 [✓] State Machine + Watchdog — 已落地 ..... ✅
-RUN-04 [✓] Channels 事件桥接 — EventBridge 已落地 . ✅
-PLAZA-02 [✓] Plaza 共识机制 — 度量+反方检测 ..... ✅
-OBS-02 [✓] OpenTelemetry — 模块+NoOp降级 ....... ✅
+RUN-03 [~] State Machine + Watchdog — 模块已备 ... ⏳
+RUN-04 [~] Channels 事件桥接 — 桥接已备 .......... ⏳
+PLAZA-02 [~] Plaza 共识机制 — API已备 ............ ⏳
+OBS-02 [~] OpenTelemetry — 模块已备 .............. ⏳
 ```
 
 ---
