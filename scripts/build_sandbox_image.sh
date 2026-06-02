@@ -62,4 +62,4 @@ docker run \
   -v "${ROOT_DIR}:/workspace:ro" \
   -w /workspace \
   "${IMAGE_TAG}" \
-  python3 -m pytest -q --tb=short --maxfail=1 -p no:cacheprovider src/backend/tests/test_main_health.py --co
+  python3 -m pytest -q --tb=short --maxfail=1 -p no:cacheprovider src/backend/tests/test_sandbox_smoke.py

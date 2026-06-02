@@ -153,7 +153,7 @@ async def run_runtime_self_check() -> Dict[str, Any]:
     runtime = describe_sandbox_runtime()
     repo_root = Path(__file__).resolve().parents[3]
     python_result = sandbox.run_python("print('sandbox-ok')", cwd=repo_root, timeout=5)
-    pytest_result = sandbox.run_pytest("src/backend/tests/test_main_health.py --co", cwd=repo_root, timeout=20)
+    pytest_result = sandbox.run_pytest("src/backend/tests/test_sandbox_smoke.py", cwd=repo_root, timeout=20)
     checks = {
         "python": python_result.to_dict(),
         "pytest_collect": pytest_result.to_dict(),

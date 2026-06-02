@@ -7,6 +7,7 @@
  */
 (function(){
 'use strict';
+const csrfFetch = window._agFetch || fetch;
 const PRIO_LBL={0:'🔴 紧急',1:'🟠 高',2:'🔵 普通',3:'⚪ 低'};
 const TST_CLS={pending:'st-idle',running:'st-working',completed:'st-reporting',failed:'st-error',cancelled:'st-blocked'};
 const TST_LBL={pending:'待执行',running:'执行中',completed:'已完成',failed:'失败',cancelled:'已取消'};
@@ -227,7 +228,7 @@ async function startClaudeForTask(taskId){
 }
 
 function stopTaskTerm(sid){
-  fetch(`${A}/claude-sessions/${sid}/stop`,{method:'POST'});
+  csrfFetch(`${A}/claude-sessions/${sid}/stop`,{method:'POST'});
   toast('已停止');
 }
 
@@ -329,7 +330,7 @@ async function taskAction(id,action){
     }catch(e){
       toast('⚠️ 执行环境检查失败，直接尝试启动任务: '+e.message);
     }
-    const resp=await fetch(`${A}/teams/${tid}/tasks/${id}/start`,{method:'POST'});
+    const resp=await csrfFetch(`${A}/teams/${tid}/tasks/${id}/start`,{method:'POST'});
     const body=await resp.json().catch(()=>null);
     if(!resp.ok){
       toast('❌ 启动失败: '+((body&&body.detail)||`HTTP ${resp.status}`));
@@ -341,7 +342,7 @@ async function taskAction(id,action){
       toast('任务已开始');
     }
   }
-  else{await fetch(`${A}/teams/${tid}/tasks/${id}/${action}`,{method:'POST'});toast(action==='complete'?'任务已完成':'任务已标记失败')}
+  else{await csrfFetch(`${A}/teams/${tid}/tasks/${id}/${action}`,{method:'POST'});toast(action==='complete'?'任务已完成':'任务已标记失败')}
   loadTasks()
 }
 

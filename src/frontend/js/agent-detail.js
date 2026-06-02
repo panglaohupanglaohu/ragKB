@@ -7,6 +7,7 @@
  */
 (function(){
 'use strict';
+const csrfFetch = window._agFetch || fetch;
 async function loadAgent(id){
   if(id){aid=id;_chatSid=''}const d=await api(`${A}/teams/${tid}/agents/${aid}`);
   if(!d){el('agent-content').innerHTML='<p style="color:var(--dim);padding:40px">加载失败</p>';return}
@@ -97,25 +98,25 @@ function renderATab(d){
     }
     window.wsSave=function(fp){
       var content=document.getElementById('ws-edit').value;
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace/${fp}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})}).then(r=>r.json()).then(()=>{toast('已保存');renderWs(fp)});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace/${fp}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})}).then(r=>r.json()).then(()=>{toast('已保存');renderWs(fp)});
     };
     window.wsDelete=function(fp){
       if(!confirm('确认删除 '+fp+'?'))return;
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace/${fp}`,{method:'DELETE'}).then(r=>r.json()).then(()=>{toast('已删除');renderWs(fp.split('/').slice(0,-1).join('/'))});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace/${fp}`,{method:'DELETE'}).then(r=>r.json()).then(()=>{toast('已删除');renderWs(fp.split('/').slice(0,-1).join('/'))});
     };
     window.wsCreateFolder=function(){
       var name=prompt('文件夹名称');if(!name)return;
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace?path=${encodeURIComponent(wsPath)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,type:'folder'})}).then(r=>r.json()).then(()=>{toast('已创建');renderWs(wsPath)});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace?path=${encodeURIComponent(wsPath)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,type:'folder'})}).then(r=>r.json()).then(()=>{toast('已创建');renderWs(wsPath)});
     };
     window.wsCreateFile=function(){
       var name=prompt('文件名称 (例如 report.md)');if(!name)return;
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace?path=${encodeURIComponent(wsPath)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,type:'file',content:''})}).then(r=>r.json()).then(()=>{toast('已创建');renderWs(wsPath)});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace?path=${encodeURIComponent(wsPath)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,type:'file',content:''})}).then(r=>r.json()).then(()=>{toast('已创建');renderWs(wsPath)});
     };
     window.wsIngestAll=function(){
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace/ingest-to-kb?path=${encodeURIComponent(wsPath)}`,{method:'POST'}).then(r=>r.json()).then(r=>{toast('已送入知识库: '+r.files+' 个文件')});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace/ingest-to-kb?path=${encodeURIComponent(wsPath)}`,{method:'POST'}).then(r=>r.json()).then(r=>{toast('已送入知识库: '+r.files+' 个文件')});
     };
     window.wsIngestFile=function(fp){
-      fetch(`${A}/teams/${tid}/agents/${aid}/workspace/ingest-to-kb?path=${encodeURIComponent(fp)}`,{method:'POST'}).then(r=>r.json()).then(r=>{toast('已送入知识库')});
+      csrfFetch(`${A}/teams/${tid}/agents/${aid}/workspace/ingest-to-kb?path=${encodeURIComponent(fp)}`,{method:'POST'}).then(r=>r.json()).then(r=>{toast('已送入知识库')});
     };
     renderWs('');
   } else if(atab==='ag-chat'){
@@ -178,7 +179,7 @@ async function testAgentLLM(){
     }
   }catch(e){rc.innerHTML=`<p style="color:var(--pink)">请求异常: ${escapeHtml(e.message)}</p>`}
 }
-async function delAgent(){if(!confirm('确定删除？'))return;await fetch(`${A}/teams/${tid}/agents/${aid}`,{method:'DELETE'});toast('已删除');aid='';loadSbAgents();switchView('overview')}
+async function delAgent(){if(!confirm('确定删除？'))return;await csrfFetch(`${A}/teams/${tid}/agents/${aid}`,{method:'DELETE'});toast('已删除');aid='';loadSbAgents();switchView('overview')}
 async function startStop(cur){const act=cur==='working'?'stop':'start';const r=await api(`${A}/teams/${tid}/agents/${aid}/${act}`,{method:'POST'});if(r){toast(act==='start'?'Agent 已启动':'Agent 已停止');loadSbAgents();loadAgent()}else toast('操作失败')}
 
 // ══════════════════════════════════
@@ -193,7 +194,7 @@ async function saveMemoryFile(){if(!_memFn)return;const c=el('mem-editor').value
 function closeMemEditor(){el('mem-editor-section').classList.add('hidden');_memFn=''}
 // Ensure overlay click also resets memory editor state
 document.addEventListener('click',e=>{if(e.target.classList.contains('modal-overlay')&&_memFn){closeMemEditor()}})
-async function delMemoryFile(fn){if(!confirm(`删除记忆文件 "${fn}"？`))return;await fetch(`${A}/teams/${tid}/agents/${aid}/memory/${encodeURIComponent(fn)}`,{method:'DELETE'});toast(`${fn} 已删除`);loadAgent()}
+async function delMemoryFile(fn){if(!confirm(`删除记忆文件 "${fn}"？`))return;await csrfFetch(`${A}/teams/${tid}/agents/${aid}/memory/${encodeURIComponent(fn)}`,{method:'DELETE'});toast(`${fn} 已删除`);loadAgent()}
 
 // ══════════════════════════════════
 //  AGENT TOOL / SKILL BIND

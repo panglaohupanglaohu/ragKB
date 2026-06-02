@@ -1,5 +1,6 @@
 // Shared globals — var for cross-script access (tools-skills.js, tasks-view.js, etc.)
 var A='/api/v1/agent-config',AT='/api/v1/agent-teams',TF='/api/v1/token-factory';
+const csrfFetch = window._agFetch || fetch;
 
 // ── Namespaced state (window.AG.state is the source of truth) ──
 window.AG = window.AG || {};
@@ -608,7 +609,7 @@ async function testLLM(){
 // ── Models ──
 let _editModelId='';
 async function loadModels(){const d=await api(`${A}/teams/${tid}/models`);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
-async function delModel(mid){if(!confirm('删除此模型？'))return;await fetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
+async function delModel(mid){if(!confirm('删除此模型？'))return;await csrfFetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
   const r=await api(`${A}/teams/${tid}/models/${mid}/default`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
   if(r){toast(`模型 ${mid} 已设为默认，所有智能体已同步`);loadModels();loadSbAgents();if(aid)loadAgent()}else toast('设置失败')
@@ -756,7 +757,7 @@ function closeClaudeTerm(){
 
 async function stopClaudeSession(){
   if(!_ctSessionId)return;
-  await fetch(`${A}/claude-sessions/${_ctSessionId}/stop`,{method:'POST'});
+  await csrfFetch(`${A}/claude-sessions/${_ctSessionId}/stop`,{method:'POST'});
   toast('已停止');
 }
 

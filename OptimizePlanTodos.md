@@ -46,6 +46,7 @@
 | SEC-01-5 | token JSON 开关 | `AG_AUTH_RETURN_TOKEN_JSON`（默认 1 兼容）控制是否返回 token JSON |
 | SEC-03 | API 限流 | login/register 内存限流 5 次/分钟（`test_auth_csrf.py`） |
 | RUN-01-code | Docker Sandbox 代码 | `DockerSandbox` + `docker/sandbox/Dockerfile` + 缺 docker fail-closed（实机验收待补） |
+| RUN-01-ci | Docker Sandbox CI | 新增 `sandbox-docker.yml`、`test_sandbox_docker.py`、`test_sandbox_smoke.py`，CI 可 build image 并跑 self-check / integration |
 | BE-03-2 | config.py 落地 | `src/backend/config.py` 提供 server/auth/CORS/pagination/paths/logging 常量并被引用 |
 | FE-10 | Vitest 单测 | `__tests__/utils|api|agent-config.test.js` + `vitest 4.1.7` + `npm run test:frontend` |
 | SEC-01-6 | 登出按钮 | `global-nav.js` 全局导航注入登出按钮 + `api.logout()` 调用 |
@@ -63,6 +64,7 @@
 | PLAZA-02-code | 共识度量 | `plaza_consensus.py` + `/plaza/.../consensus` API |
 | OBS-02-code | OTel tracing 模块 | `monitoring/tracing.py` + `pyproject.toml[otel]` + startup hook |
 | FE-08 | i18n key 入口 | `data-i18n` 与 `window.t(key)` 已开始接入侧栏导航 |
+| SEC-01-7 | Cookie-only 前端契约 | `agent-detail/tasks-view/wizard/agent-team-config` 写请求显式走 `_agFetch`；新增 `test_frontend_auth_contract.py` |
 
 ---
 
@@ -75,14 +77,15 @@
 ```
 位置: src/backend/sandbox/python_runner_docker.py, docker/sandbox/, scripts/
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed 均已有，缺实机验收
+状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed、CI workflow、集成测试均已备；当前机器缺 docker，待远端首轮执行与本机有 docker 时复验
 ```
 
 - [x] docker mode、Dockerfile、limits、self-check 代码已备
 - [x] 缺 docker 时 fail-closed（返回 `SandboxResult(ok=False)`）
-- [ ] CI/本机实机 build sandbox docker image
-- [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试
-- [ ] 添加 `test_sandbox_docker.py` 集成测试
+- [x] GitHub Actions build sandbox docker image 并执行 self-check
+- [ ] 本机实机 build sandbox docker image（当前机器无 docker）
+- [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试（待远端首轮执行结果 / 本机有 docker 时复验）
+- [x] 添加 `test_sandbox_docker.py` 集成测试
 - [x] 前端 sandbox 页面显示当前 sandbox mode（lite/docker）
 
 ### SEC-01 🟢 Cookie-Only Auth 收尾（仅剩清理）
@@ -98,6 +101,8 @@
 - [x] auth/csrf 回归测试（`test_auth_csrf.py`）
 - [x] 全局导航注入「登出」按钮（`global-nav.js`）
 - [x] 清理残留 `localStorage.getItem('ag-token')` 引用（已确认无残留）
+- [x] 高频写请求页面显式切到 `_agFetch`（`agent-detail/tasks-view/wizard/agent-team-config`）
+- [x] 前端 cookie-only 契约测试（`test_frontend_auth_contract.py`）
 - [ ] cookie-only 模式下所有页面验收
 
 ### RUN-02 🔴 统一 AgentLoop 收窄

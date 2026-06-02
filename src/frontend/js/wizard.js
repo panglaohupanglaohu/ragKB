@@ -7,6 +7,7 @@
  */
 (function(){
 'use strict';
+const csrfFetch = window._agFetch || fetch;
 const TMPLS=[{id:'custom',ab:'自定义',nm:'自定义'},{id:'coordinator',ab:'PM',nm:'项目经理'},{id:'researcher',ab:'RS',nm:'研究员'},{id:'developer',ab:'DV',nm:'开发者'},{id:'analyst',ab:'AN',nm:'分析师'},{id:'navigator',ab:'NV',nm:'导航员'},{id:'engineer',ab:'EN',nm:'工程师'}];
 
 function openWizard(){wzD={template_type:'custom',name:'',role:'',description:'',system_prompt:'',model_id:'',team_id:tid,personality:{tone:'professional',language:'zh-CN',expertise_areas:[],response_style:'concise',creativity:0.5},skill_ids:[],tool_ids:[],permissions:[],channels:[],visibility:'public',default_access:'use'};wzS=1;switchView('wizard');renderWz()}
@@ -120,7 +121,7 @@ async function wzFinish(){
   }
   if(failed){
     // Rollback: delete partially-created agent
-    await fetch(`${A}/teams/${wtid}/agents/${nid}`,{method:'DELETE'}).catch(()=>{});
+    await csrfFetch(`${A}/teams/${wtid}/agents/${nid}`,{method:'DELETE'}).catch(()=>{});
     toast('配置步骤失败，已回滚创建');
     if(finBtn){finBtn.disabled=false;finBtn.classList.remove('loading')}
     return;

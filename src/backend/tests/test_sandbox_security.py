@@ -215,7 +215,7 @@ class TestSandboxModeSelection:
                 return SandboxResult(ok=True, exit_code=0, stdout="sandbox-ok\n")
 
             def run_pytest(self, target="", *, cwd, timeout):
-                assert "test_main_health.py --co" in target
+                assert target == "src/backend/tests/test_sandbox_smoke.py"
                 return SandboxResult(ok=True, exit_code=0, stdout="collected 1 item\n")
 
         monkeypatch.setattr(sandbox_api_module, "get_sandbox", lambda: StubSandbox())

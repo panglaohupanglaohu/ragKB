@@ -42,6 +42,7 @@
 | 前端单测 | ⚠️ 本机环境阻塞 | 本轮验证：`vitest` 启动同样受 Rollup 原生模块问题影响；上次有效基线为 `api/csrf-pages/extract-routing/agent-config` 局部通过 |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_retry_escalation.py` + `test_plaza_consensus.py` → `17 passed`；上一轮更广覆盖为 `45 passed` |
 | 后端全量 | ✅ 通过 | 本轮验证：`./venv/bin/python -m pytest -q src/backend/tests` → `866 passed, 1 skipped` |
+| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 本轮验证：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
 | 后端规模 | 147 Python / 25 backend tests | 以当前 `src/backend` 文件统计为准 |
 | `.huashu-skills` | 不纳入 | 用户明确要求一直不动 |
@@ -72,7 +73,7 @@
 | R-10 | DONE | secrets 本地 Fernet 加密，支持旧明文迁移 | `test_permissions_and_secrets.py` |
 | R-11 | WIP | 共享 tool runtime + plan runtime 已落地，旧入口仍有兼容层 | `test_unified_tool_loop.py`, `test_plan_loop_runtime.py` |
 | R-12 | WIP | token budget / usage 已接入 chat / stream，并有 API 与前端面板 | `test_token_budget.py` |
-| R-13 | WIP | LiteSandbox + DockerSandbox 入口、limits、runtime status、self-check 脚本已接通；docker 实机验收待补 | `test_sandbox_security.py` |
+| R-13 | WIP | LiteSandbox + DockerSandbox 入口、limits、runtime status、self-check 脚本、sandbox smoke、自检 API、docker 集成测试与专用 GitHub workflow 已接通；当前机器缺 docker，待远端首轮执行 / 本机复验 | `test_sandbox_security.py`, `test_sandbox_docker.py` |
 | R-14 | WIP | 统一状态机 + TimeoutWatchdog 模块与测试已落地，运行时主链尚未完全切换到它 | `test_state_machine.py` |
 | R-15 | WIP | ChannelEventBridge 已实现 EventBus ↔ Channel 桥接，并支持 agent message / trigger task | `test_channel_event_bridge.py` |
 | R-16 | WIP | Plaza 共识度量、反方检测与 `/consensus` API 已落地；动态退出尚未接入讨论主循环 | `test_plaza_consensus.py` |
@@ -98,6 +99,7 @@
 | FE-DONE-13 | DONE | Agent Team 侧栏已开始接入 `data-i18n` 与 `window.t(key)` 兼容层 | `agent-team-config.html`, `i18n.js` |
 | FE-DONE-14 | DONE | 全局导航已接入统一登出动作 | `global-nav.js` + `api.logout()` |
 | FE-DONE-15 | DONE | Plaza 计划面板已展示 verification / consensus / escalations，并可在讨论维度处理升级项 | `plaza.js`, `plaza.html` |
+| FE-DONE-17 | DONE | Agent Detail / Tasks View / Wizard / Agent Team Config 的高频写请求已显式收口到 `_agFetch` | cookie-only / CSRF 主链不再依赖隐式全局 `fetch` 包装 |
 
 ### 2.3 后端平台质量
 
@@ -128,10 +130,10 @@
 
 | ID | 领域 | 状态 | 优先级 | 当前结论 | 下一步完成定义 |
 |----|------|:----:|:------:|----------|----------------|
-| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理已落地 | 仅剩 cookie-only 模式下全页面验收 |
+| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地 | 仅剩 cookie-only 模式下全页面验收 |
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | WIP | P1 | login/register 5/min 已落地；通用 API 与按路由 bucket 仍缺 | login/register 保持现状；补通用 API 60/min 与测试覆盖 |
-| RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check` 已有 | CI/本机能 build image 并跑安全用例；缺 docker 时 fail-closed |
+| RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；当前机器缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
 | RUN-02 | 统一 AgentLoop 收口 | WIP | P0 | 共享 plan/tool runtime 已落地；兼容 shim 仍存在 | 所有入口只复用统一 runtime，旧类薄封装并标 deprecation |
 | RUN-03 | State Machine + Watchdog | WIP | P1 | 独立状态机与 watchdog 模块已落地，但尚未成为所有 runtime 的唯一状态源 | 将 task/session/agent 主链切到统一状态机，并补 SSE 状态事件 |
 | RUN-04 | Channels 真正消费 | WIP | P1 | Event bridge 已有，但 ChannelBus 还没成为默认协作通路 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |
@@ -167,7 +169,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；但本机 build/vitest 当前被 Rollup 环境问题阻塞 |
 
-当前判断：**P0 功能主链约 91%-93% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱实机验收、统一 AgentLoop 最后收口、cookie-only 全页面验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 92%-94% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱远端首轮实机验收、统一 AgentLoop 最后收口、cookie-only 全页面浏览器验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 
@@ -276,6 +278,6 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 合并 `OptimizePlan1Todos.md` 的 FE/BE 任务编号。
 - 结合当前代码核对了 CSRF、cookie auth、pagination、health、frontend runtime visibility、Plaza/Evolution trace 等实际状态。
 - `FrontEndOptimize.md` 未在仓库中找到，已在文档顶部注明。
-- 本轮新增了 cookie-only auth 回归、分页回归、Plaza 兼容分页、Plaza 气泡回流优化、sandbox self-check 脚本，以及 `api.js` 的 Vitest 护栏。
+- 本轮新增了 cookie-only auth 回归、前端 cookie-only 契约测试、高频写请求 `_agFetch` 收口、sandbox smoke / docker integration / GitHub Actions workflow，以及 `api.js` 的 Vitest 护栏。
 - 本轮补齐了成本域与模板变体测试的当前契约，并恢复后端全量基线：`866 passed, 1 skipped`。
 - 本轮新增 GitHub Actions 后端回归工作流，使用 `npm run test:backend` 作为远端护栏入口。
