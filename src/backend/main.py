@@ -42,8 +42,12 @@ try:
     from config import DEFAULT_PAGE_SIZE as CONFIG_DEFAULT_PAGE_SIZE
     from config import MAX_PAGE_SIZE as CONFIG_MAX_PAGE_SIZE
     from config import PBKDF2_ITERATIONS as CONFIG_PBKDF2_ITERATIONS
+    from config import RATE_API_LIMIT as CONFIG_RATE_API_LIMIT
     from config import STRICT_STARTUP as CONFIG_STRICT_STARTUP
+    from config import RATE_LIMIT_WINDOW as CONFIG_RATE_LIMIT_WINDOW
     from config import TOKEN_TTL as CONFIG_TOKEN_TTL
+    from config import RATE_LOGIN_LIMIT as CONFIG_RATE_LOGIN_LIMIT
+    from config import RATE_SENSITIVE_LIMIT as CONFIG_RATE_SENSITIVE_LIMIT
     from config import USER_STORE_PATH as CONFIG_USER_STORE_PATH
     from config import VERSION as CONFIG_VERSION
 except Exception:
@@ -59,6 +63,10 @@ except Exception:
     CONFIG_DEFAULT_PAGE_SIZE = 50
     CONFIG_MAX_PAGE_SIZE = 200
     CONFIG_PBKDF2_ITERATIONS = 260_000
+    CONFIG_RATE_API_LIMIT = 60
+    CONFIG_RATE_LIMIT_WINDOW = 60
+    CONFIG_RATE_LOGIN_LIMIT = 5
+    CONFIG_RATE_SENSITIVE_LIMIT = 20
     CONFIG_STRICT_STARTUP = True
     CONFIG_TOKEN_TTL = 86400 * 7
     CONFIG_USER_STORE_PATH = Path(__file__).resolve().parents[2] / "config" / "users.json"
@@ -141,10 +149,33 @@ _AUTH_COOKIE_ONLY = os.getenv("AG_AUTH_COOKIE_ONLY", "").lower() in {"1", "true"
 _AUTH_RETURN_TOKEN_JSON = os.getenv("AG_AUTH_RETURN_TOKEN_JSON", "1").lower() in {"1", "true", "yes"}
 
 # ── Rate Limiting (in-memory) ──
-_RATE_LIMIT_WINDOW = 60  # 1 minute window
+_RATE_LIMIT_WINDOW = int(CONFIG_RATE_LIMIT_WINDOW)
 _RATE_LIMIT_LOGIN: Dict[str, list] = {}  # username → list of timestamps
 _RATE_LIMIT_IP: Dict[str, list] = {}  # ip → list of timestamps
-_RATE_LOGIN_LIMIT = int(os.getenv("AG_RATE_LOGIN_LIMIT", "5"))  # 5 attempts per minute
+_RATE_LIMIT_API: Dict[str, list] = {}  # ip+method+path bucket → list of timestamps
+_RATE_LIMIT_SENSITIVE: Dict[str, list] = {}  # ip+method+path bucket → list of timestamps
+_RATE_LOGIN_LIMIT = int(CONFIG_RATE_LOGIN_LIMIT)
+_RATE_API_LIMIT = int(CONFIG_RATE_API_LIMIT)
+_RATE_SENSITIVE_LIMIT = int(CONFIG_RATE_SENSITIVE_LIMIT)
+_RATE_LIMIT_EXEMPT_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/csrf-token",
+    "/api/v1/log/client-error",
+}
+_RATE_LIMIT_SENSITIVE_PATHS = {
+    "/api/v1/bridge-chat/send": _RATE_SENSITIVE_LIMIT,
+    "/api/v1/openclaw/connect": _RATE_SENSITIVE_LIMIT,
+    "/api/v1/sandbox/runtime-self-check": max(6, _RATE_SENSITIVE_LIMIT // 2),
+    "/api/v1/datacenter/loop/tick": _RATE_SENSITIVE_LIMIT,
+    "/api/v1/datacenter/evolve": _RATE_SENSITIVE_LIMIT,
+    "/api/v1/datacenter/policies/apply": _RATE_SENSITIVE_LIMIT,
+}
+_RATE_LIMIT_SENSITIVE_PREFIXES = {
+    "/api/v1/agent-config/tools/": _RATE_SENSITIVE_LIMIT,
+    "/api/v1/agent-config/agent-loop": _RATE_SENSITIVE_LIMIT,
+}
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
     """Return True if request is allowed, False if rate-limited."""
@@ -161,10 +192,31 @@ def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIM
 def _clean_rate_limits():
     """Periodically clean expired rate limit entries."""
     now = _time.time()
-    for store in (_RATE_LIMIT_LOGIN, _RATE_LIMIT_IP):
+    for store in (_RATE_LIMIT_LOGIN, _RATE_LIMIT_IP, _RATE_LIMIT_API, _RATE_LIMIT_SENSITIVE):
         expired_keys = [k for k, v in store.items() if all(now - t > _RATE_LIMIT_WINDOW for t in v)]
         for k in expired_keys:
             del store[k]
+
+
+def _is_rate_limit_exempt(path: str) -> bool:
+    return path in _RATE_LIMIT_EXEMPT_PATHS or path.startswith("/api/v1/startup-check")
+
+
+def _match_sensitive_rate_limit(path: str) -> int | None:
+    if path in _RATE_LIMIT_SENSITIVE_PATHS:
+        return _RATE_LIMIT_SENSITIVE_PATHS[path]
+    for prefix, limit in _RATE_LIMIT_SENSITIVE_PREFIXES.items():
+        if path.startswith(prefix):
+            return limit
+    return None
+
+
+def _rate_limit_error(detail: str, retry_after: int = _RATE_LIMIT_WINDOW) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"error": True, "detail": detail, "status_code": 429},
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -465,7 +517,17 @@ async def startup():
     except Exception as e:
         _handle_startup_failure("secs_sandbox_api", e, critical=False)
 
-    # 6. 启动验证路由
+    # 6. Datacenter ratchet demo API
+    try:
+        from datacenter_api import router as datacenter_router, ws_router as datacenter_ws_router
+
+        app.include_router(datacenter_router)
+        app.include_router(datacenter_ws_router)
+        logger.info("✅ Datacenter Ratchet API mounted (/api/v1/datacenter, /ws/datacenter)")
+    except Exception as e:
+        _handle_startup_failure("datacenter_api", e, critical=False)
+
+    # 7. 启动验证路由
     try:
         from startup_check import get_startup_check_router
         app.include_router(get_startup_check_router())
@@ -484,7 +546,7 @@ async def startup():
 
     logger.info("🎉 AgentsGroup2026 ready")
 
-    # 6. 异步执行启动验证（不阻塞启动）
+    # 8. 异步执行启动验证（不阻塞启动）
     try:
         import asyncio
         from startup_check import run_startup_check
@@ -615,13 +677,30 @@ async def csrf_middleware(request: Request, call_next):
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         path = request.url.path
         # Skip CSRF for auth endpoints
-        if path not in ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/logout", "/api/v1/auth/csrf-token", "/api/v1/log/client-error") and not path.startswith("/api/v1/startup-check"):
+        if not _is_rate_limit_exempt(path):
             csrf_header = request.headers.get("x-csrf-token", "")
             if not csrf_header or not _validate_csrf_token(csrf_header):
                 return JSONResponse(
                     status_code=403,
                     content={"error": True, "detail": "CSRF token invalid or expired, please refresh the page", "status_code": 403},
                 )
+    response = await call_next(request)
+    return response
+
+
+@app.middleware("http")
+async def api_rate_limit_middleware(request: Request, call_next):
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        path = request.url.path
+        if path.startswith("/api/v1/") and not _is_rate_limit_exempt(path):
+            _clean_rate_limits()
+            client_ip = request.client.host if request.client else "unknown"
+            bucket = f"{client_ip}:{request.method}:{path}"
+            if not _check_rate_limit(_RATE_LIMIT_API, bucket, _RATE_API_LIMIT):
+                return _rate_limit_error("请求过于频繁，请稍后再试")
+            sensitive_limit = _match_sensitive_rate_limit(path)
+            if sensitive_limit and not _check_rate_limit(_RATE_LIMIT_SENSITIVE, bucket, sensitive_limit):
+                return _rate_limit_error("该接口调用过于频繁，请稍后再试")
     response = await call_next(request)
     return response
 

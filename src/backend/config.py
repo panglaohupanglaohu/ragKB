@@ -48,6 +48,8 @@ CSRF_TTL: int = 3600  # 1 hour
 ALLOW_DEFAULT_ADMIN: bool = os.getenv("AG_ALLOW_DEFAULT_ADMIN", "").lower() in {"1", "true", "yes"}
 RATE_LOGIN_LIMIT: int = int(os.getenv("AG_RATE_LOGIN_LIMIT", "5"))
 RATE_LIMIT_WINDOW: int = int(os.getenv("AG_RATE_LIMIT_WINDOW", "60"))
+RATE_API_LIMIT: int = int(os.getenv("AG_RATE_API_LIMIT", "60"))
+RATE_SENSITIVE_LIMIT: int = int(os.getenv("AG_RATE_SENSITIVE_LIMIT", "20"))
 
 # ── Startup ──
 STRICT_STARTUP: bool = os.getenv("AG_STRICT_STARTUP", "1").lower() not in {"0", "false", "no"}

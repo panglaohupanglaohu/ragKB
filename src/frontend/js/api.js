@@ -64,13 +64,20 @@
     return '';
   }
 
-  function isSameOrigin(input) {
+  function _resolveTarget(input) {
     var url = getRequestUrl(input);
-    if (!url) return false;
+    if (!url) return { csrfAware: false, sameOrigin: false };
     try {
-      return new URL(url, window.location.origin).origin === window.location.origin;
+      var resolved = new URL(url, window.location.origin);
+      var current = new URL(window.location.origin);
+      var sameOrigin = resolved.origin === current.origin;
+      var csrfAware = sameOrigin || (
+        resolved.protocol === current.protocol &&
+        resolved.hostname === current.hostname
+      );
+      return { csrfAware: csrfAware, sameOrigin: sameOrigin };
     } catch (e) {
-      return false;
+      return { csrfAware: false, sameOrigin: false };
     }
   }
 
@@ -97,7 +104,8 @@
   }
 
   async function prepareRequest(input, opts) {
-    if (!isSameOrigin(input)) {
+    var target = _resolveTarget(input);
+    if (!target.csrfAware) {
       return [input, opts];
     }
 
@@ -123,7 +131,7 @@
     }
     finalOpts.headers = headers;
     if (!finalOpts.credentials) {
-      finalOpts.credentials = (requestLike && input.credentials) || 'same-origin';
+      finalOpts.credentials = (requestLike && input.credentials) || (target.sameOrigin ? 'same-origin' : 'include');
     }
 
     if (requestLike) {

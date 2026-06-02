@@ -14,6 +14,7 @@ describe('api.js - request', () => {
     // Simulate api.js IIFE
     globalThis.fetch = vi.fn();
     globalThis.window = globalThis;
+    globalThis.location = { origin: 'http://127.0.0.1:5173', hostname: '127.0.0.1', protocol: 'http:' };
 
     // Re-create api like api.js does
     api = {
@@ -52,9 +53,22 @@ describe('api.js - request', () => {
         return this._csrfPromise;
       },
 
+      _resolveTarget(url) {
+        if (!url) return { csrfAware: false, sameOrigin: false };
+        const resolved = new URL(url, globalThis.location.origin);
+        const current = new URL(globalThis.location.origin);
+        const sameOrigin = resolved.origin === current.origin;
+        const csrfAware = sameOrigin || (
+          resolved.protocol === current.protocol &&
+          resolved.hostname === current.hostname
+        );
+        return { csrfAware, sameOrigin };
+      },
+
       async request(url, opts) {
         const method = (opts && opts.method) ? opts.method.toUpperCase() : 'GET';
-        if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
+        const target = this._resolveTarget(url);
+        if (target.csrfAware && (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH')) {
           await this.fetchCsrfToken();
           if (this._csrfToken) {
             opts = opts || {};
@@ -63,7 +77,13 @@ describe('api.js - request', () => {
           }
         }
         try {
-          const r = await fetch(url, this.withCredentials(opts));
+          const finalOpts = this.withCredentials(opts);
+          if (target.csrfAware && !finalOpts.credentials) {
+            finalOpts.credentials = target.sameOrigin ? 'same-origin' : 'include';
+          } else if (target.csrfAware && finalOpts.credentials === 'same-origin' && !target.sameOrigin) {
+            finalOpts.credentials = 'include';
+          }
+          const r = await fetch(url, finalOpts);
           if (this._offline) {
             this._offline = false;
             if (this._onOffline) this._onOffline(false);
@@ -177,6 +197,26 @@ describe('api.js - request', () => {
       const postCall = vi.mocked(fetch).mock.calls[1];
       expect(postCall[1].method).toBe('POST');
       expect(postCall[1].headers['X-CSRF-Token']).toBe('test-csrf-token-123');
+    });
+
+    it('includes CSRF token and credentials for same-host absolute backend URLs', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ csrf_token: 'test-csrf-token-123' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true }),
+        });
+
+      const result = await api.post('http://127.0.0.1:8080/api/v1/datacenter/loop/tick');
+      expect(result).toEqual({ success: true });
+
+      const postCall = vi.mocked(fetch).mock.calls[1];
+      expect(postCall[0]).toBe('http://127.0.0.1:8080/api/v1/datacenter/loop/tick');
+      expect(postCall[1].headers['X-CSRF-Token']).toBe('test-csrf-token-123');
+      expect(postCall[1].credentials).toBe('include');
     });
 
     it('does NOT inject CSRF for GET requests', async () => {

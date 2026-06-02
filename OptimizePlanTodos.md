@@ -6,9 +6,10 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`21 passed`（`test_frontend_auth_contract.py` + `test_auth_csrf.py`）
-> - 后端全量：`870 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
+> - 后端定向回归：`24 passed`（`test_api_rate_limit.py` + `test_auth_csrf.py` + `test_datacenter_api.py`）
+> - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）
 
 ---
 
@@ -44,7 +45,7 @@
 | FE-12 | alert() 替换 | `tools-skills.js`/`digital-twin-cli.js`/`tasks.html` 中的 `alert()` → `showInfoModal()`/`toast()` |
 | SEC-01-4 | 登出端点 | `POST /api/v1/auth/logout` 删 cookie + 清服务端 token（`test_auth_csrf.py`） |
 | SEC-01-5 | token JSON 开关 | `AG_AUTH_RETURN_TOKEN_JSON`（默认 1 兼容）控制是否返回 token JSON |
-| SEC-03 | API 限流 | login/register 内存限流 5 次/分钟（`test_auth_csrf.py`） |
+| SEC-03 | API 限流 | login/register 内存限流 5 次/分钟 + 通用写请求 60/min + 敏感路由独立 bucket（`test_auth_csrf.py`, `test_api_rate_limit.py`） |
 | RUN-01-code | Docker Sandbox 代码 | `DockerSandbox` + `docker/sandbox/Dockerfile` + 缺 docker fail-closed（实机验收待补） |
 | RUN-01-ci | Docker Sandbox CI | 新增 `sandbox-docker.yml`、`test_sandbox_docker.py`、`test_sandbox_smoke.py`，CI 可 build image 并跑 self-check / integration |
 | BE-03-2 | config.py 落地 | `src/backend/config.py` 提供 server/auth/CORS/pagination/paths/logging 常量并被引用 |
@@ -67,6 +68,8 @@
 | RUN-02-1 | AgentLoop shim 收窄 | `agent_loop.py` 精简为真正 shim；同步 tool-loop 调用面统一到 `run_tool_loop_sync_with_provider` |
 | SEC-01-7 | Cookie-only 前端契约 | `agent-detail/tasks-view/wizard/agent-team-config` 写请求显式走 `_agFetch`；新增 `test_frontend_auth_contract.py` |
 | SEC-01-8 | Cookie-only 页面补漏 | `datacenter-ratchet-evolution.html`、`token-factory.js`、`plaza.js` 的剩余 POST 写请求已切到 `_agFetch`，并纳入前端 auth contract |
+| SEC-01-9 | 同主机跨端口 CSRF | `api.js` 现在会为 `5173 -> 8080` 这类绝对 URL 自动附带 CSRF 与 `credentials=include` |
+| FE-01-1 | Datacenter Ratchet 恢复 | 补齐 `src/backend/datacenter_api.py`，页面从 `404/403` 恢复到可用，`TICK/LOCK` 浏览器 smoke 通过 |
 
 ---
 
@@ -196,18 +199,18 @@
 - [x] 补充 Channel 事件桥接测试 (`test_channel_event_bridge.py`)
 - [x] CI 配置 `npm run test:backend`
 
-### SEC-03 🟡 通用 API 限流补齐
+### SEC-03 🟢 通用 API 限流补齐
 
 ```
 位置: src/backend/main.py
 难度: ⚡ 小   优先级: P1
-状态: WIP — login/register 5 次/分钟已落地，通用 API bucket 仍未统一
+状态: DONE — 通用写请求 60/min、敏感路由独立 bucket、回归测试均已落地
 ```
 
 - [x] login/register 内存限流
-- [ ] 通用 API 60/min
-- [ ] 按路由 / 敏感接口细分 bucket
-- [ ] 限流测试覆盖
+- [x] 通用 API 60/min
+- [x] 按路由 / 敏感接口细分 bucket
+- [x] 限流测试覆盖
 
 ### BE-03 main.py 常量迁移到 config.py
 
@@ -392,7 +395,7 @@ BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 SEC-02 [✓] 生产安全响应头 — 中间件已落地 ........... ✅
 BE-04  [✓] 测试覆盖提升 — 新增45+测试用例 ......... ✅
 BE-03  [✓] main.py 常量 → config.py + .env 支持 .... ✅
-SEC-03 [~] 通用 API 限流补齐 ....................... ⏳
+SEC-03 [✓] 通用 API 限流补齐 ....................... ✅
 BE-06  [~] Pydantic 校验全面化（已 ~75%） ........... ⏳
 FE-02-2 [~] 全局状态收口（window.AG 已建） ........ ⏳
 FE-05-EXT [~] 前端单测扩面 ........................ ⏳
