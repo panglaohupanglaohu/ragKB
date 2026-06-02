@@ -64,6 +64,7 @@
 | PLAZA-02-code | 共识度量 | `plaza_consensus.py` + `/plaza/.../consensus` API |
 | OBS-02-code | OTel tracing 模块 | `monitoring/tracing.py` + `pyproject.toml[otel]` + startup hook |
 | FE-08 | i18n key 入口 | `data-i18n` 与 `window.t(key)` 已开始接入侧栏导航 |
+| RUN-02-1 | AgentLoop shim 收窄 | `agent_loop.py` 精简为真正 shim；同步 tool-loop 调用面统一到 `run_tool_loop_sync_with_provider` |
 | SEC-01-7 | Cookie-only 前端契约 | `agent-detail/tasks-view/wizard/agent-team-config` 写请求显式走 `_agFetch`；新增 `test_frontend_auth_contract.py` |
 
 ---
@@ -114,9 +115,10 @@
 ```
 
 - [x] runtime 拆分 `runtime/plan_loop.py` + `runtime/tool_loop.py`
-- [x] 旧 `agent_loop.py` 标注 deprecated shim
+- [x] 旧 `agent_loop.py` 收窄为真正的 deprecated shim
+- [x] 同步 tool-loop 调用面统一到 `run_tool_loop_sync_with_provider`
 - [ ] 确认所有入口（chat / task / plan）只复用统一 runtime，无残留独立逻辑
-- [ ] 覆盖所有入口行为的回归测试
+- [x] 覆盖 tool-loop / evolution / shim 行为的回归测试
 
 ### FE-05 🔴 恢复本机前端构建 / Vitest 可执行性
 

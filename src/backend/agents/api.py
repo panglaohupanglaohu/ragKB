@@ -6598,11 +6598,9 @@ def _run_tool_loop(
     and execute the codebase via tool calls instead of single-shot text completion.
     """
     try:
-        from agents.chat_harness import ProviderConfig
-        from agents.runtime import run_tool_loop_sync
+        from agents.runtime import run_tool_loop_sync_with_provider
     except ImportError:
-        from .chat_harness import ProviderConfig  # type: ignore
-        from .runtime import run_tool_loop_sync  # type: ignore
+        from .runtime import run_tool_loop_sync_with_provider  # type: ignore
 
     session["lines"].append(f"🔗 API: {api_base_url}\n模型: {model}\n角色: {role}\n")
     session["lines"].append(f"{'─'*60}\n\n")
@@ -6647,17 +6645,11 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
-    result = run_tool_loop_sync(
+    result = run_tool_loop_sync_with_provider(
         prompt=prompt,
-        config=ProviderConfig(
-            api_key=api_key,
-            api_base_url=api_base_url,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            thinking={"type": "enabled"},
-            reasoning_effort="high",
-        ),
+        api_key=api_key,
+        api_base_url=api_base_url,
+        model=model,
         role=role,
         system_prompt=system,
         max_iterations=max_iterations,

@@ -71,7 +71,7 @@
 | R-08 | DONE | Agent / Skill 绑定支持持久化、运行时解析、required_tools 注入 | `test_agent_skill_binding.py` |
 | R-09 | DONE | permissions 接入 tool schema、AgentLoop、ToolExecutor | `test_permissions_and_secrets.py` |
 | R-10 | DONE | secrets 本地 Fernet 加密，支持旧明文迁移 | `test_permissions_and_secrets.py` |
-| R-11 | WIP | 共享 tool runtime + plan runtime 已落地，旧入口仍有兼容层 | `test_unified_tool_loop.py`, `test_plan_loop_runtime.py` |
+| R-11 | WIP | 共享 tool runtime + plan runtime 已落地；同步 tool-loop 调用面已统一到 `run_tool_loop_sync_with_provider`，旧入口仅剩兼容层 | `test_unified_tool_loop.py`, `test_plan_loop_runtime.py` |
 | R-12 | WIP | token budget / usage 已接入 chat / stream，并有 API 与前端面板 | `test_token_budget.py` |
 | R-13 | WIP | LiteSandbox + DockerSandbox 入口、limits、runtime status、self-check 脚本、sandbox smoke、自检 API、docker 集成测试与专用 GitHub workflow 已接通；当前机器缺 docker，待远端首轮执行 / 本机复验 | `test_sandbox_security.py`, `test_sandbox_docker.py` |
 | R-14 | WIP | 统一状态机 + TimeoutWatchdog 模块与测试已落地，运行时主链尚未完全切换到它 | `test_state_machine.py` |
@@ -134,7 +134,7 @@
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | WIP | P1 | login/register 5/min 已落地；通用 API 与按路由 bucket 仍缺 | login/register 保持现状；补通用 API 60/min 与测试覆盖 |
 | RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；当前机器缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
-| RUN-02 | 统一 AgentLoop 收口 | WIP | P0 | 共享 plan/tool runtime 已落地；兼容 shim 仍存在 | 所有入口只复用统一 runtime，旧类薄封装并标 deprecation |
+| RUN-02 | 统一 AgentLoop 收口 | WIP | P0 | 共享 plan/tool runtime 已落地；同步 tool-loop 入口已统一到 `run_tool_loop_sync_with_provider`，旧 `AgentLoop` 已收窄成真正 shim | 再确认 chat / task / plan 无残留独立逻辑，继续压缩兼容层 |
 | RUN-03 | State Machine + Watchdog | WIP | P1 | 独立状态机与 watchdog 模块已落地，但尚未成为所有 runtime 的唯一状态源 | 将 task/session/agent 主链切到统一状态机，并补 SSE 状态事件 |
 | RUN-04 | Channels 真正消费 | WIP | P1 | Event bridge 已有，但 ChannelBus 还没成为默认协作通路 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |
 | PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态 | 端到端测试 |
@@ -164,12 +164,12 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 |------|:--------:|----------|
 | 安全认证 | WIP | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；还缺全页面验收 |
 | 沙箱执行 | WIP | docker image 可构建；`run_python/run_pytest` 在 docker 模式跑通安全测试 |
-| Runtime 单一入口 | WIP | 旧 AgentLoop 不再有独立逻辑，只保留兼容调用 |
+| Runtime 单一入口 | WIP | 旧 AgentLoop 已不再保留独立逻辑；同步 tool-loop 调用面只剩兼容调用，plan/chat 侧仍需继续收束 |
 | Plaza/Evolution 闭环 | WIP | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见 |
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；但本机 build/vitest 当前被 Rollup 环境问题阻塞 |
 
-当前判断：**P0 功能主链约 92%-94% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱远端首轮实机验收、统一 AgentLoop 最后收口、cookie-only 全页面浏览器验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 93%-95% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱远端首轮实机验收、AgentLoop 最后一层兼容面收口、cookie-only 全页面浏览器验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 

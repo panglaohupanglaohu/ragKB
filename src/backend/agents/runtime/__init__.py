@@ -13,7 +13,12 @@ from .state_machine import (
     DEFAULT_TASK_TIMEOUT_RULES,
     DEFAULT_SESSION_TIMEOUT_RULES,
 )
-from .tool_loop import ToolLoopResult, run_tool_loop, run_tool_loop_sync
+from .tool_loop import (
+    ToolLoopResult,
+    run_tool_loop,
+    run_tool_loop_sync,
+    run_tool_loop_sync_with_provider,
+)
 
 __all__ = [
     "run_plan_loop",
@@ -21,6 +26,7 @@ __all__ = [
     "ToolLoopResult",
     "run_tool_loop",
     "run_tool_loop_sync",
+    "run_tool_loop_sync_with_provider",
     "StateMachine",
     "TimeoutRule",
     "TimeoutWatchdog",

@@ -435,3 +435,45 @@ def run_tool_loop_sync(**kwargs: Any) -> Dict[str, Any]:
     if "error" in holder:
         raise holder["error"]
     return holder["result"]
+
+
+def run_tool_loop_sync_with_provider(
+    *,
+    prompt: str,
+    api_key: str,
+    api_base_url: str,
+    model: str,
+    role: str,
+    system_prompt: str,
+    max_iterations: int = 25,
+    max_tokens: int = 65536,
+    temperature: float = 0.2,
+    agent_id: str = "",
+    team_id: str = "",
+    session_id: str = "",
+    on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    permission_context: Optional[ToolPermissionContext] = None,
+) -> Dict[str, Any]:
+    """Synchronous compatibility entrypoint for runtime callers with raw provider fields."""
+    return run_tool_loop_sync(
+        prompt=prompt,
+        config=ProviderConfig(
+            api_key=api_key,
+            api_base_url=api_base_url,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            thinking={"type": "enabled"},
+            reasoning_effort="high",
+        ),
+        role=role,
+        system_prompt=system_prompt,
+        agent_id=agent_id,
+        team_id=team_id,
+        session_id=session_id,
+        max_iterations=max_iterations,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        on_event=on_event,
+        permission_context=permission_context,
+    )

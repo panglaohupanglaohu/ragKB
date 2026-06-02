@@ -31,11 +31,11 @@ class _BudgetGuard:
 def test_agent_loop_run_delegates_to_shared_runtime(monkeypatch):
     captured = {}
 
-    def fake_run_tool_loop_sync(**kwargs):
+    def fake_run_tool_loop_sync_with_provider(**kwargs):
         captured.update(kwargs)
         return {"ok": True, "summary": "done", "files_changed": ["src/backend/main.py"], "iterations": 2, "log": []}
 
-    monkeypatch.setattr("agents.agent_loop.run_tool_loop_sync", fake_run_tool_loop_sync)
+    monkeypatch.setattr("agents.agent_loop.run_tool_loop_sync_with_provider", fake_run_tool_loop_sync_with_provider)
 
     loop = AgentLoop(
         api_key="test-key",
@@ -52,14 +52,16 @@ def test_agent_loop_run_delegates_to_shared_runtime(monkeypatch):
     assert captured["prompt"] == "请修复测试"
     assert captured["role"] == "developer"
     assert captured["system_prompt"] == "system prompt"
-    assert captured["config"].api_key == "test-key"
+    assert captured["api_key"] == "test-key"
+    assert captured["api_base_url"] == "https://example.com/v1"
+    assert captured["model"] == "deepseek-v4-pro"
     assert captured["max_iterations"] == 7
 
 
 def test_api_tool_loop_uses_shared_runtime(monkeypatch):
     captured = {}
 
-    def fake_run_tool_loop_sync(**kwargs):
+    def fake_run_tool_loop_sync_with_provider(**kwargs):
         captured.update(kwargs)
         return {
             "ok": True,
@@ -69,7 +71,7 @@ def test_api_tool_loop_uses_shared_runtime(monkeypatch):
             "log": [{"name": "patch_file", "ok": True}],
         }
 
-    monkeypatch.setattr("agents.runtime.run_tool_loop_sync", fake_run_tool_loop_sync)
+    monkeypatch.setattr("agents.runtime.run_tool_loop_sync_with_provider", fake_run_tool_loop_sync_with_provider)
 
     session = {"lines": []}
     api_module._run_tool_loop(
@@ -84,6 +86,7 @@ def test_api_tool_loop_uses_shared_runtime(monkeypatch):
 
     assert captured["prompt"] == "请打补丁"
     assert captured["role"] == "developer"
+    assert captured["api_key"] == "key"
     assert session["loop_ok"] is True
     assert session["loop_summary"] == "patched"
     assert session["files_changed"] == ["src/backend/api.py"]
@@ -93,11 +96,11 @@ def test_api_tool_loop_uses_shared_runtime(monkeypatch):
 def test_evolution_executor_uses_shared_runtime(monkeypatch):
     captured = {}
 
-    def fake_run_tool_loop_sync(**kwargs):
+    def fake_run_tool_loop_sync_with_provider(**kwargs):
         captured.update(kwargs)
         return {"ok": True, "summary": "done", "files_changed": [], "iterations": 1, "log": []}
 
-    monkeypatch.setattr("agents.runtime.run_tool_loop_sync", fake_run_tool_loop_sync)
+    monkeypatch.setattr("agents.runtime.run_tool_loop_sync_with_provider", fake_run_tool_loop_sync_with_provider)
 
     executor = EvolutionExecutor()
     result = executor._run_agent_loop(
@@ -110,6 +113,7 @@ def test_evolution_executor_uses_shared_runtime(monkeypatch):
     assert result["ok"] is True
     assert captured["prompt"] == "user prompt"
     assert captured["role"] == "developer"
+    assert captured["model"] == "deepseek-v4-pro"
     assert captured["system_prompt"] == "system prompt"
 
 
