@@ -39,8 +39,8 @@
 | 维度 | 当前状态 | 说明 |
 |------|:--------:|------|
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
-| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `11 passed`；可通过 bundled-node fallback 稳定执行 |
-| 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
+| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `12 passed`；可通过 bundled-node fallback 稳定执行 |
+| 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试 |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_rate_limit.py` + `test_auth_csrf.py` + `test_datacenter_api.py` → `24 passed` |
 | 后端全量 | ✅ 通过 | 最近一次稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `878 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
@@ -103,6 +103,7 @@
 | FE-DONE-17 | DONE | Agent Detail / Tasks View / Wizard / Agent Team Config 的高频写请求已显式收口到 `_agFetch` | cookie-only / CSRF 主链不再依赖隐式全局 `fetch` 包装 |
 | FE-DONE-18 | DONE | Datacenter Ratchet / Token Factory / Plaza TTS 的剩余 POST 写请求已切到 `_agFetch`，并纳入前端 auth contract | cookie-only 收尾时不再留后门页面 |
 | FE-DONE-19 | DONE | `api.js` 现已支持同主机跨端口绝对 URL 的 CSRF + cookie（如 `127.0.0.1:5173 -> 127.0.0.1:8080`），并新增 Datacenter Ratchet 最小后端契约 | datacenter 页面从 `404/403` 恢复到浏览器实测可用 |
+| FE-DONE-20 | DONE | 共享 API 客户端已在收到 “CSRF token invalid or expired” 时自动刷新 token 并重试一次；Plaza 新建讨论回到共享客户端 | `api.test.js`, 浏览器 smoke |
 
 ### 2.3 后端平台质量
 

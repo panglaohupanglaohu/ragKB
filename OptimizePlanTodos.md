@@ -8,8 +8,8 @@
 > 当前验证快照：
 > - 后端定向回归：`24 passed`（`test_api_rate_limit.py` + `test_auth_csrf.py` + `test_datacenter_api.py`）
 > - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
-> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（`12 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试
 
 ---
 
@@ -109,6 +109,7 @@
 - [x] 高频写请求页面显式切到 `_agFetch`（`agent-detail/tasks-view/wizard/agent-team-config`）
 - [x] Datacenter Ratchet / Token Factory / Plaza TTS 的剩余写请求显式切到 `_agFetch`
 - [x] 前端 cookie-only 契约测试（`test_frontend_auth_contract.py`）
+- [x] Plaza 新建讨论在 CSRF 过期时自动刷新 token 并重试一次
 - [ ] cookie-only 模式下所有页面验收
 
 ### RUN-02 🔴 统一 AgentLoop 收窄

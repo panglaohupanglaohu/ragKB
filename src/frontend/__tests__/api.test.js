@@ -65,25 +65,50 @@ describe('api.js - request', () => {
         return { csrfAware, sameOrigin };
       },
 
+      isCsrfFailurePayload(payload) {
+        if (!payload) return false;
+        const detail = payload.detail || payload.message || '';
+        return typeof detail === 'string' && /csrf token invalid or expired/i.test(detail);
+      },
+
+      async isCsrfFailureResponse(response) {
+        if (!response || response.status !== 403 || typeof response.clone !== 'function') return false;
+        try {
+          const payload = await response.clone().json();
+          return this.isCsrfFailurePayload(payload);
+        } catch (e) {
+          return false;
+        }
+      },
+
       async request(url, opts) {
         const method = (opts && opts.method) ? opts.method.toUpperCase() : 'GET';
         const target = this._resolveTarget(url);
-        if (target.csrfAware && (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH')) {
-          await this.fetchCsrfToken();
-          if (this._csrfToken) {
-            opts = opts || {};
-            opts.headers = opts.headers || {};
-            opts.headers[this._csrfHeaderName] = this._csrfToken;
-          }
-        }
         try {
-          const finalOpts = this.withCredentials(opts);
-          if (target.csrfAware && !finalOpts.credentials) {
-            finalOpts.credentials = target.sameOrigin ? 'same-origin' : 'include';
-          } else if (target.csrfAware && finalOpts.credentials === 'same-origin' && !target.sameOrigin) {
-            finalOpts.credentials = 'include';
+          const sendOnce = async () => {
+            let nextOpts = opts ? { ...opts, headers: { ...(opts.headers || {}) } } : undefined;
+            if (target.csrfAware && (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH')) {
+              await this.fetchCsrfToken();
+              if (this._csrfToken) {
+                nextOpts = nextOpts || {};
+                nextOpts.headers = nextOpts.headers || {};
+                nextOpts.headers[this._csrfHeaderName] = this._csrfToken;
+              }
+            }
+            const finalOpts = this.withCredentials(nextOpts);
+            if (target.csrfAware && !finalOpts.credentials) {
+              finalOpts.credentials = target.sameOrigin ? 'same-origin' : 'include';
+            } else if (target.csrfAware && finalOpts.credentials === 'same-origin' && !target.sameOrigin) {
+              finalOpts.credentials = 'include';
+            }
+            return fetch(url, finalOpts);
+          };
+
+          let r = await sendOnce();
+          if (await this.isCsrfFailureResponse(r)) {
+            this.clearCsrfToken();
+            r = await sendOnce();
           }
-          const r = await fetch(url, finalOpts);
           if (this._offline) {
             this._offline = false;
             if (this._onOffline) this._onOffline(false);
@@ -217,6 +242,34 @@ describe('api.js - request', () => {
       expect(postCall[0]).toBe('http://127.0.0.1:8080/api/v1/datacenter/loop/tick');
       expect(postCall[1].headers['X-CSRF-Token']).toBe('test-csrf-token-123');
       expect(postCall[1].credentials).toBe('include');
+    });
+
+    it('refreshes CSRF token and retries once when it has expired', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ csrf_token: 'stale-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+          clone() { return this; },
+          json: async () => ({ detail: 'CSRF token invalid or expired, please refresh the page' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ csrf_token: 'fresh-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true }),
+        });
+
+      const result = await api.post('/api/v1/agent-config/plaza/demo/discussions', { topic: 'smoke' });
+      expect(result).toEqual({ success: true });
+      expect(fetch).toHaveBeenCalledTimes(4);
+      expect(vi.mocked(fetch).mock.calls[1][1].headers['X-CSRF-Token']).toBe('stale-token');
+      expect(vi.mocked(fetch).mock.calls[3][1].headers['X-CSRF-Token']).toBe('fresh-token');
     });
 
     it('does NOT inject CSRF for GET requests', async () => {

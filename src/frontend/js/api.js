@@ -103,6 +103,27 @@
     return '';
   }
 
+  function isCsrfFailurePayload(payload) {
+    if (!payload) return false;
+    var detail = payload.detail || payload.message || '';
+    return typeof detail === 'string' && /csrf token invalid or expired/i.test(detail);
+  }
+
+  async function isCsrfFailureResponse(response) {
+    if (!response || response.status !== 403 || typeof response.clone !== 'function') return false;
+    try {
+      var payload = await response.clone().json();
+      return isCsrfFailurePayload(payload);
+    } catch (e) {
+      try {
+        var text = await response.clone().text();
+        return /csrf token invalid or expired/i.test(text || '');
+      } catch (ignored) {
+        return false;
+      }
+    }
+  }
+
   async function prepareRequest(input, opts) {
     var target = _resolveTarget(input);
     if (!target.csrfAware) {
@@ -140,6 +161,23 @@
     return [input, finalOpts];
   }
 
+  async function fetchWithCsrfRetry(input, opts) {
+    var retryInput = (typeof Request !== 'undefined' && input instanceof Request) ? input.clone() : input;
+    var prepared = await prepareRequest(input, opts);
+    var requestId = getRequestIdFromPrepared(prepared[0], prepared[1]);
+    var response = await nativeFetch(prepared[0], prepared[1]);
+    if (!(await isCsrfFailureResponse(response))) {
+      return { response: response, requestId: requestId };
+    }
+
+    api.clearCsrfToken();
+    await api.fetchCsrfToken();
+    var retryPrepared = await prepareRequest(retryInput, opts);
+    var retryRequestId = getRequestIdFromPrepared(retryPrepared[0], retryPrepared[1]) || requestId;
+    var retryResponse = await nativeFetch(retryPrepared[0], retryPrepared[1]);
+    return { response: retryResponse, requestId: retryRequestId };
+  }
+
   /**
    * Fetch a fresh CSRF token from the server and cache it.
    */
@@ -165,9 +203,9 @@
    */
   api.request = async function (url, opts) {
     try {
-      var prepared = await prepareRequest(url, opts);
-      var outgoingRequestId = getRequestIdFromPrepared(prepared[0], prepared[1]);
-      var r = await nativeFetch(prepared[0], prepared[1]);
+      var result = await fetchWithCsrfRetry(url, opts);
+      var outgoingRequestId = result.requestId;
+      var r = result.response;
       api._lastRequestId = r.headers && r.headers.get ? (r.headers.get(api._requestIdHeaderName) || outgoingRequestId) : outgoingRequestId;
       if (api._offline) {
         api._offline = false;
@@ -264,8 +302,8 @@
   // Global CSRF-aware fetch wrapper for direct fetch() calls in other scripts.
   // Usage: replace fetch(url, opts) with window._agFetch(url, opts) for state-changing requests.
   window._agFetch = async function (url, opts) {
-    var prepared = await prepareRequest(url, opts);
-    return nativeFetch(prepared[0], prepared[1]);
+    var result = await fetchWithCsrfRetry(url, opts);
+    return result.response;
   };
 
   if (nativeFetch) {
