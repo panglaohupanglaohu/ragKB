@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import pytest
 
 from agents import api as api_module
 from agents.agent_loop import AgentLoop
-from agents.chat_harness import ProviderConfig
+from agents.chat_harness import ChatHarness, ProviderConfig
 from agents.execution_registry import ToolPermissionContext
 from agents.runtime import tool_loop as tool_loop_module
 from channels.evolution_executor import EvolutionExecutor
@@ -184,3 +185,23 @@ async def test_shared_runtime_filters_and_blocks_disallowed_tools(monkeypatch):
     assert result.log[0]["name"] == "write_file"
     assert result.log[0]["ok"] is False
     assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))
+
+
+def test_runtime_entrypoints_delegate_to_shared_runtimes():
+    agent_loop_run = inspect.getsource(AgentLoop.run)
+    api_tool_loop = inspect.getsource(api_module._run_tool_loop)
+    evolution_loop = inspect.getsource(EvolutionExecutor._run_agent_loop)
+    harness_agent_loop = inspect.getsource(ChatHarness.agent_loop)
+    harness_agent_loop_stream = inspect.getsource(ChatHarness.agent_loop_stream)
+
+    assert "run_tool_loop_sync_with_provider" in agent_loop_run
+    assert "run_tool_loop_sync_with_provider" in api_tool_loop
+    assert "run_tool_loop_sync_with_provider" in evolution_loop
+    assert "run_plan_loop" in harness_agent_loop
+    assert "stream_plan_loop" in harness_agent_loop_stream
+
+    assert "dispatch_tool_call" not in agent_loop_run
+    assert "dispatch_tool_call" not in api_tool_loop
+    assert "dispatch_tool_call" not in evolution_loop
+    assert "build_plan_from_prompt" in harness_agent_loop
+    assert "build_plan_from_prompt" in harness_agent_loop_stream

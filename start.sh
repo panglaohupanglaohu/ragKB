@@ -4,6 +4,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 ROOT_DIR="$(pwd)"
+BUNDLED_NODE="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+NODE_BIN=""
+USE_SYSTEM_NPM=0
 
 echo "🚀 AgentsGroup2026 Starting..."
 echo ""
@@ -90,16 +93,37 @@ if [ -n "${OPTIONAL_MISSING}" ]; then
 fi
 
 # Install Node deps
+if command -v npm &> /dev/null && command -v node &> /dev/null; then
+    USE_SYSTEM_NPM=1
+    NODE_BIN="$(command -v node)"
+elif [ -x "${BUNDLED_NODE}" ]; then
+    NODE_BIN="${BUNDLED_NODE}"
+else
+    echo "❌ Node.js runtime not found. Install node/npm or provide the bundled Codex runtime."
+    exit 1
+fi
+
 if [ ! -d "node_modules" ]; then
     echo "📦 Installing Node dependencies..."
-    if ! npm install --silent 2>/dev/null; then
-        echo "⚠️  npm install had issues, trying without --silent..."
-        npm install
+    if [ "${USE_SYSTEM_NPM}" -eq 1 ]; then
+        if ! npm install --silent 2>/dev/null; then
+            echo "⚠️  npm install had issues, trying without --silent..."
+            npm install
+        fi
+    else
+        echo "❌ node_modules is missing and npm is unavailable in this shell."
+        echo "   Start once from a shell with npm, or vendor node_modules before retrying."
+        exit 1
     fi
 fi
 
 echo ""
 echo "✅ Dependencies ready"
+if [ "${USE_SYSTEM_NPM}" -eq 1 ]; then
+    echo "   Frontend toolchain: system npm/node"
+else
+    echo "   Frontend toolchain: bundled Codex node"
+fi
 echo ""
 
 # Start backend
@@ -125,7 +149,11 @@ done
 
 # Start frontend
 echo "🌐 Starting frontend on port 5173..."
-npm run dev &
+if [ "${USE_SYSTEM_NPM}" -eq 1 ]; then
+    npm run dev &
+else
+    "${NODE_BIN}" node_modules/vite/bin/vite.js --config vite.config.mjs &
+fi
 FRONTEND_PID=$!
 
 # Wait for frontend

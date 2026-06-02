@@ -8,7 +8,7 @@
 > 当前验证快照：
 > - 后端定向回归：`21 passed`（`test_frontend_auth_contract.py` + `test_auth_csrf.py`）
 > - 后端全量：`870 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
-> - 前端 build / vitest：当前被本机 `@rollup/rollup-darwin-arm64` 原生模块问题阻塞
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 
 ---
 
@@ -113,27 +113,28 @@
 ```
 位置: src/backend/agents/agent_loop.py, src/backend/agents/runtime/*, src/backend/agents/chat_harness.py
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — `agent_loop.py` 已标注 deprecated 薄 shim，runtime 拆分已完成，需最后确认无残留逻辑
+状态: DONE — `agent_loop.py` 已收窄为兼容 shim，chat / task / plan 入口都已委托共享 runtime，并有入口契约测试护栏
 ```
 
 - [x] runtime 拆分 `runtime/plan_loop.py` + `runtime/tool_loop.py`
 - [x] 旧 `agent_loop.py` 收窄为真正的 deprecated shim
 - [x] 同步 tool-loop 调用面统一到 `run_tool_loop_sync_with_provider`
-- [ ] 确认所有入口（chat / task / plan）只复用统一 runtime，无残留独立逻辑
+- [x] 确认所有入口（chat / task / plan）只复用统一 runtime，无残留独立逻辑
 - [x] 覆盖 tool-loop / evolution / shim 行为的回归测试
+- [x] 覆盖 plan/chat 入口委托共享 runtime 的契约测试
 
 ### FE-05 🔴 恢复本机前端构建 / Vitest 可执行性
 
 ```
 位置: package-lock.json, node_modules, 前端测试脚本
 难度: ⚡ 中   优先级: P0
-状态: WIP — 测试文件已在仓库，但当前被 @rollup/rollup-darwin-arm64 原生模块问题阻塞
+状态: DONE — 已补 `scripts/frontend_build.sh` / `scripts/frontend_test.sh`，优先走 bundled node，可稳定绕开本机 Rollup 签名问题
 ```
 
 - [x] `api` / `csrf-pages` / `extract-routing` / `agent-config` 测试文件已存在
-- [ ] 修复本机 Rollup optional dependency / code-signature 问题
-- [ ] 恢复 `npm run build`
-- [ ] 恢复 `vitest` 可执行
+- [x] 通过 bundled node fallback 绕过 Rollup optional dependency / code-signature 问题
+- [x] 恢复前端 build 可执行（`./scripts/frontend_build.sh`）
+- [x] 恢复 Vitest 可执行（`./scripts/frontend_test.sh ...`）
 
 ### PLAZA-01 Plaza 闭环：重试与失败升级
 
@@ -379,8 +380,8 @@
 ```
 RUN-01 [~] Docker Sandbox — 代码备，实机验收待补 ...... 🔨
 SEC-01 [✓] Cookie-Only Auth — 登出按钮已加，仅剩页面验收 ✅
-RUN-02 [~] 统一 AgentLoop — shim 已备，待收束 ........... ⏳
-FE-05  [~] 前端 build/vitest 恢复 .................... ⏳
+RUN-02 [✓] 统一 AgentLoop — 入口已统一到共享 runtime ..... ✅
+FE-05  [✓] 前端 build/vitest 已可执行（bundled node） .. ✅
 PLAZA-01 [✓] 重试 + 失败升级 — 3次重试+升级队列+API .. ✅
 BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 ```
