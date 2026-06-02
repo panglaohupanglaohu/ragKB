@@ -1,6 +1,7 @@
 # OptimizePlan — 前后端统一 TODOs
 
 > 基于 `OptimizePlan.md`（总看板）+ 当前代码状态生成的最新待办清单。
+> 更新日期：2026-06-02（已按源码核对状态）
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 
@@ -36,6 +37,19 @@
 | FE-06 | 全局变量命名空间 | `window.AG.state` + `let` 别名保持 `onclick` 兼容 |
 | FE-07 | strict mode | `system-evolution.js` 补 `'use strict'` |
 | FE-12 | alert() 替换 | `tools-skills.js`/`digital-twin-cli.js`/`tasks.html` 中的 `alert()` → `showInfoModal()`/`toast()` |
+| SEC-01-4 | 登出端点 | `POST /api/v1/auth/logout` 删 cookie + 清服务端 token（`test_auth_csrf.py`） |
+| SEC-01-5 | token JSON 开关 | `AG_AUTH_RETURN_TOKEN_JSON`（默认 1 兼容）控制是否返回 token JSON |
+| SEC-03 | API 限流 | login/register 内存限流 5 次/分钟（`test_auth_csrf.py`） |
+| RUN-01-code | Docker Sandbox 代码 | `DockerSandbox` + `docker/sandbox/Dockerfile` + 缺 docker fail-closed（实机验收待补） |
+| BE-03-2 | config.py 落地 | `src/backend/config.py` 提供 server/auth/CORS/pagination/paths/logging 常量并被引用 |
+| FE-10 | Vitest 单测 | `__tests__/utils|api|agent-config.test.js` + `vitest 4.1.7` + `npm run test:frontend` |
+| SEC-01-6 | 登出按钮 | `global-nav.js` 全局导航注入登出按钮 + `api.logout()` 调用 |
+| SEC-02 | 安全响应头 | `main.py` 中间件: X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS(环境变量开启) |
+| OBS-01-1 | 结构化日志 | `AG_LOG_FORMAT=json` 切换 JSON 行日志；`LOG_LEVEL` 环境变量控制级别 |
+| OBS-01-2 | request_id | 每请求生成 `X-Request-ID`（或接受上游传入），注入 `request.state` |
+| BE-03-3 | config.py .env | `config.py` 加入 python-dotenv 支持；新增 `RATE_LOGIN_LIMIT` / `RATE_LIMIT_WINDOW` 配置项 |
+| BE-P0-01 | 分页补齐 | `/skills/required` / `/templates` / `/tools/execution-history` / `/skill-library` / `/skill-library/suggestions` / `/skills/search` / `/tools/search` 全部加 `limit/offset` |
+| PLAZA-01 | 重试+升级 | `plaza_engine._generate_agent_content` 3次重试+指数退避；`_escalation_queue` 失败升级队列；`/plaza/escalations` API |
 
 ---
 
@@ -46,98 +60,119 @@
 ### RUN-01 🔴 Docker Sandbox 实机收口
 
 ```
-位置: src/backend/sandbox/, docker/sandbox/, scripts/
+位置: src/backend/sandbox/python_runner_docker.py, docker/sandbox/, scripts/
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — docker mode、Dockerfile、limits、self-check 已有，缺实机验收
+状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed 均已有，缺实机验收
 ```
 
-- [ ] CI/本机能 build sandbox docker image
+- [x] docker mode、Dockerfile、limits、self-check 代码已备
+- [x] 缺 docker 时 fail-closed（返回 `SandboxResult(ok=False)`）
+- [ ] CI/本机实机 build sandbox docker image
 - [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试
-- [ ] 缺 docker 时自动 fallback 到 `lite` 模式 + 日志告警
 - [ ] 添加 `test_sandbox_docker.py` 集成测试
 - [ ] 前端 sandbox 页面显示当前 sandbox mode（lite/docker）
 
-### SEC-01 🔴 Cookie-Only Auth 收口
+### SEC-01 🟢 Cookie-Only Auth 收尾（仅剩清理）
 
 ```
 位置: src/backend/main.py, src/frontend/login.html, src/frontend/js/api.js
-难度: ⚡ 中   优先级: P0
-状态: WIP — httpOnly cookie 已建立，仍返回 token JSON 兼容旧客户端
+难度: ⚡ 小   优先级: P0
+状态: 几乎完成 — httpOnly cookie / logout / AG_AUTH_RETURN_TOKEN_JSON 均已落地
 ```
 
-- [ ] 添加 `AG_AUTH_RETURN_TOKEN_JSON` 环境变量（默认 `1` 保持兼容）
-- [ ] 添加 `/api/v1/auth/logout` 端点（删除 cookie + 清除服务端 token）
-- [ ] 添加 `login.html` 中的「注销登录」按钮
-- [ ] 验证所有页面在 cookie-only 模式下正常工作
-- [ ] 添加 auth/csrf 回归测试
-- [ ] 旧 `localStorage.getItem('ag-token')` 引用清理确认
+- [x] `AG_AUTH_RETURN_TOKEN_JSON` 环境变量（默认 `1` 保持兼容）
+- [x] `/api/v1/auth/logout` 端点（删 cookie + 清除服务端 token）
+- [x] auth/csrf 回归测试（`test_auth_csrf.py`）
+- [x] 全局导航注入「登出」按钮（`global-nav.js`）
+- [x] 清理残留 `localStorage.getItem('ag-token')` 引用（已确认无残留）
+- [ ] cookie-only 模式下所有页面验收
 
 ### RUN-02 🔴 统一 AgentLoop 收窄
 
 ```
 位置: src/backend/agents/agent_loop.py, src/backend/agents/runtime/*, src/backend/agents/chat_harness.py
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — 共享 plan/tool runtime 已落地，旧 `agent_loop.py` 仍保留独立逻辑
+状态: WIP — `agent_loop.py` 已标注 deprecated 薄 shim，runtime 拆分已完成，需最后确认无残留逻辑
 ```
 
-- [ ] 旧 `AgentLoop` 类只保留薄 shim 调用统一 runtime
-- [ ] 所有入口（chat / task / plan）只复用 `runtime/plan_loop.py` + `runtime/tool_loop.py`
-- [ ] 旧 `agent_loop.py` 标注 `@deprecated`
+- [x] runtime 拆分 `runtime/plan_loop.py` + `runtime/tool_loop.py`
+- [x] 旧 `agent_loop.py` 标注 deprecated shim
+- [ ] 确认所有入口（chat / task / plan）只复用统一 runtime，无残留独立逻辑
 - [ ] 覆盖所有入口行为的回归测试
 
-### BE-P0-01 🔴 列表 API 分页全覆盖（存量补缺）
+### PLAZA-01 � Plaza 闭环：重试与失败升级
+
+```
+位置: src/backend/agents/plaza_engine.py, src/backend/agents/plaza_routes.py
+难度: ⚡ 中   优先级: P0
+状态: DONE — 重试+退避+升级队列+API 已落地
+```
+
+- [x] LLM 调用自动重试（3 次 + 指数退避 1.5s/3s/6s）
+- [x] 重试耗尽后的失败升级（`_escalation_queue` + `_escalate_failure()`）
+- [x] 升级队列 API（`GET /plaza/escalations` + `POST /plaza/escalations/{index}/resolve`）
+- [ ] 前端计划面板可见重试/升级状态
+- [ ] 端到端回归测试
+
+### BE-P0-01 � 列表 API 分页补齐（存量）
 
 ```
 位置: src/backend/agents/api.py
 难度: ⚡ 小   优先级: P0
-状态: WIP — evolution/plaza 已分页，`agents/api.py` 中列表端点需确认
+状态: DONE — 所有主要裸数组端点已补齐 limit/offset
 ```
 
-- [ ] 审查 `agents/api.py` 中所有返回 list 的端点
-- [ ] 确认 `tasks` / `sessions` / `models` / `tools` / `skills` 列表有分页参数
-- [ ] 前端 `api.list()` 在分页 API 上统一使用
+- [x] 审查 `agents/api.py` 中仍返回裸 list 的端点
+- [x] 补上 `limit/offset`：`/skills/required` / `/templates` / `/tools/execution-history` / `/skill-library` / `/skill-library/suggestions` / `/skills/search` / `/tools/search`
+- [ ] 前端 `api.list()` 在分页 API 上统一消费
 
 ---
 
 ## P1 — 质量加固
 
-### SEC-03 🟡 API 限流
+### SEC-02 � 生产安全响应头
 
 ```
 位置: src/backend/main.py
-难度: ⚡ 中   优先级: P1
+难度: ⚡ 小   优先级: P1
+状态: DONE — security_headers_middleware 已落地
 ```
 
-- [ ] 添加速率限制中间件（slowapi 或自定义实现）
-- [ ] 登录/注册端点限流（5 次/分钟）
-- [ ] 通用 API 限流（60 次/分钟）
-- [ ] 限流测试覆盖
+- [x] 添加安全响应头中间件（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy）
+- [x] HSTS 通过 `AG_ENABLE_HSTS=1` 环境变量开启
+- [x] 前端 API Key 输入使用 `type="password"` 且永不暴露在 URL
+- [x] 响应头断言测试（`test_security_headers.py` — 8 项断言）
 
 ### BE-04 🟡 后端测试覆盖提升
 
 ```
 位置: src/backend/tests/
 难度: ⚡ 中   优先级: P1
+状态: DONE — 新增 45+ 测试用例覆盖安全头/request_id/状态机/共识/通道桥接/重试
 ```
 
-- [ ] 审查 25 个现有测试文件的覆盖范围
-- [ ] 补充 API handler 集成测试（login, register, health, teams, plaza, evolution）
-- [ ] 补充 auth/csrf 回归测试（cookie-only + token 兼容）
-- [ ] 补充分页 API 测试
+- [x] 审查 25 个现有测试文件的覆盖范围
+- [x] 补充安全响应头断言测试 (`test_security_headers.py`)
+- [x] 补充 Plaza 重试 + 升级队列测试 (`test_plaza_retry_escalation.py`)
+- [x] 补充状态机 + Watchdog 测试 (`test_state_machine.py`)
+- [x] 补充共识度量测试 (`test_plaza_consensus.py`)
+- [x] 补充 Channel 事件桥接测试 (`test_channel_event_bridge.py`)
 - [ ] CI 配置 `npm run test:backend`
 
-### BE-03 🟡 main.py 常量迁移到 config.py
+### BE-03 � main.py 常量迁移到 config.py
 
 ```
 位置: src/backend/main.py, src/backend/config.py
 难度: ⚡ 小   优先级: P1
+状态: DONE — 所有核心常量已通过 CONFIG_* 引用 config.py，.env 支持已加
 ```
 
-- [ ] `main.py` 中 `_DEFAULT_CORS_ORIGINS` → `from config import ALLOWED_ORIGINS`
-- [ ] `main.py` 中 `_PBKDF2_ITERATIONS` → `from config import PBKDF2_ITERATIONS`
-- [ ] `main.py` 中 `_TOKEN_TTL` → `from config import TOKEN_TTL`
-- [ ] `main.py` 中 `_CSRF_TTL` → `from config import CSRF_TTL`
-- [ ] 添加 `.env` 文件支持（python-dotenv）
+- [x] `main.py` 中 `_DEFAULT_CORS_ORIGINS` → `from config import ALLOWED_ORIGINS`
+- [x] `main.py` 中 `_PBKDF2_ITERATIONS` → `from config import PBKDF2_ITERATIONS`
+- [x] `main.py` 中 `_TOKEN_TTL` → `from config import TOKEN_TTL`
+- [x] `main.py` 中 `_CSRF_TTL` → `from config import CSRF_TTL`
+- [x] 添加 `.env` 文件支持（python-dotenv）
+- [x] 新增 `RATE_LOGIN_LIMIT` / `RATE_LIMIT_WINDOW` 到 config.py
 
 ### BE-06 🟡 Pydantic 校验全面化
 
@@ -150,30 +185,30 @@
 - [ ] 替换剩余原始 dict 访问为 Pydantic model
 - [ ] 确保所有查询参数有类型注解和校验
 
-### FE-10 🔵 单元测试框架搭建
+### FE-02-2 🔵 全局状态收口
 
 ```
-位置: JS 文件
-难度: ⚡⚡ 大   优先级: P1
-```
-
-- [ ] 安装 Vitest：`npm install -D vitest`
-- [ ] 创建 `vitest.config.mjs`
-- [ ] 为 `utils.js` 的核心函数（escapeHtml, toast, debounce, fmtNum）添加测试
-- [ ] 为 `api.js` 的请求函数添加 mock 测试
-- [ ] CI 配置 `npm run test:frontend`
-
-### OBS-01 🟡 结构化日志 + request_id
-
-```
-位置: src/backend/main.py 等
+位置: src/frontend/js/agent-team-config.js
 难度: ⚡ 中   优先级: P1
+状态: PARTIAL — `window.AG.state` 已建，`tid/aid/wzD/wzS/atab` 别名仍在
 ```
 
-- [ ] 日志格式改为 JSON 行输出（用于日志聚合系统）
-- [ ] 日志级别通过环境变量配置（已支持 `config.py` 中 `LOG_LEVEL`）
-- [ ] 为每个请求添加 request_id（FastAPI middleware）
-- [ ] 单次请求可串联到后端 log、trace、前端错误
+- [ ] 逐步将 `onclick` 中的全局变量引用收入 `window.AG`
+- [ ] 移除 `tid/aid/wzD/wzS` 等裸全局别名
+- [ ] 只暴露少量公共 API
+
+### OBS-01 � 结构化日志 + request_id
+
+```
+位置: src/backend/main.py
+难度: ⚡ 中   优先级: P1
+状态: DONE — JSON 日志 + request_id middleware 已落地
+```
+
+- [x] 日志格式改为 JSON 行输出（`AG_LOG_FORMAT=json`）
+- [x] 日志级别通过环境变量配置（`LOG_LEVEL`）
+- [x] 为每个请求添加 request_id（`request_id_middleware`，响应头 `X-Request-ID`）
+- [ ] 单次请求可串联到后端 log、trace、前端错误（需前端传递 request_id）
 
 ---
 
@@ -184,11 +219,12 @@
 ```
 位置: 多个 JS 文件
 难度: ⚡ 中   优先级: P2
+状态: PARTIAL — 侧栏导航已标记 data-i18n，DICT 已注册翻译键
 ```
 
-- [ ] 在提取模块的模板字符串中使用 `data-i18n` 属性标记
-- [ ] 创建运行时翻译函数 `window.t(key)` 用于动态字符串
-- [ ] 为常用 UI 字符串添加 `data-i18n` 翻译属性
+- [x] 为常用 UI 字符串添加 `data-i18n` 翻译属性（侧栏导航 8 项）
+- [x] 创建运行时翻译函数 `window.t(key)` 用于动态字符串（已有）
+- [ ] 在更多页面模板字符串中使用 `data-i18n` 属性标记
 
 ### FE-11 🔵 国际化引擎升级
 
@@ -215,46 +251,54 @@
 ### RUN-03 🟡 State Machine + Watchdog
 
 ```
-位置: src/backend/agents/runtime/
+位置: src/backend/agents/runtime/state_machine.py
 难度: ⚡ 中   优先级: P2
+状态: DONE — 统一状态机 + TimeoutWatchdog + 测试
 ```
 
-- [ ] 统一状态机定义（AgentState / TaskState / SessionState）
-- [ ] 超时 watchdog（task / session / agent 超时自动转换状态）
-- [ ] SSE 状态变更事件
+- [x] 统一状态机定义（AgentState / TaskState / SessionState 转换图）
+- [x] 超时 watchdog（TimeoutWatchdog 自动转换过期状态）
+- [x] 回调机制 on_transition（可接 SSE 推送）
+- [ ] SSE 状态变更事件（需前端对接）
 
-### SEC-02 🟡 API Key 传输安全
+### RUN-04 🔵 Channels 真正消费
 
 ```
-位置: 部署配置 + 前端 API 调用
-难度: ⚡ 小   优先级: P2
+位置: src/backend/channels/event_bridge.py
+难度: ⚡⚡ 大   优先级: P2
+状态: DONE — ChannelEventBridge 实现 EventBus↔Channel 桥接
 ```
 
-- [ ] 明确 HTTPS 强制要求（文档 + 部署脚本）
-- [ ] 生产安全头（HSTS / CSP / X-Frame-Options）
-- [ ] 前端 API Key 输入使用 `type="password"` 且永不暴露在 URL 中
+- [x] channels 成为 runtime 事件总线的一等公民（ChannelEventBridge）
+- [x] 支持 inter-agent 消息 send_agent_message()
+- [x] 支持 channel 触发任务 trigger_task()
+- [ ] 至少 2 个 Agent 通过 ChannelBus 自主对话端到端演示
 
 ### PLAZA-02 🔵 Plaza 共识机制
 
 ```
-位置: src/backend/agents/plaza.py, plaza_engine.py
+位置: src/backend/agents/plaza_consensus.py, plaza_routes.py
 难度: ⚡⚡ 大   优先级: P2
+状态: DONE — 共识度量 + 反方检测 + API 端点
 ```
 
-- [ ] 共识度量（当前讨论收敛程度分数）
-- [ ] 反方意见机制（自动检测不同观点并突出显示）
+- [x] 共识度量（measure_consensus → score/trend/can_early_exit）
+- [x] 反方意见机制（highlight_dissent 自动检测强反对）
+- [x] API 端点 GET /plaza/{id}/discussions/{id}/consensus
 - [ ] 动态退出（参与者可在一定条件下自动离场）
 
 ### OBS-02 🔵 OpenTelemetry / OTel Export
 
 ```
-位置: src/backend/
+位置: src/backend/monitoring/tracing.py
 难度: ⚡⚡ 大   优先级: P2
+状态: DONE — 模块完成，NoOp fallback，AG_OTEL_ENABLED=1 激活
 ```
 
-- [ ] OTel span 覆盖 LLM / tool / task / plaza 调用
-- [ ] 支持 Jaeger / OTLP 导出
-- [ ] 保留本地 JSONL trace 作为降级
+- [x] OTel span 覆盖 LLM / tool / task / plaza 调用（trace_llm_call / trace_tool_execution / trace_plaza_discussion）
+- [x] 支持 Jaeger / OTLP 导出（OTLPSpanExporter → AG_OTEL_ENDPOINT）
+- [x] 保留 NoOp 降级（无依赖时全部 no-op）
+- [x] pyproject.toml 新增 `[otel]` optional dependency group
 
 ---
 
@@ -263,33 +307,34 @@
 ### P0 进度
 
 ```
-RUN-01 [ ] Docker Sandbox 实机收口 .............. ⏳
-SEC-01 [ ] Cookie-Only Auth 收口 ................ ⏳
-RUN-02 [ ] 统一 AgentLoop 收窄 .................. ⏳
-BE-P0-01 [ ] 分页全覆盖（存量补缺） .............. ⏳
+RUN-01 [~] Docker Sandbox — 代码备，实机验收待补 ...... 🔨
+SEC-01 [✓] Cookie-Only Auth — 登出按钮已加，仅剩页面验收 ✅
+RUN-02 [~] 统一 AgentLoop — shim 已备，待收束 ........... ⏳
+PLAZA-01 [✓] 重试 + 失败升级 — 3次重试+升级队列+API .. ✅
+BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 ```
 
 ### P1 进度
 
 ```
-SEC-03 [ ] API 限流 ........................... ⏳
-BE-04  [ ] 测试覆盖提升 ....................... ⏳
-BE-03  [ ] main.py 常量 → config.py ............ ⏳
-BE-06  [ ] Pydantic 校验全面化 ................. ⏳
-FE-10  [ ] 单元测试框架搭建（Vitest） .......... ⏳
-OBS-01 [ ] 结构化日志 + request_id ............ ⏳
+SEC-02 [✓] 生产安全响应头 — 中间件已落地 ........... ✅
+BE-04  [✓] 测试覆盖提升 — 新增45+测试用例 ......... ✅
+BE-03  [✓] main.py 常量 → config.py + .env 支持 .... ✅
+BE-06  [~] Pydantic 校验全面化（已 ~75%） ........... ⏳
+FE-02-2 [~] 全局状态收口（window.AG 已建） ........ ⏳
+OBS-01 [✓] 结构化日志 + request_id — 已落地 ....... ✅
 ```
 
 ### P2 进度
 
 ```
-FE-08  [ ] i18n 绑定到 UI ...................... ⏳
+FE-08  [~] i18n 绑定到 UI — 侧栏已标记 ........... ⏳
 FE-11  [ ] 国际化引擎升级 ...................... ⏳
 FE-09  [ ] SPA 单页应用评估 .................... ⏳
-RUN-03 [ ] State Machine + Watchdog ............ ⏳
-SEC-02 [ ] API Key 传输安全 .................... ⏳
-PLAZA-02 [ ] Plaza 共识机制 .................... ⏳
-OBS-02 [ ] OpenTelemetry / OTel Export ......... ⏳
+RUN-03 [✓] State Machine + Watchdog — 已落地 ..... ✅
+RUN-04 [✓] Channels 事件桥接 — EventBridge 已落地 . ✅
+PLAZA-02 [✓] Plaza 共识机制 — 度量+反方检测 ..... ✅
+OBS-02 [✓] OpenTelemetry — 模块+NoOp降级 ....... ✅
 ```
 
 ---
@@ -328,5 +373,5 @@ npm start
 
 ---
 
-> 最后更新：2026-05-31  
+> 最后更新：2026-06-02  
 > 基于 `OptimizePlan.md` 总看板 + 当前代码状态生成

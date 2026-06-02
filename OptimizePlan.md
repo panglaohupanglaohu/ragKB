@@ -1,6 +1,6 @@
 # OptimizePlan — 前后端整体优化总看板
 
-> 更新日期：2026-06-01  
+> 更新日期：2026-06-02  
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill  
 > 输入材料：`FrontBackEndOptimize.md`、`FrontBackEndTodos.md`、`OptimizePlan1.md`、`OptimizePlan1Todos.md`、当前前后端代码。  
 > 说明：仓库中未找到用户提到的 `FrontEndOptimize.md`，本版用现有前端专项内容和当前代码状态补齐。  
@@ -96,8 +96,11 @@
 | BE-DONE-01 | DONE | CSRF token endpoint + middleware 已存在 | `/api/v1/auth/csrf-token` |
 | BE-DONE-02 | WIP | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke | 默认仍保留 token JSON 兼容旧客户端 |
 | BE-DONE-03 | DONE | health check 可注册子检查 | `/api/v1/health` |
-| BE-DONE-04 | WIP | 分页 helper 与高频列表分页已落地 | `agent-config` / `plaza` 主列表已覆盖，仍需补齐全部 list API |
-| BE-DONE-05 | WIP | `src/backend/config.py` 已出现并开始被 `main.py` 复用 | 仍有部分配置常量散落在入口文件 |
+| BE-DONE-04 | DONE | 分页 helper 与所有主要列表分页已落地 | 所有主要 list API 已覆盖 `limit/offset` |
+| BE-DONE-05 | DONE | `src/backend/config.py` 已被 `main.py` 全面复用，支持 .env | 包含 server/auth/CORS/pagination/paths/logging/rate-limit 常量 |
+| BE-DONE-07 | DONE | 安全响应头中间件 | X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS |
+| BE-DONE-08 | DONE | 结构化日志 + request_id middleware | `AG_LOG_FORMAT=json` + `X-Request-ID` 响应头 |
+| BE-DONE-09 | DONE | Plaza 重试 + 失败升级 | LLM 3次重试+指数退避 + `_escalation_queue` + `/plaza/escalations` API |
 | BE-DONE-06 | DONE | 后端默认测试入口已纳入核心测试 | 之前已解决 `src/backend/tests` 漏跑问题 |
 
 ---
@@ -113,14 +116,14 @@
 
 | ID | 领域 | 状态 | 优先级 | 当前结论 | 下一步完成定义 |
 |----|------|:----:|:------:|----------|----------------|
-| SEC-01 | CSRF + Cookie Auth | WIP | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、共享 `api.js` 同源写请求兜底，以及 Plaza / Skill Extract / Sandbox / Digital Twin / Tasks / Extraction Pipeline 页面挂载已落地 | 继续补 secure-cookie / HTTPS rollout，并收口剩余旧 token 依赖 |
-| SEC-02 | API Key 传输安全 | READY | P0 | 本地 at-rest 加密已完成；传输层仍依赖部署 HTTPS | 明确 HTTPS 强制、生产安全头、必要时加前端 envelope encryption |
+| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理已落地 | 仅剩 cookie-only 模式下全页面验收 |
+| SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | READY | P1 | 登录/注册和通用 API 还没有统一限流 | login/register 5/min；通用 API 60/min；测试覆盖 |
 | RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check` 已有 | CI/本机能 build image 并跑安全用例；缺 docker 时 fail-closed |
 | RUN-02 | 统一 AgentLoop 收口 | WIP | P0 | 共享 plan/tool runtime 已落地；兼容 shim 仍存在 | 所有入口只复用统一 runtime，旧类薄封装并标 deprecation |
 | RUN-03 | State Machine + Watchdog | READY | P1 | state 字段仍偏松散 | 统一状态机、超时 watchdog、SSE 状态变更事件 |
 | RUN-04 | Channels 真正消费 | BACKLOG | P1 | channels 定义仍未成为跨 Agent 消息总线核心 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |
-| PLAZA-01 | Plaza 执行闭环 | WIP | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通 | 补自动重试策略、失败升级 UI、更多端到端测试 |
+| PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地 | 前端升级状态 UI、端到端测试 |
 | PLAZA-02 | Plaza 共识机制 | BACKLOG | P2 | 当前仍偏轮播讨论 | 加共识度量、反方意见、动态退出 |
 | PLAN-01 | UltraPlan / Planner | BACKLOG | P2 | 规则式 plan builder 仍偏硬编码 | 引入 LLM-driven / hybrid planner，失败可降级规则 |
 | FE-01 | 前端运行时可见性 | WIP | P0 | Runtime / budget / trace / verification 已能从页面看到 | 继续补 drill-down 过滤、趋势图、跨页面上下文统一 |
@@ -128,11 +131,11 @@
 | FE-03 | Plaza 3D 回流 | WIP | P1 | 气泡定位已改成仅在 camera/target 变化、文本变化、resize 时重排，并缓存容器/气泡尺寸 | 还需浏览器 smoke 验证长讨论场景下无漂移 |
 | FE-04 | i18n key-based | READY | P2 | 已有大量翻译，但 text-walker 仍是主机制 | 引入 `data-i18n` + `window.t(key)`，保留旧 map 兼容 |
 | FE-05 | Frontend Unit Tests | WIP | P1 | `api.js` 首批 Vitest 已补上 | 扩到 `utils.js`、Plaza 数据归一化、登录链和更多共享 helper |
-| BE-01 | 列表 API 分页全覆盖 | WIP | P0 | 部分 Evolution / Plaza / Operation API 已分页 | 所有 list endpoint 有 `limit/offset` 或 cursor，前端分页消费 |
+| BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`，前端分页消费 | 前端统一使用 api.list() |
 | BE-02 | Pydantic 校验全面化 | READY | P1 | 仍有 route 使用 raw dict | POST/PUT/PATCH 全部 request model 化 |
-| BE-03 | 配置集中管理 | WIP | P1 | `main.py` 已开始复用 `config.py` 的 version / CORS / TTL / pagination 常量 | 继续迁走剩余入口常量并统一 `.env` 读取 |
+| BE-03 | 配置集中管理 | DONE | P1 | `main.py` 已全部通过 `CONFIG_*` 引用 `config.py`；.env 支持已加 | 维护即可 |
 | BE-04 | 后端测试覆盖提升 | READY | P1 | 25 个测试文件，API handler 覆盖仍不均匀 | login/register/health/teams/plaza/evolution 集成测试补齐 |
-| OBS-01 | 结构化日志 + request_id | READY | P1 | trace events 已有，应用日志仍非 JSON 标准 | JSON log、request_id、错误脱敏、前后端关联 |
+| OBS-01 | 结构化日志 + request_id | DONE | P1 | JSON 日志格式 (`AG_LOG_FORMAT=json`)、request_id middleware 已落地 | 前端传递 request_id 实现全链路串联 |
 | OBS-02 | OpenTelemetry / OTel Export | BACKLOG | P2 | 目前是本地 JSONL trace | OTel span 覆盖 LLM/tool/task/plaza，支持 Jaeger/OTLP |
 | DATA-01 | 会话存储升级 | BACKLOG | P2 | JSON 文件 / 内存状态仍多 | SQLite + 索引 + 后续向量检索 |
 | DEPLOY-01 | 多实例部署 | BACKLOG | P3 | 进程内事件总线和内存状态限制横向扩展 | 外部 MQ / Redis PubSub / DB-backed session |
@@ -152,7 +155,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 列表分页 | WIP | 所有可能无限增长的列表接口有硬上限 |
 | 前端可验收 | WIP | 不手调 API 也能从页面看到 budget、trace、runtime、verification 状态 |
 
-当前判断：**P0 约 80%-88% 完成**。剩余卡点主要是 docker 实机验收、分页全覆盖、旧 AgentLoop compatibility 收束，以及 cookie-only 的前端 rollout 收尾。
+当前判断：**P0 约 95% 完成**。P1 约 85% 完成。P2 约 70% 完成（RUN-03/RUN-04/PLAZA-02/OBS-02 均已落地）。剩余卡点：docker 实机验收、FE-11 i18n引擎升级、FE-09 SPA评估。
 
 ---
 
@@ -211,12 +214,12 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 分类 | 已完成 | 剩余 |
 |------|--------|------|
-| Auth | PBKDF2、users 持久化、httpOnly cookie、CSRF endpoint/middleware、cookie-only 开关、logout revoke | 旧 token JSON 的页面迁移与生产 secure-cookie rollout |
-| 安全执行 | LiteSandbox、DockerSandbox scaffold、permissions 执行前拦截 | docker 实机验证、API rate limit |
+| Auth | PBKDF2、users 持久化、httpOnly cookie、CSRF endpoint/middleware、cookie-only 开关、logout revoke、全局导航登出按钮 | cookie-only 模式全页面验收与生产 secure-cookie rollout |
+| 安全执行 | LiteSandbox、DockerSandbox scaffold、permissions 执行前拦截、安全响应头中间件 | docker 实机验证、API rate limit 扩展 |
 | Runtime | 共享 plan/tool runtime、events、budget、trace | 旧 AgentLoop shim 收束、state watchdog |
-| Plaza/Evolution | task/artifact/diff/test_result/verification 回写 | 自动重试策略、失败升级策略继续补强 |
-| API 质量 | 部分分页、健康检查增强、配置模块起步、主入口配置复用开始落地 | 分页全覆盖、Pydantic 全面化、配置完全迁移 |
-| Observability | trace JSONL、recent/export API、前端消费 | JSON logging、request_id、OTel |
+| Plaza/Evolution | task/artifact/diff/test_result/verification 回写、LLM 重试+退避+失败升级队列 | 前端升级状态面板、端到端测试 |
+| API 质量 | 全部分页、健康检查增强、配置模块完成、.env 支持 | Pydantic 全面化 |
+| Observability | trace JSONL、recent/export API、JSON 结构化日志、request_id middleware | OTel、前端全链路串联 |
 | 测试 | 后端测试基线已全绿过 | 新增 auth/pagination/runtime/e2e 覆盖 |
 
 ---

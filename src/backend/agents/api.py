@@ -946,8 +946,12 @@ def list_all_skills(
 
 
 @router.get("/skills/required", summary="List required skills")
-def list_required_skills() -> List[Dict[str, Any]]:
-    return [s.to_dict() for s in _sr().list_required()]
+def list_required_skills(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = [s.to_dict() for s in _sr().list_required()]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}/skills", summary="List team skills")
@@ -1238,6 +1242,46 @@ class SessionMessageRequest(BaseModel):
     role: str = "user"
 
 
+class SkillExtractStartRequest(BaseModel):
+    source_text: str = Field(..., min_length=10)
+    source_title: str = ""
+    source_type: str = "chat"
+
+
+class SkillExtractEditRequest(BaseModel):
+    field_updates: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillExtractApproveRequest(BaseModel):
+    reviewer: str = ""
+    edited_fields: Optional[Dict[str, Any]] = None
+    skill_type: str = "reserve"
+    target_agent_id: str = ""
+
+
+class SkillExtractRejectRequest(BaseModel):
+    reviewer: str = ""
+    reason: str = ""
+
+
+class ToolExecuteRequest(BaseModel):
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    agent_id: str = ""
+    team_id: str = ""
+
+
+class ToolConfigRequest(BaseModel):
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillLibraryActionRequest(BaseModel):
+    team_id: str = Field(..., min_length=1)
+    skill_id: str = Field(..., min_length=1)
+    user_feedback: str = ""
+    new_instructions: str = ""
+    target_team_id: str = ""
+
+
 @router.put("/teams/{team_id}", summary="Update team")
 def update_team(team_id: str, req: UpdateTeamRequest) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
@@ -1496,14 +1540,12 @@ def skill_extract_queue(team_id: str, status_filter: str = "") -> List[Dict[str,
 
 
 @router.post("/teams/{team_id}/skill-extract/start", summary="Start skill extraction")
-async def skill_extract_start(team_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def skill_extract_start(team_id: str, req: SkillExtractStartRequest) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    source_text = body.get("source_text", "")
-    source_title = body.get("source_title", "")
-    source_type = body.get("source_type", "chat")
-    if not source_text or len(source_text) < 10:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="source_text must be at least 10 characters")
+    source_text = req.source_text
+    source_title = req.source_title
+    source_type = req.source_type
     item = await engine.start_extraction(
         team_id=team_id,
         source_text=source_text,
@@ -1550,10 +1592,10 @@ def skill_extract_detail(team_id: str, item_id: str) -> Dict[str, Any]:
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/edit", summary="Edit extraction draft")
-async def skill_extract_edit(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def skill_extract_edit(team_id: str, item_id: str, req: SkillExtractEditRequest) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    field_updates = body.get("field_updates", {})
+    field_updates = req.field_updates
     result = await engine.edit_item(team_id, item_id, field_updates)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -1561,13 +1603,13 @@ async def skill_extract_edit(team_id: str, item_id: str, body: Dict[str, Any] = 
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/approve", summary="Approve extraction item")
-async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def skill_extract_approve(team_id: str, item_id: str, req: SkillExtractApproveRequest) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    reviewer = body.get("reviewer", "")
-    edited_fields = body.get("edited_fields")
-    skill_type = body.get("skill_type", "reserve")
-    target_agent_id = body.get("target_agent_id", "")
+    reviewer = req.reviewer
+    edited_fields = req.edited_fields
+    skill_type = req.skill_type
+    target_agent_id = req.target_agent_id
     result = await engine.approve_item(
         team_id, item_id, reviewer=reviewer, edited_fields=edited_fields,
         skill_type=skill_type, target_agent_id=target_agent_id,
@@ -1578,11 +1620,11 @@ async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any]
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/reject", summary="Reject extraction item")
-async def skill_extract_reject(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def skill_extract_reject(team_id: str, item_id: str, req: SkillExtractRejectRequest) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    reviewer = body.get("reviewer", "")
-    reason = body.get("reason", "")
+    reviewer = req.reviewer
+    reason = req.reason
     result = await engine.reject_item(team_id, item_id, reviewer=reviewer, reason=reason)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -1627,7 +1669,7 @@ def get_skill_instructions(skill_id: str) -> Dict[str, Any]:
 
 
 @router.post("/tools/{tool_id}/execute", summary="Execute a tool directly")
-async def execute_tool(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def execute_tool(tool_id: str, req: ToolExecuteRequest) -> Dict[str, Any]:
     """Execute a tool with given arguments. Returns the execution result."""
     from .tool_executor import get_tool_executor
     tool = _tr().get(tool_id)
@@ -1640,10 +1682,10 @@ async def execute_tool(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found")
     executor = get_tool_executor()
-    arguments = body.get("arguments", body)
+    arguments = req.arguments
     permission_context = None
-    agent_id = body.get("agent_id", "")
-    team_id = body.get("team_id", "")
+    agent_id = req.agent_id
+    team_id = req.team_id
     if agent_id:
         if team_id:
             agent = _tm().get_agent(team_id, agent_id)
@@ -1662,21 +1704,25 @@ async def execute_tool(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any
 
 
 @router.get("/tools/execution-history", summary="Get tool execution history")
-def get_tool_execution_history(limit: int = 50) -> List[Dict[str, Any]]:
+def get_tool_execution_history(
+    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     from .tool_executor import get_tool_executor
-    return get_tool_executor().get_history(limit)
+    items = get_tool_executor().get_history(limit + offset)
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.put(
     "/tools/{tool_id}/config",
     summary="Save tool configuration",
 )
-def save_tool_config(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
+def save_tool_config(tool_id: str, req: ToolConfigRequest) -> Dict[str, Any]:
     """Save configuration for a tool."""
     tool = _tr().get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found")
-    config = body.get("config", body)
+    config = req.config
     tool.config = config
     return {"tool_id": tool_id, "config": tool.config}
 
@@ -1715,8 +1761,11 @@ _delegated_tasks: List[Dict[str, Any]] = []
 
 
 @router.get("/templates", summary="List agent templates")
-def list_templates() -> List[Dict[str, Any]]:
-    return _templates
+def list_templates(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    return _paginate_optional(_templates, limit=limit, offset=offset)
 
 
 @router.post("/templates", summary="Create agent template", status_code=status.HTTP_201_CREATED)
@@ -8402,7 +8451,11 @@ async def create_runtime_skill(req: SkillCreateRequest) -> Dict[str, Any]:
 
 
 @router.get("/skills/search", summary="Search skills")
-async def search_skills_endpoint(q: str = "") -> List[Dict[str, Any]]:
+async def search_skills_endpoint(
+    q: str = "",
+    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     """Search skills by name or description."""
     from .skill_registry import SkillRegistry
     registry = SkillRegistry()
@@ -8411,7 +8464,8 @@ async def search_skills_endpoint(q: str = "") -> List[Dict[str, Any]]:
         results = registry.search(q)
     else:
         results = registry.list_all()
-    return [s.to_dict() for s in results[:50]]
+    items = [s.to_dict() for s in results]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -8463,7 +8517,11 @@ async def get_openai_tools_schema(agent_id: str = "") -> List[Dict[str, Any]]:
 
 
 @router.get("/tools/search", summary="Search tools")
-async def search_tools_endpoint(q: str = "") -> List[Dict[str, Any]]:
+async def search_tools_endpoint(
+    q: str = "",
+    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     """Search tools by name or description."""
     from .tool_registry import ToolRegistry
     registry = ToolRegistry()
@@ -8472,7 +8530,8 @@ async def search_tools_endpoint(q: str = "") -> List[Dict[str, Any]]:
         results = registry.search(q)
     else:
         results = registry.list_all()
-    return [t.to_dict() for t in results[:50]]
+    items = [t.to_dict() for t in results]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -9280,66 +9339,62 @@ def skill_library_browse(
     visibility: str = "",
     category: str = "",
     lifecycle: str = "",
-) -> List[Dict[str, Any]]:
-    return _get_skill_library().browse(
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = _get_skill_library().browse(
         team_id=team_id, query=query,
         visibility_filter=visibility,
         category_filter=category,
         lifecycle_filter=lifecycle,
     )
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/skill-library/suggestions", summary="获取演化建议")
-def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
-    return _get_skill_evolver().suggest_evolution(team_id)
+def skill_library_suggestions(
+    team_id: str = "",
+    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = _get_skill_evolver().suggest_evolution(team_id)
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post("/skill-library/evolve", summary="触发技能演化")
-async def skill_library_evolve(body: Dict[str, Any] = {}) -> Dict[str, Any]:
-    team_id = body.get("team_id", "")
-    skill_id = body.get("skill_id", "")
-    user_feedback = body.get("user_feedback", "")
-    if not team_id or not skill_id:
+async def skill_library_evolve(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return await _get_skill_evolver().evolve_skill(team_id, skill_id, user_feedback=user_feedback or None)
+    return await _get_skill_evolver().evolve_skill(req.team_id, req.skill_id, user_feedback=req.user_feedback or None)
 
 
 @router.post("/skill-library/apply-evolution", summary="应用演化结果")
-def skill_library_apply_evolution(body: Dict[str, Any] = {}) -> Dict[str, Any]:
-    team_id = body.get("team_id", "")
-    skill_id = body.get("skill_id", "")
-    new_instructions = body.get("new_instructions", "")
-    if not team_id or not skill_id:
+def skill_library_apply_evolution(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_evolver().apply_evolution(team_id, skill_id, new_instructions)
+    return _get_skill_evolver().apply_evolution(req.team_id, req.skill_id, req.new_instructions)
 
 
 @router.post("/skill-library/verify", summary="验证技能")
-async def skill_library_verify(body: Dict[str, Any] = {}) -> Dict[str, Any]:
-    team_id = body.get("team_id", "")
-    skill_id = body.get("skill_id", "")
-    if not team_id or not skill_id:
+async def skill_library_verify(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    result = await _get_skill_verifier().verify_skill(team_id, skill_id)
+    result = await _get_skill_verifier().verify_skill(req.team_id, req.skill_id)
     return result.to_dict()
 
 
 @router.post("/skill-library/publish", summary="发布技能到公共库")
-def skill_library_publish(body: Dict[str, Any] = {}) -> Dict[str, Any]:
-    team_id = body.get("team_id", "")
-    skill_id = body.get("skill_id", "")
-    if not team_id or not skill_id:
+def skill_library_publish(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_library().publish(team_id, skill_id)
+    return _get_skill_library().publish(req.team_id, req.skill_id)
 
 
 @router.post("/skill-library/import", summary="引入公共技能到团队")
-def skill_library_import(body: Dict[str, Any] = {}) -> Dict[str, Any]:
-    target_team_id = body.get("target_team_id", "")
-    skill_id = body.get("skill_id", "")
-    if not target_team_id or not skill_id:
+def skill_library_import(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.target_team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="target_team_id and skill_id required")
-    return _get_skill_library().import_skill(target_team_id, skill_id)
+    return _get_skill_library().import_skill(req.target_team_id, req.skill_id)
 
 
 @router.get("/skill-library/{skill_id}/lineage", summary="获取技能演化谱系")

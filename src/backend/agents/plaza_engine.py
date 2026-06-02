@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 _ROUND_SPEAKER_LIMIT = 5
 _EXCHANGES_PER_ROUND = 2  # 每轮内交锋次数
 _SPEAKERS_PER_EXCHANGE = 3  # 每次交锋参与人数
+_MAX_RETRIES = 3  # LLM 调用最大重试次数
+_RETRY_BACKOFF_BASE = 1.5  # 退避基数（秒）
 _CORE_ROLE_PRIORITY = {
     "architect": 0,
     "researcher": 1,
@@ -53,6 +55,7 @@ class PlazaEngine:
         self._sse_queues: Dict[str, List[asyncio.Queue]] = {}  # discussion_id → queues
         self._discussion_locks: Dict[str, asyncio.Lock] = {}
         self._chat_fn: Optional[Callable] = None  # ChatHarness.chat reference
+        self._escalation_queue: List[Dict[str, Any]] = []  # failed tasks for human review
 
     def set_chat_fn(self, fn: Callable):
         """注入 ChatHarness.chat 异步函数."""
@@ -735,16 +738,57 @@ class PlazaEngine:
         participant: Participant,
         prompt: str,
     ) -> str:
-        try:
-            result = await self._chat_fn(
-                prompt,
-                agent_id=participant.agent_id,
-                system_prompt=self._build_agent_system_prompt(participant),
-            )
-            return result.response if result else "[无响应]"
-        except Exception as e:
-            logger.warning(f"Agent {participant.agent_id} 发言失败: {e}")
-            return f"[{participant.agent_name} 暂时离线]"
+        last_error = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                result = await self._chat_fn(
+                    prompt,
+                    agent_id=participant.agent_id,
+                    system_prompt=self._build_agent_system_prompt(participant),
+                )
+                if result and result.response:
+                    return result.response
+                last_error = Exception("empty response")
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
+                )
+            if attempt < _MAX_RETRIES - 1:
+                await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+
+        # All retries exhausted — escalate
+        self._escalate_failure(participant, prompt, last_error)
+        return f"[{participant.agent_name} 暂时离线]"
+
+    def _escalate_failure(
+        self, participant: Participant, prompt: str, error: Exception | None
+    ) -> None:
+        """Record a failure for human review in the escalation queue."""
+        entry = {
+            "agent_id": participant.agent_id,
+            "agent_name": participant.agent_name,
+            "error": str(error)[:200] if error else "unknown",
+            "prompt_preview": prompt[:200],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "pending",
+        }
+        self._escalation_queue.append(entry)
+        logger.error(
+            f"🚨 Plaza escalation: agent={participant.agent_id} error={entry['error'][:80]}"
+        )
+
+    def get_escalation_queue(self) -> List[Dict[str, Any]]:
+        """Return all pending escalation entries for human review."""
+        return list(self._escalation_queue)
+
+    def resolve_escalation(self, index: int) -> bool:
+        """Mark an escalation entry as resolved."""
+        if 0 <= index < len(self._escalation_queue):
+            self._escalation_queue[index]["status"] = "resolved"
+            self._escalation_queue[index]["resolved_at"] = datetime.now(timezone.utc).isoformat()
+            return True
+        return False
 
     async def regenerate_plan(self, plaza_id: str, disc_id: str) -> dict:
         """议事长根据全部对话重新生成执行计划."""

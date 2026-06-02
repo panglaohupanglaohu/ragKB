@@ -12,6 +12,15 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
+# Load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except ImportError:
+    pass
+
 
 # ── Server ──
 HOST: str = os.getenv("AG_HOST", "0.0.0.0")
@@ -37,6 +46,8 @@ PBKDF2_ITERATIONS: int = int(os.getenv("AG_PBKDF2_ITERATIONS", "260000"))
 TOKEN_TTL: int = 86400 * 7  # 7 days
 CSRF_TTL: int = 3600  # 1 hour
 ALLOW_DEFAULT_ADMIN: bool = os.getenv("AG_ALLOW_DEFAULT_ADMIN", "").lower() in {"1", "true", "yes"}
+RATE_LOGIN_LIMIT: int = int(os.getenv("AG_RATE_LOGIN_LIMIT", "5"))
+RATE_LIMIT_WINDOW: int = int(os.getenv("AG_RATE_LIMIT_WINDOW", "60"))
 
 # ── Startup ──
 STRICT_STARTUP: bool = os.getenv("AG_STRICT_STARTUP", "1").lower() not in {"0", "false", "no"}

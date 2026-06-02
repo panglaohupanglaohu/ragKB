@@ -30,6 +30,13 @@
         html += '<a href="' + p.href + '">' + p.label + '</a>';
       }
     }
+    var user = localStorage.getItem('ag-user');
+    if (user && user !== 'guest') {
+      html += '<span class="nav-user" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--sumi-3,#666)">';
+      html += '<span>' + user + '</span>';
+      html += '<button onclick="window._agLogout()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--groove,#ddd);color:inherit;border-radius:3px">登出</button>';
+      html += '</span>';
+    }
     return html;
   }
 
@@ -41,6 +48,18 @@
       navs[i].innerHTML = navHTML;
     }
   }
+
+  window._agLogout = function () {
+    if (window.api && window.api.logout) {
+      window.api.logout().then(function () {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      });
+    } else {
+      localStorage.removeItem('ag-user');
+      window.location.href = '/login.html';
+    }
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', injectNav);

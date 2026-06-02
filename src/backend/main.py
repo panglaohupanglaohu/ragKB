@@ -20,6 +20,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -64,7 +65,29 @@ except Exception:
     CONFIG_VERSION = "1.0.0"
 
 # ── Logging ──
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s  %(message)s")
+_LOG_FORMAT = os.getenv("AG_LOG_FORMAT", "text")  # "json" for structured, "text" for human-readable
+
+if _LOG_FORMAT == "json":
+    import json as _json_log
+
+    class _JSONFormatter(logging.Formatter):
+        def format(self, record):
+            entry = {
+                "ts": self.formatTime(record, self.datefmt),
+                "level": record.levelname,
+                "logger": record.name,
+                "msg": record.getMessage(),
+            }
+            if record.exc_info:
+                entry["exception"] = self.formatException(record.exc_info)
+            return _json_log.dumps(entry, ensure_ascii=False)
+
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(_JSONFormatter())
+    logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO), handlers=[_handler])
+else:
+    logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO), format="%(asctime)s [%(name)s] %(levelname)s  %(message)s")
+
 logger = logging.getLogger("agentsgroup")
 
 # ── App ──
@@ -87,6 +110,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Security Response Headers Middleware ──
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if os.getenv("AG_ENABLE_HSTS", "").lower() in {"1", "true", "yes"}:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
+
+# ── Request ID Middleware ──
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", "") or secrets.token_hex(8)
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # ── Auth Configuration ──
 # AG_AUTH_COOKIE_ONLY=1 → login/register return only httpOnly cookie, no JSON token
@@ -428,6 +474,14 @@ async def startup():
         logger.warning(f"⚠️ Startup Check API failed: {e}")
 
     _clean_expired_csrf()
+
+    # OpenTelemetry (optional)
+    try:
+        from monitoring.tracing import init_tracing
+        init_tracing(app)
+    except Exception as e:
+        logger.debug(f"OTel init skipped: {e}")
+
     logger.info("🎉 AgentsGroup2026 ready")
 
     # 6. 异步执行启动验证（不阻塞启动）
@@ -449,7 +503,6 @@ async def startup():
 # Auth
 # ══════════════════════════════════════════════════════════════════
 
-import secrets
 import time as _time
 import os as _os
 

@@ -1302,3 +1302,62 @@ async def monitoring_report_event(event: Dict[str, Any]) -> Dict[str, Any]:
     if result is None:
         return {"handled": False, "reason": f"未知事件类型: {event.get('type', '')}"}
     return result
+
+
+# ══════════════════════════════════════════════════════════════════
+# Escalation Queue (失败升级)
+# ══════════════════════════════════════════════════════════════════
+
+@router.get("/escalations", summary="获取失败升级队列")
+async def get_escalation_queue() -> Dict[str, Any]:
+    """Return all pending escalation entries for human review."""
+    engine = get_plaza_engine()
+    queue = engine.get_escalation_queue()
+    pending = [e for e in queue if e.get("status") == "pending"]
+    return {
+        "items": queue,
+        "total": len(queue),
+        "pending_count": len(pending),
+    }
+
+
+@router.post("/escalations/{index}/resolve", summary="解决升级项")
+async def resolve_escalation(index: int) -> Dict[str, Any]:
+    """Mark an escalation entry as resolved by a human operator."""
+    engine = get_plaza_engine()
+    if engine.resolve_escalation(index):
+        return {"status": "resolved", "index": index}
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "升级项不存在")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Consensus Measurement (共识度量)
+# ══════════════════════════════════════════════════════════════════
+
+@router.get(
+    "/{plaza_id}/discussions/{disc_id}/consensus",
+    summary="获取讨论共识度",
+)
+async def get_discussion_consensus(
+    plaza_id: str,
+    disc_id: str,
+    round_number: Optional[int] = Query(None, description="仅分析指定轮次"),
+) -> Dict[str, Any]:
+    """Measure consensus level of a discussion or specific round."""
+    from .plaza_consensus import measure_consensus, highlight_dissent
+
+    engine = get_plaza_engine()
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    messages = [m.to_dict() for m in disc.messages]
+    result = measure_consensus(messages, round_number=round_number)
+    dissents = highlight_dissent(messages, round_number=round_number)
+
+    return {
+        "discussion_id": disc_id,
+        "round_number": round_number,
+        "consensus": result.to_dict(),
+        "dissenting_messages": dissents,
+    }

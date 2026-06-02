@@ -1118,6 +1118,15 @@
     'nav.kb':          { zh: '知识库',  en: 'Knowledge' },
     'nav.llm-config':  { zh: 'LLM 配置', en: 'LLM Config' },
     'ui.language':     { zh: '中/EN',  en: 'EN/中' },
+    // Agent Team Config sidebar
+    'nav.dashboard':      { zh: '仪表盘',   en: 'Dashboard' },
+    'nav.models':         { zh: '模型与连接', en: 'Models & Connections' },
+    'nav.tools':          { zh: '工具',     en: 'Tools' },
+    'nav.skills':         { zh: '技能',     en: 'Skills' },
+    'nav.tasks':          { zh: '任务',     en: 'Tasks' },
+    'nav.sessions':       { zh: '会话存档',  en: 'Sessions' },
+    'nav.runtime':        { zh: '运行时',   en: 'Runtime' },
+    'nav.token-factory':  { zh: 'Token 工厂', en: 'Token Factory' },
   };
 
   function getLang() {
