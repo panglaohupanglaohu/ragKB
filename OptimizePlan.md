@@ -41,7 +41,7 @@
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
 | 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `12 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试 |
-| 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_rate_limit.py` + `test_auth_csrf.py` + `test_datacenter_api.py` → `24 passed` |
+| 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_evolution_bridge.py` → `22 passed` |
 | 后端全量 | ✅ 通过 | 最近一次稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `878 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
@@ -142,7 +142,7 @@
 | RUN-02 | 统一 AgentLoop 收口 | DONE | P0 | 共享 plan/tool runtime 已落地；同步 tool-loop 入口已统一到 `run_tool_loop_sync_with_provider`，旧 `AgentLoop` 已收窄成真正 shim；chat / task / plan 入口已有契约测试证明均复用共享 runtime | 保持兼容 shim 极薄，不再回退到第二套循环 |
 | RUN-03 | State Machine + Watchdog | WIP | P1 | 独立状态机与 watchdog 模块已落地，但尚未成为所有 runtime 的唯一状态源 | 将 task/session/agent 主链切到统一状态机，并补 SSE 状态事件 |
 | RUN-04 | Channels 真正消费 | WIP | P1 | Event bridge 已有，但 ChannelBus 还没成为默认协作通路 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |
-| PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态 | 端到端测试 |
+| PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态；创建讨论 / 重新讨论 / 启动讨论已有生命周期回归测试 | 端到端测试 |
 | PLAZA-02 | Plaza 共识机制 | WIP | P2 | 共识分数、趋势、反方检测、`/consensus` API 已落地，前端计划面板已可见 | 把动态退出与 planner / 主讨论循环接起来 |
 | PLAN-01 | UltraPlan / Planner | BACKLOG | P2 | 规则式 plan builder 仍偏硬编码 | 引入 LLM-driven / hybrid planner，失败可降级规则 |
 | FE-01 | 前端运行时可见性 | WIP | P0 | Runtime / budget / trace / verification / Plaza consensus / escalations 已能从页面看到；主要错误 toast 和 trace drill-down 已可见 request_id；Datacenter Ratchet 页面后端契约已补齐并浏览器实测可用 | 继续补更细过滤、趋势图、跨页面上下文统一 |

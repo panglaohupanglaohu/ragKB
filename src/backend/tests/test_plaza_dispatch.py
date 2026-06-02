@@ -12,6 +12,7 @@ from agents import api as api_module
 from agents import plaza_engine as plaza_engine_module
 from agents import plaza_routes
 from agents import task_engine as task_engine_module
+from agents.plaza import DiscussionStatus, PlazaMessage
 from agents.plaza_engine import PlazaEngine
 from agents.plaza_store import PlazaStore
 from agents.task_engine import AgentTask, TaskEngine
@@ -196,3 +197,85 @@ class TestDiscussionDispatch:
         assert paged["offset"] == 1
         assert paged["has_more"] is False
         assert [task["task_id"] for task in paged["tasks"]] == ["task-2"]
+
+
+class TestDiscussionLifecycle:
+    @pytest.mark.asyncio
+    async def test_create_discussion_persists_goal_and_metadata(self, isolated_plaza_engine):
+        plaza = isolated_plaza_engine.create_plaza("生命周期广场", "lifecycle")
+
+        payload = await plaza_routes.create_discussion(
+            plaza.id,
+            plaza_routes.CreateDiscussionRequest(
+                topic="验证 Plaza 生命周期",
+                description="从创建到启动的主路径",
+                goal="确保讨论能被稳定创建",
+                moderator_agent_id="pm-1",
+                max_rounds=4,
+            ),
+        )
+
+        stored = isolated_plaza_engine.get_discussion(plaza.id, payload["id"])
+        assert payload["topic"] == "验证 Plaza 生命周期"
+        assert payload["status"] == DiscussionStatus.OPEN.value
+        assert stored is not None
+        assert stored.goal == "确保讨论能被稳定创建"
+        assert stored.moderator_agent_id == "pm-1"
+        assert stored.max_rounds == 4
+
+    @pytest.mark.asyncio
+    async def test_start_discussion_resets_closed_discussion_before_scheduling(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.status = DiscussionStatus.CLOSED
+        disc.current_round = 2
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="agent-1",
+                agent_name="Agent 1",
+                content="旧消息",
+                round_number=2,
+            )
+        )
+        disc.summary = "旧总结"
+        disc.plan["task_ids"] = ["task-old"]
+        disc.assigned_team_id = "team-old"
+        isolated_plaza_engine._store.save_plaza(plaza)
+
+        scheduled = []
+
+        def fake_create_task(coro):
+            scheduled.append(coro)
+            coro.close()
+            return object()
+
+        monkeypatch.setattr(plaza_routes.asyncio, "create_task", fake_create_task)
+
+        result = await plaza_routes.start_discussion(plaza.id, disc.id)
+
+        refreshed = isolated_plaza_engine.get_discussion(plaza.id, disc.id)
+        assert result["status"] == "started"
+        assert scheduled, "discussion run coroutine should be scheduled"
+        assert refreshed is not None
+        assert refreshed.status == DiscussionStatus.OPEN
+        assert refreshed.current_round == 0
+        assert refreshed.messages == []
+        assert refreshed.summary == ""
+        assert refreshed.plan == {}
+        assert refreshed.assigned_team_id == ""
+
+    @pytest.mark.asyncio
+    async def test_start_discussion_rejects_non_open_non_closed_state(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.status = DiscussionStatus.IN_PROGRESS
+        isolated_plaza_engine._store.save_plaza(plaza)
+
+        with pytest.raises(plaza_routes.HTTPException) as exc_info:
+            await plaza_routes.start_discussion(plaza.id, disc.id)
+
+        assert exc_info.value.status_code == 400
+        assert "无法启动" in str(exc_info.value.detail)

@@ -6,7 +6,7 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`24 passed`（`test_api_rate_limit.py` + `test_auth_csrf.py` + `test_datacenter_api.py`）
+> - 后端定向回归：`22 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_evolution_bridge.py`）
 > - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（`12 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试
@@ -153,6 +153,7 @@
 - [x] 升级队列 API（`GET /plaza/escalations` + `POST /plaza/escalations/{index}/resolve`）
 - [x] 前端计划面板可见重试/升级状态
 - [x] 前端计划面板显示 discussion 级 consensus / dissent / escalations
+- [x] 创建讨论 / 重新讨论 / 启动讨论的生命周期回归测试
 - [ ] 端到端回归测试
 
 ### BE-P0-01 列表 API 分页补齐（存量）

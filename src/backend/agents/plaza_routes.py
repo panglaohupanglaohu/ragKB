@@ -1163,9 +1163,9 @@ async def start_discussion(plaza_id: str, disc_id: str) -> Dict[str, Any]:
     disc = engine.get_discussion(plaza_id, disc_id)
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
-    if disc.status == "closed":
+    if disc.status == DiscussionStatus.CLOSED:
         disc = engine.reset_discussion(plaza_id, disc_id)
-    elif disc.status != "open":
+    elif disc.status != DiscussionStatus.OPEN:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"讨论状态为 {disc.status}，无法启动")
 
     # 在后台运行讨论
