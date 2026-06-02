@@ -7,7 +7,7 @@
 >
 > 当前验证快照：
 > - 后端定向回归：`17 passed`（`test_plaza_retry_escalation.py` + `test_plaza_consensus.py`）
-> - 后端全量：`247 passed` 后卡在 `test_cost_monitor.py`
+> - 后端全量：`866 passed, 1 skipped`（`src/backend/tests`）
 > - 前端 build / vitest：当前被本机 `@rollup/rollup-darwin-arm64` 原生模块问题阻塞
 
 ---
@@ -83,7 +83,7 @@
 - [ ] CI/本机实机 build sandbox docker image
 - [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试
 - [ ] 添加 `test_sandbox_docker.py` 集成测试
-- [ ] 前端 sandbox 页面显示当前 sandbox mode（lite/docker）
+- [x] 前端 sandbox 页面显示当前 sandbox mode（lite/docker）
 
 ### SEC-01 🟢 Cookie-Only Auth 收尾（仅剩清理）
 
@@ -184,7 +184,7 @@
 - [x] 补充状态机 + Watchdog 测试 (`test_state_machine.py`)
 - [x] 补充共识度量测试 (`test_plaza_consensus.py`)
 - [x] 补充 Channel 事件桥接测试 (`test_channel_event_bridge.py`)
-- [ ] CI 配置 `npm run test:backend`
+- [x] CI 配置 `npm run test:backend`
 
 ### SEC-03 🟡 通用 API 限流补齐
 

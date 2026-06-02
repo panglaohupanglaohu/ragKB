@@ -41,7 +41,7 @@
 | 前端构建 | ⚠️ 本机环境阻塞 | 本轮验证：`rtk npm run build` 未启动成功；当前被本机 Rollup 原生模块 / optional dependency 问题阻塞（`@rollup/rollup-darwin-arm64`），不是源码语法报错 |
 | 前端单测 | ⚠️ 本机环境阻塞 | 本轮验证：`vitest` 启动同样受 Rollup 原生模块问题影响；上次有效基线为 `api/csrf-pages/extract-routing/agent-config` 局部通过 |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_retry_escalation.py` + `test_plaza_consensus.py` → `17 passed`；上一轮更广覆盖为 `45 passed` |
-| 后端全量 | ⚠️ 有已知阻塞 | 本轮跑到 `247 passed` 后被 `test_cost_monitor.py::TestCostLabelConfig::test_cost_labels_standard_set` 挡住，属既有成本模块默认值漂移 |
+| 后端全量 | ✅ 通过 | 本轮验证：`./venv/bin/python -m pytest -q src/backend/tests` → `866 passed, 1 skipped` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
 | 后端规模 | 147 Python / 25 backend tests | 以当前 `src/backend` 文件统计为准 |
 | `.huashu-skills` | 不纳入 | 用户明确要求一直不动 |
@@ -146,7 +146,7 @@
 | BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`，前端分页消费 | 前端统一使用 api.list() |
 | BE-02 | Pydantic 校验全面化 | READY | P1 | 仍有 route 使用 raw dict | POST/PUT/PATCH 全部 request model 化 |
 | BE-03 | 配置集中管理 | DONE | P1 | `main.py` 已全部通过 `CONFIG_*` 引用 `config.py`；.env 支持已加 | 维护即可 |
-| BE-04 | 后端测试覆盖提升 | WIP | P1 | 新增 runtime / plaza / security suites 已落地，但核心 API 集成覆盖仍不均匀 | login/register/health/teams/plaza/evolution 集成测试补齐 |
+| BE-04 | 后端测试覆盖提升 | WIP | P1 | 后端全量已恢复到可稳定跑通，GitHub Actions 已接上 `npm run test:backend`；核心 API 集成覆盖仍不均匀 | login/register/health/teams/plaza/evolution 集成测试补齐 |
 | OBS-01 | 结构化日志 + request_id | DONE | P1 | JSON 日志格式 (`AG_LOG_FORMAT=json`)、request_id middleware 已落地；前端 API 客户端已自动透传并缓存 `X-Request-ID`，主要页面错误 toast 与 trace drill-down 已显示 request_id | 继续扩大到更多页面和错误面板 |
 | OBS-02 | OpenTelemetry / OTel Export | WIP | P2 | OTel tracing 模块、optional deps 与 startup hook 已落地；真实 exporter smoke 未做 | OTel span 在真实环境导出到 Jaeger/OTLP 并补测试 |
 | DATA-01 | 会话存储升级 | BACKLOG | P2 | JSON 文件 / 内存状态仍多 | SQLite + 索引 + 后续向量检索 |
@@ -167,7 +167,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；但本机 build/vitest 当前被 Rollup 环境问题阻塞 |
 
-当前判断：**P0 功能主链约 90%-92% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱实机验收、统一 AgentLoop 最后收口、cookie-only 全页面验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 91%-93% 完成**。代码层已经接近出关，但还卡在 Docker 沙箱实机验收、统一 AgentLoop 最后收口、cookie-only 全页面验收，以及本机前端构建/测试环境恢复。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 
@@ -247,6 +247,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 分页改动破坏前端 | 前端仍假设数组返回 | API 短期支持 `{items,total}` 与旧数组兼容层 |
 | Plaza 3D 性能优化影响气泡定位 | camera / resize 事件未覆盖 | 保留手动 `positionAllBubbles()` fallback |
 | 本机前端验证环境漂移 | `node_modules` 中 Rollup 原生模块签名 / optional dependency 异常 | 重装 `node_modules` / 修复本机 Node 工具链，再恢复 build 与 vitest |
+| 后端回归缺少远端护栏 | 本地回归绿、远端无人看守 | GitHub Actions 已接入 `npm run test:backend`，继续观察首轮远端执行结果 |
 
 ---
 
@@ -276,4 +277,5 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 结合当前代码核对了 CSRF、cookie auth、pagination、health、frontend runtime visibility、Plaza/Evolution trace 等实际状态。
 - `FrontEndOptimize.md` 未在仓库中找到，已在文档顶部注明。
 - 本轮新增了 cookie-only auth 回归、分页回归、Plaza 兼容分页、Plaza 气泡回流优化、sandbox self-check 脚本，以及 `api.js` 的 Vitest 护栏。
-- 本轮后端全量回归跑到 `247 passed` 后，被 `test_cost_monitor.py` 内部互相矛盾的默认值断言阻塞；该问题与本轮主链改动无直接耦合，需单独梳理成本模块规范。
+- 本轮补齐了成本域与模板变体测试的当前契约，并恢复后端全量基线：`866 passed, 1 skipped`。
+- 本轮新增 GitHub Actions 后端回归工作流，使用 `npm run test:backend` 作为远端护栏入口。

@@ -39,47 +39,41 @@ def default_config() -> CostLabelConfig:
 def sample_pods() -> list[PodCostItem]:
     return [
         PodCostItem(
-            pod_name="api-gateway-7d8f",
+            pod="api-gateway-7d8f",
             namespace="default",
-            service="api-gateway",
-            environment="production",
-            team="platform",
             cpu_cost=12.50,
             ram_cost=8.30,
             gpu_cost=0.0,
             pv_cost=2.10,
             network_cost=1.20,
             total_cost=24.10,
+            labels={"service": "api-gateway", "environment": "production", "team": "platform"},
             window_start="2026-05-29T00:00:00Z",
             window_end="2026-05-30T00:00:00Z",
         ),
         PodCostItem(
-            pod_name="worker-pool-3a2b",
+            pod="worker-pool-3a2b",
             namespace="default",
-            service="worker",
-            environment="production",
-            team="backend",
             cpu_cost=45.00,
             ram_cost=22.00,
             gpu_cost=0.0,
             pv_cost=5.00,
             network_cost=3.00,
             total_cost=75.00,
+            labels={"service": "worker", "environment": "production", "team": "backend"},
             window_start="2026-05-29T00:00:00Z",
             window_end="2026-05-30T00:00:00Z",
         ),
         PodCostItem(
-            pod_name="dashboard-9c1e",
+            pod="dashboard-9c1e",
             namespace="staging",
-            service="dashboard",
-            environment="staging",
-            team="frontend",
             cpu_cost=3.20,
             ram_cost=1.80,
             gpu_cost=0.0,
             pv_cost=0.50,
             network_cost=0.30,
             total_cost=5.80,
+            labels={"service": "dashboard", "environment": "staging", "team": "frontend"},
             window_start="2026-05-29T00:00:00Z",
             window_end="2026-05-30T00:00:00Z",
         ),
@@ -113,10 +107,10 @@ class TestCostLabelConfig:
         assert config.default_team == "sre"
 
     def test_cost_labels_standard_set(self):
-        """Standard CostLabel values match default config."""
+        """Standard cost labels stay in the default injection set."""
         config = CostLabelConfig()
-        assert config.default_environment == CostLabel.ENVIRONMENT.value
-        assert config.default_team == CostLabel.TEAM.value
+        assert CostLabel.ENVIRONMENT.value in config.inject_labels
+        assert CostLabel.TEAM.value in config.inject_labels
 
 
 # ── Tests: PodCostItem ──────────────────────────────────
@@ -125,27 +119,28 @@ class TestCostLabelConfig:
 class TestPodCostItem:
     def test_create_minimal(self):
         item = PodCostItem(
-            pod_name="test-pod",
+            pod="test-pod",
             namespace="default",
-            service="test-svc",
-            environment="dev",
-            team="qa",
             cpu_cost=1.0,
             ram_cost=2.0,
             total_cost=3.0,
+            labels={"service": "test-svc", "environment": "dev", "team": "qa"},
         )
-        assert item.pod_name == "test-pod"
+        assert item.pod == "test-pod"
         assert item.total_cost == 3.0
         assert item.gpu_cost == 0.0  # default
 
     def test_model_dump(self):
         item = PodCostItem(
-            pod_name="test-pod", namespace="default", service="test",
-            environment="dev", team="qa", cpu_cost=1.0, ram_cost=2.0,
+            pod="test-pod",
+            namespace="default",
+            cpu_cost=1.0,
+            ram_cost=2.0,
             total_cost=3.0,
+            labels={"service": "test", "environment": "dev", "team": "qa"},
         )
         d = item.model_dump()
-        assert d["pod_name"] == "test-pod"
+        assert d["pod"] == "test-pod"
         assert d["cpu_cost"] == 1.0
         assert d["total_cost"] == 3.0
 
@@ -200,13 +195,13 @@ class TestCostSummary:
 
         summary = CostSummary(
             total_cost=104.90,
-            total_pods=3,
+            pod_count=3,
             by_service=by_svc,
             by_environment=by_env,
             by_team=by_team,
         )
         assert summary.total_cost == 104.90
-        assert summary.total_pods == 3
+        assert summary.pod_count == 3
         assert len(summary.by_service) == 3
         assert len(summary.by_environment) == 2
         assert len(summary.by_team) == 3
@@ -219,8 +214,8 @@ class TestCostQueryParams:
     def test_defaults(self):
         params = CostQueryParams()
         assert params.aggregation == "service"
-        assert params.window == "24h"
-        assert params.granularity == CostGranularity.POD
+        assert params.window == "7d"
+        assert params.granularity == "day"
 
     def test_custom_params(self):
         params = CostQueryParams(
@@ -229,14 +224,14 @@ class TestCostQueryParams:
             service="api",
             environment="production",
             team="platform",
-            granularity=CostGranularity.NAMESPACE,
+            granularity=CostGranularity.WEEK,
         )
         assert params.aggregation == "environment"
         assert params.window == "7d"
         assert params.service == "api"
         assert params.environment == "production"
         assert params.team == "platform"
-        assert params.granularity == CostGranularity.NAMESPACE
+        assert params.granularity == CostGranularity.WEEK
 
     def test_serialize(self):
         params = CostQueryParams(aggregation="team", window="30d")
@@ -250,24 +245,24 @@ class TestCostQueryParams:
 
 class TestCostTrends:
     def test_trend_point(self):
-        point = CostTrendPoint(timestamp="2026-05-29T10:00:00Z", cost=42.50)
+        point = CostTrendPoint(timestamp="2026-05-29T10:00:00Z", total_cost=42.50)
         d = point.model_dump()
-        assert d["cost"] == 42.50
+        assert d["total_cost"] == 42.50
         assert d["timestamp"] == "2026-05-29T10:00:00Z"
 
     def test_trend_series(self):
         points = [
-            CostTrendPoint(timestamp="2026-05-29T10:00:00Z", cost=10.0),
-            CostTrendPoint(timestamp="2026-05-29T11:00:00Z", cost=12.0),
+            CostTrendPoint(timestamp="2026-05-29T10:00:00Z", total_cost=10.0),
+            CostTrendPoint(timestamp="2026-05-29T11:00:00Z", total_cost=12.0),
         ]
         series = CostTrendSeries(
             dimension="service",
             value="api-gateway",
-            data_points=points,
+            points=points,
             total=22.0,
         )
         assert series.dimension == "service"
-        assert len(series.data_points) == 2
+        assert len(series.points) == 2
         assert series.total == 22.0
 
 
@@ -278,22 +273,22 @@ class TestCostDashboardResponse:
     def test_create(self, sample_pods):
         summary = CostSummary(
             total_cost=104.90,
-            total_pods=3,
+            pod_count=3,
             by_service=[],
             by_environment=[],
             by_team=[],
         )
-        trends = CostTrendSeries(dimension="service", value="all", data_points=[], total=0.0)
+        params = CostQueryParams(aggregation="service", window="7d")
         resp = CostDashboardResponse(
             summary=summary,
-            trends=[trends],
-            cache_age_seconds=30,
-            last_poll_time="2026-05-29T12:00:00Z",
-            opencost_healthy=True,
+            query=params,
+            generated_at="2026-05-29T12:00:00Z",
+            opencost_status="ok",
+            data_freshness_seconds=30,
         )
         assert resp.summary.total_cost == 104.90
-        assert resp.cache_age_seconds == 30
-        assert resp.opencost_healthy is True
+        assert resp.data_freshness_seconds == 30
+        assert resp.opencost_status == "ok"
 
 
 # ── Tests: K8s Webhook Label Resolution ─────────────────

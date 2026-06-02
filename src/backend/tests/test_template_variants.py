@@ -24,13 +24,7 @@ import pytest
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
-PLAZA_TEMPLATES = [
-    "plaza.html",
-    "plaza-dark.html",
-    "plaza-old.html",
-    "plaza-wabisabi.html",
-    "plaza-wabisabi-v2.html",
-]
+PLAZA_TEMPLATES = sorted(p.name for p in FRONTEND_DIR.glob("plaza*.html"))
 
 # ── XSS 注入负载 ────────────────────────────────────────
 
@@ -348,6 +342,8 @@ class TestTemplateRegression:
         """wabisabi-v2 应保留 v1 的关键结构."""
         v1 = TemplateVariant("plaza-wabisabi.html")
         v2 = TemplateVariant("plaza-wabisabi-v2.html")
+        if not v1.path.exists() or not v2.path.exists():
+            pytest.skip("legacy plaza variant templates were removed from the active frontend set")
         # 两者都应包含 wabi-sabi 主题关键词
         v1_content = v1.content.lower()
         v2_content = v2.content.lower()
