@@ -43,7 +43,7 @@
 | 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py` → `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `884 passed, 4 skipped` |
-| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；随后又验证：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed`，本轮新增：`test_sandbox_security.py` → `17 passed`，覆盖缺 Docker 时的 blocked/self-check 语义 |
+| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；随后又验证：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed`，本轮新增：`test_sandbox_security.py` → `19 passed`，覆盖缺 Docker 时的 blocked/self-check 语义以及 lite 模式自检成功 |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
 | 后端规模 | 147 Python / 25 backend tests | 以当前 `src/backend` 文件统计为准 |
 | `.huashu-skills` | 不纳入 | 用户明确要求一直不动 |
@@ -74,7 +74,7 @@
 | R-10 | DONE | secrets 本地 Fernet 加密，支持旧明文迁移 | `test_permissions_and_secrets.py` |
 | R-11 | DONE | 共享 tool runtime + plan runtime 已落地；同步 tool-loop 调用面已统一到 `run_tool_loop_sync_with_provider`，`AgentLoop` 仅保留兼容 shim，chat / task / plan 入口均已委托共享 runtime | `test_unified_tool_loop.py`, `test_plan_loop_runtime.py` |
 | R-12 | WIP | token budget / usage 已接入 chat / stream，并有 API 与前端面板 | `test_token_budget.py` |
-| R-13 | WIP | LiteSandbox + DockerSandbox 入口、limits、runtime status、self-check 脚本、sandbox smoke、自检 API、docker 集成测试与专用 GitHub workflow 已接通；缺 Docker 时 `runtime-self-check` 现会显式返回 blocked reason 而不是盲跑失败；当前机器仍缺 docker，待远端首轮执行 / 本机复验 | `test_sandbox_security.py`, `test_sandbox_docker.py` |
+| R-13 | WIP | LiteSandbox + DockerSandbox 入口、limits、runtime status、self-check 脚本、sandbox smoke、自检 API、docker 集成测试与专用 GitHub workflow 已接通；缺 Docker 时 `runtime-self-check` 现会显式返回 blocked reason 而不是盲跑失败，lite 模式会复用当前解释器保证 `pytest` 自检可通过；当前机器仍缺 docker，待远端首轮执行 / 本机复验 | `test_sandbox_security.py`, `test_sandbox_docker.py` |
 | R-14 | WIP | 统一状态机 + TimeoutWatchdog 模块与测试已落地，运行时主链尚未完全切换到它 | `test_state_machine.py` |
 | R-15 | WIP | ChannelEventBridge 已实现 EventBus ↔ Channel 桥接，并支持 agent message / trigger task | `test_channel_event_bridge.py` |
 | R-16 | WIP | Plaza 共识度量、反方检测与 `/consensus` API 已落地；动态退出尚未接入讨论主循环 | `test_plaza_consensus.py` |
@@ -92,7 +92,7 @@
 | FE-DONE-05 | DONE | 多个大页面 JS 外抽 | Plaza / Sandbox / System Evolution / Skill Extract / Digital Twin 等 |
 | FE-DONE-06 | DONE | CSP meta、client error tracking、可访问性与 i18n 基础增强 | 仍需 key-based i18n |
 | FE-DONE-07 | DONE | Plaza 前端消费 verification queue / alerts / SSE broadcast | 可在计划面板运行验证队列 |
-| FE-DONE-08 | DONE | Sandbox 前端消费 runtime-status / runtime-self-check | 可看 readiness、limits、自检 |
+| FE-DONE-08 | DONE | Sandbox 前端消费 runtime-status / runtime-self-check | 可看 readiness、limits、自检、Docker Binary、自检命令与最近自检结果 |
 | FE-DONE-09 | DONE | Evolution 前端展示 verify detail / retry / escalation | 演进条目表可见 |
 | FE-DONE-10 | DONE | Agent Team 前端展示 budget / alerts / trends / trace / drill-down | 支持 NDJSON 导出、task 级 trace 明细与 request_id 显示 |
 | FE-DONE-11 | DONE | PortRuntime 前端展示 Agent Loop plan / runtime events | 可直接看共享 runtime 事件序列 |
@@ -142,7 +142,7 @@
 | SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐；高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已完成 | 低频页面继续随常规回归覆盖 |
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | DONE | P1 | login/register 5/min、通用写请求 60/min、敏感路由独立 bucket 与回归测试均已落地 | 维持默认阈值，并在后续按生产流量再调参 |
-| RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；缺 Docker 时 runtime status 会暴露 `docker_binary_path/self_check_blocked/ready_reason`，`runtime-self-check` 会显式返回 blocked reason；当前机器仍缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
+| RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；缺 Docker 时 runtime status 会暴露 `docker_binary_path/self_check_blocked/ready_reason`，`runtime-self-check` 会显式返回 blocked reason；lite 模式 `runtime-self-check` 现已在当前解释器上通过；当前机器仍缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
 | RUN-02 | 统一 AgentLoop 收口 | DONE | P0 | 共享 plan/tool runtime 已落地；同步 tool-loop 入口已统一到 `run_tool_loop_sync_with_provider`，旧 `AgentLoop` 已收窄成真正 shim；chat / task / plan 入口已有契约测试证明均复用共享 runtime | 保持兼容 shim 极薄，不再回退到第二套循环 |
 | RUN-03 | State Machine + Watchdog | WIP | P1 | 独立状态机与 watchdog 模块已落地，但尚未成为所有 runtime 的唯一状态源 | 将 task/session/agent 主链切到统一状态机，并补 SSE 状态事件 |
 | RUN-04 | Channels 真正消费 | WIP | P1 | Event bridge 已有，但 ChannelBus 还没成为默认协作通路 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |

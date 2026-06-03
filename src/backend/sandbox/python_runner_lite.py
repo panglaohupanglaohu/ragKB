@@ -82,13 +82,13 @@ class LiteSandbox:
     def __init__(
         self,
         *,
-        python_executable: str = "python3",
+        python_executable: Optional[str] = None,
         max_output_bytes: int = 32 * 1024,
         memory_limit_mb: int = 256,
         file_size_limit_kb: int = 512,
         network_enabled: bool = False,
     ) -> None:
-        self.python_executable = python_executable
+        self.python_executable = python_executable or sys.executable or "python3"
         self.max_output_bytes = max_output_bytes
         self.memory_limit_mb = memory_limit_mb
         self.file_size_limit_kb = file_size_limit_kb

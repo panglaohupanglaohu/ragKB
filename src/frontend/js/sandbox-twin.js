@@ -74,7 +74,8 @@
     const lastCheck = runtime.last_self_check || payload.last_self_check || {};
     const checks = lastCheck.checks || payload.checks || {};
     const ready = !!runtime.ready;
-    badge.textContent = ready ? 'Ready' : 'Attention';
+    const blocked = !!payload.blocked || !!runtime.self_check_blocked;
+    badge.textContent = ready ? 'Ready' : (blocked ? 'Blocked' : 'Attention');
     badge.style.color = ready ? 'var(--green)' : 'var(--amber)';
 
     const esc = function (v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
@@ -84,17 +85,23 @@
       '<span class="runtime-chip">mode · ' + esc(runtime.mode || 'unknown') + '</span>',
       '<span class="runtime-chip">docker · ' + esc(runtimeBool(runtime.docker_available, 'available', 'n/a')) + '</span>',
       '<span class="runtime-chip">image · ' + esc(runtimeBool(runtime.image_available, 'present', 'missing')) + '</span>',
+      blocked ? '<span class="runtime-chip" style="border-color:rgba(255,207,112,0.35);color:var(--amber)">self-check · blocked</span>' : '',
     ].join('');
 
     const selfCheckSummary = lastCheck && Object.keys(lastCheck).length
       ? '<div class="runtime-list-item">最近自检: <strong style="color:' + (lastCheck.ok ? 'var(--green)' : 'var(--amber)') + '">' + esc(lastCheck.ok ? '通过' : '失败') + '</strong>' + (lastCheck.runtime?.mode ? ' · mode ' + esc(lastCheck.runtime.mode) : '') + '</div>'
       : '<div class="runtime-list-item">尚未执行 runtime self-check。</div>';
 
+    const blockedSummary = blocked
+      ? '<div class="runtime-list-item" style="color:var(--amber)">阻塞原因: <strong>' + esc(payload.blocked_reason || runtime.ready_reason || 'unknown') + '</strong></div>'
+      : '';
+
     var checkItems = '';
     for (var key in checks) {
       if (checks.hasOwnProperty(key)) {
         var result = checks[key];
-        checkItems += '<div class="runtime-list-item"><strong style="color:' + (result && result.ok ? 'var(--green)' : 'var(--amber)') + '">' + esc(key) + '</strong> · ' + (result && result.ok ? 'OK' : 'FAIL') + (typeof result?.exit_code !== 'undefined' ? ' · exit ' + result.exit_code : '') + (result && result.error ? '<div style="margin-top:4px;color:var(--text)">' + esc(result.error) + '</div>' : '') + '</div>';
+        var label = result && result.ok ? 'OK' : (result && result.skipped ? 'SKIPPED' : 'FAIL');
+        checkItems += '<div class="runtime-list-item"><strong style="color:' + (result && result.ok ? 'var(--green)' : 'var(--amber)') + '">' + esc(key) + '</strong> · ' + label + (typeof result?.exit_code !== 'undefined' ? ' · exit ' + result.exit_code : '') + (result && result.error ? '<div style="margin-top:4px;color:var(--text)">' + esc(result.error) + '</div>' : '') + '</div>';
       }
     }
 
@@ -105,10 +112,14 @@
       '<div class="runtime-card"><div class="runtime-k">Memory / CPU</div><div class="runtime-v">' + esc(limits.memory_limit_mb || runtime.memory_limit_mb || '—') + ' MB · ' + esc(limits.cpu_limit ?? '—') + ' CPU</div></div>',
       '<div class="runtime-card"><div class="runtime-k">PIDs / nproc</div><div class="runtime-v">' + esc(limits.pids_limit ?? '—') + ' / ' + esc(limits.nproc_limit ?? '—') + '</div></div>',
       '<div class="runtime-card"><div class="runtime-k">tmpfs / nofile</div><div class="runtime-v">' + esc(limits.tmpfs_tmp_mb ?? '—') + 'M · ' + esc(limits.nofile_limit ?? '—') + '</div></div>',
+      '<div class="runtime-card"><div class="runtime-k">Docker Binary</div><div class="runtime-v">' + esc(runtime.docker_binary_path || 'not found') + '</div></div>',
       '</div>',
       '<div class="runtime-list">',
       selfCheckSummary,
+      blockedSummary,
+      runtime.ready_reason ? '<div class="runtime-list-item">readiness: <strong>' + esc(runtime.ready_reason) + '</strong></div>' : '',
       runtime.build_command ? '<div class="runtime-list-item">镜像构建命令: <code>' + esc(runtime.build_command) + '</code></div>' : '',
+      runtime.self_check_command ? '<div class="runtime-list-item">自检命令: <code>' + esc(runtime.self_check_command) + '</code></div>' : '',
       checkItems,
       '</div>',
     ].join('');
@@ -130,7 +141,13 @@
     try {
       const payload = await apiFetch('/runtime-self-check', { method: 'POST' });
       renderRuntimeStatus(payload);
-      setStatus(payload.ok ? '✅ runtime self-check 通过' : '⚠️ runtime self-check 失败');
+      if (payload.ok) {
+        setStatus('✅ runtime self-check 通过');
+      } else if (payload.blocked) {
+        setStatus('⚠️ runtime self-check 被阻塞: ' + (payload.blocked_reason || 'sandbox not ready'));
+      } else {
+        setStatus('⚠️ runtime self-check 失败');
+      }
     } catch (e) {
       setStatus('❌ runtime self-check 失败: ' + e.message);
     }

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from sandbox.python_runner import (
     record_sandbox_self_check,
 )
 from sandbox.python_runner_lite import SandboxResult
+from sandbox.python_runner_lite import LiteSandbox
 from sandbox.python_runner_docker import DockerSandbox
 
 
@@ -55,6 +57,11 @@ class TestRunPytestSandbox:
 
 
 class TestSandboxModeSelection:
+    def test_lite_sandbox_defaults_to_current_python(self):
+        sandbox = LiteSandbox()
+
+        assert sandbox.python_executable == sys.executable
+
     def test_loads_docker_mode_from_settings(self, monkeypatch, tmp_path):
         from sandbox import python_runner as runner_module
 
@@ -260,6 +267,26 @@ class TestSandboxModeSelection:
         assert payload["checks"]["python"]["stdout"] == "sandbox-ok\n"
         assert payload["checks"]["pytest_collect"]["exit_code"] == 0
         assert recorded["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_self_check_passes_in_lite_mode(self, monkeypatch, tmp_path):
+        from sandbox import python_runner as runner_module
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps({"sandbox": {"mode": "lite"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner_module, "_SETTINGS_PATH", settings_path)
+        monkeypatch.setattr(runner_module, "_sandbox_instance", None)
+        monkeypatch.setattr(runner_module, "_sandbox_signature", None)
+
+        payload = await sandbox_api_module.run_runtime_self_check()
+
+        assert payload["runtime"]["mode"] == "lite"
+        assert payload["ok"] is True
+        assert payload["checks"]["python"]["exit_code"] == 0
+        assert payload["checks"]["pytest_collect"]["exit_code"] == 0
 
     @pytest.mark.asyncio
     async def test_runtime_self_check_reports_blocked_docker_runtime(self, monkeypatch):
