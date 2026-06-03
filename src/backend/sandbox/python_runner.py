@@ -79,6 +79,7 @@ def describe_sandbox_runtime() -> dict:
         "file_size_limit_kb": config.file_size_limit_kb,
         "network_enabled": config.network_enabled,
         "docker_image": config.docker_image,
+        "docker_binary_path": shutil.which("docker") or "",
         "fail_closed": config.mode == "docker",
         "build_command": build_command,
         "self_check_command": self_check_command,
@@ -100,6 +101,7 @@ def describe_sandbox_runtime() -> dict:
             {
                 "docker_available": False,
                 "image_available": False,
+                "self_check_blocked": False,
                 "last_self_check": dict(_last_self_check or {}),
                 "ready_reason": "lite sandbox active",
             }
@@ -129,6 +131,7 @@ def describe_sandbox_runtime() -> dict:
             "docker_available": docker_available,
             "image_available": image_available,
             "ready": docker_available and image_available,
+            "self_check_blocked": not (docker_available and image_available),
             "last_self_check": dict(_last_self_check or {}),
             "ready_reason": (
                 "docker image ready"

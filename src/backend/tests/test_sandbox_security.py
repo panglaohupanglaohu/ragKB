@@ -181,12 +181,35 @@ class TestSandboxModeSelection:
         assert status["docker_available"] is True
         assert status["image_available"] is True
         assert status["ready"] is True
+        assert status["self_check_blocked"] is False
+        assert status["docker_binary_path"] == "/usr/bin/docker"
         assert status["build_command"] == "./scripts/build_sandbox_image.sh"
         assert status["self_check_command"] == "./scripts/build_sandbox_image.sh --self-check"
         assert status["ready_reason"] == "docker image ready"
         assert status["last_self_check"] == {}
         assert status["resource_limits"]["memory_limit_mb"] == 256
         assert status["resource_limits"]["pids_limit"] == 64
+
+    def test_describe_sandbox_runtime_reports_missing_docker(self, monkeypatch, tmp_path):
+        from sandbox import python_runner as runner_module
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps({"sandbox": {"mode": "docker", "docker_image": "sandbox:test"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner_module, "_SETTINGS_PATH", settings_path)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        status = describe_sandbox_runtime()
+
+        assert status["mode"] == "docker"
+        assert status["docker_available"] is False
+        assert status["image_available"] is False
+        assert status["ready"] is False
+        assert status["self_check_blocked"] is True
+        assert status["docker_binary_path"] == ""
+        assert status["ready_reason"] == "docker executable missing"
 
     def test_describe_sandbox_runtime_includes_last_self_check(self, monkeypatch, tmp_path):
         from sandbox import python_runner as runner_module
@@ -237,3 +260,32 @@ class TestSandboxModeSelection:
         assert payload["checks"]["python"]["stdout"] == "sandbox-ok\n"
         assert payload["checks"]["pytest_collect"]["exit_code"] == 0
         assert recorded["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_self_check_reports_blocked_docker_runtime(self, monkeypatch):
+        recorded = {}
+
+        monkeypatch.setattr(
+            sandbox_api_module,
+            "describe_sandbox_runtime",
+            lambda: {
+                "mode": "docker",
+                "ready": False,
+                "ready_reason": "docker executable missing",
+                "self_check_blocked": True,
+            },
+        )
+        monkeypatch.setattr(
+            sandbox_api_module,
+            "record_sandbox_self_check",
+            lambda payload: recorded.update(payload),
+        )
+
+        payload = await sandbox_api_module.run_runtime_self_check()
+
+        assert payload["ok"] is False
+        assert payload["blocked"] is True
+        assert payload["blocked_reason"] == "docker executable missing"
+        assert payload["checks"]["python"]["skipped"] is True
+        assert payload["checks"]["pytest_collect"]["skipped"] is True
+        assert recorded["blocked_reason"] == "docker executable missing"

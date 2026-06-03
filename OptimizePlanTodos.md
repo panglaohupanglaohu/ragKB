@@ -10,6 +10,7 @@
 > - 后端全量：`884 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
+> - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `17 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖
 >
 > 最近提交记录：
 > - `Complete protected-page cookie-only smoke`：补 `agent-team-config` / `datacenter-ratchet-evolution` 鉴权守卫，完成 6 个高优先级受保护页的登录态与登出回跳浏览器 smoke，并再次跑通 Plaza / Evolution 正向动作
@@ -83,6 +84,7 @@
 | SEC-01-11 | 登录回跳 | `login.html` 支持消费 `?next=`，在 cookie-only 401 回登录后可返回原目标页面 |
 | SEC-01-12 | 受保护页显式鉴权守卫 | `agent-team-config.js` 与 `datacenter-ratchet-evolution.html` 增加 `auth/me` 守卫，修复登出后假活 |
 | FE-01-3 | 高优先级受保护页 smoke | 登录态 6 页打开 + 登出后 6 页回跳登录；Plaza / Evolution 动作再次冒烟 |
+| RUN-01-3 | Docker 缺失诊断 | `runtime-status` 暴露 `docker_binary_path/self_check_blocked`；`runtime-self-check` 在缺 Docker / 缺镜像时显式返回 blocked reason |
 
 ---
 
@@ -95,11 +97,12 @@
 ```
 位置: src/backend/sandbox/python_runner_docker.py, docker/sandbox/, scripts/
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed、CI workflow、集成测试均已备；当前机器缺 docker，待远端首轮执行与本机有 docker 时复验
+状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed、CI workflow、集成测试均已备；缺 Docker 时的 blocked/self-check 语义也已补齐；当前机器仍缺 docker，待远端首轮执行与本机有 docker 时复验
 ```
 
 - [x] docker mode、Dockerfile、limits、self-check 代码已备
 - [x] 缺 docker 时 fail-closed（返回 `SandboxResult(ok=False)`）
+- [x] 缺 docker / 缺镜像时 `runtime-self-check` 返回 blocked reason，`runtime-status` 暴露 `docker_binary_path/self_check_blocked`
 - [x] GitHub Actions build sandbox docker image 并执行 self-check
 - [ ] 本机实机 build sandbox docker image（当前机器无 docker）
 - [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试（待远端首轮执行结果 / 本机有 docker 时复验）

@@ -149,8 +149,31 @@ async def get_runtime_status() -> Dict[str, Any]:
 @router.post("/runtime-self-check")
 async def run_runtime_self_check() -> Dict[str, Any]:
     """Run a minimal end-to-end self-check through the configured sandbox runtime."""
-    sandbox = get_sandbox()
     runtime = describe_sandbox_runtime()
+    if runtime.get("mode") == "docker" and not runtime.get("ready"):
+        blocked_reason = runtime.get("ready_reason") or "docker sandbox is not ready"
+        payload = {
+            "ok": False,
+            "blocked": True,
+            "blocked_reason": blocked_reason,
+            "runtime": runtime,
+            "checks": {
+                "python": {
+                    "ok": False,
+                    "skipped": True,
+                    "error": blocked_reason,
+                },
+                "pytest_collect": {
+                    "ok": False,
+                    "skipped": True,
+                    "error": blocked_reason,
+                },
+            },
+        }
+        record_sandbox_self_check(payload)
+        return payload
+
+    sandbox = get_sandbox()
     repo_root = Path(__file__).resolve().parents[3]
     python_result = sandbox.run_python("print('sandbox-ok')", cwd=repo_root, timeout=5)
     pytest_result = sandbox.run_pytest("src/backend/tests/test_sandbox_smoke.py", cwd=repo_root, timeout=20)
