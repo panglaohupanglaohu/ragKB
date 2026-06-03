@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -14,18 +15,27 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from datacenter_api import _service  # noqa: E402
+import main  # noqa: E402
 from main import app  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def client():
-    return TestClient(app)
+    from channels import marine_base
+
+    marine_base._default_registry = None
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture(autouse=True)
 def reset_service_state():
     _service.reset()
     _service.reset()
+    main._RATE_LIMIT_LOGIN.clear()
+    main._RATE_LIMIT_IP.clear()
+    main._RATE_LIMIT_API.clear()
+    main._RATE_LIMIT_SENSITIVE.clear()
 
 
 def _csrf_headers(client: TestClient) -> dict[str, str]:
@@ -33,7 +43,19 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
     return {"x-csrf-token": token}
 
 
+def _authenticate(client: TestClient, prefix: str = "datacenter_user") -> str:
+    client.cookies.clear()
+    username = f"{prefix}_{uuid.uuid4().hex[:8]}"
+    resp = client.post(
+        "/api/v1/auth/register",
+        json={"username": username, "password": "password123"},
+    )
+    assert resp.status_code == 200
+    return username
+
+
 def test_datacenter_status_and_recommendations_exist(client: TestClient):
+    _authenticate(client, "datacenter_status")
     status = client.get("/api/v1/datacenter/status")
     recs = client.get("/api/v1/datacenter/recommend?top_n=3")
 
@@ -44,6 +66,7 @@ def test_datacenter_status_and_recommendations_exist(client: TestClient):
 
 
 def test_datacenter_loop_tick_and_evolve_update_state(client: TestClient):
+    _authenticate(client, "datacenter_loop")
     tick = client.post("/api/v1/datacenter/loop/tick", headers=_csrf_headers(client))
     assert tick.status_code == 200
     tick_payload = tick.json()
@@ -74,6 +97,7 @@ def test_datacenter_loop_tick_and_evolve_update_state(client: TestClient):
 
 
 def test_datacenter_apply_policy_is_csrf_protected(client: TestClient):
+    _authenticate(client, "datacenter_policy")
     denied = client.post("/api/v1/datacenter/policies/apply", json={"policy_id": "pol-freecooling", "fitness": 0.91})
     assert denied.status_code == 403
 

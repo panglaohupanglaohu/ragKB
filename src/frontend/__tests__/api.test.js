@@ -25,6 +25,7 @@ describe('api.js - request', () => {
       _csrfToken: null,
       _csrfPromise: null,
       _csrfHeaderName: 'X-CSRF-Token',
+      _authRedirecting: false,
 
       setCsrfToken(token) {
         this._csrfToken = token || '';
@@ -63,6 +64,22 @@ describe('api.js - request', () => {
           resolved.hostname === current.hostname
         );
         return { csrfAware, sameOrigin };
+      },
+
+      redirectToLogin() {
+        if (this._authRedirecting) return;
+        if (globalThis.location.pathname === '/login.html') return;
+        this._authRedirecting = true;
+        const next = (globalThis.location.pathname || '') + (globalThis.location.search || '') + (globalThis.location.hash || '');
+        globalThis.location.href = '/login.html?next=' + encodeURIComponent(next);
+      },
+
+      maybeHandleUnauthorizedResponse(response, url) {
+        if (!response || response.status !== 401) return;
+        const resolved = new URL(url, globalThis.location.origin);
+        if (!resolved.pathname.startsWith('/api/v1/')) return;
+        if (resolved.pathname.startsWith('/api/v1/auth/')) return;
+        this.redirectToLogin();
       },
 
       isCsrfFailurePayload(payload) {
@@ -105,9 +122,11 @@ describe('api.js - request', () => {
           };
 
           let r = await sendOnce();
+          this.maybeHandleUnauthorizedResponse(r, url);
           if (await this.isCsrfFailureResponse(r)) {
             this.clearCsrfToken();
             r = await sendOnce();
+            this.maybeHandleUnauthorizedResponse(r, url);
           }
           if (this._offline) {
             this._offline = false;
@@ -187,6 +206,21 @@ describe('api.js - request', () => {
       const result = await api.get('/api/v1/teams');
       expect(result).toBeNull();
       expect(onError).toHaveBeenCalledWith('HTTP 404');
+    });
+
+    it('redirects to login on protected API 401', async () => {
+      globalThis.location.pathname = '/system-evolution.html';
+      globalThis.location.search = '?panel=items';
+      globalThis.location.hash = '#trail';
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ detail: '认证已失效，请重新登录' }),
+      });
+
+      const result = await api.get('/api/v1/agent-config/plaza');
+      expect(result).toBeNull();
+      expect(globalThis.location.href).toBe('/login.html?next=' + encodeURIComponent('/system-evolution.html?panel=items#trail'));
     });
 
     it('returns null and triggers offline on network error', async () => {

@@ -39,11 +39,11 @@
 | 维度 | 当前状态 | 说明 |
 |------|:--------:|------|
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
-| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`；可通过 bundled-node fallback 稳定执行 |
-| 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通并刷新审计轨迹/演进条目 |
+| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`；可通过 bundled-node fallback 稳定执行 |
+| 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测 cookie-only 模式下“新建讨论 → 开始讨论”可跑通，且过期 CSRF 会自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通；登出后重新打开受保护页会被 401 踢回 `login.html?next=...` |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py` → `39 passed` |
-| 后端全量 | ✅ 通过 | 最近一次稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `878 passed, 4 skipped` |
-| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
+| 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `884 passed, 4 skipped` |
+| Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；本轮新增：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
 | 后端规模 | 147 Python / 25 backend tests | 以当前 `src/backend` 文件统计为准 |
 | `.huashu-skills` | 不纳入 | 用户明确要求一直不动 |
@@ -106,13 +106,14 @@
 | FE-DONE-20 | DONE | 共享 API 客户端已在收到 “CSRF token invalid or expired” 时自动刷新 token 并重试一次；Plaza 新建讨论回到共享客户端 | `api.test.js`, 浏览器 smoke |
 | FE-DONE-21 | DONE | System Evolution 页面已修复 evolution 前缀常量、分页 envelope 消费，以及顶层 `api()` 对共享 `window.api` 的覆盖问题 | `system-evolution.test.js`, 浏览器 smoke |
 | FE-DONE-22 | DONE | Plaza → Task → Evolution → verification queue 的后端 happy path 已有端到端回归，覆盖讨论演化、任务产物回写、人工验证项关闭 | `test_plaza_evolution_bridge.py` |
+| FE-DONE-23 | DONE | 共享 API 客户端在受保护 API 返回 401 时会统一跳回 `login.html?next=...`，登录页支持回跳原页面 | `api.test.js`, 浏览器 smoke |
 
 ### 2.3 后端平台质量
 
 | 编号 | 状态 | 内容 | 说明 |
 |------|:----:|------|------|
 | BE-DONE-01 | DONE | CSRF token endpoint + middleware 已存在 | `/api/v1/auth/csrf-token` |
-| BE-DONE-02 | WIP | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke | 默认仍保留 token JSON 兼容旧客户端 |
+| BE-DONE-02 | WIP | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke；`/api/v1/**` 已补统一鉴权中间件，未登录访问 Plaza / Evolution 会返回 401 | 默认仍保留 token JSON 兼容旧客户端；全页面 browser smoke 仍可继续扩面 |
 | BE-DONE-03 | DONE | health check 可注册子检查 | `/api/v1/health` |
 | BE-DONE-04 | DONE | 分页 helper 与所有主要列表分页已落地 | 所有主要 list API 已覆盖 `limit/offset` |
 | BE-DONE-05 | DONE | `src/backend/config.py` 已被 `main.py` 全面复用，支持 .env | 包含 server/auth/CORS/pagination/paths/logging/rate-limit 常量 |

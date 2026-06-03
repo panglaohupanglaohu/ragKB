@@ -7,6 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def _register_user(client: TestClient, username_prefix: str = "csrf_user") -> str:
+    username = f"{username_prefix}_{int(time.time() * 1000)}"
+    resp = client.post(
+        "/api/v1/auth/register",
+        json={"username": username, "password": "password123"},
+    )
+    assert resp.status_code == 200
+    return username
+
+
 @pytest.fixture
 def csrf_setup():
     """Import the CSRF helpers directly from main.py"""
@@ -78,12 +88,14 @@ class TestCsrfEndpoint:
         assert len(data["csrf_token"]) > 0
 
     def test_post_without_csrf_returns_403(self, client):
+        _register_user(client, "csrf_missing")
         resp = client.post("/api/v1/agent-config/tools/web_search/execute",
                            json={"arguments": {"query": "test"}},
                            headers={"Content-Type": "application/json"})
         assert resp.status_code == 403
 
     def test_post_with_valid_csrf_succeeds(self, client):
+        _register_user(client, "csrf_valid")
         # Get a token first
         token_resp = client.get("/api/v1/auth/csrf-token")
         token = token_resp.json()["csrf_token"]
@@ -95,8 +107,9 @@ class TestCsrfEndpoint:
                                "Content-Type": "application/json",
                                "x-csrf-token": token,
                            })
-        # Should not be 403 (may be other errors like missing data, but not CSRF)
+        # Should not be 401/403 (may be other errors like missing data, but auth + CSRF passed)
         assert resp.status_code != 403
+        assert resp.status_code != 401
 
     def test_csrf_not_required_for_get(self, client):
         resp = client.get("/api/v1/health")
@@ -248,3 +261,16 @@ class TestCookieAuthModes:
         assert payload["auth_mode"] == "cookie-only"
         assert payload["cookie_only"] is True
         assert payload["token_json_enabled"] is False
+
+    def test_protected_api_requires_auth(self, client):
+        resp = client.get("/api/v1/agent-config/plaza")
+        assert resp.status_code == 401
+        assert "重新登录" in resp.json()["detail"]
+
+    def test_protected_api_allows_cookie_auth(self, client, isolated_auth_store):
+        client.post(
+            "/api/v1/auth/register",
+            json={"username": "protected_user", "password": "password123"},
+        )
+        resp = client.get("/api/v1/agent-config/teams")
+        assert resp.status_code != 401

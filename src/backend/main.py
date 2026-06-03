@@ -162,6 +162,8 @@ _RATE_LIMIT_EXEMPT_PATHS = {
     "/api/v1/auth/register",
     "/api/v1/auth/logout",
     "/api/v1/auth/csrf-token",
+    "/api/v1/auth/me",
+    "/api/v1/health",
     "/api/v1/log/client-error",
 }
 _RATE_LIMIT_SENSITIVE_PATHS = {
@@ -176,6 +178,19 @@ _RATE_LIMIT_SENSITIVE_PREFIXES = {
     "/api/v1/agent-config/tools/": _RATE_SENSITIVE_LIMIT,
     "/api/v1/agent-config/agent-loop": _RATE_SENSITIVE_LIMIT,
 }
+_AUTH_EXEMPT_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/me",
+    "/api/v1/auth/csrf-token",
+    "/api/v1/health",
+    "/api/v1/log/client-error",
+}
+_AUTH_EXEMPT_PREFIXES = (
+    "/api/v1/startup-check",
+    "/api/v1/webhook/",
+)
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
     """Return True if request is allowed, False if rate-limited."""
@@ -200,6 +215,10 @@ def _clean_rate_limits():
 
 def _is_rate_limit_exempt(path: str) -> bool:
     return path in _RATE_LIMIT_EXEMPT_PATHS or path.startswith("/api/v1/startup-check")
+
+
+def _is_auth_exempt(path: str) -> bool:
+    return path in _AUTH_EXEMPT_PATHS or any(path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES)
 
 
 def _match_sensitive_rate_limit(path: str) -> int | None:
@@ -764,6 +783,27 @@ def _get_auth_mode() -> str:
     if _AUTH_RETURN_TOKEN_JSON:
         return "cookie+token"
     return "cookie"
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/v1/") and not _is_auth_exempt(path):
+        token = _extract_request_token(request, request.headers.get("authorization", ""))
+        username = _validate_token(token)
+        if not username:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": True,
+                    "detail": "认证已失效，请重新登录",
+                    "status_code": 401,
+                    "auth_mode": _get_auth_mode(),
+                },
+                headers={"X-AG-Auth-Mode": _get_auth_mode()},
+            )
+        request.state.username = username
+    return await call_next(request)
 
 
 def _build_auth_response(username: str, token: str, csrf: str) -> JSONResponse:

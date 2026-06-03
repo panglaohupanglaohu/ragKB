@@ -370,6 +370,15 @@
         }
       }
 
+      function getNextUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var next = params.get('next') || '/agent-team-config.html';
+        if (!next || next.charAt(0) !== '/' || next.indexOf('//') === 0) {
+          return '/agent-team-config.html';
+        }
+        return next;
+      }
+
       window.handleLogin = function (e) {
         e.preventDefault();
         clearMessages();
@@ -403,7 +412,7 @@
             window.api.setCsrfToken(data.csrf_token);
           }
           localStorage.setItem('ag-user', username);
-          window.location.href = '/agent-team-config.html';
+          window.location.href = getNextUrl();
         }).catch(function (err) {
           setLoading(btn, false);
           showError(err && err.message ? err.message : '连接失败，请检查后端服务');
@@ -453,7 +462,7 @@
           }
           localStorage.setItem('ag-user', username);
           showSuccess('🎉 注册成功，即将跳转...');
-          setTimeout(function () { window.location.href = '/agent-team-config.html'; }, 800);
+          setTimeout(function () { window.location.href = getNextUrl(); }, 800);
         }).catch(function (err) {
           setLoading(btn, false);
           showError(err && err.message ? err.message : '连接失败，请检查后端服务');
@@ -480,14 +489,14 @@
 
       window.guestLogin = function () {
         localStorage.setItem('ag-user', 'guest');
-        window.location.href = '/agent-team-config.html';
+        window.location.href = getNextUrl();
       };
 
       // If using httpOnly cookie, check via auth/me
       window.api.request('/api/v1/auth/me').then(function (data) {
         if (data && data.authenticated) {
           localStorage.setItem('ag-user', data.username);
-          window.location.href = '/agent-team-config.html';
+          window.location.href = getNextUrl();
         }
       });
     })();

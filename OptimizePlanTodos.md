@@ -7,9 +7,9 @@
 >
 > 当前验证快照：
 > - 后端定向回归：`39 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py`）
-> - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` 通过（`14 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
-> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通
+> - 后端全量：`884 passed, 4 skipped`（最新 `src/backend/tests` 基线）
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测 cookie-only 模式下“新建讨论 → 开始讨论”可跑通，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通；登出后重新打开受保护页会被 401 踢回 `login.html?next=...`
 >
 > 最近提交记录：
 > - `3f1858a` `Repair system evolution dashboard actions`：修复 `system-evolution` 页的 `EVP` 常量、分页 envelope 消费、共享 `window.api` 被覆盖问题；补 `system-evolution.test.js`
@@ -79,6 +79,8 @@
 | FE-01-1 | Datacenter Ratchet 恢复 | 补齐 `src/backend/datacenter_api.py`，页面从 `404/403` 恢复到可用，`TICK/LOCK` 浏览器 smoke 通过 |
 | FE-01-2 | System Evolution 页面修复 | 修复 `EVP` 常量缺失、分页 envelope 消费，以及顶层 `api()` 覆盖共享 `window.api` 的问题；`system-evolution.test.js` 与浏览器 smoke 已覆盖 |
 | PLAZA-01-2 | Plaza 后端端到端回归 | 新增讨论 → 演化 → 任务产物回写 → verification queue → 关闭 的 happy path 回归（`test_plaza_evolution_bridge.py`） |
+| SEC-01-10 | 受保护 API 统一鉴权 | `/api/v1/**` 增加统一 auth middleware；无 cookie 访问 Plaza / Evolution 返回 `401`，浏览器端自动回跳登录页 |
+| SEC-01-11 | 登录回跳 | `login.html` 支持消费 `?next=`，在 cookie-only 401 回登录后可返回原目标页面 |
 
 ---
 
@@ -107,7 +109,7 @@
 ```
 位置: src/backend/main.py, src/frontend/login.html, src/frontend/js/api.js
 难度: ⚡ 小   优先级: P0
-状态: 几乎完成 — httpOnly cookie / logout / AG_AUTH_RETURN_TOKEN_JSON 均已落地
+状态: WIP — 已补统一 auth middleware、401 自动回登录与 `next` 回跳；剩余价值主要在全页面 browser smoke 扩面
 ```
 
 - [x] `AG_AUTH_RETURN_TOKEN_JSON` 环境变量（默认 `1` 保持兼容）
@@ -119,7 +121,8 @@
 - [x] Datacenter Ratchet / Token Factory / Plaza TTS 的剩余写请求显式切到 `_agFetch`
 - [x] 前端 cookie-only 契约测试（`test_frontend_auth_contract.py`）
 - [x] Plaza 新建讨论在 CSRF 过期时自动刷新 token 并重试一次
-- [ ] cookie-only 模式下所有页面验收
+- [x] 登出后重新访问 Plaza / System Evolution 会命中后端 401，并回到 `login.html?next=...`
+- [ ] cookie-only 模式下所有页面验收（其余页面继续扩面）
 
 ### RUN-02 🔴 统一 AgentLoop 收窄
 

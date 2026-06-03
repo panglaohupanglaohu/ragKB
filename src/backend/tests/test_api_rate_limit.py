@@ -38,10 +38,22 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
     return {"x-csrf-token": token}
 
 
+def _authenticate(client: TestClient, prefix: str = "ratelimit_user") -> str:
+    client.cookies.clear()
+    username = f"{prefix}_{uuid.uuid4().hex[:8]}"
+    resp = client.post(
+        "/api/v1/auth/register",
+        json={"username": username, "password": "password123"},
+    )
+    assert resp.status_code == 200
+    return username
+
+
 def test_generic_api_rate_limit_caps_write_requests(client: TestClient, monkeypatch):
     monkeypatch.setattr(main, "_RATE_API_LIMIT", 3)
     monkeypatch.setattr(main, "_RATE_LIMIT_SENSITIVE_PATHS", {})
     monkeypatch.setattr(main, "_RATE_LIMIT_SENSITIVE_PREFIXES", {})
+    _authenticate(client, "ratelimit_generic")
 
     statuses = []
     for _ in range(4):
@@ -62,6 +74,7 @@ def test_sensitive_api_uses_tighter_bucket(client: TestClient, monkeypatch):
             "/api/v1/datacenter/loop/tick": 2,
         },
     )
+    _authenticate(client, "ratelimit_sensitive")
 
     statuses = []
     for _ in range(3):

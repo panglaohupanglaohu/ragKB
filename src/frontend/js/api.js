@@ -40,6 +40,8 @@
     return api._lastRequestId || '';
   };
 
+  api._authRedirecting = false;
+
   api.decorateErrorMessage = function (message, requestId) {
     var text = String(message || '');
     var id = requestId || api.getLastRequestId() || (api._lastError && api._lastError.request_id) || '';
@@ -84,6 +86,32 @@
   function hasHeader(headers, name) {
     if (!headers || typeof headers.has !== 'function') return false;
     return headers.has(name) || headers.has(name.toLowerCase());
+  }
+
+  function isAuthEndpointPath(pathname) {
+    return pathname.indexOf('/api/v1/auth/') === 0;
+  }
+
+  function redirectToLogin() {
+    if (api._authRedirecting) return;
+    if (window.location.pathname === '/login.html') return;
+    api._authRedirecting = true;
+    var next = window.location.pathname + window.location.search + window.location.hash;
+    window.location.href = '/login.html?next=' + encodeURIComponent(next);
+  }
+
+  function maybeHandleUnauthorizedResponse(response, input) {
+    if (!response || response.status !== 401) return;
+    var url = getRequestUrl(input);
+    if (!url) return;
+    try {
+      var resolved = new URL(url, window.location.origin);
+      if (resolved.pathname.indexOf('/api/v1/') !== 0) return;
+      if (isAuthEndpointPath(resolved.pathname)) return;
+      redirectToLogin();
+    } catch (e) {
+      /* ignore malformed URLs */
+    }
   }
 
   function nextRequestId() {
@@ -166,6 +194,7 @@
     var prepared = await prepareRequest(input, opts);
     var requestId = getRequestIdFromPrepared(prepared[0], prepared[1]);
     var response = await nativeFetch(prepared[0], prepared[1]);
+    maybeHandleUnauthorizedResponse(response, prepared[0]);
     if (!(await isCsrfFailureResponse(response))) {
       return { response: response, requestId: requestId };
     }
@@ -175,6 +204,7 @@
     var retryPrepared = await prepareRequest(retryInput, opts);
     var retryRequestId = getRequestIdFromPrepared(retryPrepared[0], retryPrepared[1]) || requestId;
     var retryResponse = await nativeFetch(retryPrepared[0], retryPrepared[1]);
+    maybeHandleUnauthorizedResponse(retryResponse, retryPrepared[0]);
     return { response: retryResponse, requestId: retryRequestId };
   }
 
