@@ -30,6 +30,39 @@ from agents.task_engine import AgentTask, TaskEngine
 from agents.task_store import TaskStore
 
 
+def _build_success_workflow(artifact_dir: str) -> list:
+    return [
+        {
+            "key": "develop",
+            "status": "completed",
+            "artifact": f"{artifact_dir}/04_develop/summary.md",
+            "deliverable_paths": ["src/backend/main.py"],
+            "_summary": {
+                "files_changed": ["src/backend/main.py"],
+                "verify_checklist": ["import check: `src/backend/main.py`"],
+            },
+        },
+        {
+            "key": "test",
+            "status": "completed",
+            "artifact": f"{artifact_dir}/05_test.md",
+            "_summary": {
+                "verdict": "PASS",
+                "checklist": [],
+            },
+        },
+        {
+            "key": "deploy",
+            "status": "completed",
+            "artifact": f"{artifact_dir}/06_deploy/summary.md",
+            "deploy_result": {
+                "developer": {"applied": [{"path": "src/backend/main.py"}], "skipped": [], "failed": []},
+                "deployer": {"applied": [], "skipped": [], "failed": []},
+            },
+        },
+    ]
+
+
 @pytest.fixture
 def isolated_plaza_engine(monkeypatch):
     with TemporaryDirectory() as tmpdir:
@@ -303,3 +336,90 @@ class TestPlazaEvolutionBridge:
         assert broadcast_events[-1][1]["trigger"] == "verification_queue_run"
         assert broadcast_events[-1][1]["status_counts"][EvolutionStatus.CLOSED.value] == 1
         assert broadcast_events[-1][1]["alert_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_plaza_end_to_end_discussion_to_verification_close(
+        self,
+        isolated_plaza_engine,
+        isolated_task_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        evolution_engine = SystemEvolutionChannel()
+        evolution_engine.initialize()
+        evolution_engine.audit_rules = []
+        monkeypatch.setattr(agent_team_api_module, "_evolution_engine", evolution_engine)
+
+        broadcast_events = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcast_events.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+
+        created_tasks = []
+
+        async def fake_submit_internal_task(team_id: str, **kwargs):
+            index = len(created_tasks) + 1
+            pipeline_dir = Path(isolated_task_engine._store._dir) / f"pipeline-{index}"
+            task = AgentTask(
+                task_id=f"plaza-task-{index}",
+                team_id=team_id,
+                title=kwargs["title"],
+                description=kwargs["description"],
+                priority=kwargs["priority"],
+                metadata={
+                    **kwargs["metadata"],
+                    "pipeline_dir": str(pipeline_dir),
+                    "workflow": _build_success_workflow(str(pipeline_dir)),
+                },
+            )
+            created_tasks.append(task)
+            await isolated_task_engine.submit_task(task)
+            return task
+
+        monkeypatch.setattr(api_module, "_submit_internal_task", fake_submit_internal_task)
+
+        evolve_result = await evolve_from_discussion(plaza.id, disc.id, EvolveRequest(team_id="team-build"))
+
+        assert evolve_result["status"] == "evolving"
+        assert evolve_result["task_count"] == 2
+        assert [task["task_id"] for task in evolve_result["tasks"]] == ["plaza-task-1", "plaza-task-2"]
+
+        verification_item_id = evolve_result["items"][0]["id"]
+        auto_close_item_id = evolve_result["items"][1]["id"]
+        evolution_engine.evolution_items[verification_item_id].verify_test_name = "verify-plaza-e2e"
+        evolution_engine.register_verify_test("verify-plaza-e2e", lambda: (True, "discussion verify ok"))
+
+        finalized = await api_module._finalize_task_terminal_state(created_tasks[0])
+
+        assert finalized is not None
+        assert finalized.metadata["build_outcome"] == "completed"
+        assert finalized.metadata["test_result"]["verdict"] == "PASS"
+
+        verification_queue = await get_discussion_verification_queue(plaza.id, disc.id)
+        assert verification_queue["count"] == 2
+        assert verification_queue["items"][0]["id"] == verification_item_id
+        assert verification_queue["items"][0]["verify_test_name"] == "verify-plaza-e2e"
+        assert verification_queue["items"][0]["requires_manual_verify"] is True
+        assert verification_queue["items"][1]["id"] == auto_close_item_id
+        assert verification_queue["items"][1]["status"] == EvolutionStatus.CLOSED.value
+
+        verify_run = await run_discussion_verification_queue(plaza.id, disc.id)
+
+        assert verify_run["verify"]["count"] == 1
+        assert verify_run["verify"]["verified"][0]["item_id"] == verification_item_id
+        assert verify_run["closed"] == [verification_item_id]
+        assert verify_run["alerts"] == []
+
+        assert evolution_engine.evolution_items[verification_item_id].status == EvolutionStatus.CLOSED.value
+        assert evolution_engine.evolution_items[auto_close_item_id].status == EvolutionStatus.CLOSED.value
+
+        task_record = isolated_task_engine.get_task("plaza-task-1")
+        assert task_record is not None
+        assert task_record.metadata["trace_context"]["discussion_id"] == disc.id
+        assert task_record.metadata["trace_context"]["evolution_item_ids"] == [verification_item_id, auto_close_item_id]
+
+        assert broadcast_events
+        assert broadcast_events[0][1]["trigger"] == "discussion_evolved"
+        assert broadcast_events[-1][1]["trigger"] == "verification_queue_run"

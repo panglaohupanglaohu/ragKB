@@ -41,7 +41,7 @@
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
 | 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通并刷新审计轨迹/演进条目 |
-| 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_evolution_bridge.py` → `22 passed` |
+| 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py` → `39 passed` |
 | 后端全量 | ✅ 通过 | 最近一次稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `878 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped` |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
@@ -105,6 +105,7 @@
 | FE-DONE-19 | DONE | `api.js` 现已支持同主机跨端口绝对 URL 的 CSRF + cookie（如 `127.0.0.1:5173 -> 127.0.0.1:8080`），并新增 Datacenter Ratchet 最小后端契约 | datacenter 页面从 `404/403` 恢复到浏览器实测可用 |
 | FE-DONE-20 | DONE | 共享 API 客户端已在收到 “CSRF token invalid or expired” 时自动刷新 token 并重试一次；Plaza 新建讨论回到共享客户端 | `api.test.js`, 浏览器 smoke |
 | FE-DONE-21 | DONE | System Evolution 页面已修复 evolution 前缀常量、分页 envelope 消费，以及顶层 `api()` 对共享 `window.api` 的覆盖问题 | `system-evolution.test.js`, 浏览器 smoke |
+| FE-DONE-22 | DONE | Plaza → Task → Evolution → verification queue 的后端 happy path 已有端到端回归，覆盖讨论演化、任务产物回写、人工验证项关闭 | `test_plaza_evolution_bridge.py` |
 
 ### 2.3 后端平台质量
 
@@ -143,7 +144,7 @@
 | RUN-02 | 统一 AgentLoop 收口 | DONE | P0 | 共享 plan/tool runtime 已落地；同步 tool-loop 入口已统一到 `run_tool_loop_sync_with_provider`，旧 `AgentLoop` 已收窄成真正 shim；chat / task / plan 入口已有契约测试证明均复用共享 runtime | 保持兼容 shim 极薄，不再回退到第二套循环 |
 | RUN-03 | State Machine + Watchdog | WIP | P1 | 独立状态机与 watchdog 模块已落地，但尚未成为所有 runtime 的唯一状态源 | 将 task/session/agent 主链切到统一状态机，并补 SSE 状态事件 |
 | RUN-04 | Channels 真正消费 | WIP | P1 | Event bridge 已有，但 ChannelBus 还没成为默认协作通路 | 至少 2 个 Agent 通过 ChannelBus 自主对话并触发任务 |
-| PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态；创建讨论 / 重新讨论 / 启动讨论已有生命周期回归测试 | 端到端测试 |
+| PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态；创建讨论 / 重新讨论 / 启动讨论已有生命周期回归测试；后端端到端 happy path 回归已补齐 | 继续保持浏览器 smoke 覆盖 |
 | PLAZA-02 | Plaza 共识机制 | WIP | P2 | 共识分数、趋势、反方检测、`/consensus` API 已落地，前端计划面板已可见 | 把动态退出与 planner / 主讨论循环接起来 |
 | PLAN-01 | UltraPlan / Planner | BACKLOG | P2 | 规则式 plan builder 仍偏硬编码 | 引入 LLM-driven / hybrid planner，失败可降级规则 |
 | FE-01 | 前端运行时可见性 | WIP | P0 | Runtime / budget / trace / verification / Plaza consensus / escalations 已能从页面看到；主要错误 toast 和 trace drill-down 已可见 request_id；Datacenter Ratchet 页面后端契约已补齐并浏览器实测可用 | 继续补更细过滤、趋势图、跨页面上下文统一 |
@@ -175,7 +176,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；本机 build/vitest 已可通过 bundled-node fallback 运行，剩浏览器 smoke 与更多前端测试扩面 |
 
-当前判断：**P0 功能主链约 96%-98% 完成**。代码层已经非常接近出关，当前主要卡点收敛到 Docker 沙箱远端首轮实机验收、cookie-only 全页面浏览器验收，以及 Plaza / Evolution 的浏览器端到端 smoke。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 97%-98% 完成**。代码层已经非常接近出关，当前主要卡点收敛到 Docker 沙箱远端首轮实机验收，以及 cookie-only / Plaza 的全页面浏览器验收。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 
@@ -187,7 +188,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 |------|----|------|----------|------|
 | 1 | RUN-01 | Docker sandbox 实机验证与脚本收口 | `docker/sandbox/*`, `scripts/build_sandbox_image.sh`, `src/backend/sandbox/*` | sandbox security tests + self-check |
 | 2 | SEC-01 | cookie-only 模式全页面验收 | `src/frontend/login.html`, `src/frontend/js/api.js`, 各业务页 | 浏览器 smoke + auth/csrf tests |
-| 3 | PLAZA-01 | Plaza / Evolution 浏览器 smoke 与端到端收口 | `src/frontend/plaza.html`, `src/frontend/js/plaza.js`, `system-evolution.html` | 浏览器 smoke |
+| 3 | FE-01 | Plaza / Evolution 浏览器 smoke 收口 | `src/frontend/plaza.html`, `src/frontend/js/plaza.js`, `system-evolution.html` | 浏览器 smoke |
 
 ### 5.2 紧接执行（P1）
 
@@ -235,7 +236,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | Auth | PBKDF2、users 持久化、httpOnly cookie、CSRF endpoint/middleware、cookie-only 开关、logout revoke、全局导航登出按钮 | cookie-only 模式全页面验收与生产 secure-cookie rollout |
 | 安全执行 | LiteSandbox、DockerSandbox scaffold、permissions 执行前拦截、安全响应头中间件、通用 API rate limit | docker 实机验证 |
 | Runtime | 共享 plan/tool runtime、events、budget、trace、状态机与 watchdog 模块 | 旧 AgentLoop shim 收束、状态机接入主 runtime、ChannelBus 主链化 |
-| Plaza/Evolution | task/artifact/diff/test_result/verification 回写、LLM 重试+退避+失败升级队列 | 前端升级状态面板、端到端测试 |
+| Plaza/Evolution | task/artifact/diff/test_result/verification 回写、LLM 重试+退避+失败升级队列 | 前端升级状态面板、浏览器 smoke |
 | API 质量 | 全部分页、健康检查增强、配置模块完成、.env 支持 | Pydantic 全面化 |
 | Observability | trace JSONL、recent/export API、JSON 结构化日志、request_id middleware、前端 `X-Request-ID` 透传、可选 OTel tracing 模块 | OTel exporter smoke、页面级展示 request_id |
 | 测试 | 后端测试基线已全绿过 | 新增 auth/pagination/runtime/e2e 覆盖 |

@@ -6,10 +6,17 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`22 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_evolution_bridge.py`）
+> - 后端定向回归：`39 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py`）
 > - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` 通过（`14 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通
+>
+> 最近提交记录：
+> - `3f1858a` `Repair system evolution dashboard actions`：修复 `system-evolution` 页的 `EVP` 常量、分页 envelope 消费、共享 `window.api` 被覆盖问题；补 `system-evolution.test.js`
+> - `2e448c7` `Add plaza lifecycle coverage`：补 Plaza 创建/启动/重新讨论生命周期回归
+> - `87e2d58` `Retry expired CSRF tokens on plaza writes`：Plaza 写请求命中过期 CSRF 时自动刷新并重试
+> - `a9d7035` `Restore datacenter flow and add API write limits`：恢复 Datacenter Ratchet 主链并补通用写接口限流
+> - `3a82b3b` `Finish runtime entrypoint unification`：统一 AgentLoop / runtime 入口，收窄旧兼容层
 
 ---
 
@@ -71,6 +78,7 @@
 | SEC-01-9 | 同主机跨端口 CSRF | `api.js` 现在会为 `5173 -> 8080` 这类绝对 URL 自动附带 CSRF 与 `credentials=include` |
 | FE-01-1 | Datacenter Ratchet 恢复 | 补齐 `src/backend/datacenter_api.py`，页面从 `404/403` 恢复到可用，`TICK/LOCK` 浏览器 smoke 通过 |
 | FE-01-2 | System Evolution 页面修复 | 修复 `EVP` 常量缺失、分页 envelope 消费，以及顶层 `api()` 覆盖共享 `window.api` 的问题；`system-evolution.test.js` 与浏览器 smoke 已覆盖 |
+| PLAZA-01-2 | Plaza 后端端到端回归 | 新增讨论 → 演化 → 任务产物回写 → verification queue → 关闭 的 happy path 回归（`test_plaza_evolution_bridge.py`） |
 
 ---
 
@@ -146,7 +154,7 @@
 ```
 位置: src/backend/agents/plaza_engine.py, src/backend/agents/plaza_routes.py
 难度: ⚡ 中   优先级: P0
-状态: DONE — 重试+退避+升级队列+API 已落地
+状态: DONE — 重试+退避+升级队列+API 与后端端到端 happy path 回归均已落地
 ```
 
 - [x] LLM 调用自动重试（3 次 + 指数退避 1.5s/3s/6s）
@@ -155,7 +163,7 @@
 - [x] 前端计划面板可见重试/升级状态
 - [x] 前端计划面板显示 discussion 级 consensus / dissent / escalations
 - [x] 创建讨论 / 重新讨论 / 启动讨论的生命周期回归测试
-- [ ] 端到端回归测试
+- [x] 端到端回归测试
 
 ### BE-P0-01 列表 API 分页补齐（存量）
 
