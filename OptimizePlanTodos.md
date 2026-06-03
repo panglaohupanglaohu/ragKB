@@ -8,8 +8,8 @@
 > 当前验证快照：
 > - 后端定向回归：`22 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_evolution_bridge.py`）
 > - 后端全量：`878 passed, 4 skipped`（最近一次 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` 通过（`12 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
-> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` 通过（`14 passed`，通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测可重新讨论，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通
 
 ---
 
@@ -70,6 +70,7 @@
 | SEC-01-8 | Cookie-only 页面补漏 | `datacenter-ratchet-evolution.html`、`token-factory.js`、`plaza.js` 的剩余 POST 写请求已切到 `_agFetch`，并纳入前端 auth contract |
 | SEC-01-9 | 同主机跨端口 CSRF | `api.js` 现在会为 `5173 -> 8080` 这类绝对 URL 自动附带 CSRF 与 `credentials=include` |
 | FE-01-1 | Datacenter Ratchet 恢复 | 补齐 `src/backend/datacenter_api.py`，页面从 `404/403` 恢复到可用，`TICK/LOCK` 浏览器 smoke 通过 |
+| FE-01-2 | System Evolution 页面修复 | 修复 `EVP` 常量缺失、分页 envelope 消费，以及顶层 `api()` 覆盖共享 `window.api` 的问题；`system-evolution.test.js` 与浏览器 smoke 已覆盖 |
 
 ---
 

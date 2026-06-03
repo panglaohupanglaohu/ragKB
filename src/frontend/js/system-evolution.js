@@ -12,6 +12,7 @@ let _panelLoaded = {};  // Track which panels have been loaded
 const Q = new URLSearchParams(window.location.search);
 const deepLinkPanel = Q.get('panel') || '';
 const deepLinkItemId = Q.get('item_id') || '';
+const EVP = '/api/v1/agent-teams/evolution';
 
 // ── Utilities ──
 function el(id) { return document.getElementById(id); }
@@ -38,8 +39,17 @@ function btnLoading(btn, loading, originalText) {
     btn.textContent = btn._origText || originalText || btn.textContent;
   }
 }
-var _apiClient_se = window.api;  // Save before function overwrites window.api
-async function api(p, o) { return _apiClient_se.request ? _apiClient_se.request(p, o) : null; }
+var _apiClient_se = window.api || null;
+async function apiRequest(p, o) {
+  const client = (window.api && typeof window.api.request === 'function') ? window.api : _apiClient_se;
+  if (!client || typeof client.request !== 'function') return null;
+  _apiClient_se = client;
+  return client.request(p, o);
+}
+function collectionItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
 function stL(s) { return { discovered: '发现', dispatched: '已派发', in_progress: '进行中', verify_pending: '待验证', verified: '已验证', failed: '失败', closed: '已关闭' }[s] || s; }
 function stColor(s) { return { discovered: 'var(--koke)', dispatched: 'var(--amber)', in_progress: 'var(--koke)', verify_pending: 'var(--shu)', verified: 'var(--lime)', failed: 'var(--red)', closed: 'var(--dim)' }[s] || 'var(--muted)'; }
 function sevColor(s) { return s === 'critical' ? 'var(--red)' : s === 'high' ? 'var(--amber)' : 'var(--muted)'; }
@@ -96,9 +106,10 @@ function switchPanel(name) {
 
 // ── Overview ──
 async function loadOverview() {
-  const [summary, compliance, items, zones] = await Promise.all([
-    api(`${EVP}/summary`), api(`${EVP}/compliance-rating`), api(`${EVP}/items`), api(`${EVP}/zones/active`)
+  const [summary, compliance, itemsPayload, zones] = await Promise.all([
+    apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiRequest(`${EVP}/items`), apiRequest(`${EVP}/zones/active`)
   ]);
+  const items = collectionItems(itemsPayload);
 
   // Compliance Rating
   const rc = el('ov-rating');
@@ -163,8 +174,8 @@ async function loadItems() {
   const df = el('item-domain-filter')?.value || '';
   let url = `${EVP}/items`;
   if (sf) url += `?status=${sf}`;
-  const items = await api(url);
-  _allItems = items || [];
+  const itemsPayload = await apiRequest(url);
+  _allItems = collectionItems(itemsPayload);
   // Populate domain filter
   const domains = [...new Set(_allItems.map(i => i.audit_domain).filter(Boolean))];
   const dSel = el('item-domain-filter');
@@ -211,17 +222,17 @@ function itemActions(item) {
 }
 
 async function markProgress(itemId) {
-  const r = await api(`${EVP}/items/${itemId}/progress`, { method: 'POST' });
+  const r = await apiRequest(`${EVP}/items/${itemId}/progress`, { method: 'POST' });
   if (r) { toast('已标记为进行中'); refreshCurrent(); } else toast('操作失败');
 }
 async function markComplete(itemId) {
-  const r = await api(`${EVP}/items/${itemId}/complete`, { method: 'POST' });
+  const r = await apiRequest(`${EVP}/items/${itemId}/complete`, { method: 'POST' });
   if (r) { toast('已标记完成，等待验证'); refreshCurrent(); } else toast('操作失败');
 }
 
 // ── Rules ──
 async function loadRules() {
-  if (!_allRules.length) _allRules = await api(`${EVP}/rules`) || [];
+  if (!_allRules.length) _allRules = collectionItems(await apiRequest(`${EVP}/rules`));
   // Populate domain filter
   const domains = [...new Set(_allRules.map(r => r.domain).filter(Boolean))];
   const dSel = el('rule-domain-filter');
@@ -249,7 +260,7 @@ function renderRules() {
 // ── Zones ──
 async function loadZones() {
   const [allZones, activeZones] = await Promise.all([
-    api(`${EVP}/zones`), api(`${EVP}/zones/active`)
+    apiRequest(`${EVP}/zones`), apiRequest(`${EVP}/zones/active`)
   ]);
   if (allZones && allZones.length) {
     el('zones-all').innerHTML = allZones.map(z => `<div class="stat-card">
@@ -273,7 +284,7 @@ async function loadTrail() {
   const tf = el('trail-type-filter')?.value || '';
   let url = `${EVP}/audit-trail?limit=100`;
   if (tf) url += `&event_type=${tf}`;
-  const trail = await api(url);
+  const trail = collectionItems(await apiRequest(url));
   if (trail && trail.length) {
     el('trail-list').innerHTML = trail.map(e => `<div class="audit-entry">
       <span class="ae-time">${timeAgo(e.timestamp)}</span>
@@ -287,9 +298,10 @@ async function loadTrail() {
 
 // ── Trend ──
 async function loadTrend() {
-  const [trend, history, monitoring] = await Promise.all([
-    api(`${EVP}/trend`), api(`${EVP}/history`), api(`${EVP}/monitoring`)
+  const [trend, historyPayload, monitoring] = await Promise.all([
+    apiRequest(`${EVP}/trend`), apiRequest(`${EVP}/history`), apiRequest(`${EVP}/monitoring`)
   ]);
+  const history = collectionItems(historyPayload);
 
   // Trend
   if (trend) {
@@ -331,9 +343,11 @@ async function loadTrend() {
 // ── Heritage (Ratchet Lock ledger) ──
 async function loadHeritage() {
   // Heritage = verified + closed items (ratchet-locked improvements)
-  const [verified, closed] = await Promise.all([
-    api(`${EVP}/items?status=verified`), api(`${EVP}/items?status=closed`)
+  const [verifiedPayload, closedPayload] = await Promise.all([
+    apiRequest(`${EVP}/items?status=verified`), apiRequest(`${EVP}/items?status=closed`)
   ]);
+  const verified = collectionItems(verifiedPayload);
+  const closed = collectionItems(closedPayload);
   const heritage = [...(verified || []), ...(closed || [])].sort((a, b) => (b.closed_at || b.completed_at || '').localeCompare(a.closed_at || a.completed_at || ''));
   el('heritage-count').textContent = `${heritage.length} 条锁定记录`;
 
@@ -353,14 +367,14 @@ async function loadHeritage() {
 // ── Actions ──
 async function runAudit() {
   toast('正在运行审查...');
-  const r = await api(`${EVP}/audit`, { method: 'POST' });
+  const r = await apiRequest(`${EVP}/audit`, { method: 'POST' });
   if (r) { toast(`审查完成: ${r.passed || 0} 通过, ${r.failed || 0} 未通过`); refreshCurrent(); }
   else toast('审查失败');
 }
 
 async function runAuditOnly() {
   toast('正在审查...');
-  const r = await api(`${EVP}/audit`, { method: 'POST' });
+  const r = await apiRequest(`${EVP}/audit`, { method: 'POST' });
   if (r) {
     el('r-audit').classList.add('done');
     toast(`审查完成: ${r.passed || 0} 通过, ${r.failed || 0} 未通过`);
@@ -369,7 +383,7 @@ async function runAuditOnly() {
 
 async function recalcRating() {
   toast('正在重算评级...');
-  const r = await api(`${EVP}/compliance-rating/calculate`, { method: 'POST' });
+  const r = await apiRequest(`${EVP}/compliance-rating/calculate`, { method: 'POST' });
   if (r) { toast(`评级: ${r.grade} (${r.score}/100)`); refreshCurrent(); }
   else toast('重算失败');
 }
@@ -391,7 +405,7 @@ async function runCycleOnRatchet() {
   for (let i = 0; i < steps.length; i++) {
     el(dotIds[i]).classList.add('active');
     log.innerHTML += `<div class="run">⏳ ${labels[i]}...</div>`;
-    const r = await api(`${EVP}/${steps[i]}`, { method: 'POST' });
+    const r = await apiRequest(`${EVP}/${steps[i]}`, { method: 'POST' });
     el(dotIds[i]).classList.remove('active');
     if (r) {
       el(dotIds[i]).classList.add('done');
@@ -426,7 +440,7 @@ async function runCycleStepper() {
   for (let i = 0; i < steps.length; i++) {
     const d = el(dotIds[i]); if (d) d.classList.add('active');
     log.innerHTML += `<div class="run">⏳ ${labels[i]}...</div>`;
-    const r = await api(`${EVP}/${steps[i]}`, { method: 'POST' });
+    const r = await apiRequest(`${EVP}/${steps[i]}`, { method: 'POST' });
     if (d) d.classList.remove('active');
     if (r) {
       if (d) d.classList.add('done');
@@ -476,7 +490,7 @@ async function loadEvolveLab() {
 }
 
 async function loadEvolveTeams() {
-  const teams = await api('/api/v1/agent-config/teams');
+  const teams = await apiRequest('/api/v1/agent-config/teams');
   const sel = el('ev-team-select');
   sel.innerHTML = '';
   (teams || []).forEach(t => {
@@ -491,11 +505,11 @@ async function loadEvolveTeams() {
 async function loadEvolveSkills() {
   const teamId = el('ev-team-select').value || 'build_system';
   // Get skills from skill library browse endpoint
-  const r = await api(`/api/v1/skill-router/browse?team_id=${teamId}`);
+  const r = await apiRequest(`/api/v1/skill-router/browse?team_id=${teamId}`);
   const skills = r?.skills || [];
   // Also try agent-config as fallback
   if (!skills.length) {
-    const cfgSkills = await api(`/api/v1/agent-config/teams/${teamId}/skills`);
+    const cfgSkills = await apiRequest(`/api/v1/agent-config/teams/${teamId}/skills`);
     if (cfgSkills && cfgSkills.length) skills.push(...cfgSkills);
   }
   _evolveSkills = skills;
@@ -575,7 +589,7 @@ async function evGenerateDataset() {
   el('ev-ds-status').style.color = 'var(--amber)';
   toast('正在生成评估数据集...');
 
-  const r = await api(`${EVP}/dataset/generate`, {
+  const r = await apiRequest(`${EVP}/dataset/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ skill_id: skillId, team_id: teamId, count: 12 }),
@@ -602,7 +616,7 @@ async function evImportKB() {
   const skill = _evolveSkills.find(s => s.skill_id === skillId);
   toast('从知识库抽取...');
 
-  const r = await api(`${EVP}/dataset/import-kb`, {
+  const r = await apiRequest(`${EVP}/dataset/import-kb`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -636,7 +650,7 @@ async function evAddManualExample() {
 
   const skill = _evolveSkills.find(s => s.skill_id === skillId);
 
-  const r = await api(`${EVP}/dataset/manual`, {
+  const r = await apiRequest(`${EVP}/dataset/manual`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -660,7 +674,7 @@ async function evAddManualExample() {
 
 async function evDeleteExample(idx) {
   if (!_evDataset) return;
-  const r = await api(`${EVP}/dataset/${_evDataset.id}/examples`, {
+  const r = await apiRequest(`${EVP}/dataset/${_evDataset.id}/examples`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'delete', indices: [idx] }),
@@ -710,7 +724,7 @@ async function evRunBaseline() {
   toast('正在评估 Baseline...');
   el('ev-baseline-cards').innerHTML = '<div class="stat-card"><div class="value" style="font-size:14px;color:var(--amber)">⏳ 评估中...</div></div>';
 
-  const r = await api(`${EVP}/step/baseline`, {
+  const r = await apiRequest(`${EVP}/step/baseline`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ skill_id: skillId, team_id: teamId, dataset_id: _evDataset.id }),
@@ -764,7 +778,7 @@ async function evRunReflect() {
   btnLoading(btn, true, 'AI 反思中...');
   toast('🤖 AI 反思中...');
 
-  const r = await api(`${EVP}/step/reflect`, {
+  const r = await apiRequest(`${EVP}/step/reflect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ skill_id: skillId, team_id: teamId, failures, user_hints: userHints }),
@@ -806,7 +820,7 @@ async function evRunMutate() {
   btnLoading(btn, true, '生成变异中...');
   toast('🤖 生成变异候选...');
 
-  const r = await api(`${EVP}/step/mutate`, {
+  const r = await apiRequest(`${EVP}/step/mutate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ skill_id: skillId, team_id: teamId, reflection }),
@@ -844,7 +858,7 @@ async function evEvalCandidate(idx) {
   const cand = _evCandidates[idx];
   toast(`评估候选 #${idx + 1}...`);
 
-  const r = await api(`${EVP}/step/evaluate-candidate`, {
+  const r = await apiRequest(`${EVP}/step/evaluate-candidate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -953,7 +967,7 @@ async function evApplyEvolution() {
   const btn = event?.target;
   btnLoading(btn, true, '应用中...');
   toast('正在应用演化...');
-  const r = await api(`${EVP}/step/apply`, {
+  const r = await apiRequest(`${EVP}/step/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -984,7 +998,7 @@ async function runAutoTriage() {
   toast('正在自动诊断...');
   el('ev-triage-section').style.display = 'block';
 
-  const r = await api(`${EVP}/auto-triage`, {
+  const r = await apiRequest(`${EVP}/auto-triage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ team_id: teamId, top_n: 5 }),
@@ -1033,7 +1047,7 @@ goToStep = function(step) {
 // ── History ──
 
 async function loadEvolveHistory() {
-  const runs = await api(`${EVP}/optimize/runs?limit=15`);
+  const runs = collectionItems(await apiRequest(`${EVP}/optimize/runs?limit=15`));
   if (!runs || !runs.length) {
     el('ev-history-table').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px">暂无优化记录</div>';
     return;
