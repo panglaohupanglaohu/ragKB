@@ -175,7 +175,8 @@
 
 - [x] 审查 `agents/api.py` 中仍返回裸 list 的端点
 - [x] 补上 `limit/offset`：`/skills/required` / `/templates` / `/tools/execution-history` / `/skill-library` / `/skill-library/suggestions` / `/skills/search` / `/tools/search`
-- [ ] 前端 `api.list()` 在分页 API 上统一消费
+- [x] `skill-extract.js` 已切到共享 `api.list()`（团队、团队智能体、团队技能、公共技能、演化建议）
+- [ ] 前端 `api.list()` 在分页 API 上统一消费（其余页面继续推进）
 
 ---
 

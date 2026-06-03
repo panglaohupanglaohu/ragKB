@@ -76,6 +76,20 @@ async function api(path, opts = {}) {
   }
 }
 
+function collectionItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+}
+
+async function listApi(path, limit = 200, offset = 0) {
+  if (window.api && typeof window.api.list === 'function') {
+    const payload = await window.api.list(API_BASE + path, limit, offset);
+    return collectionItems(payload);
+  }
+  return collectionItems(await api(path));
+}
+
 // Skill-router API uses a different base path
 async function routerApi(path, opts = {}) {
   try {
@@ -99,8 +113,8 @@ async function routerApi(path, opts = {}) {
 
 // ── Team Loading ────────────────────────────────────────────────
 async function loadTeams() {
-  const teams = await api('/teams');
-  if (!teams) return;
+  const teams = await listApi('/teams');
+  if (!teams.length) return;
   allTeams = teams;
 
   // Check for participant teams from plaza (via sessionStorage)
@@ -235,11 +249,9 @@ window._addTeamChip = function(teamId) {
 };
 
 async function loadTeamAgents(teamId) {
-  const agents = await api(`/teams/${teamId}/agents`);
-  if (agents) {
-    teamAgents[teamId] = agents;
-    updateAgentSelect();
-  }
+  const agents = await listApi(`/teams/${teamId}/agents`);
+  teamAgents[teamId] = agents;
+  updateAgentSelect();
 }
 
 function updateAgentSelect() {
@@ -700,9 +712,9 @@ function loadEvolveTab() {
 }
 
 async function loadEvolveSuggestions() {
-  const data = await api(`/skill-library/suggestions?team_id=${currentTeamId}`);
+  const data = await listApi(`/skill-library/suggestions?team_id=${encodeURIComponent(currentTeamId)}`);
   const el = document.getElementById('evolve-suggestions');
-  if (!data || data.length === 0) {
+  if (data.length === 0) {
     el.innerHTML = '<div style="color:oklch(0.4 0.005 110);padding:8px 0">暂无演化建议</div>';
     return;
   }
@@ -810,8 +822,8 @@ function loadUsageTab() {
       renderUsageEmpty('尚未批准入库，无法查看效果');
       return;
     }
-    const skills = await api(`/teams/${currentTeamId}/skills`);
-    const current = (skills || []).find(s => s.skill_id === skillId || s.slug === skillId || s.slug === item.draft_slug);
+    const skills = await listApi(`/teams/${currentTeamId}/skills`);
+    const current = skills.find(s => s.skill_id === skillId || s.slug === skillId || s.slug === item.draft_slug);
 
     // Metrics cards
     const usage = current?.usage_count || 0;
@@ -1377,8 +1389,7 @@ async function loadSkills() {
   // Fetch real registered skills from backend
   let registeredSkills = [];
   try {
-    const data = await api(`/teams/${currentTeamId}/skills`);
-    if (Array.isArray(data)) registeredSkills = data;
+    registeredSkills = await listApi(`/teams/${currentTeamId}/skills`);
   } catch(e) { /* ignore */ }
 
   // Build from queue items (both review & approved)
@@ -1619,9 +1630,9 @@ window.toggleViewMode = function() {
 
 async function buildPanoramaView() {
   // Fetch all teams + public library overview
-  const teams = await api('/teams');
+  const teams = await listApi('/teams');
   const overview = await api('/skill-library/overview');
-  if (!teams) return;
+  if (!teams.length) return;
 
   if (panoramaGroup) {
     scene.remove(panoramaGroup);
@@ -1659,8 +1670,8 @@ async function buildPanoramaView() {
   panoramaGroup.add(poolLabel);
 
   // Public skills in center pool
-  const publicSkills = await api('/skill-library?visibility=public');
-  if (publicSkills && publicSkills.length > 0) {
+  const publicSkills = await listApi('/skill-library?visibility=public');
+  if (publicSkills.length > 0) {
     publicSkills.forEach((s, i) => {
       const a = (i / publicSkills.length) * Math.PI * 2;
       const r = 1.5 + Math.min(i * 0.3, 3.5);
@@ -4255,8 +4266,8 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   // Load agents
   async function loadRouterAgents() {
     try {
-      const agents = await api(`/teams/${currentTeamId || 'default'}/agents`);
-      if (!agents || agents.length === 0) return;
+      const agents = await listApi(`/teams/${currentTeamId || 'default'}/agents`);
+      if (agents.length === 0) return;
       const list = document.getElementById('ragent-list');
       list.innerHTML = agents.map((a, i) => `
         <div class="ragent-item${i === 0 ? ' selected' : ''}" data-agent-id="${a.agent_id || a.id || a.name}" data-agent-name="${a.name}" data-agent-color="${a.color || ''}" onclick="window._selectRouterAgent(this)">
