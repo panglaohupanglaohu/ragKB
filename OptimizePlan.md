@@ -40,7 +40,7 @@
 |------|:--------:|------|
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
 | 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`；可通过 bundled-node fallback 稳定执行 |
-| 浏览器 smoke | ✅ 部分通过 | 本轮验证：`datacenter-ratchet-evolution.html` 已恢复可交互，`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`；`plaza.html` 已实测 cookie-only 模式下“新建讨论 → 开始讨论”可跑通，且过期 CSRF 会自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通；登出后重新打开受保护页会被 401 踢回 `login.html?next=...` |
+| 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py` → `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `884 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；本轮新增：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed` |
@@ -106,6 +106,7 @@
 | FE-DONE-20 | DONE | 共享 API 客户端已在收到 “CSRF token invalid or expired” 时自动刷新 token 并重试一次；Plaza 新建讨论回到共享客户端 | `api.test.js`, 浏览器 smoke |
 | FE-DONE-21 | DONE | System Evolution 页面已修复 evolution 前缀常量、分页 envelope 消费，以及顶层 `api()` 对共享 `window.api` 的覆盖问题 | `system-evolution.test.js`, 浏览器 smoke |
 | FE-DONE-22 | DONE | Plaza → Task → Evolution → verification queue 的后端 happy path 已有端到端回归，覆盖讨论演化、任务产物回写、人工验证项关闭 | `test_plaza_evolution_bridge.py` |
+| FE-DONE-24 | DONE | `agent-team-config` 与 `datacenter-ratchet-evolution` 已补显式 auth guard，cookie-only 高优先级受保护页浏览器 smoke 覆盖完成 | 登录态 6 页打开 + 登出后 6 页回跳登录 |
 | FE-DONE-23 | DONE | 共享 API 客户端在受保护 API 返回 401 时会统一跳回 `login.html?next=...`，登录页支持回跳原页面 | `api.test.js`, 浏览器 smoke |
 
 ### 2.3 后端平台质量
@@ -113,7 +114,7 @@
 | 编号 | 状态 | 内容 | 说明 |
 |------|:----:|------|------|
 | BE-DONE-01 | DONE | CSRF token endpoint + middleware 已存在 | `/api/v1/auth/csrf-token` |
-| BE-DONE-02 | WIP | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke；`/api/v1/**` 已补统一鉴权中间件，未登录访问 Plaza / Evolution 会返回 401 | 默认仍保留 token JSON 兼容旧客户端；全页面 browser smoke 仍可继续扩面 |
+| BE-DONE-02 | DONE | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke；`/api/v1/**` 已补统一鉴权中间件，未登录访问受保护页依赖的 API 会返回 401，前端会回跳登录页 | 默认仍保留 token JSON 兼容旧客户端；更低频页面继续随常规 smoke 扩面 |
 | BE-DONE-03 | DONE | health check 可注册子检查 | `/api/v1/health` |
 | BE-DONE-04 | DONE | 分页 helper 与所有主要列表分页已落地 | 所有主要 list API 已覆盖 `limit/offset` |
 | BE-DONE-05 | DONE | `src/backend/config.py` 已被 `main.py` 全面复用，支持 .env | 包含 server/auth/CORS/pagination/paths/logging/rate-limit 常量 |
@@ -138,7 +139,7 @@
 
 | ID | 领域 | 状态 | 优先级 | 当前结论 | 下一步完成定义 |
 |----|------|:----:|:------:|----------|----------------|
-| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐 | 仅剩 cookie-only 模式下全页面验收 |
+| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐；高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已完成 | 低频页面继续随常规回归覆盖 |
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | DONE | P1 | login/register 5/min、通用写请求 60/min、敏感路由独立 bucket 与回归测试均已落地 | 维持默认阈值，并在后续按生产流量再调参 |
 | RUN-01 | Docker Sandbox 实机收口 | WIP | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 已有；当前机器缺 docker | 远端首轮 workflow 通过 + 本机有 docker 时复验；缺 docker 时保持 fail-closed |
@@ -148,7 +149,7 @@
 | PLAZA-01 | Plaza 执行闭环 | DONE | P0 | 讨论 -> 任务 -> 产物 -> Evolution 已通；LLM 3次重试+指数退避；失败升级队列+API 已落地；计划面板已可见验证/升级状态；创建讨论 / 重新讨论 / 启动讨论已有生命周期回归测试；后端端到端 happy path 回归已补齐 | 继续保持浏览器 smoke 覆盖 |
 | PLAZA-02 | Plaza 共识机制 | WIP | P2 | 共识分数、趋势、反方检测、`/consensus` API 已落地，前端计划面板已可见 | 把动态退出与 planner / 主讨论循环接起来 |
 | PLAN-01 | UltraPlan / Planner | BACKLOG | P2 | 规则式 plan builder 仍偏硬编码 | 引入 LLM-driven / hybrid planner，失败可降级规则 |
-| FE-01 | 前端运行时可见性 | WIP | P0 | Runtime / budget / trace / verification / Plaza consensus / escalations 已能从页面看到；主要错误 toast 和 trace drill-down 已可见 request_id；Datacenter Ratchet 页面后端契约已补齐并浏览器实测可用 | 继续补更细过滤、趋势图、跨页面上下文统一 |
+| FE-01 | 前端运行时可见性 | WIP | P0 | Runtime / budget / trace / verification / Plaza consensus / escalations 已能从页面看到；主要错误 toast 和 trace drill-down 已可见 request_id；Datacenter Ratchet 页面后端契约已补齐并浏览器实测可用；高频受保护页 cookie-only 浏览器 smoke 已覆盖 6 页 | 继续补更细过滤、趋势图、跨页面上下文统一 |
 | FE-02 | 前端模块边界 | WIP | P1 | 大页面大多已外抽；仍有全局状态和大型模块 | 收口 `tid/aid/wzD/wzS` 等全局变量，统一 namespace |
 | FE-03 | Plaza 3D 回流 | WIP | P1 | 气泡定位已改成仅在 camera/target 变化、文本变化、resize 时重排，并缓存容器/气泡尺寸 | 还需浏览器 smoke 验证长讨论场景下无漂移 |
 | FE-04 | i18n key-based | WIP | P2 | `data-i18n` 与 `window.t(key)` 已开始接入，但 text-walker 仍是主机制 | 扩大 key-based 覆盖，逐步收缩 text-walker |
@@ -170,14 +171,14 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 条件 | 当前状态 | 出关标准 |
 |------|:--------:|----------|
-| 安全认证 | WIP | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；主要遗留页面的 POST 已切回共享 wrapper；还缺全页面验收 |
+| 安全认证 | DONE | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；高优先级受保护页登录态 / 登出回跳浏览器 smoke 已完成 |
 | 沙箱执行 | WIP | docker image 可构建；`run_python/run_pytest` 在 docker 模式跑通安全测试 |
 | Runtime 单一入口 | DONE | 旧 AgentLoop 已不再保留独立逻辑；chat / task / plan 入口统一复用共享 runtime，并有回归测试护栏 |
-| Plaza/Evolution 闭环 | WIP | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见 |
+| Plaza/Evolution 闭环 | DONE | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见；浏览器端已再次跑通 Plaza 新建讨论/开始讨论 与 Evolution 审查/周期 |
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
 | 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；本机 build/vitest 已可通过 bundled-node fallback 运行，剩浏览器 smoke 与更多前端测试扩面 |
 
-当前判断：**P0 功能主链约 97%-98% 完成**。代码层已经非常接近出关，当前主要卡点收敛到 Docker 沙箱远端首轮实机验收，以及 cookie-only / Plaza 的全页面浏览器验收。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
+当前判断：**P0 功能主链约 99% 完成**。当前显著未闭环的 P0 卡点已基本收敛到 `RUN-01` 的 Docker 沙箱远端首轮实机验收；认证、Plaza / Evolution 浏览器 smoke 和分页主链都已完成 P0 范围收口。P1 的代码落地度高于验证完成度；P2 已有多项模块落地，但还没全部进入主流程。
 
 ---
 
@@ -188,8 +189,6 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | 顺序 | ID | 任务 | 涉及文件 | 验证 |
 |------|----|------|----------|------|
 | 1 | RUN-01 | Docker sandbox 实机验证与脚本收口 | `docker/sandbox/*`, `scripts/build_sandbox_image.sh`, `src/backend/sandbox/*` | sandbox security tests + self-check |
-| 2 | SEC-01 | cookie-only 模式全页面验收 | `src/frontend/login.html`, `src/frontend/js/api.js`, 各业务页 | 浏览器 smoke + auth/csrf tests |
-| 3 | FE-01 | Plaza / Evolution 浏览器 smoke 收口 | `src/frontend/plaza.html`, `src/frontend/js/plaza.js`, `system-evolution.html` | 浏览器 smoke |
 
 ### 5.2 紧接执行（P1）
 

@@ -129,6 +129,34 @@ function _apiMakeOpts(o) {
   return opts;
 }
 
+function _sharedApiClient() {
+  return (window.api && typeof window.api.request === 'function') ? window.api : null;
+}
+
+function _redirectToLoginPage() {
+  const next = window.location.pathname + window.location.search + window.location.hash;
+  window.location.href = '/login.html?next=' + encodeURIComponent(next);
+}
+
+async function ensureAuthenticatedPage() {
+  try {
+    const authResp = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+    if (authResp.status === 401) {
+      _redirectToLoginPage();
+      return false;
+    }
+    if (!authResp.ok) return true;
+    const authData = await authResp.json().catch(function(){ return null; });
+    if (authData && authData.authenticated === false) {
+      _redirectToLoginPage();
+      return false;
+    }
+  } catch (e) {
+    // Let the existing offline banner flow handle true connectivity failures.
+  }
+  return true;
+}
+
 async function api(p, o) {
   var method = (o && o.method) ? o.method.toUpperCase() : 'GET';
   if (method === 'GET') {
@@ -139,21 +167,29 @@ async function api(p, o) {
     }
     try {
       var getOpts = _apiMakeOpts(o);
-      var getReqId = getOpts.headers && getOpts.headers['x-request-id'] || '';
-      var r = await fetch(p, getOpts);
-      _lastRequestId = r.headers && typeof r.headers.get === 'function' ? (r.headers.get('X-Request-ID') || getReqId) : getReqId;
-      if (_offline) { hideOfflineBanner(); }
-      if (!r.ok) {
-        var msg = '';
-        try { var d = await r.json(); msg = d.detail || d.message || ''; } catch(e) {}
-        api._lastError = {status: r.status, message: msg, url: p, request_id: _lastRequestId || getReqId};
-        return null;
+      var sharedGet = _sharedApiClient();
+      var data = null;
+      if (sharedGet) {
+        data = await sharedGet.request(p, getOpts);
+        _lastRequestId = sharedGet.getLastRequestId ? sharedGet.getLastRequestId() : (sharedGet._lastRequestId || '');
+        api._lastError = sharedGet._lastError || null;
+      } else {
+        var getReqId = getOpts.headers && getOpts.headers['x-request-id'] || '';
+        var r = await fetch(p, getOpts);
+        _lastRequestId = r.headers && typeof r.headers.get === 'function' ? (r.headers.get('X-Request-ID') || getReqId) : getReqId;
+        if (!r.ok) {
+          var msg = '';
+          try { var d = await r.json(); msg = d.detail || d.message || ''; } catch(e) {}
+          api._lastError = {status: r.status, message: msg, url: p, request_id: _lastRequestId || getReqId};
+          return null;
+        }
+        data = await r.json();
+        api._lastError = null;
       }
-      var data = await r.json();
+      if (_offline) { hideOfflineBanner(); }
       if (data !== null && data !== undefined) {
         _reqCache[key] = { data: data, at: Date.now() };
       }
-      api._lastError = null;
       return data;
     } catch(e) {
       _lastRequestId = _lastRequestId || '';
@@ -171,6 +207,13 @@ async function api(p, o) {
   Object.keys(_reqCache).forEach(function(k) { if (k.indexOf(pathBase) !== -1) delete _reqCache[k]; });
   var opts = _apiMakeOpts(o);
   try {
+    var sharedMutation = _sharedApiClient();
+    if (sharedMutation) {
+      var sharedData = await sharedMutation.request(p, opts);
+      _lastRequestId = sharedMutation.getLastRequestId ? sharedMutation.getLastRequestId() : (sharedMutation._lastRequestId || '');
+      api._lastError = sharedMutation._lastError || null;
+      return sharedData;
+    }
     var r2 = await fetch(p, opts);
     var reqId = opts.headers && opts.headers['x-request-id'] || '';
     _lastRequestId = r2.headers && typeof r2.headers.get === 'function' ? (r2.headers.get('X-Request-ID') || reqId) : reqId;
@@ -200,6 +243,12 @@ async function getTeamsList(force=false){
     return teams;
   }
   return _teamsListCache||teams||[];
+}
+
+async function bootAgentTeamConfigPage(){
+  const ok = await ensureAuthenticatedPage();
+  if (!ok) return;
+  return loadTeams();
 }
 
 function stL(s){return{idle:'待命中',working:'工作中',reporting:'汇报中',blocked:'阻塞',error:'异常'}[s]||s||'未知'}
@@ -1021,7 +1070,7 @@ async function startTTSService(){
 
 // ── Initialize on page load ──
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", loadTeams);
+  document.addEventListener("DOMContentLoaded", bootAgentTeamConfigPage);
 } else {
-  loadTeams();
+  bootAgentTeamConfigPage();
 }

@@ -324,9 +324,34 @@ let autoTimer = null, ws = null;
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
 const csrfFetch = (...args) => (window._agFetch || fetch)(...args);
+function redirectToLoginPage(){
+  const next = location.pathname + location.search + location.hash;
+  location.href = '/login.html?next=' + encodeURIComponent(next);
+}
+async function ensureAuthenticatedPage(){
+  try{
+    const r = await fetch('/api/v1/auth/me', { credentials:'same-origin' });
+    if(r.status === 401){ redirectToLoginPage(); return false; }
+    if(!r.ok) return true;
+    const d = await r.json().catch(() => null);
+    if(d && d.authenticated === false){ redirectToLoginPage(); return false; }
+  }catch(e){
+    // Leave offline handling to the normal data refresh path.
+  }
+  return true;
+}
+async function apiRead(url){
+  if (window.api && typeof window.api.request === 'function') {
+    return window.api.request(url);
+  }
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  return r.json();
+}
 
 /* ═══════════════════ BOOT ═══════════════════ */
 window.addEventListener('load', async () => {
+  if (!(await ensureAuthenticatedPage())) return;
   await refreshAll();
   drawEdges();
   connectWS();
@@ -342,19 +367,19 @@ async function refreshAll(){
 
 /* ═══════════════════ FETCH ═══════════════════ */
 async function fetchStatus(){
-  try{ const r = await fetch(`${API}/status`); const d = await r.json(); Object.assign(STATE, d); renderKPI(); }catch(e){ console.warn('status', e); }
+  try{ const d = await apiRead(`${API}/status`); if(d){ Object.assign(STATE, d); renderKPI(); } }catch(e){ console.warn('status', e); }
 }
 async function fetchPolicies(){
-  try{ const r = await fetch(`${API}/recommend?top_n=9`); POLICIES = (await r.json()).recommendations || []; }catch(e){ POLICIES = []; }
+  try{ const d = await apiRead(`${API}/recommend?top_n=9`); POLICIES = (d && d.recommendations) || []; }catch(e){ POLICIES = []; }
 }
 async function fetchHeritage(){
-  try{ const r = await fetch(`${API}/heritage`); HERITAGE = (await r.json()).heritage || []; }catch(e){ HERITAGE = []; }
+  try{ const d = await apiRead(`${API}/heritage`); HERITAGE = (d && d.heritage) || []; }catch(e){ HERITAGE = []; }
 }
 async function fetchEvents(){
-  try{ const r = await fetch(`${API}/events?limit=30`); EVENTS = (await r.json()).events || []; renderEvents(); }catch(e){}
+  try{ const d = await apiRead(`${API}/events?limit=30`); EVENTS = (d && d.events) || []; renderEvents(); }catch(e){}
 }
 async function fetchPueHistory(){
-  try{ const r = await fetch(`${API}/pue-history?limit=240`); PUE_HIST = (await r.json()).history || []; }catch(e){}
+  try{ const d = await apiRead(`${API}/pue-history?limit=240`); PUE_HIST = (d && d.history) || []; }catch(e){}
 }
 
 /* ═══════════════════ RENDER · KPI ═══════════════════ */

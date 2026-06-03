@@ -9,14 +9,14 @@
 > - 后端定向回归：`39 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py`）
 > - 后端全量：`884 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
-> - 浏览器 smoke：`datacenter-ratchet-evolution.html` 已实测恢复（`TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`）；`plaza.html` 已实测 cookie-only 模式下“新建讨论 → 开始讨论”可跑通，且“新建讨论”命中的 CSRF 过期断点已修复为自动刷新重试；`system-evolution.html` 已实测 `运行审查` 与 `演进周期` 可跑通；登出后重新打开受保护页会被 401 踢回 `login.html?next=...`
+> - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 >
 > 最近提交记录：
+> - `Complete protected-page cookie-only smoke`：补 `agent-team-config` / `datacenter-ratchet-evolution` 鉴权守卫，完成 6 个高优先级受保护页的登录态与登出回跳浏览器 smoke，并再次跑通 Plaza / Evolution 正向动作
 > - `3f1858a` `Repair system evolution dashboard actions`：修复 `system-evolution` 页的 `EVP` 常量、分页 envelope 消费、共享 `window.api` 被覆盖问题；补 `system-evolution.test.js`
 > - `2e448c7` `Add plaza lifecycle coverage`：补 Plaza 创建/启动/重新讨论生命周期回归
 > - `87e2d58` `Retry expired CSRF tokens on plaza writes`：Plaza 写请求命中过期 CSRF 时自动刷新并重试
 > - `a9d7035` `Restore datacenter flow and add API write limits`：恢复 Datacenter Ratchet 主链并补通用写接口限流
-> - `3a82b3b` `Finish runtime entrypoint unification`：统一 AgentLoop / runtime 入口，收窄旧兼容层
 
 ---
 
@@ -81,6 +81,8 @@
 | PLAZA-01-2 | Plaza 后端端到端回归 | 新增讨论 → 演化 → 任务产物回写 → verification queue → 关闭 的 happy path 回归（`test_plaza_evolution_bridge.py`） |
 | SEC-01-10 | 受保护 API 统一鉴权 | `/api/v1/**` 增加统一 auth middleware；无 cookie 访问 Plaza / Evolution 返回 `401`，浏览器端自动回跳登录页 |
 | SEC-01-11 | 登录回跳 | `login.html` 支持消费 `?next=`，在 cookie-only 401 回登录后可返回原目标页面 |
+| SEC-01-12 | 受保护页显式鉴权守卫 | `agent-team-config.js` 与 `datacenter-ratchet-evolution.html` 增加 `auth/me` 守卫，修复登出后假活 |
+| FE-01-3 | 高优先级受保护页 smoke | 登录态 6 页打开 + 登出后 6 页回跳登录；Plaza / Evolution 动作再次冒烟 |
 
 ---
 
@@ -109,7 +111,7 @@
 ```
 位置: src/backend/main.py, src/frontend/login.html, src/frontend/js/api.js
 难度: ⚡ 小   优先级: P0
-状态: WIP — 已补统一 auth middleware、401 自动回登录与 `next` 回跳；剩余价值主要在全页面 browser smoke 扩面
+状态: DONE — 高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已补齐，剩余仅作为常规回归继续扩面
 ```
 
 - [x] `AG_AUTH_RETURN_TOKEN_JSON` 环境变量（默认 `1` 保持兼容）
@@ -122,7 +124,7 @@
 - [x] 前端 cookie-only 契约测试（`test_frontend_auth_contract.py`）
 - [x] Plaza 新建讨论在 CSRF 过期时自动刷新 token 并重试一次
 - [x] 登出后重新访问 Plaza / System Evolution 会命中后端 401，并回到 `login.html?next=...`
-- [ ] cookie-only 模式下所有页面验收（其余页面继续扩面）
+- [x] `agent-team-config` / `skill-extract` / `sandbox-twin` / `datacenter-ratchet-evolution` / `plaza` / `system-evolution` 的登录态打开与登出回跳浏览器 smoke
 
 ### RUN-02 🔴 统一 AgentLoop 收窄
 
@@ -397,7 +399,7 @@
 
 ```
 RUN-01 [~] Docker Sandbox — 代码备，实机验收待补 ...... 🔨
-SEC-01 [✓] Cookie-Only Auth — 登出按钮已加，仅剩页面验收 ✅
+SEC-01 [✓] Cookie-Only Auth — 6 页登录/登出 smoke 已补齐 .. ✅
 RUN-02 [✓] 统一 AgentLoop — 入口已统一到共享 runtime ..... ✅
 FE-05  [✓] 前端 build/vitest 已可执行（bundled node） .. ✅
 PLAZA-01 [✓] 重试 + 失败升级 — 3次重试+升级队列+API .. ✅
