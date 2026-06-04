@@ -6,8 +6,8 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
-> - 后端全量：`896 passed, 4 skipped`（最新 `src/backend/tests` 基线）
+> - 后端定向回归：`4 passed`（`test_api_handler_integration.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
+> - 后端全量：`900 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 > - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
@@ -210,7 +210,7 @@
 ```
 位置: src/backend/tests/
 难度: ⚡ 中   优先级: P1
-状态: DONE — 新增 45+ 测试用例覆盖安全头/request_id/状态机/共识/通道桥接/重试
+状态: WIP — 已有安全头/request_id/状态机/共识/通道桥接/重试等回归；本轮新增 `agent-team` 演化入口与 `digital-twin` 主写接口的 HTTP 集成测试，主接口覆盖仍在继续扩面
 ```
 
 - [x] 审查 25 个现有测试文件的覆盖范围
@@ -220,6 +220,8 @@
 - [x] 补充共识度量测试 (`test_plaza_consensus.py`)
 - [x] 补充 Channel 事件桥接测试 (`test_channel_event_bridge.py`)
 - [x] CI 配置 `npm run test:backend`
+- [x] 补充 `agent-team` 演化入口与 `digital-twin` 主写接口 HTTP 集成测试 (`test_api_handler_integration.py`)
+- [ ] 继续补 auth/health/teams/plaza/evolution 主接口集成测试
 
 ### SEC-03 🟢 通用 API 限流补齐
 
@@ -419,7 +421,7 @@ BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
 
 ```
 SEC-02 [✓] 生产安全响应头 — 中间件已落地 ........... ✅
-BE-04  [✓] 测试覆盖提升 — 新增45+测试用例 ......... ✅
+BE-04  [~] 测试覆盖提升 — 主接口集成测试继续扩面 ... ⏳
 BE-03  [✓] main.py 常量 → config.py + .env 支持 .... ✅
 SEC-03 [✓] 通用 API 限流补齐 ....................... ✅
 BE-06  [✓] Pydantic 校验全面化 .................. ✅
