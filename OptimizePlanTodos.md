@@ -6,7 +6,7 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
+> - 后端定向回归：`22 passed`（`test_startup_validator.py` + `test_auth_csrf.py`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现）；`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
 > - 后端全量：`906 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
@@ -84,6 +84,7 @@
 | SEC-01-10 | 受保护 API 统一鉴权 | `/api/v1/**` 增加统一 auth middleware；无 cookie 访问 Plaza / Evolution 返回 `401`，浏览器端自动回跳登录页 |
 | SEC-01-11 | 登录回跳 | `login.html` 支持消费 `?next=`，在 cookie-only 401 回登录后可返回原目标页面 |
 | SEC-01-12 | 受保护页显式鉴权守卫 | `agent-team-config.js` 与 `datacenter-ratchet-evolution.html` 增加 `auth/me` 守卫，修复登出后假活 |
+| SEC-01-13 | 启动验证适配鉴权 | `/api/v1/info` 保持公开发现；`startup_validator` 遇到受保护 API 的 `401` 时通过 `/health` 服务状态确认模块在线 |
 | FE-01-3 | 高优先级受保护页 smoke | 登录态 6 页打开 + 登出后 6 页回跳登录；Plaza / Evolution 动作再次冒烟 |
 | RUN-01-3 | Docker 缺失诊断 | `runtime-status` 暴露 `docker_binary_path/self_check_blocked`；`runtime-self-check` 在缺 Docker / 缺镜像时显式返回 blocked reason |
 

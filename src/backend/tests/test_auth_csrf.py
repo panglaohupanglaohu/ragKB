@@ -115,6 +115,12 @@ class TestCsrfEndpoint:
         resp = client.get("/api/v1/health")
         assert resp.status_code == 200
 
+    def test_info_endpoint_is_public_for_startup_discovery(self, client):
+        resp = client.get("/api/v1/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert {"name", "version", "capabilities", "endpoints"}.issubset(data)
+
     def test_csrf_not_required_for_auth_endpoints(self, client):
         resp = client.post("/api/v1/auth/login",
                            json={"username": "test", "password": "test123"})

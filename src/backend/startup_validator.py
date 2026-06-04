@@ -106,6 +106,37 @@ class StartupValidator:
     async def close(self):
         await self.client.aclose()
 
+    async def _health_services(self) -> Dict[str, Any]:
+        """Fetch public health services for auth-protected startup probes."""
+        resp = await self.client.get(f"{self.base_url}/api/v1/health")
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        services = data.get("services", {})
+        return services if isinstance(services, dict) else {}
+
+    async def _protected_module_check(
+        self,
+        *,
+        name: str,
+        service_key: str,
+        detail: str,
+    ) -> CheckResult:
+        services = await self._health_services()
+        if services.get(service_key) is True:
+            return CheckResult(
+                name=name,
+                status=CheckStatus.PASS,
+                detail=detail,
+                metadata={"auth_protected": True, "service": service_key},
+            )
+        return CheckResult(
+            name=name,
+            status=CheckStatus.FAIL,
+            error=f"HTTP 401 and health service offline: {service_key}",
+            metadata={"auth_protected": True, "services": services},
+        )
+
     async def _check(
         self,
         name: str,
@@ -201,6 +232,12 @@ class StartupValidator:
         """检查系统信息端点"""
         async def check():
             resp = await self.client.get(f"{self.base_url}/api/v1/info")
+            if resp.status_code != 200:
+                return CheckResult(
+                    name="info_endpoint",
+                    status=CheckStatus.FAIL,
+                    error=f"HTTP {resp.status_code}",
+                )
             data = resp.json()
             required_keys = ["name", "version", "capabilities", "endpoints"]
             missing = [k for k in required_keys if k not in data]
@@ -235,6 +272,8 @@ class StartupValidator:
                     resp = await self.client.get(f"{self.base_url}{path}")
                     if resp.status_code in (200, 404):
                         results.append(f"{name}: HTTP {resp.status_code}")
+                    elif resp.status_code == 401:
+                        results.append(f"{name}: HTTP 401 (auth protected)")
                     else:
                         results.append(f"{name}: HTTP {resp.status_code} (unexpected)")
                 except Exception as e:
@@ -262,6 +301,12 @@ class StartupValidator:
             resp = await self.client.get(
                 f"{self.base_url}/api/v1/agent-teams/evolution/status"
             )
+            if resp.status_code == 401:
+                return await self._protected_module_check(
+                    name="evolution_engine",
+                    service_key="evolution",
+                    detail="Evolution engine route is auth-protected and service is online",
+                )
             if resp.status_code == 404:
                 return CheckResult(
                     name="evolution_engine",
@@ -288,6 +333,12 @@ class StartupValidator:
         """检查 Agent 配置 API"""
         async def check():
             resp = await self.client.get(f"{self.base_url}/api/v1/agent-config/teams")
+            if resp.status_code == 401:
+                return await self._protected_module_check(
+                    name="agent_config",
+                    service_key="agent_config",
+                    detail="Agent config route is auth-protected and service is online",
+                )
             if resp.status_code != 200:
                 return CheckResult(
                     name="agent_config",
@@ -307,24 +358,13 @@ class StartupValidator:
     async def _check_bridge_chat(self) -> CheckResult:
         """检查聊天通道"""
         async def check():
-            # Fetch CSRF token first for the state-changing request
-            csrf_resp = await self.client.get(f"{self.base_url}/api/v1/auth/csrf-token")
-            csrf_token = ""
-            if csrf_resp.status_code == 200:
-                csrf_data = csrf_resp.json()
-                csrf_token = csrf_data.get("csrf_token", "")
-            headers = {}
-            if csrf_token:
-                headers["X-CSRF-Token"] = csrf_token
-            resp = await self.client.post(
-                f"{self.base_url}/api/v1/bridge-chat/send",
-                json={
-                    "message": "ping",
-                    "session_id": "startup_validation",
-                    "agent_id": "default_agent",
-                },
-                headers=headers,
-            )
+            resp = await self.client.get(f"{self.base_url}/api/v1/bridge-chat/status")
+            if resp.status_code == 401:
+                return await self._protected_module_check(
+                    name="bridge_chat",
+                    service_key="bridge_chat",
+                    detail="Bridge chat route is auth-protected and service is online",
+                )
             if resp.status_code != 200:
                 return CheckResult(
                     name="bridge_chat",
@@ -332,12 +372,12 @@ class StartupValidator:
                     error=f"HTTP {resp.status_code}",
                 )
             data = resp.json()
-            if "reply" in data:
+            if data:
                 return CheckResult(
                     name="bridge_chat",
                     status=CheckStatus.PASS,
-                    detail=f"Chat channel responsive (source: {data.get('source', 'unknown')})",
-                    metadata={"source": data.get("source")},
+                    detail="Chat channel status endpoint responsive",
+                    metadata=data,
                 )
             return CheckResult(
                 name="bridge_chat",

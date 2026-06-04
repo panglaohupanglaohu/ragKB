@@ -185,6 +185,7 @@ _AUTH_EXEMPT_PATHS = {
     "/api/v1/auth/me",
     "/api/v1/auth/csrf-token",
     "/api/v1/health",
+    "/api/v1/info",
     "/api/v1/log/client-error",
 }
 _AUTH_EXEMPT_PREFIXES = (
