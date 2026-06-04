@@ -28,6 +28,10 @@ function openM(id) { $(id).classList.add('open') }
 function closeM(id) { $(id).classList.remove('open') }
 window.openM = openM; window.closeM = closeM;
 async function api(url, opts) { return window.api.request ? window.api.request(url, opts) : null; }
+async function listApi(path, limit = 200, offset = 0) {
+  if (window.api?.list) return asItems(await window.api.list(path, limit, offset));
+  return asItems(await api(path));
+}
 
 /* ── Team colors: muted tones on concrete ── */
 const teamColors = {
@@ -900,8 +904,7 @@ onResize(); animate();
 
 /* ═══════════ PLAZA CRUD ═══════════ */
 async function loadPlazas() {
-  const payload = await api(`${API}/plaza`);
-  const ps = asItems(payload);
+  const ps = await listApi(`${API}/plaza`, 200, 0);
   const list = $('plaza-list');
   if (!ps || !ps.length) { list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">无广场</div>'; return; }
   list.innerHTML = ps.map(p =>
@@ -931,7 +934,7 @@ window.selectPlaza = async function(id) {
     if (!plaza) return;
   }
   renderArena3D(plaza.participants || []);
-  renderDiscList(plaza.discussions || []);
+  renderDiscList(await listApi(`${API}/plaza/${id}/discussions`, 200, 0));
   $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
   $('plan-panel').style.display = 'none';
   $('btn-start').disabled = true; $('status-text').textContent = '';
@@ -1018,8 +1021,7 @@ window.openCreatePlaza = async function() {
   $('agent-sel-count').textContent = '';
   $('inp-chair').innerHTML = '<option value="">— 请先勾选智能体 —</option>';
   // Fetch agent tree
-  const tree = await api(`${API}/teams-tree`);
-  renderAgentTree(tree || []);
+  renderAgentTree(await listApi(`${API}/teams-tree`, 200, 0));
   $('inp-pn').focus();
 };
 
@@ -1117,11 +1119,11 @@ window.openEditPlaza = async function(plazaId) {
   $('edit-agent-sel-count').textContent = '';
   $('edit-agent-tree').innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div>';
   const [tree, plaza] = await Promise.all([
-    api(`${API}/teams-tree`),
+    listApi(`${API}/teams-tree`, 200, 0),
     api(`${API}/plaza/${plazaId}`)
   ]);
   $('edit-plaza-title').textContent = `编辑广场 — ${plaza?.name || ''}`;
-  renderEditAgentTree(tree || [], plaza?.participants || []);
+  renderEditAgentTree(tree, plaza?.participants || []);
 };
 
 window.doSaveEditPlaza = async function() {
@@ -1193,7 +1195,7 @@ window.deleteDisc = async function(event, discId) {
 
   const plaza = await api(`${API}/plaza/${curPlaza}`);
   if (plaza) {
-    renderDiscList(plaza.discussions || []);
+    renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0));
     renderArena3D(plaza.participants || []);
   }
   toast('讨论已删除');
@@ -1207,7 +1209,7 @@ window.selectDisc = async function(discId, opts) {
   if (!disc) return;
   curDiscData = disc;
   const plaza = await api(`${API}/plaza/${curPlaza}`);
-  if (plaza) { renderDiscList(plaza.discussions || []); renderArena3D(plaza.participants || []); }
+  if (plaza) { renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0)); renderArena3D(plaza.participants || []); }
   renderMessages(disc.messages || []);
   $('btn-start').disabled = !['open', 'closed'].includes(disc.status);
   $('btn-start').textContent = disc.status === 'open' ? '开始' : disc.status === 'closed' ? '重新讨论' : disc.status === 'in_progress' ? '进行中' : '总结中';

@@ -8,7 +8,7 @@
 > 当前验证快照：
 > - 后端定向回归：`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
 > - 后端全量：`906 passed, 4 skipped`（最新 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `16 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `15 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `17 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `16 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 > - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
 >
@@ -188,6 +188,7 @@
 - [x] `skill-extract.js` 已切到共享 `api.list()`（团队、团队智能体、团队技能、公共技能、演化建议）
 - [x] `system-evolution.js` 已切到共享 `api.list()`（items / rules / history / audit-trail / optimize-runs）
 - [x] `tools-skills.js` 已切到共享 `api.list()`（团队工具、团队技能、全局技能/工具列表）
+- [x] `plaza.js` 已切到共享 `api.list()`（广场列表、团队树、讨论列表）
 - [ ] 前端 `api.list()` 在分页 API 上统一消费（其余页面继续推进）
 
 ---
