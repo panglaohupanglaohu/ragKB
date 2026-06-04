@@ -1,6 +1,6 @@
 # OptimizePlan — 前后端整体优化总看板
 
-> 更新日期：2026-06-04
+> 更新日期：2026-06-05
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill  
 > 输入材料：`FrontBackEndOptimize.md`、`FrontBackEndTodos.md`、`OptimizePlan1.md`、`OptimizePlan1Todos.md`、当前前后端代码。  
 > 说明：仓库中未找到用户提到的 `FrontEndOptimize.md`，本版用现有前端专项内容和当前代码状态补齐。  
@@ -39,7 +39,7 @@
 | 维度 | 当前状态 | 说明 |
 |------|:--------:|------|
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
-| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/agent-config.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/agent-team-config-state.test.js` → `8 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/digital-twin-cli-pagination.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `22 passed`；此前 `21 passed` 与 `19 passed`；可通过 bundled-node fallback 稳定执行 |
+| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/global-nav.test.js src/frontend/__tests__/login-page-flow.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/utils-surface.test.js src/frontend/__tests__/utils.test.js` → `47 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-config.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/agent-team-config-state.test.js` → `8 passed`；再此前 `22 passed`、`21 passed` 与 `19 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；本轮在 in-app browser 再次复验了 `plaza.html` 的“选广场 → 新建讨论 → 创建讨论/开始讨论”链路，以及 `system-evolution.html` 的 `运行审查` / `演进周期` 按钮链路；`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_integration_extended.py` → `48 passed`，覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/plaza/evolution 扩展 HTTP 集成测试，含 plaza list/detail/discussions/tasks/verification/consensus 与 evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs；`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py` → `23 passed`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链；此前 `test_startup_validator.py` + `test_auth_csrf.py` → `22 passed`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现；`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `906 passed, 4 skipped` |
@@ -154,7 +154,7 @@
 | FE-02 | 前端模块边界 | WIP | P1 | 大页面大多已外抽；`agent-team-config.js` 已把 `tid/aid/wzD/wzS` 等历史裸全局切到 `window.AG.state` 属性代理，并进一步把 trace/evolution/model-edit/Claude term/visibility debounce/agent poll 等页面级运行态收进 `window.AG.runtime`，减少双向同步漂移 | 继续移除剩余裸全局别名，收口到少量公共 API |
 | FE-03 | Plaza 3D 回流 | WIP | P1 | 气泡定位已改成仅在 camera/target 变化、文本变化、resize 时重排，并缓存容器/气泡尺寸 | 还需浏览器 smoke 验证长讨论场景下无漂移 |
 | FE-04 | i18n key-based | WIP | P2 | `data-i18n` 与 `window.t(key)` 已开始接入，但 text-walker 仍是主机制 | 扩大 key-based 覆盖，逐步收缩 text-walker |
-| FE-05 | Frontend Unit Tests | WIP | P1 | `api.js` 首批 Vitest 已补上，且 `scripts/frontend_build.sh` / `scripts/frontend_test.sh` 已恢复本机构建与测试可执行性；`agent-team-config-state.test.js` 已补 runtime namespace 护栏 | 扩到 `utils.js`、Plaza 数据归一化、登录链和更多共享 helper |
+| FE-05 | Frontend Unit Tests | WIP | P1 | `scripts/frontend_build.sh` / `scripts/frontend_test.sh` 已恢复可执行；现有 Vitest 已覆盖 `api.js`、`utils.js` surface、`global-nav` logout、登录回跳/CSRF prime、Plaza pagination/runtime helper，以及 `agent-team-config-state` runtime namespace 护栏 | 继续向更多页面 runtime/helper 与失败分支扩面 |
 | BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`；`skill-extract.js`、`system-evolution.js`、`tools-skills.js`、`plaza.js`、`tasks-view.js`、`agent-detail.js`、`agent-team-config.js`、`wizard.js` 与 `digital-twin-cli.js` 已切到共享 `api.list()` 或等价分页 helper，覆盖团队/智能体/技能/工具/任务、广场/讨论、SECS 团队任务与 evolution items 等主要分页读路径 | 维持统一消费方式，新增分页列表默认复用 `api.list()` |
 | BE-02 | Pydantic 校验全面化 | DONE | P1 | `agent_team_api.py` 11 个 handler、`agents/api.py` 5 个 handler、`k8s_webhook_handler.py` 1 个 handler 已迁到 Pydantic request model；新增 request-model 回归覆盖约束、alias 与 dry-run 语义 | 后续新增 state-changing 路由默认沿用 request model |
 | BE-03 | 配置集中管理 | DONE | P1 | `main.py` 已全部通过 `CONFIG_*` 引用 `config.py`；.env 支持已加 | 维护即可 |
@@ -177,7 +177,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 | Runtime 单一入口 | DONE | 旧 AgentLoop 已不再保留独立逻辑；chat / task / plan 入口统一复用共享 runtime，并有回归测试护栏 |
 | Plaza/Evolution 闭环 | DONE | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见；浏览器端已再次跑通 Plaza 新建讨论/开始讨论 与 Evolution 审查/周期 |
 | 列表分页 | DONE | 所有主要无限增长列表接口都有硬上限与 `limit/offset` |
-| 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；本机 build/vitest 已可通过 bundled-node fallback 运行，剩更多前端测试扩面 |
+| 前端可验收 | WIP | 页面主路径已可见 budget、trace、runtime、verification；本机 build/vitest 已可通过 bundled-node fallback 运行，主认证/共享 helper 测试已补齐，剩更多页面级 runtime 护栏 |
 
 当前判断：**P0 功能主链已完成**。Docker 沙箱远端首轮 workflow 已跑通真容器路径，认证、Plaza / Evolution 浏览器 smoke 和分页主链也都已完成 P0 范围收口。后续重点转到 P1：补测试、收全局状态、把状态机与 ChannelBus 真正接进主 runtime。
 
@@ -189,8 +189,8 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 顺序 | ID | 任务 | 涉及文件 | 验证 |
 |------|----|------|----------|------|
-| 1 | FE-05 | 前端单测扩面 | `src/frontend/__tests__/*`, `src/frontend/js/utils.js`, `src/frontend/js/api.js` | `./scripts/frontend_test.sh ...` |
-| 2 | FE-02 | 全局状态清理 | `src/frontend/js/agent-team-config.js`, `src/frontend/js/*.js` | `frontend_build.sh` + 页面 smoke |
+| 1 | FE-02 | 全局状态清理 | `src/frontend/js/agent-team-config.js`, `src/frontend/js/*.js` | `frontend_build.sh` + 页面 smoke |
+| 2 | BE-04 | 后端测试覆盖提升 | `src/backend/tests/*` | `pytest -q` 定向集成回归 |
 
 ### 5.2 紧接执行（P1）
 
@@ -198,7 +198,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 |----|------|----------|
 | BE-02 | Pydantic 校验全面化 | 所有 state-changing handler 有 request model |
 | FE-02 | 全局状态清理 | `agent-team-config.js` 只暴露少量公共 API |
-| FE-05 | Vitest 测试扩面并恢复本机执行 | 先修复 Rollup 原生模块阻塞，再扩到 `utils.js`、登录链、Plaza helper |
+| FE-05 | Vitest 测试扩面并恢复本机执行 | 继续扩到更多页面 runtime/helper、失败分支与共享 UI 逻辑 |
 | OBS-01 | JSON log + request_id | 前端请求已透传 `X-Request-ID`；Agent Team / Plaza / Evolution 错误提示和 Agent Team trace drill-down 已可见 |
 | RUN-03 | 状态机接入主 runtime | task/session/agent 生命周期统一走状态机与 watchdog |
 | BE-04 | 后端 API handler 长尾覆盖 | 补 mutation 失败分支、更多 domain 组合路径与异常断言 |
@@ -304,3 +304,4 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 本轮继续扩面 `BE-04`：`test_api_integration_extended.py` 已新增 Plaza list/detail/discussions/tasks/verification/consensus，以及 Evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs 的只读集成覆盖，当前该文件已提升到 `48 passed`。
 - 本轮继续推进 `FE-02`：`agent-team-config.js` 已把 trace/evolution/model-edit/Claude term/visibility debounce/agent poll 等页面级运行态收进 `window.AG.runtime`，减少顶层可变状态散落，并补 `agent-team-config-state.test.js` 作为护栏。
 - 本轮通过 in-app browser 再次复验了 Plaza / System Evolution 的 cookie-only 正向动作链：Plaza 可选广场后创建讨论，System Evolution 的 `运行审查` 与 `演进周期` 按钮链路可执行，登出后 Plaza / System Evolution 仍会回跳 `login.html?next=...`。
+- 本轮继续推进 `FE-05`：新增 `global-nav.test.js`、`login-page-flow.test.js`、`plaza-runtime-helpers.test.js` 与 `utils-surface.test.js`，把 logout、登录回跳/CSRF prime、Plaza 数据归一化 helper 和共享 utils surface 纳入 Vitest 护栏，当前相关前端组合回归已达到 `47 passed`。
