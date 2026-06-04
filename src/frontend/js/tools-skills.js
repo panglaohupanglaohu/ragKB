@@ -9,10 +9,16 @@
 'use strict';
 let _tcToolId='';
 function asItems(payload){return Array.isArray(payload)?payload:Array.isArray(payload&&payload.items)?payload.items:[]}
+async function listApi(path, limit, offset){
+  if(window.api&&typeof window.api.list==='function'){
+    return asItems(await window.api.list(path, limit||50, offset||0));
+  }
+  return asItems(await api(path));
+}
 async function loadTools(){hideViewLoading('view-tools');
-  const[all,team]=await Promise.all([api(`${A}/tools`),api(`${A}/teams/${tid}/tools`)]);
+  const[all,team]=await Promise.all([listApi(`${A}/tools`,200,0),listApi(`${A}/teams/${tid}/tools`,200,0)]);
   const en=new Set((team||[]).filter(t=>t.enabled!==false).map(t=>t.tool_id||t.id));const box=el('tools-cards');
-  if(!all||!all.length){box.innerHTML='<p style="color:var(--dim)">暂无工具</p>';return}
+  if(!all.length){box.innerHTML='<p style="color:var(--dim)">暂无工具</p>';return}
   const cats={};all.forEach(t=>{const c=(t.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(t)});
   let html='';Object.keys(cats).sort().forEach(cat=>{
     html+=`<div class="sb-section" style="margin-top:16px;margin-bottom:10px">${cat}</div>`;
@@ -42,7 +48,7 @@ async function testToolExec(toolName){
   else if(r){toast(`❌ ${toolName} 执行失败`);alert(`工具: ${toolName}\n\n错误: ${r.error||'未知错误'}`)}
   else toast('执行请求失败')
 }
-function openToolConfig(toolId){_tcToolId=toolId;api(`${A}/tools`).then(all=>{const t=(all||[]).find(x=>x.tool_id===toolId);if(!t){toast('工具未找到');return}el('tc-title').textContent=`${t.icon||'🔧'} ${t.name} 配置`;const sch=t.config_schema||{};const cfg=t.config||{};let html='';Object.keys(sch).forEach(k=>{const s=sch[k];const v=cfg[k]??s.default??'';html+=`<div class="form-group"><label class="form-label">${k} <span style="color:var(--dim);font-size:11px">${escapeHtml(s.description||"")}</span></label>${s.type==='boolean'?`<select class="fi" id="tc-${k}"><option value="true"${v?'selected':''}>是</option><option value="false"${!v?' selected':''}>否</option></select>`:`<input class="fi" id="tc-${k}" value="${Array.isArray(v)?v.join(', '):v}" placeholder="${s.default||''}">`}</div>`});if(!html)html='<p style="color:var(--dim)">此工具暂无可配置项</p>';el('tc-form').innerHTML=html;openModal('modal-tool-config')})}
+function openToolConfig(toolId){_tcToolId=toolId;listApi(`${A}/tools`,200,0).then(all=>{const t=(all||[]).find(x=>x.tool_id===toolId);if(!t){toast('工具未找到');return}el('tc-title').textContent=`${t.icon||'🔧'} ${t.name} 配置`;const sch=t.config_schema||{};const cfg=t.config||{};let html='';Object.keys(sch).forEach(k=>{const s=sch[k];const v=cfg[k]??s.default??'';html+=`<div class="form-group"><label class="form-label">${k} <span style="color:var(--dim);font-size:11px">${escapeHtml(s.description||"")}</span></label>${s.type==='boolean'?`<select class="fi" id="tc-${k}"><option value="true"${v?'selected':''}>是</option><option value="false"${!v?' selected':''}>否</option></select>`:`<input class="fi" id="tc-${k}" value="${Array.isArray(v)?v.join(', '):v}" placeholder="${s.default||''}">`}</div>`});if(!html)html='<p style="color:var(--dim)">此工具暂无可配置项</p>';el('tc-form').innerHTML=html;openModal('modal-tool-config')})}
 async function saveToolConfig(){
   if(!_tcToolId){toast('无工具选中');return}
   const inputs=el('tc-form').querySelectorAll('[id^="tc-"]');
@@ -53,7 +59,7 @@ async function saveToolConfig(){
 
 // ── Tool Edit / Delete ──
 async function openEditTool(toolId){
-  const all=await api(`${A}/tools`);const t=(all||[]).find(x=>x.tool_id===toolId);
+  const all=await listApi(`${A}/tools`,200,0);const t=(all||[]).find(x=>x.tool_id===toolId);
   if(!t){toast('工具未找到');return}
   const html=`<div class="modal-overlay open" id="modal-edit-tool" onclick="if(event.target===this)this.remove()"><div class="modal"><h3>✏️ 编辑工具: ${escapeHtml(t.name)}</h3><div class="form-group"><label class="form-label">名称</label><input class="fi" id="et-name" value="${escapeHtml(t.name)}"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="et-desc" rows="3">${escapeHtml(t.description||'')}</textarea></div><div class="form-group"><label class="form-label">图标</label><input class="fi" id="et-icon" value="${t.icon||'🔧'}" style="width:60px"></div><div class="form-group"><label class="form-label">需要审批</label><select class="fi" id="et-approval"><option value="false"${!t.requires_approval?' selected':''}>否</option><option value="true"${t.requires_approval?' selected':''}>是</option></select></div><div class="modal-actions"><button class="btn" onclick="document.getElementById('modal-edit-tool').remove()">取消</button><button class="btn btn-pink" onclick="submitEditTool('${toolId}')">保存</button></div></div></div>`;
   document.body.insertAdjacentHTML('beforeend',html);
@@ -71,7 +77,7 @@ async function deleteTool(toolId,toolName){
 
 // ── Skill Edit / Delete ──
 async function openEditSkill(skillId){
-  const teamSkills=asItems(await api(`${A}/teams/${tid}/skills`));const s=teamSkills.find(x=>x.skill_id===skillId);
+  const teamSkills=await listApi(`${A}/teams/${tid}/skills`,200,0);const s=teamSkills.find(x=>x.skill_id===skillId);
   if(!s){toast('技能未找到');return}
   // Fetch full instructions
   let instructions='';
@@ -92,7 +98,7 @@ async function deleteSkill(skillId,skillName){
 
 // ── Skills (Clawith-style) ──
 async function loadSkills(){hideViewLoading('view-skills');
-  const teamSkills=asItems(await api(`${A}/teams/${tid}/skills`));const box=el('skills-cards');
+  const teamSkills=await listApi(`${A}/teams/${tid}/skills`,200,0);const box=el('skills-cards');
   let html='<div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-sm btn-pink" onclick="openGenerateSkillModal()">⚡ 生成技能</button><button class="btn btn-sm" onclick="importSkillFromFile()">📥 导入技能</button><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出全部</button></div>';
   if(!teamSkills.length){box.innerHTML=html+'<p style="color:var(--dim)">当前团队暂无技能</p>';return}
   const cats={};teamSkills.forEach(s=>{const c=(s.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(s)});
@@ -214,8 +220,8 @@ async function testSkillExec(skillName){
 
 // ── Export Skills ──
 function exportSkillsMD(){
-  api(`${A}/skills`).then(function(all){
-    if(!all||!all.length){toast('暂无技能可导出');return}
+  listApi(`${A}/skills`,200,0).then(function(all){
+    if(!all.length){toast('暂无技能可导出');return}
     var md='# Skills Export\n\n';
     all.forEach(function(s){md+='## '+s.name+'\n\n'+s.description+'\n\n'});
     var blob=new Blob([md],{type:'text/markdown'});
