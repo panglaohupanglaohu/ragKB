@@ -14,6 +14,15 @@ const TST_LBL={pending:'待执行',running:'执行中',completed:'已完成',fai
 
 const WF_ICONS={completed:'✓',active:'●',pending:'○',skipped:'—',failed:'✗'};
 
+async function listTasks(limit = 200, offset = 0){
+  if(window.api&&typeof window.api.list==='function'){
+    const payload=await window.api.list(`${A}/teams/${tid}/tasks`,limit,offset);
+    return Array.isArray(payload?.items)?payload.items:[];
+  }
+  const payload=await api(`${A}/teams/${tid}/tasks`);
+  return Array.isArray(payload)?payload:Array.isArray(payload?.items)?payload.items:[];
+}
+
 function renderWorkflow(task){
   const wf=task.metadata&&task.metadata.workflow;
   if(!wf||!wf.length) return '';
@@ -109,7 +118,7 @@ function startWorkflowPoll(){
   if(_wfPollTimer) return;
   _wfPollTimer=setInterval(async()=>{
     try{
-      const tasks=await api(`${A}/teams/${tid}/tasks`);
+      const tasks=await listTasks();
       if(!tasks||!tasks.length)return;
       // Build snapshot of all workflow step statuses
       let snap='';
@@ -252,7 +261,7 @@ async function stepClick(taskId,stepIndex,currentStatus){
 }
 
 async function loadTasks(){hideViewLoading("view-tasks");
-  const[tasks,stats]=await Promise.all([api(`${A}/teams/${tid}/tasks`),api(`${A}/tasks/stats`)]);
+  const[tasks,stats]=await Promise.all([listTasks(),api(`${A}/tasks/stats`)]);
   const tb=el('tasks-tb'),st=el('task-stats');
   if(stats){const s=stats.by_status||{};st.innerHTML=`<span class="chip" style="background:rgba(53,200,255,0.1)">并发: ${stats.max_concurrency}</span><span class="chip">${stats.total||0} 总</span>${s.running?`<span class="chip" style="background:rgba(53,200,255,0.15);color:var(--cyan-s)">${s.running} 运行中</span>`:''}${s.completed?`<span class="chip" style="background:rgba(152,245,167,0.15);color:var(--lime)">${s.completed} 完成</span>`:''}`}
   if(!tasks||!tasks.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无任务 — 点击「提交任务」开始并发执行</td></tr>';return}
@@ -387,7 +396,7 @@ window.cancelAllTasks = async function(){
   else if(ch==='f') targets.push('failed');
   else {toast('无效选择，请输入 r/p/a/f');return}
 
-  const tasks=await api(`${A}/teams/${tid}/tasks`);
+  const tasks=await listTasks();
   if(!tasks||!tasks.length){toast('暂无任务');return}
   const matched=tasks.filter(t=>targets.includes(t.status));
   if(!matched.length){toast(`没有 ${targets.join('/')} 状态的任务`);return}
