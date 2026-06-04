@@ -39,7 +39,7 @@
 | 维度 | 当前状态 | 说明 |
 |------|:--------:|------|
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
-| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`；可通过 bundled-node fallback 稳定执行 |
+| 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `15 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
 | 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `906 passed, 4 skipped` |
@@ -154,7 +154,7 @@
 | FE-03 | Plaza 3D 回流 | WIP | P1 | 气泡定位已改成仅在 camera/target 变化、文本变化、resize 时重排，并缓存容器/气泡尺寸 | 还需浏览器 smoke 验证长讨论场景下无漂移 |
 | FE-04 | i18n key-based | WIP | P2 | `data-i18n` 与 `window.t(key)` 已开始接入，但 text-walker 仍是主机制 | 扩大 key-based 覆盖，逐步收缩 text-walker |
 | FE-05 | Frontend Unit Tests | WIP | P1 | `api.js` 首批 Vitest 已补上，且 `scripts/frontend_build.sh` / `scripts/frontend_test.sh` 已恢复本机构建与测试可执行性 | 扩到 `utils.js`、Plaza 数据归一化、登录链和更多共享 helper |
-| BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`；`skill-extract.js` 已切到共享 `api.list()` 消费团队/智能体/团队技能/公共技能/演化建议分页结果 | 继续把剩余页面切到 `api.list()` |
+| BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`；`skill-extract.js` 与 `system-evolution.js` 已切到共享 `api.list()`，消费团队/智能体/团队技能/公共技能/演化建议以及 evolution items/rules/history/audit-trail/optimize-runs 分页结果 | 继续把剩余页面切到 `api.list()` |
 | BE-02 | Pydantic 校验全面化 | DONE | P1 | `agent_team_api.py` 11 个 handler、`agents/api.py` 5 个 handler、`k8s_webhook_handler.py` 1 个 handler 已迁到 Pydantic request model；新增 request-model 回归覆盖约束、alias 与 dry-run 语义 | 后续新增 state-changing 路由默认沿用 request model |
 | BE-03 | 配置集中管理 | DONE | P1 | `main.py` 已全部通过 `CONFIG_*` 引用 `config.py`；.env 支持已加 | 维护即可 |
 | BE-04 | 后端测试覆盖提升 | WIP | P1 | 后端全量已恢复到可稳定跑通，GitHub Actions 已接上 `npm run test:backend`；本轮新增 `agent-team` 演化入口、`digital-twin` 主写接口，以及 `health / teams / evolution / plaza` 主路径的 HTTP smoke，并补了 logout 失效、evolution audit/cycle、plaza discussion create/summary 的正向链路 | 继续补齐更深层的 auth/teams/plaza/evolution 集成测试 |
@@ -290,3 +290,4 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 本轮为 `agent-team` 演化入口和 `digital-twin` 主写接口补上了 HTTP 级集成测试，并在测试夹具里清理全局 channel/rate-limit 状态，避免污染后续后端测试模块。
 - 本轮继续扩面 `BE-04`：新增 `health / teams / evolution / plaza` 主路径 HTTP smoke，验证未登录 401、登录后 200，以及 Plaza 创建的最短正向路径。
 - 本轮继续扩面 `BE-04`：补上 logout 后受保护接口重新 401、`evolution/audit` 与 `evolution/cycle` 的写路径，以及 Plaza discussion 创建/summary 的 HTTP 级正向链路，并在测试结束后清理临时广场。
+- 本轮推进 `BE-P0-01` 收尾：`system-evolution.js` 已改用共享 `api.list()` 消费 `items / rules / audit-trail / history / optimize-runs` 分页接口，并补上前端回归，避免再次手写 `?limit=` 拼接。

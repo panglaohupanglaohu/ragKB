@@ -34,7 +34,7 @@ function makeElement() {
   };
 }
 
-function buildContext(requestImpl) {
+function buildContext(requestImpl, listImpl) {
   const elements = Object.create(null);
   const document = {
     getElementById(id) {
@@ -60,6 +60,7 @@ function buildContext(requestImpl) {
     location,
     api: {
       request: requestImpl,
+      list: listImpl,
     },
   };
 
@@ -100,21 +101,35 @@ describe('system-evolution dashboard', () => {
       }
       return null;
     });
+    const list = vi.fn(async (url, limit, offset) => {
+      if (url === '/api/v1/agent-teams/evolution/items') {
+        expect(limit).toBe(50);
+        expect(offset).toBe(0);
+        return { items: [{ id: 'item-1', title: 'Patch drift', status: 'discovered', severity: 'high', audit_domain: 'build', description: 'desc' }], total: 1, limit: 50, offset: 0, has_more: false };
+      }
+      return [];
+    });
 
-    const { context, elements } = buildContext(request);
+    const { context, elements } = buildContext(request, list);
     vm.runInContext(read('src/frontend/js/system-evolution.js'), context);
 
     expect(typeof context.window.api.request).toBe('function');
     await context.loadOverview();
 
     expect(request).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/summary', undefined);
+    expect(list).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/items', 50, 0);
     expect(elements['ov-items'].innerHTML).toContain('Patch drift');
     expect(elements['panel-badge'].textContent).toBe('1 项');
   });
 
   it('renders paginated optimize history envelopes', async () => {
     const request = vi.fn(async (url) => {
-      if (url === '/api/v1/agent-teams/evolution/optimize/runs?limit=15') {
+      return [];
+    });
+    const list = vi.fn(async (url, limit, offset) => {
+      if (url === '/api/v1/agent-teams/evolution/optimize/runs') {
+        expect(limit).toBe(15);
+        expect(offset).toBe(0);
         return {
           items: [{
             run_id: 'run-1',
@@ -136,12 +151,13 @@ describe('system-evolution dashboard', () => {
       return [];
     });
 
-    const { context, elements } = buildContext(request);
+    const { context, elements } = buildContext(request, list);
     vm.runInContext(read('src/frontend/js/system-evolution.js'), context);
 
     expect(typeof context.window.api.request).toBe('function');
     await context.loadEvolveHistory();
 
+    expect(list).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/optimize/runs', 15, 0);
     expect(elements['ev-history-table'].innerHTML).toContain('run-1');
     expect(elements['ev-history-table'].innerHTML).toContain('75%');
   });

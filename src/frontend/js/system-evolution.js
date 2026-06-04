@@ -46,6 +46,18 @@ async function apiRequest(p, o) {
   _apiClient_se = client;
   return client.request(p, o);
 }
+async function apiList(base, limit, offset) {
+  const client = (window.api && typeof window.api.request === 'function') ? window.api : _apiClient_se;
+  if (!client) return null;
+  _apiClient_se = client;
+  if (typeof client.list === 'function') {
+    return client.list(base, limit, offset);
+  }
+  const pageLimit = limit || 50;
+  const pageOffset = offset || 0;
+  const sep = base.includes('?') ? '&' : '?';
+  return client.request(`${base}${sep}limit=${pageLimit}&offset=${pageOffset}`);
+}
 function collectionItems(payload) {
   if (Array.isArray(payload)) return payload;
   return Array.isArray(payload?.items) ? payload.items : [];
@@ -107,7 +119,7 @@ function switchPanel(name) {
 // ── Overview ──
 async function loadOverview() {
   const [summary, compliance, itemsPayload, zones] = await Promise.all([
-    apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiRequest(`${EVP}/items`), apiRequest(`${EVP}/zones/active`)
+    apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiList(`${EVP}/items`, 50, 0), apiRequest(`${EVP}/zones/active`)
   ]);
   const items = collectionItems(itemsPayload);
 
@@ -173,8 +185,8 @@ async function loadItems() {
   const sf = el('item-status-filter')?.value || '';
   const df = el('item-domain-filter')?.value || '';
   let url = `${EVP}/items`;
-  if (sf) url += `?status=${sf}`;
-  const itemsPayload = await apiRequest(url);
+  if (sf) url += `?status=${encodeURIComponent(sf)}`;
+  const itemsPayload = await apiList(url, 50, 0);
   _allItems = collectionItems(itemsPayload);
   // Populate domain filter
   const domains = [...new Set(_allItems.map(i => i.audit_domain).filter(Boolean))];
@@ -232,7 +244,7 @@ async function markComplete(itemId) {
 
 // ── Rules ──
 async function loadRules() {
-  if (!_allRules.length) _allRules = collectionItems(await apiRequest(`${EVP}/rules`));
+  if (!_allRules.length) _allRules = collectionItems(await apiList(`${EVP}/rules`, 50, 0));
   // Populate domain filter
   const domains = [...new Set(_allRules.map(r => r.domain).filter(Boolean))];
   const dSel = el('rule-domain-filter');
@@ -282,9 +294,9 @@ async function loadZones() {
 // ── Audit Trail ──
 async function loadTrail() {
   const tf = el('trail-type-filter')?.value || '';
-  let url = `${EVP}/audit-trail?limit=100`;
-  if (tf) url += `&event_type=${tf}`;
-  const trail = collectionItems(await apiRequest(url));
+  let url = `${EVP}/audit-trail`;
+  if (tf) url += `?event_type=${encodeURIComponent(tf)}`;
+  const trail = collectionItems(await apiList(url, 100, 0));
   if (trail && trail.length) {
     el('trail-list').innerHTML = trail.map(e => `<div class="audit-entry">
       <span class="ae-time">${timeAgo(e.timestamp)}</span>
@@ -299,7 +311,7 @@ async function loadTrail() {
 // ── Trend ──
 async function loadTrend() {
   const [trend, historyPayload, monitoring] = await Promise.all([
-    apiRequest(`${EVP}/trend`), apiRequest(`${EVP}/history`), apiRequest(`${EVP}/monitoring`)
+    apiRequest(`${EVP}/trend`), apiList(`${EVP}/history`, 50, 0), apiRequest(`${EVP}/monitoring`)
   ]);
   const history = collectionItems(historyPayload);
 
@@ -1047,7 +1059,7 @@ goToStep = function(step) {
 // ── History ──
 
 async function loadEvolveHistory() {
-  const runs = collectionItems(await apiRequest(`${EVP}/optimize/runs?limit=15`));
+  const runs = collectionItems(await apiList(`${EVP}/optimize/runs`, 15, 0));
   if (!runs || !runs.length) {
     el('ev-history-table').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px">暂无优化记录</div>';
     return;
