@@ -41,7 +41,7 @@
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
 | 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/digital-twin-cli-pagination.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `22 passed`；此前 `21 passed` 与 `19 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
-| 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_integration_extended.py` → `40 passed`，覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/evolution 扩展 HTTP 集成测试；`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py` → `23 passed`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链；此前 `test_startup_validator.py` + `test_auth_csrf.py` → `22 passed`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现；`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
+| 后端定向回归 | ✅ 通过 | 本轮验证：`test_api_integration_extended.py` → `48 passed`，覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/plaza/evolution 扩展 HTTP 集成测试，含 plaza list/detail/discussions/tasks/verification/consensus 与 evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs；`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py` → `23 passed`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链；此前 `test_startup_validator.py` + `test_auth_csrf.py` → `22 passed`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现；`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `906 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；随后又验证：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed`，`test_sandbox_security.py` → `19 passed`，覆盖缺 Docker 时的 blocked/self-check 语义以及 lite 模式自检成功；远端 `Sandbox Docker Self Check` 已跑通真容器路径 |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
@@ -158,7 +158,7 @@
 | BE-01 | 列表 API 分页全覆盖 | DONE | P0 | 所有主要 list endpoint 已有 `limit/offset`；`skill-extract.js`、`system-evolution.js`、`tools-skills.js`、`plaza.js`、`tasks-view.js`、`agent-detail.js`、`agent-team-config.js`、`wizard.js` 与 `digital-twin-cli.js` 已切到共享 `api.list()` 或等价分页 helper，覆盖团队/智能体/技能/工具/任务、广场/讨论、SECS 团队任务与 evolution items 等主要分页读路径 | 维持统一消费方式，新增分页列表默认复用 `api.list()` |
 | BE-02 | Pydantic 校验全面化 | DONE | P1 | `agent_team_api.py` 11 个 handler、`agents/api.py` 5 个 handler、`k8s_webhook_handler.py` 1 个 handler 已迁到 Pydantic request model；新增 request-model 回归覆盖约束、alias 与 dry-run 语义 | 后续新增 state-changing 路由默认沿用 request model |
 | BE-03 | 配置集中管理 | DONE | P1 | `main.py` 已全部通过 `CONFIG_*` 引用 `config.py`；.env 支持已加 | 维护即可 |
-| BE-04 | 后端测试覆盖提升 | WIP | P1 | 后端全量已恢复到可稳定跑通，GitHub Actions 已接上 `npm run test:backend`；`agent-team` 演化入口、`digital-twin` 主写接口、`health / teams / evolution / plaza` 主路径 HTTP smoke 已补齐；`test_api_integration_extended.py` 现已覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/evolution 扩展 HTTP 契约，并修正了共享 TestClient 下 cookie / rate-limit 污染 | 继续补齐更深层的 auth/teams/plaza/evolution 集成测试 |
+| BE-04 | 后端测试覆盖提升 | WIP | P1 | 后端全量已恢复到可稳定跑通，GitHub Actions 已接上 `npm run test:backend`；`agent-team` 演化入口、`digital-twin` 主写接口、`health / teams / evolution / plaza` 主路径 HTTP smoke 已补齐；`test_api_integration_extended.py` 现已覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/plaza/evolution 扩展 HTTP 契约，并修正了共享 TestClient 下 cookie / rate-limit 污染，新增 Plaza discussion 只读子视图与 Evolution dashboard 只读子接口集成覆盖 | 后续转到更长尾的 domain/API 组合覆盖与失败分支测试 |
 | OBS-01 | 结构化日志 + request_id | DONE | P1 | JSON 日志格式 (`AG_LOG_FORMAT=json`)、request_id middleware 已落地；前端 API 客户端已自动透传并缓存 `X-Request-ID`，主要页面错误 toast 与 trace drill-down 已显示 request_id | 继续扩大到更多页面和错误面板 |
 | OBS-02 | OpenTelemetry / OTel Export | WIP | P2 | OTel tracing 模块、optional deps 与 startup hook 已落地；真实 exporter smoke 未做 | OTel span 在真实环境导出到 Jaeger/OTLP 并补测试 |
 | DATA-01 | 会话存储升级 | BACKLOG | P2 | JSON 文件 / 内存状态仍多 | SQLite + 索引 + 后续向量检索 |
@@ -189,19 +189,19 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 顺序 | ID | 任务 | 涉及文件 | 验证 |
 |------|----|------|----------|------|
-| 1 | BE-04 | 后端 API handler 测试扩面 | `src/backend/tests/*`, `src/backend/agents/api.py`, `src/backend/agent_team_api.py` | `pytest src/backend/tests --maxfail=1` |
-| 2 | FE-02 | 全局状态清理 | `src/frontend/js/agent-team-config.js`, `src/frontend/js/*.js` | `frontend_build.sh` + 页面 smoke |
+| 1 | FE-02 | 全局状态清理 | `src/frontend/js/agent-team-config.js`, `src/frontend/js/*.js` | `frontend_build.sh` + 页面 smoke |
+| 2 | FE-05 | 前端单测扩面 | `src/frontend/__tests__/*`, `src/frontend/js/utils.js`, `src/frontend/js/api.js` | `./scripts/frontend_test.sh ...` |
 
 ### 5.2 紧接执行（P1）
 
 | ID | 任务 | 完成定义 |
 |----|------|----------|
 | BE-02 | Pydantic 校验全面化 | 所有 state-changing handler 有 request model |
-| BE-04 | 后端 API handler 测试 | auth/health/teams/plaza/evolution 主接口有集成测试 |
 | FE-02 | 全局状态清理 | `agent-team-config.js` 只暴露少量公共 API |
 | FE-05 | Vitest 测试扩面并恢复本机执行 | 先修复 Rollup 原生模块阻塞，再扩到 `utils.js`、登录链、Plaza helper |
 | OBS-01 | JSON log + request_id | 前端请求已透传 `X-Request-ID`；Agent Team / Plaza / Evolution 错误提示和 Agent Team trace drill-down 已可见 |
 | RUN-03 | 状态机接入主 runtime | task/session/agent 生命周期统一走状态机与 watchdog |
+| BE-04 | 后端 API handler 长尾覆盖 | 补 mutation 失败分支、更多 domain 组合路径与异常断言 |
 
 ### 5.3 后续增强（P2/P3）
 
@@ -301,3 +301,4 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 本轮修复本地登录初始化：`./start.sh` 会生成/复用 `config/.dev_admin_password`，并通过 `ADMIN_PASSWORD` 初始化 `admin`，避免快速启动后登录接口因无 admin 账号返回 `401`；固定 `admin123` 仍只在显式 `AG_ALLOW_DEFAULT_ADMIN` 时启用。
 - 本轮补齐 `digital-twin-cli.js` 的分页消费收口：广场列表与讨论列表已切到共享分页 helper，连同原先已接好的团队/智能体/技能/工具/任务/evolution/SECS 列表一起，把前端主要分页读路径统一到 `api.list()` 语义，并新增 `digital-twin-cli-pagination.test.js` 回归。
 - 本轮收口 `test_api_integration_extended.py`：通过清理共享 TestClient 下的 cookie / rate-limit 状态，修正匿名保护断言与注册限流串扰；同时把 `health` 断言对齐到真实 payload，并补了 `/api/v1/info` 公开发现与 `auth/me` 匿名/已登录主路径检查。
+- 本轮继续扩面 `BE-04`：`test_api_integration_extended.py` 已新增 Plaza list/detail/discussions/tasks/verification/consensus，以及 Evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs 的只读集成覆盖，当前该文件已提升到 `48 passed`。

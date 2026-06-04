@@ -125,6 +125,49 @@ def _reset_test_client_state(client: TestClient | None = None) -> None:
         client.cookies.clear()
 
 
+def _create_plaza_with_discussion(
+    client: TestClient,
+    prefix: str,
+) -> Dict[str, Any]:
+    """Create a unique plaza and discussion for Plaza/Evolution integration tests."""
+    csrf, _ = _register_and_get_csrf(client, prefix)
+    headers = {"x-csrf-token": csrf}
+    unique = f"{prefix}-{int(time.time() * 1000)}"
+
+    plaza_resp = client.post(
+        "/api/v1/agent-config/plaza",
+        json={
+            "name": f"Integration Plaza {unique}",
+            "description": "Extended HTTP integration coverage",
+            "selected_agents": [],
+            "chairperson_agent_id": "",
+        },
+        headers=headers,
+    )
+    assert plaza_resp.status_code == 201, f"create plaza failed: {plaza_resp.text}"
+    plaza = plaza_resp.json()
+
+    discussion_resp = client.post(
+        f"/api/v1/agent-config/plaza/{plaza['id']}/discussions",
+        json={
+            "topic": f"Integration discussion {unique}",
+            "description": "Validate plaza read endpoints",
+            "goal": "Exercise plaza/evolution HTTP read coverage",
+            "moderator_agent_id": "",
+            "max_rounds": 1,
+        },
+        headers=headers,
+    )
+    assert discussion_resp.status_code == 201, (
+        f"create discussion failed: {discussion_resp.text}"
+    )
+    return {
+        "headers": headers,
+        "plaza": plaza,
+        "discussion": discussion_resp.json(),
+    }
+
+
 # ===================================================================
 # Health endpoint
 # ===================================================================
@@ -532,6 +575,120 @@ class TestDigitalTwinHTTP:
 
 
 # ===================================================================
+# Plaza endpoints
+# ===================================================================
+
+class TestPlazaHTTP:
+    """Expanded Plaza HTTP coverage for list/detail/read-only discussion surfaces."""
+
+    @pytest.fixture()
+    def _plaza_discussion(self, configured_client):
+        resource = _create_plaza_with_discussion(configured_client, "plazahttp")
+        yield resource
+        configured_client.delete(
+            f"/api/v1/agent-config/plaza/{resource['plaza']['id']}",
+            headers=resource["headers"],
+        )
+
+    def test_plaza_list_and_detail(self, configured_client, _plaza_discussion):
+        """GET plaza list/detail returns paginated envelope and detailed payload."""
+        headers = _plaza_discussion["headers"]
+        plaza = _plaza_discussion["plaza"]
+
+        list_resp = configured_client.get(
+            "/api/v1/agent-config/plaza?limit=200&offset=0",
+            headers=headers,
+        )
+        assert list_resp.status_code == 200
+        list_payload = list_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(list_payload)
+        assert any(item["id"] == plaza["id"] for item in list_payload["items"])
+
+        detail_resp = configured_client.get(
+            f"/api/v1/agent-config/plaza/{plaza['id']}",
+            headers=headers,
+        )
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["id"] == plaza["id"]
+        assert {"participants", "discussions", "participant_count", "discussion_count"}.issubset(detail)
+
+    def test_discussion_list_detail_and_summary(
+        self,
+        configured_client,
+        _plaza_discussion,
+    ):
+        """GET plaza discussions/detail/summary returns expected structures."""
+        headers = _plaza_discussion["headers"]
+        plaza = _plaza_discussion["plaza"]
+        discussion = _plaza_discussion["discussion"]
+
+        list_resp = configured_client.get(
+            f"/api/v1/agent-config/plaza/{plaza['id']}/discussions?limit=20&offset=0",
+            headers=headers,
+        )
+        assert list_resp.status_code == 200
+        list_payload = list_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(list_payload)
+        assert any(item["id"] == discussion["id"] for item in list_payload["items"])
+
+        detail_resp = configured_client.get(
+            f"/api/v1/agent-config/plaza/{plaza['id']}/discussions/{discussion['id']}",
+            headers=headers,
+        )
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["id"] == discussion["id"]
+        assert detail["topic"] == discussion["topic"]
+        assert "messages" in detail
+
+        summary_resp = configured_client.get(
+            f"/api/v1/agent-config/plaza/{plaza['id']}/discussions/{discussion['id']}/summary",
+            headers=headers,
+        )
+        assert summary_resp.status_code == 200
+        summary = summary_resp.json()
+        assert summary["discussion_id"] == discussion["id"]
+        assert summary["topic"] == discussion["topic"]
+        assert {"plan_revision", "task_ids", "task_count", "status"}.issubset(summary)
+
+    def test_discussion_tasks_verification_and_consensus(
+        self,
+        configured_client,
+        _plaza_discussion,
+    ):
+        """GET task, verification, and consensus views stays available before execution."""
+        headers = _plaza_discussion["headers"]
+        plaza = _plaza_discussion["plaza"]
+        discussion = _plaza_discussion["discussion"]
+        base = (
+            f"/api/v1/agent-config/plaza/{plaza['id']}/discussions/{discussion['id']}"
+        )
+
+        tasks_resp = configured_client.get(f"{base}/tasks?limit=20&offset=0", headers=headers)
+        assert tasks_resp.status_code == 200
+        tasks = tasks_resp.json()
+        assert {"discussion_id", "plaza_id", "task_count", "tasks"}.issubset(tasks)
+        assert tasks["discussion_id"] == discussion["id"]
+
+        queue_resp = configured_client.get(f"{base}/verification-queue", headers=headers)
+        assert queue_resp.status_code == 200
+        queue = queue_resp.json()
+        assert {"plaza_id", "discussion_id", "count", "items"}.issubset(queue)
+
+        alerts_resp = configured_client.get(f"{base}/verification-alerts", headers=headers)
+        assert alerts_resp.status_code == 200
+        alerts = alerts_resp.json()
+        assert {"plaza_id", "discussion_id", "count", "alerts"}.issubset(alerts)
+
+        consensus_resp = configured_client.get(f"{base}/consensus", headers=headers)
+        assert consensus_resp.status_code == 200
+        consensus = consensus_resp.json()
+        assert consensus["discussion_id"] == discussion["id"]
+        assert {"consensus", "dissenting_messages", "round_number"}.issubset(consensus)
+
+
+# ===================================================================
 # Evolution endpoints (happy path when evolution engine is registered)
 # ===================================================================
 
@@ -582,6 +739,121 @@ class TestEvolutionEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
+
+    def test_evolution_analytics(self, configured_client):
+        """GET /api/v1/agent-teams/evolution/analytics returns derived summary data."""
+        csrf, _ = _register_and_get_csrf(configured_client, "evoanalytics")
+        resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/analytics",
+            headers={"x-csrf-token": csrf},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Evolution engine not registered")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert {"summary", "history", "stats", "items_by_status", "rules_count"}.issubset(data)
+
+    def test_evolution_compliance_and_checklist(self, configured_client):
+        """GET compliance/checklist endpoints returns UI-ready structures."""
+        csrf, _ = _register_and_get_csrf(configured_client, "evocompliance")
+        headers = {"x-csrf-token": csrf}
+
+        rating_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/compliance-rating",
+            headers=headers,
+        )
+        if rating_resp.status_code == 404:
+            pytest.skip("Evolution engine not registered")
+        assert rating_resp.status_code == 200
+        rating = rating_resp.json()
+        assert {"grade", "description", "escalation_tier"}.issubset(rating)
+
+        checklist_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/checklist",
+            headers=headers,
+        )
+        assert checklist_resp.status_code == 200
+        checklist = checklist_resp.json()
+        assert {"company_checklist", "ship_checklist", "total_rules"}.issubset(checklist)
+
+    def test_evolution_zone_views(self, configured_client):
+        """GET evolution zones and active zones returns list payloads."""
+        csrf, _ = _register_and_get_csrf(configured_client, "evozones")
+        headers = {"x-csrf-token": csrf}
+
+        zones_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/zones",
+            headers=headers,
+        )
+        if zones_resp.status_code == 404:
+            pytest.skip("Evolution engine not registered")
+        assert zones_resp.status_code == 200
+        zones = zones_resp.json()
+        assert isinstance(zones, list)
+        if zones:
+            assert isinstance(zones[0], dict)
+
+        active_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/zones/active",
+            headers=headers,
+        )
+        assert active_resp.status_code == 200
+        active_zones = active_resp.json()
+        assert isinstance(active_zones, list)
+
+    def test_evolution_escalation_trend_and_monitoring(self, configured_client):
+        """GET escalation/trend/monitoring endpoints returns dashboard data."""
+        csrf, _ = _register_and_get_csrf(configured_client, "evomon")
+        headers = {"x-csrf-token": csrf}
+
+        escalation_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/escalation",
+            headers=headers,
+        )
+        if escalation_resp.status_code == 404:
+            pytest.skip("Evolution engine not registered")
+        assert escalation_resp.status_code == 200
+        escalation = escalation_resp.json()
+        assert {"escalated_count", "rules", "total_tracked"}.issubset(escalation)
+
+        trend_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/trend",
+            headers=headers,
+        )
+        assert trend_resp.status_code == 200
+        trend = trend_resp.json()
+        assert {"trend_direction", "scores", "improvement_rate"}.issubset(trend)
+
+        monitoring_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/monitoring",
+            headers=headers,
+        )
+        assert monitoring_resp.status_code == 200
+        monitoring = monitoring_resp.json()
+        assert {"active", "last_check", "interval_seconds"}.issubset(monitoring)
+
+    def test_evolution_audit_trail_and_optimize_runs(self, configured_client):
+        """GET paginated trail/run endpoints returns consistent envelopes."""
+        csrf, _ = _register_and_get_csrf(configured_client, "evopages")
+        headers = {"x-csrf-token": csrf}
+
+        trail_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/audit-trail?limit=10&offset=0",
+            headers=headers,
+        )
+        if trail_resp.status_code == 404:
+            pytest.skip("Evolution engine not registered")
+        assert trail_resp.status_code == 200
+        trail = trail_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(trail)
+
+        runs_resp = configured_client.get(
+            "/api/v1/agent-teams/evolution/optimize/runs?limit=10&offset=0",
+            headers=headers,
+        )
+        assert runs_resp.status_code == 200
+        runs = runs_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(runs)
 
 
 # ===================================================================
