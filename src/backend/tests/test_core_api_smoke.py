@@ -100,3 +100,85 @@ class TestCoreApiSmoke:
         payload = resp.json()
         assert payload["name"] == "Core API Smoke Plaza"
         assert "id" in payload
+        delete_resp = started_client.delete(
+            f"/api/v1/agent-config/plaza/{payload['id']}",
+            headers={"x-csrf-token": token},
+        )
+        assert delete_resp.status_code == 200
+        assert delete_resp.json() == {"status": "deleted"}
+
+    def test_logout_revokes_protected_core_access(self, started_client):
+        token = _register_and_get_csrf(started_client, "logoutcore")
+        headers = {"x-csrf-token": token}
+
+        pre_logout = started_client.get("/api/v1/agent-config/teams", headers=headers)
+        assert pre_logout.status_code == 200
+
+        logout_resp = started_client.post("/api/v1/auth/logout", headers=headers)
+        assert logout_resp.status_code == 200
+        assert logout_resp.json()["revoked"] is True
+
+        post_logout = started_client.get("/api/v1/agent-config/teams", headers=headers)
+        assert post_logout.status_code == 401
+
+    def test_authenticated_evolution_and_discussion_writes_return_expected_shape(self, started_client):
+        token = _register_and_get_csrf(started_client, "evolutionwrite")
+        headers = {"x-csrf-token": token}
+
+        audit_resp = started_client.post("/api/v1/agent-teams/evolution/audit", headers=headers)
+        assert audit_resp.status_code == 200
+        audit_payload = audit_resp.json()
+        assert "audit_run" in audit_payload
+        assert "details" in audit_payload
+        assert "compliance_rating" in audit_payload
+
+        cycle_resp = started_client.post("/api/v1/agent-teams/evolution/cycle", headers=headers)
+        assert cycle_resp.status_code == 200
+        cycle_payload = cycle_resp.json()
+        assert set(cycle_payload) >= {"cycle", "audit", "dispatch", "verify", "closed", "summary"}
+
+        plaza_resp = started_client.post(
+            "/api/v1/agent-config/plaza",
+            json={
+                "name": "Core API Evolution Plaza",
+                "description": "http write path",
+                "selected_agents": [],
+                "chairperson_agent_id": "",
+            },
+            headers=headers,
+        )
+        assert plaza_resp.status_code == 201
+        plaza_id = plaza_resp.json()["id"]
+
+        discussion_resp = started_client.post(
+            f"/api/v1/agent-config/plaza/{plaza_id}/discussions",
+            json={
+                "topic": "Core API discussion",
+                "description": "verify summary shape",
+                "goal": "exercise write path",
+                "moderator_agent_id": "",
+                "max_rounds": 1,
+            },
+            headers=headers,
+        )
+        assert discussion_resp.status_code == 201
+        discussion_payload = discussion_resp.json()
+        assert discussion_payload["topic"] == "Core API discussion"
+        assert discussion_payload["status"] == "open"
+
+        discussion_id = discussion_payload["id"]
+        summary_resp = started_client.get(
+            f"/api/v1/agent-config/plaza/{plaza_id}/discussions/{discussion_id}/summary",
+            headers=headers,
+        )
+        assert summary_resp.status_code == 200
+        summary_payload = summary_resp.json()
+        assert summary_payload["discussion_id"] == discussion_id
+        assert summary_payload["topic"] == "Core API discussion"
+        assert "plan_revision" in summary_payload
+
+        delete_resp = started_client.delete(
+            f"/api/v1/agent-config/plaza/{plaza_id}",
+            headers=headers,
+        )
+        assert delete_resp.status_code == 200
