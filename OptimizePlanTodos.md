@@ -8,11 +8,12 @@
 > 当前验证快照：
 > - 后端定向回归：`23 passed`（`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链）；此前 `22 passed`（`test_startup_validator.py` + `test_auth_csrf.py`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现）；`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
 > - 后端全量：`906 passed, 4 skipped`（最新 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/digital-twin-cli-pagination.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `22 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；再此前 `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 > - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
 >
 > 最近提交记录：
+> - `Digital twin pagination consumers`：`digital-twin-cli.js` 已把广场列表与讨论列表读口切到共享分页 helper，避免继续手写 `_af(.../plaza)`；对应 Vitest 已补齐
 > - `Local dev admin bootstrap`：`./start.sh` 在本地快速启动时会生成/复用 `config/.dev_admin_password`，通过 `ADMIN_PASSWORD` 创建可登录 admin，避免服务启动后登录 401；固定 `admin123` 仍只在显式 `AG_ALLOW_DEFAULT_ADMIN` 时启用
 > - `b3c51c2` `Stabilize sandbox self-check visibility`：沙箱页补展示 `Docker Binary / 最近自检 / 自检命令`，缺 Docker 时的 blocked 诊断继续保留；lite 模式 `runtime-self-check` 改为复用当前解释器，`pytest_collect` 可通过
 > - `Complete protected-page cookie-only smoke`：补 `agent-team-config` / `datacenter-ratchet-evolution` 鉴权守卫，完成 6 个高优先级受保护页的登录态与登出回跳浏览器 smoke，并再次跑通 Plaza / Evolution 正向动作
@@ -197,7 +198,8 @@
 - [x] `agent-detail.js` 已切到共享 `api.list()`（工具、团队技能、会话列表）
 - [x] `agent-team-config.js` 已切到共享 `api.list()`（团队列表、演进 items/rules、LLM 会话、模型列表、导出配置所需的 models/tools/skills）
 - [x] `wizard.js` 已切到共享 `api.list()`（团队、模型、技能、工具）
-- [ ] 前端 `api.list()` 在分页 API 上统一消费（其余页面继续推进）
+- [x] `digital-twin-cli.js` 已切到共享分页 helper（团队、团队智能体、技能、工具、任务、演进项、SECS 团队/任务/智能体，以及广场/讨论列表）
+- [x] 前端 `api.list()` 在分页 API 上统一消费（当前已覆盖所有主要分页列表读路径）
 
 ---
 
@@ -427,7 +429,7 @@ SEC-01 [✓] Cookie-Only Auth — 6 页登录/登出 smoke 已补齐 .. ✅
 RUN-02 [✓] 统一 AgentLoop — 入口已统一到共享 runtime ..... ✅
 FE-05  [✓] 前端 build/vitest 已可执行（bundled node） .. ✅
 PLAZA-01 [✓] 重试 + 失败升级 — 3次重试+升级队列+API .. ✅
-BE-P0-01 [✓] 分页剩余端点补齐 — 7个端点已补 ........ ✅
+BE-P0-01 [✓] 分页剩余端点补齐 — 页面消费已统一收口 .. ✅
 ```
 
 ### P1 进度

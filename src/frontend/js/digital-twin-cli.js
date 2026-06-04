@@ -8,6 +8,10 @@ var _csrfTk='',_csrfPr=null;
 function _csrf(){if(_csrfTk)return Promise.resolve(_csrfTk);if(_csrfPr)return _csrfPr;_csrfPr=fetch('/api/v1/auth/csrf-token').then(function(r){return r.json()}).then(function(d){_csrfTk=d.csrf_token||'';return _csrfTk}).catch(function(){_csrfPr=null;return''});return _csrfPr}
 _csrf();
 async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}return (window._agFetch||fetch)(url,opts)}
+function _listItems(payload){if(Array.isArray(payload))return payload;if(Array.isArray(payload?.items))return payload.items;if(Array.isArray(payload?.sessions))return payload.sessions;return[]}
+async function _list(url,limit=200,offset=0){if(window.api&&typeof window.api.list==='function'){return _listItems(await window.api.list(url,limit,offset))}const sep=url.includes('?')?'&':'?';const r=await _af(`${url}${sep}limit=${limit}&offset=${offset}`);if(!r.ok)return[];return _listItems(await r.json())}
+async function _plazas(){return _list(`${API}/plaza`,200,0)}
+async function _plazaDiscussions(plazaId){return _list(`${API}/plaza/${plazaId}/discussions`,200,0)}
 async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
@@ -35,13 +39,12 @@ function defaultRooms(){return[
 ]}
 async function loadTeamsAndAgents(){
   try{
-    const r=await _af(`${API}/teams`);
-    if(!r.ok)return;
-    const teams=await r.json();
+    const teams=await _list(`${API}/teams`,200,0);
+    if(!teams.length)return;
     S.teams=[];S.agents=[];
     const fetches=teams.map(async t=>{
       const tid=t.team_id||t.id;
-      try{const ar=await _af(`${API}/teams/${tid}/agents`);if(ar.ok){const agents=await ar.json();S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}}catch{}
+      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch{}
     });
     await Promise.all(fetches);
     // 仅首次加载或无选中时设置全选，否则保留用户选择
@@ -67,8 +70,8 @@ function toggleTeam(tid,btn){
   // 重建当前3D房间以刷新智能体
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
 }
-async function loadSkills(){try{const r=await _af(`${API}/skills`);if(r.ok)S.skills=await r.json()}catch{}}
-async function loadTools(){try{const r=await _af(`${API}/tools`);if(r.ok)S.tools=await r.json()}catch{}}
+async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch{}}
+async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch{}}
 
 function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
@@ -646,7 +649,7 @@ async function discussCmd(args){
   if(args[0]==='stop'){sseDisconnect();return'<span class="cmd">✓</span> SSE连接已断开'}
   if(args[0]==='watch'){
     const discId=args[1];if(!discId)return'<span class="err">用法: discuss watch <discussion_id></span>';
-    try{const pr=await _af(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    try{const plazas=await _plazas();
     const plazaId=plazas[0]?.id;if(!plazaId)return'<span class="err">暂无广场</span>';
     sseConnect(plazaId,discId);
     autoMoveForTask('council');
@@ -654,7 +657,7 @@ async function discussCmd(args){
   }
   if(args[0]==='start'){
     const discId=args[1];if(!discId)return'<span class="err">用法: discuss start <discussion_id></span>';
-    try{const pr=await _af(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    try{const plazas=await _plazas();
     const plazaId=plazas[0]?.id;if(!plazaId)return'<span class="err">暂无广场</span>';
     const r=await _af(`${API}/plaza/${plazaId}/discussions/${discId}/start`,{method:'POST'});
     if(!r.ok)return`<span class="err">启动失败: ${r.status}</span>`;
@@ -664,15 +667,15 @@ async function discussCmd(args){
     return`<span class="cmd">✓</span> 讨论已启动并订阅SSE\n  ID: <span class="result">${discId.slice(0,8)}</span>\n  <span class="dim">智能体将开始多轮辩论...</span>`}catch(e){return`<span class="err">${e.message}</span>`}
   }
   if(args[0]==='list'){
-    try{const r=await _af(`${API}/plaza`);if(!r.ok)return'<span class="err">获取广场失败</span>';const plazas=await r.json();if(!plazas.length)return'<span class="dim">暂无广场</span>';let o='<span class="info">━━━ 广场列表 ━━━</span>\n';for(const p of plazas){o+=`  <span class="result">${p.id?.slice(0,8)||'?'}</span> ${p.name||'unnamed'} (${(p.participants||[]).length} 参与者)\n`;
+    try{const plazas=await _plazas();if(!plazas.length)return'<span class="dim">暂无广场</span>';let o='<span class="info">━━━ 广场列表 ━━━</span>\n';for(const p of plazas){o+=`  <span class="result">${p.id?.slice(0,8)||'?'}</span> ${p.name||'unnamed'} (${(p.participants||[]).length} 参与者)\n`;
     // List discussions for each plaza
-    try{const dr=await _af(`${API}/plaza/${p.id}/discussions`);if(dr.ok){const discs=await dr.json();discs.slice(0,5).forEach(d=>{o+=`    <span class="dim">└─</span> <span class="cmd">${(d.id||'').slice(0,8)}</span> ${d.topic||'?'} [${d.status||'?'}]\n`})}}catch{}}return o}catch{return'<span class="err">请求失败</span>'}
+    try{const discs=await _plazaDiscussions(p.id);discs.slice(0,5).forEach(d=>{o+=`    <span class="dim">└─</span> <span class="cmd">${(d.id||'').slice(0,8)}</span> ${d.topic||'?'} [${d.status||'?'}]\n`})}catch{}}return o}catch{return'<span class="err">请求失败</span>'}
   }
   const topic=args.join(' ');
   simulatePipeline('讨论: '+topic);
   addMsg('System','All','broadcast',`发起讨论: ${topic}`);
   try{
-    const pr=await _af(`${API}/plaza`);const plazas=pr.ok?await pr.json():[];
+    const plazas=await _plazas();
     let plazaId=plazas[0]?.id;
     if(!plazaId){const cr=await _af(`${API}/plaza`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'数字孪生广场'})});if(cr.ok){const np=await cr.json();plazaId=np.id}else return'<span class="err">创建广场失败</span>'}
     const dr=await _af(`${API}/plaza/${plazaId}/discussions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,goal:'讨论并达成共识',max_rounds:3})});
@@ -755,8 +758,7 @@ async function taskCmd(args){
   const tid=localStorage.getItem('selected_team')||'build_system';
   if(!args.length)return'<span class="info">task list | task create <title> | task start <id> | task dag | task stats</span>';
   if(args[0]==='list'){
-    try{const r=await _af(`${API}/teams/${tid}/tasks`);if(!r.ok)return'<span class="err">获取任务失败</span>';
-    const tasks=await r.json();if(!tasks.length)return'<span class="dim">暂无任务</span>';
+    try{const tasks=await _list(`${API}/teams/${tid}/tasks`,200,0);if(!tasks.length)return'<span class="dim">暂无任务</span>';
     const statusC={pending:'dim',running:'cmd',completed:'result',failed:'err',cancelled:'dim'};
     let o=`<span class="info">━━━ 任务列表 (${tasks.length}) ━━━</span>\n`;
     tasks.slice(0,20).forEach(t=>{o+=`  <span class="${statusC[t.status]||'dim'}">${(t.status||'?').padEnd(10)}</span> <span class="result">${(t.task_id||'').slice(0,8)}</span> ${(t.title||'?').slice(0,35)} ${t.dependencies?.length?'<span class="dim">deps:'+t.dependencies.length+'</span>':''}\n`});
@@ -791,8 +793,7 @@ async function taskCmd(args){
     return`<span class="info">━━━ 任务引擎统计 ━━━</span>\n  总任务: <span class="result">${s.total||0}</span>\n  运行中: <span class="cmd">${s.running||0}</span> / 最大并发: <span class="result">${s.max_concurrency||4}</span>\n  <span class="dim">待执行: ${s.by_status?.pending||0} | 完成: ${s.by_status?.completed||0} | 失败: ${s.by_status?.failed||0}</span>`}catch{return'<span class="err">请求失败</span>'}
   }
   if(args[0]==='dag'){
-    try{const r=await _af(`${API}/teams/${tid}/tasks`);if(!r.ok)return'<span class="err">获取任务失败</span>';
-    const tasks=await r.json();if(!tasks.length)return'<span class="dim">暂无任务, DAG为空</span>';
+    try{const tasks=await _list(`${API}/teams/${tid}/tasks`,200,0);if(!tasks.length)return'<span class="dim">暂无任务, DAG为空</span>';
     let o=`<span class="info">━━━ 任务DAG ━━━</span>\n`;
     const statusIcon={pending:'○',running:'◐',completed:'●',failed:'✗',cancelled:'◌'};
     tasks.forEach(t=>{
@@ -878,8 +879,7 @@ async function evolveCmd(args){
     return o}catch{return'<span class="err">请求失败</span>'}
   }
   if(args[0]==='items'){
-    try{const r=await _af(`${EVOLVE_API}/items`);if(!r.ok)return'<span class="err">获取失败</span>';
-    const items=await r.json();if(!items.length)return'<span class="dim">暂无演进项</span>';
+    try{const items=await _list(`${EVOLVE_API}/items`,200,0);if(!items.length)return'<span class="dim">暂无演进项</span>';
     let o=`<span class="info">━━━ 演进项 (${items.length}) ━━━</span>\n`;
     const sc={open:'cmd',in_progress:'layer-llm',verify_pending:'amber',closed:'result'};
     items.slice(0,15).forEach(it=>{o+=`  <span class="${sc[it.status]||'dim'}">${(it.status||'?').padEnd(14)}</span> <span class="result">${(it.id||'').slice(0,8)}</span> ${(it.title||it.description||'').slice(0,30)}\n`});
@@ -1373,8 +1373,7 @@ const _roleColors = ['#22d3ee','#60a5fa','#a78bfa','#34d399','#f472b6','#fbbf24'
 
 async function secsInitTeamDropdown(){
   try {
-    const r = await _af('/api/v1/agent-config/teams');
-    _secsTeams = await r.json();
+    _secsTeams = await _list('/api/v1/agent-config/teams',200,0);
     const sel = document.getElementById('secs-team-select');
     if(!sel) return;
     sel.innerHTML = '<option value="">-- 选择团队 --</option>' +
@@ -1404,9 +1403,7 @@ async function secsLoadTeamTasks(){
   // 先加载真实任务到缓存
   taskSel.innerHTML = '<option value="">加载中...</option>';
   try {
-    const r = await _af(`/api/v1/agent-config/teams/${teamId}/tasks`);
-    const tasks = await r.json();
-    _secsTaskCache[teamId] = tasks;
+    _secsTaskCache[teamId] = await _list(`/api/v1/agent-config/teams/${teamId}/tasks`,200,0);
   } catch(e){ _secsTaskCache[teamId] = []; }
 
   // 根据当前房间渲染不同内容
@@ -1580,8 +1577,7 @@ async function secsDevWorkflow(){
   // 获取团队agents
   let teamAgents = [];
   try {
-    const r = await _af(`/api/v1/agent-config/teams/${teamId}/agents`);
-    teamAgents = await r.json();
+    teamAgents = await _list(`/api/v1/agent-config/teams/${teamId}/agents`,200,0);
   } catch(e){}
 
   // 只保留当前场景中存在的agents (label必须能匹配)
