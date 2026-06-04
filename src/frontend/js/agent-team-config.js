@@ -233,12 +233,21 @@ async function api(p, o) {
   }
 }
 api._lastError = null;
+function collectionItems(payload){
+  return Array.isArray(payload)?payload:(Array.isArray(payload?.items)?payload.items:[]);
+}
+async function apiList(p, limit=200, offset=0){
+  if(window.api&&typeof window.api.list==='function'){
+    return collectionItems(await window.api.list(p,limit,offset));
+  }
+  return collectionItems(await api(p));
+}
 async function getTeamsList(force=false){
   const now=Date.now();
   if(!force&&_teamsListCache&&(now-_teamsListCacheAt)<TEAMS_LIST_CACHE_MS){
     return _teamsListCache;
   }
-  const teams=await api(`${A}/teams`);
+  const teams=await apiList(`${A}/teams`,200,0);
   if(Array.isArray(teams)&&teams.length){
     _teamsListCache=teams;
     _teamsListCacheAt=now;
@@ -481,8 +490,8 @@ async function loadEvolution(prefetchedCompliance=null){
   const complianceReq=prefetchedCompliance?Promise.resolve(prefetchedCompliance):api(`${EVP}/compliance-rating`);
   const [rules,items,summary,compliance]=needsDetailedData
     ? await Promise.all([
-        api(`${EVP}/rules`),
-        api(itemsUrl),
+        apiList(`${EVP}/rules`,50,0),
+        apiList(itemsUrl,50,0),
         api(`${EVP}/summary`),
         complianceReq
       ])
@@ -635,7 +644,7 @@ async function loadLLMStatus(){hideViewLoading('view-llm');
   el('llm-tokens').value=prov.max_tokens||4096;
   el('llm-temp').value=prov.temperature||0.7;
   // Load sessions
-  const sessions=await api(`${A}/llm/sessions`);
+  const sessions=await apiList(`${A}/llm/sessions`,50,0);
   const sc=el('llm-sessions');
   if(!sessions||!sessions.length){sc.innerHTML='<p style="color:var(--dim)">暂无活跃会话</p>';return}
   sc.innerHTML='<table class="tbl"><thead><tr><th>会话 ID</th><th>Agent</th><th>轮次</th><th>消息数</th><th>Tokens</th><th>创建时间</th></tr></thead><tbody>'+sessions.map(s=>`<tr><td>${escapeHtml(s.session_id)}</td><td>${escapeHtml(s.agent_id||'-')}</td><td>${s.turn_count}</td><td>${s.message_count}</td><td>${(s.usage?.total_tokens||0).toLocaleString()}</td><td>${s.created_at?.split('T')[0]||'-'}</td></tr>`).join('')+'</tbody></table>';
@@ -659,7 +668,7 @@ async function testLLM(){
 
 // ── Models ──
 let _editModelId='';
-async function loadModels(){const d=await api(`${A}/teams/${tid}/models`);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
+async function loadModels(){const d=await apiList(`${A}/teams/${tid}/models`,200,0);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
 async function delModel(mid){if(!confirm('删除此模型？'))return;await csrfFetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
   const r=await api(`${A}/teams/${tid}/models/${mid}/default`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
@@ -667,7 +676,7 @@ async function setModelDefault(mid){
 }
 async function openEditModel(mid){
   _editModelId=mid;
-  const models=await api(`${A}/teams/${tid}/models`);
+  const models=await apiList(`${A}/teams/${tid}/models`,200,0);
   const m=(models||[]).find(x=>x.model_id===mid);if(!m){toast('模型未找到');return}
   el('em-prov').value=m.provider||'deepseek';
   el('em-name').value=m.name||'';
@@ -933,9 +942,9 @@ async function exportTeamConfig(){
   if(!tid){toast('请先选择团队');return}
   const[info,models,tools,skills]=await Promise.all([
     api(`${A}/teams/${tid}`),
-    api(`${A}/teams/${tid}/models`),
-    api(`${A}/teams/${tid}/tools`),
-    api(`${A}/teams/${tid}/skills`)
+    apiList(`${A}/teams/${tid}/models`,200,0),
+    apiList(`${A}/teams/${tid}/tools`,200,0),
+    apiList(`${A}/teams/${tid}/skills`,200,0)
   ]);
   const cfg={team:info,models,tools,skills,exported_at:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'});
