@@ -126,6 +126,71 @@ else
 fi
 echo ""
 
+# Local development admin bootstrap. Production deployments should set
+# ADMIN_PASSWORD explicitly instead of relying on this quick-start helper.
+DEV_ADMIN_PASSWORD_FILE="${ROOT_DIR}/config/.dev_admin_password"
+
+admin_account_exists() {
+    "$RUNTIME_PY" - "${ROOT_DIR}/config/users.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    users = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+except Exception:
+    users = {}
+
+raise SystemExit(0 if isinstance(users, dict) and "admin" in users else 1)
+PY
+}
+
+generate_dev_admin_password() {
+    "$RUNTIME_PY" - "${DEV_ADMIN_PASSWORD_FILE}" <<'PY'
+import secrets
+import string
+import sys
+from pathlib import Path
+
+alphabet = string.ascii_letters + string.digits
+password = "".join(secrets.choice(alphabet) for _ in range(20))
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(password + "\n", encoding="utf-8")
+path.chmod(0o600)
+PY
+}
+
+if [ -z "${ADMIN_PASSWORD:-}" ] && [ -z "${AG_ALLOW_DEFAULT_ADMIN:-}" ]; then
+    if [ ! -s "${DEV_ADMIN_PASSWORD_FILE}" ] && ! admin_account_exists; then
+        generate_dev_admin_password
+    fi
+
+    if [ -s "${DEV_ADMIN_PASSWORD_FILE}" ]; then
+        ADMIN_PASSWORD="$(tr -d '\r\n' < "${DEV_ADMIN_PASSWORD_FILE}")"
+        export ADMIN_PASSWORD
+        echo "🔐 Local development admin login:"
+        echo "   Username: admin"
+        echo "   Password: ${ADMIN_PASSWORD}"
+        echo "   Stored at config/.dev_admin_password (gitignored). Set ADMIN_PASSWORD to override."
+        echo ""
+    else
+        echo "🔐 Auth: existing admin account found. Set ADMIN_PASSWORD to reset it."
+        echo ""
+    fi
+elif [ -n "${ADMIN_PASSWORD:-}" ]; then
+    echo "🔐 Auth: ADMIN_PASSWORD provided for admin login"
+    echo ""
+else
+    case "${AG_ALLOW_DEFAULT_ADMIN:-}" in
+        1|true|TRUE|True|yes|YES|Yes)
+            echo "🔐 Auth: AG_ALLOW_DEFAULT_ADMIN enabled; local login is admin / admin123"
+            echo ""
+            ;;
+    esac
+fi
+
 # Start backend
 echo "🔧 Starting backend on port 8080..."
 cd src/backend

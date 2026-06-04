@@ -1,18 +1,19 @@
 # OptimizePlan — 前后端统一 TODOs
 
 > 基于 `OptimizePlan.md`（总看板）+ 当前代码状态生成的最新待办清单。
-> 更新日期：2026-06-03（已按源码核对状态）
+> 更新日期：2026-06-04（已按源码核对状态）
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`22 passed`（`test_startup_validator.py` + `test_auth_csrf.py`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现）；`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
+> - 后端定向回归：`23 passed`（`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链）；此前 `22 passed`（`test_startup_validator.py` + `test_auth_csrf.py`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现）；`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
 > - 后端全量：`906 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 > - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
 >
 > 最近提交记录：
+> - `Local dev admin bootstrap`：`./start.sh` 在本地快速启动时会生成/复用 `config/.dev_admin_password`，通过 `ADMIN_PASSWORD` 创建可登录 admin，避免服务启动后登录 401；固定 `admin123` 仍只在显式 `AG_ALLOW_DEFAULT_ADMIN` 时启用
 > - `b3c51c2` `Stabilize sandbox self-check visibility`：沙箱页补展示 `Docker Binary / 最近自检 / 自检命令`，缺 Docker 时的 blocked 诊断继续保留；lite 模式 `runtime-self-check` 改为复用当前解释器，`pytest_collect` 可通过
 > - `Complete protected-page cookie-only smoke`：补 `agent-team-config` / `datacenter-ratchet-evolution` 鉴权守卫，完成 6 个高优先级受保护页的登录态与登出回跳浏览器 smoke，并再次跑通 Plaza / Evolution 正向动作
 > - `3f1858a` `Repair system evolution dashboard actions`：修复 `system-evolution` 页的 `EVP` 常量、分页 envelope 消费、共享 `window.api` 被覆盖问题；补 `system-evolution.test.js`
@@ -85,6 +86,7 @@
 | SEC-01-11 | 登录回跳 | `login.html` 支持消费 `?next=`，在 cookie-only 401 回登录后可返回原目标页面 |
 | SEC-01-12 | 受保护页显式鉴权守卫 | `agent-team-config.js` 与 `datacenter-ratchet-evolution.html` 增加 `auth/me` 守卫，修复登出后假活 |
 | SEC-01-13 | 启动验证适配鉴权 | `/api/v1/info` 保持公开发现；`startup_validator` 遇到受保护 API 的 `401` 时通过 `/health` 服务状态确认模块在线 |
+| SEC-01-14 | 本地开发 admin 初始化 | `./start.sh` 在缺少显式 `ADMIN_PASSWORD` 且没有 admin 账号时生成 `config/.dev_admin_password`，并用该密码启动后端，避免本地登录 401 |
 | FE-01-3 | 高优先级受保护页 smoke | 登录态 6 页打开 + 登出后 6 页回跳登录；Plaza / Evolution 动作再次冒烟 |
 | RUN-01-3 | Docker 缺失诊断 | `runtime-status` 暴露 `docker_binary_path/self_check_blocked`；`runtime-self-check` 在缺 Docker / 缺镜像时显式返回 blocked reason |
 
@@ -117,7 +119,7 @@
 ```
 位置: src/backend/main.py, src/frontend/login.html, src/frontend/js/api.js
 难度: ⚡ 小   优先级: P0
-状态: DONE — 高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已补齐，剩余仅作为常规回归继续扩面
+状态: DONE — 高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已补齐；`./start.sh` 已补本地开发 admin 初始化，避免快速启动后无账号可登录
 ```
 
 - [x] `AG_AUTH_RETURN_TOKEN_JSON` 环境变量（默认 `1` 保持兼容）
@@ -131,6 +133,7 @@
 - [x] Plaza 新建讨论在 CSRF 过期时自动刷新 token 并重试一次
 - [x] 登出后重新访问 Plaza / System Evolution 会命中后端 401，并回到 `login.html?next=...`
 - [x] `agent-team-config` / `skill-extract` / `sandbox-twin` / `datacenter-ratchet-evolution` / `plaza` / `system-evolution` 的登录态打开与登出回跳浏览器 smoke
+- [x] `./start.sh` 在本地快速启动时生成/复用 `config/.dev_admin_password`，并通过 `ADMIN_PASSWORD` 初始化 `admin` 登录；`config/.dev_admin_password` 已加入 `.gitignore`
 
 ### RUN-02 🔴 统一 AgentLoop 收窄
 

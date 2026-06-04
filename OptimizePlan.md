@@ -1,6 +1,6 @@
 # OptimizePlan — 前后端整体优化总看板
 
-> 更新日期：2026-06-03  
+> 更新日期：2026-06-04
 > 覆盖范围：`src/frontend/` + `src/backend/` + AI runtime / Plaza / Evolution / Sandbox / Skill  
 > 输入材料：`FrontBackEndOptimize.md`、`FrontBackEndTodos.md`、`OptimizePlan1.md`、`OptimizePlan1Todos.md`、当前前后端代码。  
 > 说明：仓库中未找到用户提到的 `FrontEndOptimize.md`，本版用现有前端专项内容和当前代码状态补齐。  
@@ -41,7 +41,7 @@
 | 前端构建 | ✅ 通过 | 本轮验证：`./scripts/frontend_build.sh` 通过；当前通过 bundled-node fallback 绕开本机 Rollup 原生模块签名问题 |
 | 前端单测 | ✅ 通过 | 本轮验证：`./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `19 passed`；可通过 bundled-node fallback 稳定执行 |
 | 浏览器 smoke | ✅ 通过（P0 范围） | 本轮验证：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已在登录态逐页打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE` |
-| 后端定向回归 | ✅ 通过 | 本轮验证：`test_startup_validator.py` + `test_auth_csrf.py` → `22 passed`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现；`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
+| 后端定向回归 | ✅ 通过 | 本轮验证：`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py` → `23 passed`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链；此前 `test_startup_validator.py` + `test_auth_csrf.py` → `22 passed`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现；`test_api_handler_integration.py` + `test_core_api_smoke.py` → `10 passed`；`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py` → `80 passed`；Plaza 主链专项保持 `39 passed` |
 | 后端全量 | ✅ 通过 | 最新稳定基线：`./venv/bin/python -m pytest -q src/backend/tests` → `906 passed, 4 skipped` |
 | Cookie-only / Sandbox 定向回归 | ✅ 通过 | 最近一次更广覆盖：`test_frontend_auth_contract.py` + `test_auth_csrf.py` + `test_sandbox_security.py` + `test_sandbox_smoke.py` + `test_sandbox_docker.py` → `37 passed, 3 skipped`；随后又验证：`test_auth_csrf.py` + `test_frontend_auth_contract.py` → `24 passed`，`test_sandbox_security.py` → `19 passed`，覆盖缺 Docker 时的 blocked/self-check 语义以及 lite 模式自检成功；远端 `Sandbox Docker Self Check` 已跑通真容器路径 |
 | 前端规模 | 19 JS / 11 HTML / 6 CSS | 以当前 `src/frontend` 文件统计为准 |
@@ -114,7 +114,7 @@
 | 编号 | 状态 | 内容 | 说明 |
 |------|:----:|------|------|
 | BE-DONE-01 | DONE | CSRF token endpoint + middleware 已存在 | `/api/v1/auth/csrf-token` |
-| BE-DONE-02 | DONE | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke；`/api/v1/**` 已补统一鉴权中间件，未登录访问受保护页依赖的 API 会返回 401，前端会回跳登录页 | 默认仍保留 token JSON 兼容旧客户端；更低频页面继续随常规 smoke 扩面 |
+| BE-DONE-02 | DONE | login/register/logout/auth_me 已统一 auth mode、httpOnly `ag-token` cookie 与 token revoke；`/api/v1/**` 已补统一鉴权中间件；`./start.sh` 已补本地开发 admin 初始化，未登录访问受保护页依赖的 API 会返回 401，前端会回跳登录页 | 默认仍保留 token JSON 兼容旧客户端；固定 `admin123` 仅在显式 `AG_ALLOW_DEFAULT_ADMIN` 时启用 |
 | BE-DONE-03 | DONE | health check 可注册子检查 | `/api/v1/health` |
 | BE-DONE-04 | DONE | 分页 helper 与所有主要列表分页已落地 | 所有主要 list API 已覆盖 `limit/offset` |
 | BE-DONE-05 | DONE | `src/backend/config.py` 已被 `main.py` 全面复用，支持 .env | 包含 server/auth/CORS/pagination/paths/logging/rate-limit 常量 |
@@ -125,6 +125,7 @@
 | BE-DONE-10 | DONE | login/register 已有首批内存限流 | `test_auth_csrf.py` |
 | BE-DONE-12 | DONE | 通用写请求 60/min + 敏感路由独立 bucket 已落地 | `test_api_rate_limit.py` |
 | BE-DONE-11 | DONE | `main.py` 已接入可选 OTel tracing 初始化 | `monitoring/tracing.py` + startup hook |
+| BE-DONE-13 | DONE | 本地快速启动会生成/复用 `config/.dev_admin_password` 并通过 `ADMIN_PASSWORD` 初始化 admin，避免 `./start.sh` 后登录 401 | `test_start_script_auth_bootstrap.py`, `bash -n start.sh` |
 
 ---
 
@@ -139,7 +140,7 @@
 
 | ID | 领域 | 状态 | 优先级 | 当前结论 | 下一步完成定义 |
 |----|------|:----:|:------:|----------|----------------|
-| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐；高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已完成；启动验证已适配受保护 API，`/api/v1/info` 保持公开发现 | 低频页面继续随常规回归覆盖 |
+| SEC-01 | CSRF + Cookie Auth | DONE | P0 | cookie-only 模式、logout revoke、`X-AG-Auth-Mode` / token deprecation header、全局导航登出按钮、localStorage 清理、前端写请求 `_agFetch` 收口与 cookie-only 契约测试已落地；Datacenter Ratchet / Token Factory / Plaza TTS 的遗留 POST 也已补齐；高优先级受保护页的登录态 / 登出回跳浏览器 smoke 已完成；启动验证已适配受保护 API，`/api/v1/info` 保持公开发现；`./start.sh` 已补本地开发 admin bootstrap，避免快速启动后无账号可登录 | 低频页面继续随常规回归覆盖 |
 | SEC-02 | API Key 传输安全 + 安全响应头 | DONE | P0 | 安全响应头中间件已落地（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / HSTS）；本地 at-rest 加密已完成 | 前端 API Key 输入 type=password、响应头断言测试 |
 | SEC-03 | API Rate Limit | DONE | P1 | login/register 5/min、通用写请求 60/min、敏感路由独立 bucket 与回归测试均已落地 | 维持默认阈值，并在后续按生产流量再调参 |
 | RUN-01 | Docker Sandbox 实机收口 | DONE | P0 | docker mode、Dockerfile、limits、runtime status、`build_sandbox_image.sh --self-check`、sandbox smoke、`test_sandbox_docker.py` 与专用 GitHub Actions workflow 均已落地；远端 `Sandbox Docker Self Check` 首轮运行已成功执行 image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试；缺 Docker 时 runtime status 仍会暴露 `docker_binary_path/self_check_blocked/ready_reason`，lite 模式 `runtime-self-check` 也已在当前解释器上通过 | 当前机器无 Docker，仅保留本地不可执行的环境说明；维持 fail-closed 与 blocked diagnostics |
@@ -171,7 +172,7 @@ P0 不要求“全项目完美”，但要求下面几件事可靠：
 
 | 条件 | 当前状态 | 出关标准 |
 |------|:--------:|----------|
-| 安全认证 | DONE | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；高优先级受保护页登录态 / 登出回跳浏览器 smoke 已完成 |
+| 安全认证 | DONE | cookie-only 模式可开启；CSRF 对 state-changing 请求稳定生效；旧 token 返回可关闭；本地快速启动可获得可登录 admin；高优先级受保护页登录态 / 登出回跳浏览器 smoke 已完成 |
 | 沙箱执行 | DONE | docker image 可构建；`run_python/run_pytest` 已在 docker 模式通过远端 workflow 集成测试 |
 | Runtime 单一入口 | DONE | 旧 AgentLoop 已不再保留独立逻辑；chat / task / plan 入口统一复用共享 runtime，并有回归测试护栏 |
 | Plaza/Evolution 闭环 | DONE | 成功、失败、人工验证、重试耗尽都有状态、trace、前端可见；浏览器端已再次跑通 Plaza 新建讨论/开始讨论 与 Evolution 审查/周期 |
@@ -297,3 +298,4 @@ rtk python3 -m pytest -q src/backend/tests --maxfail=1
 - 本轮继续推进 `BE-P0-01` 收尾：`agent-detail.js` 已改用共享 `api.list()` 消费工具、团队技能与会话列表，并新增最小前端回归；`logs` 仍保留单独读法，因为后端返回的是 `{agent_id, logs}` 而不是标准分页 envelope。
 - 本轮继续推进 `BE-P0-01` 收尾：`agent-team-config.js` 已改用共享 `api.list()` 消费团队列表、嵌入式 evolution 的 items/rules、LLM 会话、模型列表，以及导出配置所需的 models/tools/skills；`wizard.js` 也已切到共享 `api.list()` 消费团队、模型、技能和工具列表，并补上两条最小前端回归。
 - 本轮修复启动验证：`/api/v1/info` 已加入 auth exempt，用于系统发现；`startup_validator` 对受保护的 Agent Config / Bridge Chat / Evolution API 不再把 `401` 误判为模块失败，而是回退到公开 `/api/v1/health` 的服务注册状态。
+- 本轮修复本地登录初始化：`./start.sh` 会生成/复用 `config/.dev_admin_password`，并通过 `ADMIN_PASSWORD` 初始化 `admin`，避免快速启动后登录接口因无 admin 账号返回 `401`；固定 `admin123` 仍只在显式 `AG_ALLOW_DEFAULT_ADMIN` 时启用。
