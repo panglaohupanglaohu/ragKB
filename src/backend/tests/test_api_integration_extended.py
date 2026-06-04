@@ -168,6 +168,19 @@ def _create_plaza_with_discussion(
     }
 
 
+def _first_team_id(client: TestClient, headers: Dict[str, str] | None = None) -> str:
+    """Return the first available team_id from the paginated teams list."""
+    resp = client.get(
+        "/api/v1/agent-config/teams?limit=1&offset=0",
+        headers=headers or {},
+    )
+    assert resp.status_code == 200, f"list teams failed: {resp.text}"
+    payload = resp.json()
+    items = payload["items"] if isinstance(payload, dict) and "items" in payload else payload
+    assert items, "expected at least one team in fixture"
+    return items[0]["team_id"]
+
+
 # ===================================================================
 # Health endpoint
 # ===================================================================
@@ -513,6 +526,150 @@ class TestSkillsEndpoints:
 
 
 # ===================================================================
+# Auxiliary config/library surfaces
+# ===================================================================
+
+class TestAuxiliaryConfigSurfaces:
+    """Long-tail config/library endpoints and failure branches."""
+
+    def test_team_overview_and_models_paginated(self, configured_client):
+        """GET team overview/models returns UI-ready payloads for an existing team."""
+        csrf, _ = _register_and_get_csrf(configured_client, "cfgaux")
+        headers = {"x-csrf-token": csrf}
+        team_id = _first_team_id(configured_client, headers=headers)
+
+        overview_resp = configured_client.get(
+            f"/api/v1/agent-config/teams/{team_id}/overview",
+            headers=headers,
+        )
+        assert overview_resp.status_code == 200
+        overview = overview_resp.json()
+        assert overview["team_id"] == team_id
+        assert {"name", "agent_count", "model_count", "agents"}.issubset(overview)
+
+        models_resp = configured_client.get(
+            f"/api/v1/agent-config/teams/{team_id}/models?limit=10&offset=0",
+            headers=headers,
+        )
+        assert models_resp.status_code == 200
+        models = models_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(models)
+        assert models["total"] >= len(models["items"])
+
+    def test_team_overview_and_models_404(self, configured_client):
+        """GET team overview/models for missing team returns 404."""
+        csrf, _ = _register_and_get_csrf(configured_client, "cfgaux404")
+        headers = {"x-csrf-token": csrf}
+
+        overview_resp = configured_client.get(
+            "/api/v1/agent-config/teams/no-such-team/overview",
+            headers=headers,
+        )
+        assert overview_resp.status_code == 404
+
+        models_resp = configured_client.get(
+            "/api/v1/agent-config/teams/no-such-team/models?limit=10&offset=0",
+            headers=headers,
+        )
+        assert models_resp.status_code == 404
+
+    def test_search_and_templates_lifecycle(self, configured_client):
+        """Search returns cross-entity payloads, and template CRUD stays consistent."""
+        csrf, _ = _register_and_get_csrf(configured_client, "cfgsearch")
+        headers = {"x-csrf-token": csrf}
+        api_module._templates.clear()
+
+        search_resp = configured_client.get(
+            "/api/v1/agent-config/search?q=build",
+            headers=headers,
+        )
+        assert search_resp.status_code == 200
+        search = search_resp.json()
+        assert {"teams", "agents", "tools", "skills"}.issubset(search)
+        assert any("build" in team["name"].lower() for team in search["teams"])
+
+        empty_resp = configured_client.get(
+            "/api/v1/agent-config/templates?limit=10&offset=0",
+            headers=headers,
+        )
+        assert empty_resp.status_code == 200
+        empty_payload = empty_resp.json()
+        assert empty_payload["items"] == []
+        assert empty_payload["total"] == 0
+
+        team_id = _first_team_id(configured_client, headers=headers)
+        create_resp = configured_client.post(
+            "/api/v1/agent-config/templates",
+            json={
+                "name": "Integration Template",
+                "description": "Extended backend coverage",
+                "team_id": team_id,
+            },
+            headers=headers,
+        )
+        assert create_resp.status_code == 201
+        template = create_resp.json()
+        assert template["name"] == "Integration Template"
+
+        list_resp = configured_client.get(
+            "/api/v1/agent-config/templates?limit=10&offset=0",
+            headers=headers,
+        )
+        assert list_resp.status_code == 200
+        list_payload = list_resp.json()
+        assert any(item["template_id"] == template["template_id"] for item in list_payload["items"])
+
+        delete_resp = configured_client.delete(
+            f"/api/v1/agent-config/templates/{template['template_id']}",
+            headers=headers,
+        )
+        assert delete_resp.status_code == 200
+        assert delete_resp.json()["deleted"] == template["template_id"]
+
+        missing_delete = configured_client.delete(
+            f"/api/v1/agent-config/templates/{template['template_id']}",
+            headers=headers,
+        )
+        assert missing_delete.status_code == 404
+
+    def test_skill_library_surfaces_and_import_validation(self, configured_client):
+        """Skill library browse/suggestions paginate, import validation fails fast."""
+        csrf, _ = _register_and_get_csrf(configured_client, "cfgskills")
+        headers = {"x-csrf-token": csrf}
+
+        browse_resp = configured_client.get(
+            "/api/v1/agent-config/skill-library?limit=5&offset=0",
+            headers=headers,
+        )
+        assert browse_resp.status_code == 200
+        browse = browse_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(browse)
+        if browse["items"]:
+            assert {"skill_id", "name", "visibility", "lifecycle_stage"}.issubset(browse["items"][0])
+
+        suggestions_resp = configured_client.get(
+            "/api/v1/agent-config/skill-library/suggestions?limit=5&offset=0",
+            headers=headers,
+        )
+        assert suggestions_resp.status_code == 200
+        suggestions = suggestions_resp.json()
+        assert {"items", "total", "limit", "offset", "has_more"}.issubset(suggestions)
+
+        import_resp = configured_client.post(
+            "/api/v1/agent-config/skill-library/import",
+            json={
+                "team_id": "build_system",
+                "skill_id": "missing-skill",
+                "target_team_id": "",
+            },
+            headers=headers,
+        )
+        assert import_resp.status_code == 400
+        error = import_resp.json()
+        assert "target_team_id and skill_id required" in error["detail"]
+
+
+# ===================================================================
 # Digital Twin
 # ===================================================================
 
@@ -612,6 +769,15 @@ class TestPlazaHTTP:
         detail = detail_resp.json()
         assert detail["id"] == plaza["id"]
         assert {"participants", "discussions", "participant_count", "discussion_count"}.issubset(detail)
+
+    def test_plaza_detail_404_for_missing_id(self, configured_client):
+        """GET plaza detail for missing plaza returns 404."""
+        csrf, _ = _register_and_get_csrf(configured_client, "plaza404")
+        resp = configured_client.get(
+            "/api/v1/agent-config/plaza/no-such-plaza",
+            headers={"x-csrf-token": csrf},
+        )
+        assert resp.status_code == 404
 
     def test_discussion_list_detail_and_summary(
         self,
