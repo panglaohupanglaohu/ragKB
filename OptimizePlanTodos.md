@@ -8,11 +8,12 @@
 > 当前验证快照：
 > - 后端定向回归：`48 passed`（`test_api_integration_extended.py`，现覆盖 auth/info/health/teams/agents/tools/skills/digital-twin/plaza/evolution 扩展 HTTP 集成测试，含 plaza list/detail/discussions/tasks/verification/consensus 与 evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs）；`23 passed`（`test_start_script_auth_bootstrap.py` + `test_auth_csrf.py`，覆盖 `./start.sh` 本地开发 admin 初始化与认证/CSRF 主链）；此前 `22 passed`（`test_startup_validator.py` + `test_auth_csrf.py`，覆盖启动验证适配受保护 API 与 `/api/v1/info` 公开发现）；`10 passed`（`test_api_handler_integration.py` + `test_core_api_smoke.py`）；`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
 > - 后端全量：`906 passed, 4 skipped`（最新 `src/backend/tests` 基线）
-> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/digital-twin-cli-pagination.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `22 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `21 passed`；再此前 `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
-> - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
+> - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/agent-config.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/agent-team-config-state.test.js` → `8 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/digital-twin-cli-pagination.test.js src/frontend/__tests__/agent-team-config-pagination.test.js src/frontend/__tests__/wizard-pagination.test.js src/frontend/__tests__/agent-detail-pagination.test.js src/frontend/__tests__/tasks-pagination.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/tools-skills.test.js src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `22 passed`；再此前 `21 passed` 与 `19 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
+> - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；本轮在 in-app browser 再次复验了 `plaza.html` 的“选广场 → 新建讨论 → 创建讨论/开始讨论”链路，以及 `system-evolution.html` 的 `运行审查` / `演进周期` 按钮链路；`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
 > - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
 >
 > 最近提交记录：
+> - `Namespace agent team runtime state`：`agent-team-config.js` 已把 trace/evolution/model-edit/Claude term/visibility debounce/agent poll 等页面级运行态收进 `window.AG.runtime`，并补 `agent-team-config-state.test.js`
 > - `Plaza and evolution read-route coverage`：`test_api_integration_extended.py` 已继续扩面到 plaza list/detail/discussions/tasks/verification/consensus，以及 evolution analytics/compliance/checklist/zones/escalation/trend/monitoring/audit-trail/optimize-runs
 > - `Extended backend integration coverage`：`test_api_integration_extended.py` 已稳定通过，补齐 auth/info/health/teams/agents/tools/skills/digital-twin/plaza/evolution 的扩展 HTTP 集成覆盖，并修正共享 TestClient 下的 cookie / rate-limit 污染
 > - `Digital twin pagination consumers`：`digital-twin-cli.js` 已把广场列表与讨论列表读口切到共享分页 helper，避免继续手写 `_af(.../plaza)`；对应 Vitest 已补齐
@@ -289,11 +290,11 @@
 ```
 位置: src/frontend/js/agent-team-config.js
 难度: ⚡ 中   优先级: P1
-状态: PARTIAL — `window.AG.state` 已建；`agent-team-config.js` 已把 `tid/aid/wzD/wzS/atab` 等历史裸全局改成 `window.AG.state` 属性代理，移除了轮询式双向同步；其余页面仍待继续收口
+状态: PARTIAL — `window.AG.state` 已建；`agent-team-config.js` 已把 `tid/aid/wzD/wzS/atab` 等历史裸全局改成 `window.AG.state` 属性代理，并进一步把 trace/evolution/model-edit/Claude term/visibility debounce/agent poll 等页面级运行态收进 `window.AG.runtime`；其余页面仍待继续收口
 ```
 
 - [ ] 逐步将 `onclick` 中的全局变量引用收入 `window.AG`
-- [~] `agent-team-config.js` 已将 `tid/aid/wzD/wzS` 等裸全局改为 `window.AG.state` 属性代理；其余页面继续收口
+- [~] `agent-team-config.js` 已将 `tid/aid/wzD/wzS` 等裸全局改为 `window.AG.state` 属性代理，并把 trace/evolution/model-edit/Claude term/visibility debounce/agent poll 运行态收进 `window.AG.runtime`；其余页面继续收口
 - [ ] 只暴露少量公共 API
 
 ### FE-05-EXT 🔵 前端单测继续扩面
@@ -305,6 +306,7 @@
 ```
 
 - [x] `api.js` / `csrf-pages` / `extract-routing` / `agent-config` 测试文件
+- [x] `agent-team-config-state.test.js` 覆盖 `window.AG.runtime` 运行态命名空间
 - [ ] 扩到 `utils.js`
 - [ ] 扩到登录链 / logout / cookie-only 流程
 - [ ] 扩到 Plaza 数据归一化与 runtime helper

@@ -10,6 +10,20 @@ window.AG.state = window.AG.state || {
   _offline: false, _currentOverviewTeam: null, _currentTraceSummaries: [],
   _lastRequestId: '',
 };
+window.AG.runtime = window.AG.runtime || {
+  overviewTimer: null,
+  traceDetailTaskId: '',
+  traceRequestIds: { summaries:'', events:'', detail:'' },
+  evoVisibleCount: 0,
+  evoCachedItems: [],
+  editModelId: '',
+  claudeEventSource: null,
+  claudeSessionId: '',
+  claudeElapsedTimer: null,
+  visibilityDebounceTimer: null,
+  agentPollTimer: null,
+};
+const agRuntime = window.AG.runtime;
 
 // Legacy aliases — proxy bare names through AG.state via window property descriptors.
 // Any read/write to tid/aid/atab/wzD/wzS etc. goes to AG.state directly.
@@ -344,11 +358,8 @@ async function loadSbAgents(){
 function selectAgent(id){aid=id;switchView('agent',id)}
 
 // ── Overview ──
-let _ovTimer=null;
-let _traceDetailTaskId='';
-let _traceRequestIds={summaries:'',events:'',detail:''};
 async function loadOverview(){
-  if(_ovTimer)clearInterval(_ovTimer);
+  if(agRuntime.overviewTimer)clearInterval(agRuntime.overviewTimer);
   const [teamsList,ov]=await Promise.all([
     getTeamsList(),
     api(`${AT}/overview?team_id=${encodeURIComponent(tid)}`)
@@ -378,10 +389,10 @@ async function loadOverview(){
     }
     if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
     refreshTracePanel();
-    _ovTimer=setInterval(()=>{
+    agRuntime.overviewTimer=setInterval(()=>{
       if(document.hidden||!document.querySelector('#view-overview:not(.hidden)')){
-        clearInterval(_ovTimer);
-        _ovTimer=null;
+        clearInterval(agRuntime.overviewTimer);
+        agRuntime.overviewTimer=null;
         return;
       }
       // Incremental refresh
@@ -452,26 +463,26 @@ async function refreshTracePanel(){
   const summaryUrl=`${A}/traces/recent?team_id=${encodeURIComponent(tid)}${source?`&source=${encodeURIComponent(source)}`:''}`;
   const summaries=await api(summaryUrl);
   const summariesReqId=_lastRequestId||'';
-  _traceRequestIds.summaries=summariesReqId;
+  agRuntime.traceRequestIds.summaries=summariesReqId;
   _renderTraceSummaries(summaries,summariesReqId);
 
   const eventsUrl=`${A}/traces/recent-events?team_id=${encodeURIComponent(tid)}${source?`&source=${encodeURIComponent(source)}`:''}${eventType?`&event_type=${encodeURIComponent(eventType)}`:''}`;
   const events=await api(eventsUrl);
   const eventsReqId=_lastRequestId||'';
-  _traceRequestIds.events=eventsReqId;
+  agRuntime.traceRequestIds.events=eventsReqId;
   _renderTraceEvents(events,eventsReqId);
 
-  if(_traceDetailTaskId){
-    showTraceDetail(_traceDetailTaskId,true);
+  if(agRuntime.traceDetailTaskId){
+    showTraceDetail(agRuntime.traceDetailTaskId,true);
   }
 }
 
 async function showTraceDetail(taskId, silent){
   if(!tid||!taskId)return;
-  _traceDetailTaskId=taskId;
+  agRuntime.traceDetailTaskId=taskId;
   const payload=await api(`${A}/teams/${tid}/tasks/${taskId}/trace-events`);
   const detailReqId=_lastRequestId||'';
-  _traceRequestIds.detail=detailReqId;
+  agRuntime.traceRequestIds.detail=detailReqId;
   _renderTraceDetail(taskId,payload,detailReqId);
   if(!silent&&payload){toast(`已加载任务明细 ${taskId.slice(0,8)}`)}
 }
@@ -479,8 +490,7 @@ async function showTraceDetail(taskId, silent){
 // ── System Evolution (自我演进) ──
 const EVP='/api/v1/agent-teams/evolution';
 const EVO_ITEMS_PAGE_SIZE=50;
-let evoVisibleCount=EVO_ITEMS_PAGE_SIZE;
-let evoCachedItems=[];
+agRuntime.evoVisibleCount=agRuntime.evoVisibleCount||EVO_ITEMS_PAGE_SIZE;
 
 async function loadEvolution(prefetchedCompliance=null){
   const statusFilter=el('evo-filter')?.value||'';
@@ -526,25 +536,25 @@ async function loadEvolution(prefetchedCompliance=null){
   } else if(rs) { rs.innerHTML='<div style="color:var(--dim);font-size:12px">暂无审查规则</div>'; }
 
   // Items with action buttons
-  evoCachedItems=items||[];
-  evoVisibleCount=EVO_ITEMS_PAGE_SIZE;
+  agRuntime.evoCachedItems=items||[];
+  agRuntime.evoVisibleCount=EVO_ITEMS_PAGE_SIZE;
   renderEvolutionItems();
 }
 
 function renderEvolutionItems(){
   const is=el('evo-items');
   if(!is)return;
-  if(!evoCachedItems.length){
+  if(!agRuntime.evoCachedItems.length){
     is.innerHTML='<div style="color:var(--dim);font-size:12px;padding:8px">暂无演进条目 — 点击「审查」或「运行演进周期」开始</div>';
     return;
   }
-  const shown=evoCachedItems.slice(0,evoVisibleCount);
-  const remaining=Math.max(0,evoCachedItems.length-shown.length);
-  is.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">演进条目 (${evoCachedItems.length}${remaining>0?' · 显示前'+shown.length+'条':''})</div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>目标</th><th>操作</th></tr></thead><tbody>${shown.map(i=>`<tr><td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0,8)||'')}</td><td><b>${escapeHtml(i.title)}</b></td><td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain||'')}</span></td><td style="color:${i.severity==='critical'?'var(--red)':i.severity==='high'?'var(--amber)':'var(--muted)'}">${escapeHtml(i.severity||'')}</td><td>${evoStBadge(i.status)}</td><td style="font-size:12px">${escapeHtml(i.target_channel||'')}</td><td style="white-space:nowrap">${evoItemActions(i)}</td></tr>`).join('')}</tbody></table>${remaining>0?`<button class="btn btn-sm" style="margin-top:8px" onclick="evoLoadMore()">加载更多 (${remaining} 剩余)</button>`:''}`;
+  const shown=agRuntime.evoCachedItems.slice(0,agRuntime.evoVisibleCount);
+  const remaining=Math.max(0,agRuntime.evoCachedItems.length-shown.length);
+  is.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">演进条目 (${agRuntime.evoCachedItems.length}${remaining>0?' · 显示前'+shown.length+'条':''})</div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>目标</th><th>操作</th></tr></thead><tbody>${shown.map(i=>`<tr><td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0,8)||'')}</td><td><b>${escapeHtml(i.title)}</b></td><td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain||'')}</span></td><td style="color:${i.severity==='critical'?'var(--red)':i.severity==='high'?'var(--amber)':'var(--muted)'}">${escapeHtml(i.severity||'')}</td><td>${evoStBadge(i.status)}</td><td style="font-size:12px">${escapeHtml(i.target_channel||'')}</td><td style="white-space:nowrap">${evoItemActions(i)}</td></tr>`).join('')}</tbody></table>${remaining>0?`<button class="btn btn-sm" style="margin-top:8px" onclick="evoLoadMore()">加载更多 (${remaining} 剩余)</button>`:''}`;
 }
 
 function evoLoadMore(){
-  evoVisibleCount+=EVO_ITEMS_PAGE_SIZE;
+  agRuntime.evoVisibleCount+=EVO_ITEMS_PAGE_SIZE;
   renderEvolutionItems();
 }
 
@@ -667,7 +677,6 @@ async function testLLM(){
 }
 
 // ── Models ──
-let _editModelId='';
 async function loadModels(){const d=await apiList(`${A}/teams/${tid}/models`,200,0);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
 async function delModel(mid){if(!confirm('删除此模型？'))return;await csrfFetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
@@ -675,7 +684,7 @@ async function setModelDefault(mid){
   if(r){toast(`模型 ${mid} 已设为默认，所有智能体已同步`);loadModels();loadSbAgents();if(aid)loadAgent()}else toast('设置失败')
 }
 async function openEditModel(mid){
-  _editModelId=mid;
+  agRuntime.editModelId=mid;
   const models=await apiList(`${A}/teams/${tid}/models`,200,0);
   const m=(models||[]).find(x=>x.model_id===mid);if(!m){toast('模型未找到');return}
   el('em-prov').value=m.provider||'deepseek';
@@ -705,10 +714,10 @@ function updateEmUrlHint(){
   }
 }
 async function submitEditModel(){
-  if(!_editModelId)return;
+  if(!agRuntime.editModelId)return;
   const body={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:el('em-key').value,api_base_url:el('em-url').value};
   if(!body.name){toast('模型名称不能为空');return}
-  const r=await api(`${A}/teams/${tid}/models/${_editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r=await api(`${A}/teams/${tid}/models/${agRuntime.editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r){toast('模型已更新');closeModal('modal-edit-model');loadModels();if(body.is_default){loadSbAgents();if(aid)loadAgent()}}else toast('更新失败')
 }
 async function testModelInEdit(){
@@ -716,7 +725,7 @@ async function testModelInEdit(){
   rb.style.background='rgba(232,240,250,0.7)';rb.style.color='var(--muted)';
   rb.innerHTML='⏳ 正在测试连接...';
   const btn=el('em-test-btn');btn.disabled=true;
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:el('em-key').value,api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,model_id:_editModelId};
+  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:el('em-key').value,api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,model_id:agRuntime.editModelId};
   const r=await api(`${A}/llm/test-model`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   btn.disabled=false;
   if(!r){rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';rb.innerHTML='❌ 请求失败，请检查后端是否运行';return}
@@ -724,9 +733,9 @@ async function testModelInEdit(){
     rb.style.background='rgba(38,162,105,0.08)';rb.style.color='var(--lime)';
     rb.innerHTML=`✅ 连接成功 — 模型: ${escapeHtml(r.model)} · 延迟: ${r.latency_ms?.toFixed(0)||'?'}ms<div style="margin-top:8px;padding:10px;background:rgba(232,240,250,0.6);border-radius:6px;color:var(--text);font-size:12px">${escapeHtml(r.response)}</div>`;
     // Auto-save after successful test
-    if(_editModelId){
+    if(agRuntime.editModelId){
       const sb={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:body.api_key,api_base_url:el('em-url').value};
-      const sr=await api(`${A}/teams/${tid}/models/${_editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
+      const sr=await api(`${A}/teams/${tid}/models/${agRuntime.editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
       if(sr){rb.innerHTML+='<div style="margin-top:8px;color:var(--lime);font-size:12px">💾 配置已自动保存</div>';loadModels();if(sb.is_default){loadSbAgents();if(aid)loadAgent()}}
     }
   } else {
@@ -736,12 +745,8 @@ async function testModelInEdit(){
 }
 
 // ── Tools (Clawith-style) ──
-let _ctEventSource=null;
-let _ctSessionId='';
-let _ctElapsedTimer=null;
-
 function openClaudeTerm(sessionId){
-  _ctSessionId=sessionId;
+  agRuntime.claudeSessionId=sessionId;
   const overlay=el('claude-term-overlay');
   const body=el('ct-body');
   const statusEl=el('ct-status');
@@ -759,16 +764,16 @@ function openClaudeTerm(sessionId){
   const startTime=Date.now();
 
   // Elapsed timer
-  clearInterval(_ctElapsedTimer);
-  _ctElapsedTimer=setInterval(()=>{
+  clearInterval(agRuntime.claudeElapsedTimer);
+  agRuntime.claudeElapsedTimer=setInterval(()=>{
     const s=Math.floor((Date.now()-startTime)/1000);
     el('ct-elapsed').textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
   },1000);
 
   // Connect SSE
-  if(_ctEventSource){_ctEventSource.close();_ctEventSource=null}
+  if(agRuntime.claudeEventSource){agRuntime.claudeEventSource.close();agRuntime.claudeEventSource=null}
   const es=new EventSource(`${A}/claude-sessions/${sessionId}/stream`);
-  _ctEventSource=es;
+  agRuntime.claudeEventSource=es;
 
   es.onmessage=(e)=>{
     lineCount++;
@@ -789,7 +794,7 @@ function openClaudeTerm(sessionId){
       statusEl.textContent=d.status==='completed'?'✓ completed':'✗ '+d.status;
       statusEl.style.color=d.status==='completed'?'oklch(0.52 0.04 160)':'oklch(0.48 0.07 22)';
       stopBtn.style.display='none';
-      clearInterval(_ctElapsedTimer);
+      clearInterval(agRuntime.claudeElapsedTimer);
       const endLine=document.createElement('div');
       endLine.className='ct-line '+(d.status==='completed'?'ct-success':'ct-err');
       endLine.textContent=`\n[${d.status}] exit code: ${d.exit_code}`;
@@ -797,27 +802,27 @@ function openClaudeTerm(sessionId){
       body.scrollTop=body.scrollHeight;
     }catch(ex){}
     es.close();
-    _ctEventSource=null;
+    agRuntime.claudeEventSource=null;
   });
 
   es.onerror=()=>{
     statusEl.textContent='⚠ connection lost';
     statusEl.style.color='oklch(0.56 0.05 70)';
-    clearInterval(_ctElapsedTimer);
+    clearInterval(agRuntime.claudeElapsedTimer);
     es.close();
-    _ctEventSource=null;
+    agRuntime.claudeEventSource=null;
   };
 }
 
 function closeClaudeTerm(){
   el('claude-term-overlay').classList.remove('open');
-  if(_ctEventSource){_ctEventSource.close();_ctEventSource=null}
-  clearInterval(_ctElapsedTimer);
+  if(agRuntime.claudeEventSource){agRuntime.claudeEventSource.close();agRuntime.claudeEventSource=null}
+  clearInterval(agRuntime.claudeElapsedTimer);
 }
 
 async function stopClaudeSession(){
-  if(!_ctSessionId)return;
-  await csrfFetch(`${A}/claude-sessions/${_ctSessionId}/stop`,{method:'POST'});
+  if(!agRuntime.claudeSessionId)return;
+  await csrfFetch(`${A}/claude-sessions/${agRuntime.claudeSessionId}/stop`,{method:'POST'});
   toast('已停止');
 }
 
@@ -828,11 +833,10 @@ async function stopClaudeSession(){
 // ═══ Phase 3: Performance Optimization ═══
 
 // Debounced visibility change handler to prevent rapid re-fetches
-let _visibilityDebounceTimer = null;
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden)return;
-  clearTimeout(_visibilityDebounceTimer);
-  _visibilityDebounceTimer=setTimeout(()=>{
+  clearTimeout(agRuntime.visibilityDebounceTimer);
+  agRuntime.visibilityDebounceTimer=setTimeout(()=>{
     const v=document.querySelector('.main-inner:not(.hidden)');
     if(v&&v.id==='view-overview')loadOverview();
   },300);
@@ -843,7 +847,7 @@ function debounce(fn,ms=300){let t;return(...a)=>{clearTimeout(t);t=setTimeout((
 
 // SSE cleanup on page unload
 window.addEventListener('beforeunload',()=>{
-  if(_ovTimer){clearInterval(_ovTimer);_ovTimer=null}
+  if(agRuntime.overviewTimer){clearInterval(agRuntime.overviewTimer);agRuntime.overviewTimer=null}
 });
 
 // ═══ Phase 4: Interaction Experience ═══
@@ -997,11 +1001,10 @@ async function batchEnableTools(enable){
 }
 
 // 5d. Real-time status polling for agent detail
-let _agentPollTimer=null;
 function startAgentPoll(agentId){
   stopAgentPoll();
   if(!agentId)return;
-  _agentPollTimer=setInterval(async()=>{
+  agRuntime.agentPollTimer=setInterval(async()=>{
     if(document.hidden)return;
     const st=await api(`${A}/teams/${tid}/agents/${agentId}/status`);
     if(st){
@@ -1010,7 +1013,7 @@ function startAgentPoll(agentId){
     }
   },10000);
 }
-function stopAgentPoll(){if(_agentPollTimer){clearInterval(_agentPollTimer);_agentPollTimer=null}}
+function stopAgentPoll(){if(agRuntime.agentPollTimer){clearInterval(agRuntime.agentPollTimer);agRuntime.agentPollTimer=null}}
 
 // Add export/import buttons to topbar
 (function(){
