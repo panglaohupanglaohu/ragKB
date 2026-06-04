@@ -66,6 +66,19 @@ class AdmissionReviewResponse(BaseModel):
     response: AdmissionResponse
 
 
+class PodMetadata(BaseModel):
+    """Simplified Pod metadata for dry-run."""
+    name: str = "dry-run-pod"
+    labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class DryRunLabelInjectionRequest(BaseModel):
+    """Request body for /mutate-cost-labels/dry-run."""
+    metadata: PodMetadata = Field(default_factory=PodMetadata)
+    namespace: str = "default"
+    namespaceAnnotations: Dict[str, str] = Field(default_factory=dict)
+
+
 # ── Webhook Router ──────────────────────────────────────
 
 webhook_router = APIRouter(prefix="/webhook", tags=["K8s Webhook"])
@@ -305,28 +318,21 @@ async def webhook_health() -> Dict[str, Any]:
 
 
 @webhook_router.post("/mutate-cost-labels/dry-run")
-async def dry_run_label_injection(request: Request) -> Dict[str, Any]:
+async def dry_run_label_injection(body: DryRunLabelInjectionRequest) -> Dict[str, Any]:
     """Dry-run endpoint: preview what labels would be injected.
 
     Accepts a simplified Pod spec and returns the resolved labels
     and JSON Patch without requiring a full AdmissionReview.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON")
-
-    pod_metadata = body.get("metadata", {})
-    pod_name = pod_metadata.get("name", "dry-run-pod")
-    namespace = body.get("namespace", "default")
+    pod_metadata = body.metadata
+    pod_name = pod_metadata.name
+    namespace = body.namespace
     config = CostLabelConfig()
 
-    namespace_annotations: Dict[str, str] = {}
-    if "namespaceAnnotations" in body:
-        namespace_annotations = body["namespaceAnnotations"]
+    namespace_annotations = body.namespaceAnnotations
 
-    resolved = _resolve_labels(pod_metadata, namespace_annotations, config)
-    existing = dict(pod_metadata.get("labels", {}) or {})
+    resolved = _resolve_labels(pod_metadata.model_dump(), namespace_annotations, config)
+    existing = dict(pod_metadata.labels)
     patches = _build_json_patch(pod_name, existing, resolved, config)
 
     return {

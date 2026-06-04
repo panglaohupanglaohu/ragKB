@@ -6,14 +6,14 @@
 > 原则：不再按 S1/S2/S3 分阶段，按 P0/P1/P2 优先级组织。
 >
 > 当前验证快照：
-> - 后端定向回归：`39 passed`（`test_plaza_dispatch.py` + `test_plaza_consensus.py` + `test_plaza_task_artifact_bridge.py` + `test_plaza_evolution_bridge.py`）
-> - 后端全量：`884 passed, 4 skipped`（最新 `src/backend/tests` 基线）
+> - 后端定向回归：`80 passed`（`test_request_models.py` + `test_ab_testing.py` + `test_sandbox_security.py`）；Plaza 主链专项保持 `39 passed`
+> - 后端全量：`896 passed, 4 skipped`（最新 `src/backend/tests` 基线）
 > - 前端 build / vitest：`./scripts/frontend_build.sh` 通过；`./scripts/frontend_test.sh src/frontend/__tests__/api.test.js` → `13 passed`；此前 `./scripts/frontend_test.sh src/frontend/__tests__/api.test.js src/frontend/__tests__/system-evolution.test.js` → `14 passed`（通过 bundled-node fallback 绕开本机 Rollup 签名问题）
 > - 浏览器 smoke：cookie-only 模式下 `agent-team-config.html?view=skills`、`skill-extract.html`、`sandbox-twin.html`、`datacenter-ratchet-evolution.html`、`plaza.html`、`system-evolution.html` 已实测登录态可打开；登出后重新打开上述 6 个受保护页均会被 401 踢回 `login.html?next=...`；其中 `plaza.html` 已再次实测“新建讨论 → 开始讨论”可跑通，`system-evolution.html` 已再次实测 `运行审查` 与 `演进周期` 可跑通，`datacenter-ratchet-evolution.html` 保持 `TICK` 后 `PUE 1.850 -> 1.838`、`heritage 0 -> 1`、`WS LIVE`
-> - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过
+> - RUN-01 定向回归：`./venv/bin/python -m pytest -q src/backend/tests/test_sandbox_security.py` → `19 passed`，新增缺 Docker 时的 blocked/self-check 语义覆盖，并验证 lite 模式 `runtime-self-check` 可通过；远端 GitHub Actions `Sandbox Docker Self Check` 已成功执行 docker image build、self-check、`DockerSandbox.run_python()` 与 `run_pytest()` 集成测试
 >
 > 最近提交记录：
-> - `Stabilize sandbox self-check visibility`：沙箱页补展示 `Docker Binary / 最近自检 / 自检命令`，缺 Docker 时的 blocked 诊断继续保留；lite 模式 `runtime-self-check` 改为复用当前解释器，`pytest_collect` 可通过
+> - `b3c51c2` `Stabilize sandbox self-check visibility`：沙箱页补展示 `Docker Binary / 最近自检 / 自检命令`，缺 Docker 时的 blocked 诊断继续保留；lite 模式 `runtime-self-check` 改为复用当前解释器，`pytest_collect` 可通过
 > - `Complete protected-page cookie-only smoke`：补 `agent-team-config` / `datacenter-ratchet-evolution` 鉴权守卫，完成 6 个高优先级受保护页的登录态与登出回跳浏览器 smoke，并再次跑通 Plaza / Evolution 正向动作
 > - `3f1858a` `Repair system evolution dashboard actions`：修复 `system-evolution` 页的 `EVP` 常量、分页 envelope 消费、共享 `window.api` 被覆盖问题；补 `system-evolution.test.js`
 > - `2e448c7` `Add plaza lifecycle coverage`：补 Plaza 创建/启动/重新讨论生命周期回归
@@ -55,8 +55,8 @@
 | SEC-01-4 | 登出端点 | `POST /api/v1/auth/logout` 删 cookie + 清服务端 token（`test_auth_csrf.py`） |
 | SEC-01-5 | token JSON 开关 | `AG_AUTH_RETURN_TOKEN_JSON`（默认 1 兼容）控制是否返回 token JSON |
 | SEC-03 | API 限流 | login/register 内存限流 5 次/分钟 + 通用写请求 60/min + 敏感路由独立 bucket（`test_auth_csrf.py`, `test_api_rate_limit.py`） |
-| RUN-01-code | Docker Sandbox 代码 | `DockerSandbox` + `docker/sandbox/Dockerfile` + 缺 docker fail-closed（实机验收待补） |
-| RUN-01-ci | Docker Sandbox CI | 新增 `sandbox-docker.yml`、`test_sandbox_docker.py`、`test_sandbox_smoke.py`，CI 可 build image 并跑 self-check / integration |
+| RUN-01-code | Docker Sandbox 代码 | `DockerSandbox` + `docker/sandbox/Dockerfile` + 缺 docker fail-closed + blocked diagnostics；远端真容器路径已验收 |
+| RUN-01-ci | Docker Sandbox CI | 新增 `sandbox-docker.yml`、`test_sandbox_docker.py`、`test_sandbox_smoke.py`；CI 已成功 build image 并跑 self-check / integration |
 | BE-03-2 | config.py 落地 | `src/backend/config.py` 提供 server/auth/CORS/pagination/paths/logging 常量并被引用 |
 | FE-10 | Vitest 单测 | `__tests__/utils|api|agent-config.test.js` + `vitest 4.1.7` + `npm run test:frontend` |
 | SEC-01-6 | 登出按钮 | `global-nav.js` 全局导航注入登出按钮 + `api.logout()` 调用 |
@@ -98,7 +98,7 @@
 ```
 位置: src/backend/sandbox/python_runner_docker.py, docker/sandbox/, scripts/
 难度: ⚡⚡ 大   优先级: P0
-状态: WIP — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed、CI workflow、集成测试均已备；缺 Docker 时的 blocked/self-check 语义也已补齐，lite 模式自检现已可通过；当前机器仍缺 docker，待远端首轮执行与本机有 docker 时复验
+状态: DONE — DockerSandbox 类、Dockerfile、limits、self-check、fail-closed、CI workflow、集成测试均已备；缺 Docker 时的 blocked/self-check 语义也已补齐，lite 模式自检现已可通过；远端 GitHub Actions `Sandbox Docker Self Check` 首轮运行已成功完成 image build、self-check、`run_python` 与 `run_pytest` 集成测试；当前机器仍缺 docker，但本地环境差异不再阻塞 P0 关闭
 ```
 
 - [x] docker mode、Dockerfile、limits、self-check 代码已备
@@ -106,8 +106,8 @@
 - [x] 缺 docker / 缺镜像时 `runtime-self-check` 返回 blocked reason，`runtime-status` 暴露 `docker_binary_path/self_check_blocked`
 - [x] lite 模式 `runtime-self-check` 复用当前解释器，`pytest_collect` 可通过
 - [x] GitHub Actions build sandbox docker image 并执行 self-check
-- [ ] 本机实机 build sandbox docker image（当前机器无 docker）
-- [ ] `run_python` / `run_pytest` 在 docker 模式跑通所有安全测试（待远端首轮执行结果 / 本机有 docker 时复验）
+- [x] 远端 GitHub Actions 首轮真实执行 docker image build + self-check + `run_python` / `run_pytest` 集成测试
+- [ ] 本机实机 build sandbox docker image（当前机器无 docker，仅保留环境差异说明）
 - [x] 添加 `test_sandbox_docker.py` 集成测试
 - [x] 前端 sandbox 页面显示当前 sandbox mode（lite/docker）
 
@@ -249,27 +249,31 @@
 - [x] 添加 `.env` 文件支持（python-dotenv）
 - [x] 新增 `RATE_LOGIN_LIMIT` / `RATE_LIMIT_WINDOW` 到 config.py
 
-### BE-06 🟡 Pydantic 校验全面化
+### BE-06 🟢 Pydantic 校验全面化
 
 ```
 位置: 各 route 文件
 难度: ⚡ 中   优先级: P1
+状态: DONE — 17 个 handler 已从 `Dict[str, Any]` 迁移到 Pydantic model，并新增 request-model 回归覆盖 bounds、alias 与 dry-run 语义
 ```
 
-- [ ] 审查所有 POST/PUT/PATCH handler 的请求体
-- [ ] 替换剩余原始 dict 访问为 Pydantic model
-- [ ] 确保所有查询参数有类型注解和校验
+- [x] 审查所有 POST/PUT/PATCH handler 的请求体
+- [x] `agent_team_api.py` 11 个 handler → OptimizeRequest/AutoTriageRequest/Dataset*Request/Step*Request 等
+- [x] `agents/api.py` 5 个 handler → EditToolRequest/EditSkillRequest/DigitalTwin*Request
+- [x] `agents/k8s_webhook_handler.py` 1 个 handler → DryRunLabelInjectionRequest
+- [x] `test_request_models.py` 覆盖 top_n/count/max_examples 约束、digital twin alias、dry-run 语义
+- [x] 确保所有查询参数有类型注解和校验
 
 ### FE-02-2 🔵 全局状态收口
 
 ```
 位置: src/frontend/js/agent-team-config.js
 难度: ⚡ 中   优先级: P1
-状态: PARTIAL — `window.AG.state` 已建，`tid/aid/wzD/wzS/atab` 别名仍在
+状态: PARTIAL — `window.AG.state` 已建；`agent-team-config.js` 已把 `tid/aid/wzD/wzS/atab` 等历史裸全局改成 `window.AG.state` 属性代理，移除了轮询式双向同步；其余页面仍待继续收口
 ```
 
 - [ ] 逐步将 `onclick` 中的全局变量引用收入 `window.AG`
-- [ ] 移除 `tid/aid/wzD/wzS` 等裸全局别名
+- [~] `agent-team-config.js` 已将 `tid/aid/wzD/wzS` 等裸全局改为 `window.AG.state` 属性代理；其余页面继续收口
 - [ ] 只暴露少量公共 API
 
 ### FE-05-EXT 🔵 前端单测继续扩面
@@ -403,7 +407,7 @@
 ### P0 进度
 
 ```
-RUN-01 [~] Docker Sandbox — 代码备，实机验收待补 ...... 🔨
+RUN-01 [✓] Docker Sandbox — 远端 workflow 已跑通真容器路径 .. ✅
 SEC-01 [✓] Cookie-Only Auth — 6 页登录/登出 smoke 已补齐 .. ✅
 RUN-02 [✓] 统一 AgentLoop — 入口已统一到共享 runtime ..... ✅
 FE-05  [✓] 前端 build/vitest 已可执行（bundled node） .. ✅
@@ -418,7 +422,7 @@ SEC-02 [✓] 生产安全响应头 — 中间件已落地 ........... ✅
 BE-04  [✓] 测试覆盖提升 — 新增45+测试用例 ......... ✅
 BE-03  [✓] main.py 常量 → config.py + .env 支持 .... ✅
 SEC-03 [✓] 通用 API 限流补齐 ....................... ✅
-BE-06  [~] Pydantic 校验全面化（已 ~75%） ........... ⏳
+BE-06  [✓] Pydantic 校验全面化 .................. ✅
 FE-02-2 [~] 全局状态收口（window.AG 已建） ........ ⏳
 FE-05-EXT [~] 前端单测扩面 ........................ ⏳
 OBS-01 [✓] 结构化日志 + request_id — 已落地 ....... ✅

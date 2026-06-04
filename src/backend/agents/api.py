@@ -896,22 +896,24 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
     "/teams/{team_id}/tools/{tool_id}",
     summary="Edit tool properties",
 )
-def edit_tool(team_id: str, tool_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_tool(team_id: str, tool_id: str, req: Optional[EditToolRequest] = Body(None)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     tool = team.tools.get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
+    req = req or EditToolRequest()
     # Update allowed fields
     for field in ("name", "description", "icon", "requires_approval"):
-        if field in req:
-            setattr(tool, field, req[field])
-    if "category" in req:
+        val = getattr(req, field, None)
+        if val is not None:
+            setattr(tool, field, val)
+    if req.category is not None:
         try:
-            tool.category = ToolCategory(req["category"])
+            tool.category = ToolCategory(req.category)
         except ValueError:
             pass
-    if "parameters" in req and isinstance(req["parameters"], dict):
-        tool.parameters = req["parameters"]
+    if req.parameters is not None and isinstance(req.parameters, dict):
+        tool.parameters = req.parameters
     _tm()._persist()
     return tool.to_dict()
 
@@ -1274,6 +1276,42 @@ class ToolConfigRequest(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
 
 
+class EditToolRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    requires_approval: Optional[bool] = None
+    category: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class EditSkillRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    instructions: Optional[str] = None
+    slug: Optional[str] = None
+    category: Optional[str] = None
+    required_tools: Optional[List[str]] = None
+
+
+class DigitalTwinStateRequest(BaseModel):
+    rooms: Optional[List[Any]] = None
+    positions: Optional[Dict[str, str]] = None
+
+
+class DigitalTwinMoveRequest(BaseModel):
+    agent_id: str
+    room_id: str
+
+
+class DigitalTwinInteractRequest(BaseModel):
+    from_: str = Field(default="", alias="from")
+    to: str = ""
+    type: str = "handoff"
+    content: str = ""
+
+
 class SkillLibraryActionRequest(BaseModel):
     team_id: str = Field(..., min_length=1)
     skill_id: str = Field(..., min_length=1)
@@ -1429,7 +1467,7 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     "/teams/{team_id}/skills/{skill_id}",
     summary="Edit skill properties",
 )
-def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_skill(team_id: str, skill_id: str, req: Optional[EditSkillRequest] = Body(None)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     skill = team.skills.get(skill_id)
     if skill is None:
@@ -1442,19 +1480,21 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
         # Add to team for editing
         team.skills[skill_id] = skill
+    req = req or EditSkillRequest()
     # Update allowed fields
     for field in ("name", "description", "icon", "instructions", "slug"):
-        if field in req:
-            setattr(skill, field, req[field])
-    if "category" in req:
+        val = getattr(req, field, None)
+        if val is not None:
+            setattr(skill, field, val)
+    if req.category is not None:
         try:
-            skill.category = SkillCategory(req["category"])
+            skill.category = SkillCategory(req.category)
         except ValueError:
             pass
-    if "required_tools" in req and isinstance(req["required_tools"], list):
-        skill.required_tools = req["required_tools"]
+    if req.required_tools is not None and isinstance(req.required_tools, list):
+        skill.required_tools = req.required_tools
     # Bump version on instruction edit
-    if "instructions" in req:
+    if req.instructions is not None:
         skill.version = getattr(skill, "version", 0) + 1
     _tm()._persist()
     # Also update skill store if available
@@ -1492,30 +1532,30 @@ def dt_get_state() -> Dict[str, Any]:
 
 
 @router.put("/digital-twin/state", summary="Update digital twin state")
-def dt_put_state(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    if "rooms" in req:
-        _dt_state["rooms"] = req["rooms"]
-    if "positions" in req:
-        _dt_state["positions"] = req["positions"]
+def dt_put_state(req: Optional[DigitalTwinStateRequest] = Body(None)) -> Dict[str, Any]:
+    req = req or DigitalTwinStateRequest()
+    if req.rooms is not None:
+        _dt_state["rooms"] = req.rooms
+    if req.positions is not None:
+        _dt_state["positions"] = req.positions
     return _dt_state
 
 
 @router.post("/digital-twin/move", summary="Move agent to room")
-def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    agent_id = req.get("agent_id", "")
-    room_id = req.get("room_id", "")
-    if not agent_id or not room_id:
+def dt_move_agent(req: DigitalTwinMoveRequest = Body(...)) -> Dict[str, Any]:
+    if not req.agent_id or not req.room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
-    _dt_state["positions"][agent_id] = room_id
-    return {"status": "moved", "agent_id": agent_id, "room_id": room_id}
+    _dt_state["positions"][req.agent_id] = req.room_id
+    return {"status": "moved", "agent_id": req.agent_id, "room_id": req.room_id}
 
 
 @router.post("/digital-twin/interact", summary="Record agent interaction")
-def dt_interact(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    from_agent = req.get("from", "")
-    to_agent = req.get("to", "")
-    msg_type = req.get("type", "handoff")
-    content = req.get("content", "")
+def dt_interact(req: Optional[DigitalTwinInteractRequest] = Body(None)) -> Dict[str, Any]:
+    req = req or DigitalTwinInteractRequest()
+    from_agent = req.from_
+    to_agent = req.to
+    msg_type = req.type
+    content = req.content
     ts = datetime.now(timezone.utc).isoformat()
     interaction = {"from": from_agent, "to": to_agent, "type": msg_type, "content": content, "time": ts}
     _dt_state["interactions"].append(interaction)

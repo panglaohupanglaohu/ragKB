@@ -9,7 +9,7 @@ Agent Team API Routes - 双团队管理 REST API
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
 router = APIRouter(prefix="/api/v1/agent-teams", tags=["Agent Teams"])
@@ -74,6 +74,82 @@ class FeedbackSubmission(BaseModel):
     severity: str = "medium"
     title: str
     detail: str
+
+# ── 演化优化请求模型 ──────────────────────────────────────────
+
+class OptimizeRequest(BaseModel):
+    target_type: str = "skill"
+    target_id: str = ""
+    team_id: str = "build_system"
+    iterations: int = Field(default=5, ge=1, le=10)
+    content: str = ""
+
+class AutoTriageRequest(BaseModel):
+    team_id: str = "build_system"
+    top_n: int = Field(default=5, ge=1, le=10)
+
+class DatasetGenerateRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    count: int = Field(default=15, ge=1, le=30)
+
+class ExampleItem(BaseModel):
+    task_input: str
+    rubric: str
+
+class DatasetManualRequest(BaseModel):
+    dataset_id: str = ""
+    skill_id: str = ""
+    examples: List[ExampleItem] = Field(default_factory=list)
+    skill_name: str = ""
+
+class DatasetImportKBRequest(BaseModel):
+    skill_id: str = ""
+    skill_name: str = ""
+    dataset_id: str = ""
+    max_examples: int = Field(default=20, ge=1, le=50)
+
+class UpdateExamplesRequest(BaseModel):
+    action: str = "replace_all"
+    examples: List[ExampleItem] = Field(default_factory=list)
+    indices: List[int] = Field(default_factory=list)
+    index: int = -1
+    example: Optional[ExampleItem] = None
+
+class StepBaselineRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    dataset_id: str = ""
+
+class FailureItem(BaseModel):
+    task_input: str = ""
+    rubric: str = ""
+    composite: float = 0.0
+    reasoning: str = ""
+
+class StepReflectRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    failures: List[FailureItem] = Field(default_factory=list)
+    user_hints: str = ""
+
+class StepMutateRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    reflection: Dict[str, Any] = Field(default_factory=dict)
+
+class StepEvaluateCandidateRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    dataset_id: str = ""
+    instructions: str = ""
+
+class StepApplyRequest(BaseModel):
+    skill_id: str = ""
+    team_id: str = "build_system"
+    instructions: str = ""
+    baseline_score: float = 0.0
+    new_score: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +655,7 @@ async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = Q
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/evolution/optimize")
-async def evolution_optimize(body: Dict[str, Any]):
+async def evolution_optimize(body: OptimizeRequest):
     """启动技能/规则/提示词优化 (Phase 1-3).
 
     Body: {target_type: "skill"|"rule"|"prompt", target_id, team_id, iterations?}
@@ -587,10 +663,10 @@ async def evolution_optimize(body: Dict[str, Any]):
     from agents.evolution.optimizer import optimize_skill, optimize_rule_description, optimize_prompt_section
     from agents.skill_library import get_skill_library
 
-    target_type = body.get("target_type", "skill")
-    target_id = body.get("target_id", "")
-    team_id = body.get("team_id", "build_system")
-    iterations = min(body.get("iterations", 5), 10)  # Cap at 10
+    target_type = body.target_type
+    target_id = body.target_id
+    team_id = body.team_id
+    iterations = body.iterations
 
     if not target_id:
         raise HTTPException(400, "target_id required")
@@ -631,7 +707,7 @@ async def evolution_optimize(body: Dict[str, Any]):
         return run.to_dict()
 
     elif target_type == "prompt":
-        content = body.get("content", "")
+        content = body.content
         if not content:
             raise HTTPException(400, "content required for prompt optimization")
         run = await optimize_prompt_section(
@@ -756,24 +832,22 @@ async def evolution_skill_fitness(skill_id: str, team_id: str = "build_system"):
 
 
 @router.post("/evolution/auto-triage")
-async def evolution_auto_triage(body: Dict[str, Any] = None):
+async def evolution_auto_triage(body: Optional[AutoTriageRequest] = None):
     """自动诊断 — 识别最需要优化的技能 (Phase 5)."""
     from agents.evolution.auto_triage import run_auto_triage
-    body = body or {}
-    team_id = body.get("team_id", "build_system")
-    top_n = min(body.get("top_n", 5), 10)
-    return await run_auto_triage(team_id=team_id, top_n=top_n)
+    body = body or AutoTriageRequest()
+    return await run_auto_triage(team_id=body.team_id, top_n=body.top_n)
 
 
 @router.post("/evolution/dataset/generate")
-async def evolution_generate_dataset(body: Dict[str, Any]):
+async def evolution_generate_dataset(body: DatasetGenerateRequest):
     """为指定技能生成评估数据集."""
     from agents.evolution.dataset_builder import build_full_dataset
     from agents.skill_library import get_skill_library
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    count = min(body.get("count", 15), 30)
+    skill_id = body.skill_id
+    team_id = body.team_id
+    count = body.count
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -819,13 +893,13 @@ def _load_dataset(dataset_id: str):
     return EvalDataset.load(str(found[0]))
 
 @router.post("/evolution/dataset/manual")
-async def evolution_dataset_manual(body: Dict[str, Any]):
+async def evolution_dataset_manual(body: DatasetManualRequest):
     """手动添加评估用例到数据集."""
     from agents.evolution.dataset_builder import EvalDataset
 
-    dataset_id = body.get("dataset_id", "")
-    skill_id = body.get("skill_id", "")
-    examples = body.get("examples", [])  # [{task_input, rubric}]
+    dataset_id = body.dataset_id
+    skill_id = body.skill_id
+    examples = body.examples
 
     if not examples:
         raise HTTPException(400, "examples required")
@@ -836,12 +910,11 @@ async def evolution_dataset_manual(body: Dict[str, Any]):
     else:
         if not skill_id:
             raise HTTPException(400, "skill_id required when creating new dataset")
-        ds = EvalDataset(skill_id=skill_id, skill_name=body.get("skill_name", skill_id))
+        ds = EvalDataset(skill_id=skill_id, skill_name=body.skill_name)
 
     # Add examples
     for ex in examples:
-        if isinstance(ex, dict) and ex.get("task_input") and ex.get("rubric"):
-            ds.examples.append({"task_input": str(ex["task_input"]), "rubric": str(ex["rubric"])})
+        ds.examples.append({"task_input": ex.task_input, "rubric": ex.rubric})
 
     ds.split()
     ds.save("skills")
@@ -849,14 +922,14 @@ async def evolution_dataset_manual(body: Dict[str, Any]):
 
 
 @router.post("/evolution/dataset/import-kb")
-async def evolution_dataset_import_kb(body: Dict[str, Any]):
+async def evolution_dataset_import_kb(body: DatasetImportKBRequest):
     """从知识库抽取评估用例."""
     from agents.evolution.dataset_builder import EvalDataset, mine_knowledge_base
 
-    skill_id = body.get("skill_id", "")
-    skill_name = body.get("skill_name", skill_id)
-    dataset_id = body.get("dataset_id", "")
-    max_examples = min(body.get("max_examples", 20), 50)
+    skill_id = body.skill_id
+    skill_name = body.skill_name or skill_id
+    dataset_id = body.dataset_id
+    max_examples = body.max_examples
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -887,25 +960,25 @@ async def evolution_get_dataset(dataset_id: str):
 
 
 @router.put("/evolution/dataset/{dataset_id}/examples")
-async def evolution_update_dataset_examples(dataset_id: str, body: Dict[str, Any]):
+async def evolution_update_dataset_examples(dataset_id: str, body: UpdateExamplesRequest):
     """编辑数据集中的用例."""
     from agents.evolution.dataset_builder import EvalDataset
 
     ds = _load_dataset(dataset_id)
-    action = body.get("action", "replace_all")  # replace_all, delete, update
+    action = body.action
 
     if action == "replace_all":
-        ds.examples = [ex for ex in body.get("examples", []) if ex.get("task_input") and ex.get("rubric")]
+        ds.examples = [{"task_input": ex.task_input, "rubric": ex.rubric} for ex in body.examples]
     elif action == "delete":
-        indices = sorted(body.get("indices", []), reverse=True)
+        indices = sorted(body.indices, reverse=True)
         for idx in indices:
             if 0 <= idx < len(ds.examples):
                 ds.examples.pop(idx)
     elif action == "update":
-        idx = body.get("index", -1)
-        example = body.get("example", {})
-        if 0 <= idx < len(ds.examples) and example.get("task_input") and example.get("rubric"):
-            ds.examples[idx] = {"task_input": example["task_input"], "rubric": example["rubric"]}
+        idx = body.index
+        example = body.example
+        if 0 <= idx < len(ds.examples) and example and example.task_input and example.rubric:
+            ds.examples[idx] = {"task_input": example.task_input, "rubric": example.rubric}
 
     ds.split()
     ds.save("skills")
@@ -913,14 +986,14 @@ async def evolution_update_dataset_examples(dataset_id: str, body: Dict[str, Any
 
 
 @router.post("/evolution/step/baseline")
-async def evolution_step_baseline(body: Dict[str, Any]):
+async def evolution_step_baseline(body: StepBaselineRequest):
     """步骤2: 在已有数据集上评估 baseline."""
     from agents.evolution.fitness import evaluate_skill
     from agents.skill_library import get_skill_library
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    dataset_id = body.get("dataset_id", "")
+    skill_id = body.skill_id
+    team_id = body.team_id
+    dataset_id = body.dataset_id
 
     if not skill_id or not dataset_id:
         raise HTTPException(400, "skill_id and dataset_id required")
@@ -948,15 +1021,15 @@ async def evolution_step_baseline(body: Dict[str, Any]):
 
 
 @router.post("/evolution/step/reflect")
-async def evolution_step_reflect(body: Dict[str, Any]):
+async def evolution_step_reflect(body: StepReflectRequest):
     """步骤3: 反思分析 — 可传入用户补充的 hints."""
     from agents.evolution.mutator import reflect_on_failures
     from agents.skill_library import get_skill_library
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    failures = body.get("failures", [])  # [{task_input, rubric, composite, reasoning}]
-    user_hints = body.get("user_hints", "")  # 用户补充的分析方向
+    skill_id = body.skill_id
+    team_id = body.team_id
+    failures = [{"task_input": f.task_input, "rubric": f.rubric, "composite": f.composite, "reasoning": f.reasoning} for f in body.failures]
+    user_hints = body.user_hints
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -991,14 +1064,14 @@ async def evolution_step_reflect(body: Dict[str, Any]):
 
 
 @router.post("/evolution/step/mutate")
-async def evolution_step_mutate(body: Dict[str, Any]):
+async def evolution_step_mutate(body: StepMutateRequest):
     """步骤4: 生成变异候选."""
     from agents.evolution.mutator import ReflectionResult, generate_candidates
     from agents.skill_library import get_skill_library
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    reflection_data = body.get("reflection", {})  # {root_causes, specific_defects, improvement_directions}
+    skill_id = body.skill_id
+    team_id = body.team_id
+    reflection_data = body.reflection
 
     if not skill_id or not reflection_data:
         raise HTTPException(400, "skill_id and reflection required")
@@ -1026,16 +1099,16 @@ async def evolution_step_mutate(body: Dict[str, Any]):
 
 
 @router.post("/evolution/step/evaluate-candidate")
-async def evolution_step_evaluate_candidate(body: Dict[str, Any]):
+async def evolution_step_evaluate_candidate(body: StepEvaluateCandidateRequest):
     """步骤4b: 评估单个候选."""
     from agents.evolution.constraints import validate_all
     from agents.evolution.fitness import apply_length_penalty, evaluate_skill
     from agents.skill_library import get_skill_library
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    dataset_id = body.get("dataset_id", "")
-    candidate_instructions = body.get("instructions", "")
+    skill_id = body.skill_id
+    team_id = body.team_id
+    dataset_id = body.dataset_id
+    candidate_instructions = body.instructions
 
     if not skill_id or not candidate_instructions:
         raise HTTPException(400, "skill_id and instructions required")
@@ -1088,15 +1161,15 @@ async def evolution_step_evaluate_candidate(body: Dict[str, Any]):
 
 
 @router.post("/evolution/step/apply")
-async def evolution_step_apply(body: Dict[str, Any]):
+async def evolution_step_apply(body: StepApplyRequest):
     """步骤5: 应用选中的变异到技能 (棘轮锁定)."""
     from agents.skill_evolver import get_skill_evolver
 
-    skill_id = body.get("skill_id", "")
-    team_id = body.get("team_id", "build_system")
-    new_instructions = body.get("instructions", "")
-    baseline_score = body.get("baseline_score", 0)
-    new_score = body.get("new_score", 0)
+    skill_id = body.skill_id
+    team_id = body.team_id
+    new_instructions = body.instructions
+    baseline_score = body.baseline_score
+    new_score = body.new_score
 
     if not skill_id or not new_instructions:
         raise HTTPException(400, "skill_id and instructions required")

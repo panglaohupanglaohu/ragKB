@@ -473,4 +473,5 @@ class TestABTestMetrics:
         d = sample_ab_metrics.to_dict()
         assert d["false_upgrade_rate"] == 0.05
         assert d["resource_increase_pct"] == 12.0
-        assert len(d) == 9  # 9 个指标字段
+        assert d["experiment_traffic_pct"] == 0.0
+        assert len(d) == 10  # 10 个指标字段

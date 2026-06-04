@@ -262,6 +262,7 @@ class ABTestMetrics:
             "temperature_slope": self.temperature_slope,
             "policy_evaluation_latency_ms": self.policy_evaluation_latency_ms,
             "evolution_stagnation_rate": self.evolution_stagnation_rate,
+            "experiment_traffic_pct": self.experiment_traffic_pct,
         }
 
 

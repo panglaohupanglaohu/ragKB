@@ -8,32 +8,34 @@ window.AG.state = window.AG.state || {
   tid: '', aid: '', atab: 'ag-status', wzD: {}, wzS: 1,
   _teamsListCache: null, _teamsListCacheAt: 0,
   _offline: false, _currentOverviewTeam: null, _currentTraceSummaries: [],
+  _lastRequestId: '',
 };
 
-// Legacy aliases — keep onclick/cross-script compat via getter/setter proxying
-var tid = '', aid = '', atab = 'ag-status', wzD = {}, wzS = 1;
-var _offline = false;
-var _teamsListCache = null;
-var _teamsListCacheAt = 0;
-var _currentOverviewTeam = null;
-var _currentTraceSummaries = [];
+// Legacy aliases — proxy bare names through AG.state via window property descriptors.
+// Any read/write to tid/aid/atab/wzD/wzS etc. goes to AG.state directly.
+// This keeps onclick/cross-script compat without needing to touch other files.
+(function(){
+  var PROXY_MAP = [
+    'tid', 'aid', 'atab', 'wzD', 'wzS',
+    '_offline', '_teamsListCache', '_teamsListCacheAt',
+    '_currentOverviewTeam', '_currentTraceSummaries', '_lastRequestId',
+  ];
+  PROXY_MAP.forEach(function(k){
+    Object.defineProperty(window, k, {
+      get: function(){ return window.AG.state[k]; },
+      set: function(v){ window.AG.state[k] = v; },
+      configurable: true,
+    });
+  });
+})();
+
+// Cache TTL constants (not mutable state, kept as module-level bindings)
 var TEAMS_LIST_CACHE_MS = 60000;
-var _lastRequestId = '';
 
-// Bi-directional sync: AG.state ↔ bare globals (runs each frame to catch mutations)
-setInterval(function(){
-  // Push bare globals → AG.state
-  window.AG.state.tid=tid; window.AG.state.aid=aid;
-  window.AG.state.atab=atab; window.AG.state.wzD=wzD; window.AG.state.wzS=wzS;
-  window.AG.state._teamsListCache=_teamsListCache; window.AG.state._teamsListCacheAt=_teamsListCacheAt;
-  window.AG.state._offline=_offline;
-}, 500);
-
-// Public API — use window.AG.getTeamId() / setTeamId() in new code
-window.AG.getTeamId = function() { return tid; };
-window.AG.setTeamId = function(v) { tid = v; window.AG.state.tid = v; };
-window.AG.getAgentId = function() { return aid; };
-window.AG.setAgentId = function(v) { aid = v; window.AG.state.aid = v; };
+window.AG.getTeamId = function() { return window.AG.state.tid; };
+window.AG.setTeamId = function(v) { window.AG.state.tid = v; };
+window.AG.getAgentId = function() { return window.AG.state.aid; };
+window.AG.setAgentId = function(v) { window.AG.state.aid = v; };
 
 function toast(m,type){
   const e=document.getElementById('toast');
