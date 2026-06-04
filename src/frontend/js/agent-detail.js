@@ -8,6 +8,14 @@
 (function(){
 'use strict';
 const csrfFetch = window._agFetch || fetch;
+async function listApi(path, limit = 200, offset = 0){
+  if(window.api&&typeof window.api.list==='function'){
+    const payload=await window.api.list(path,limit,offset);
+    return Array.isArray(payload?.items)?payload.items:[];
+  }
+  const payload=await api(path);
+  return Array.isArray(payload)?payload:Array.isArray(payload?.items)?payload.items:[];
+}
 async function loadAgent(id){
   if(id){aid=id;_chatSid=''}const d=await api(`${A}/teams/${tid}/agents/${aid}`);
   if(!d){el('agent-content').innerHTML='<p style="color:var(--dim);padding:40px">加载失败</p>';return}
@@ -43,7 +51,7 @@ function renderATab(d){
       });
     });
   } else if(atab==='ag-tools'){
-    api(`${A}/tools`).then(all=>{
+    listApi(`${A}/tools`,200,0).then(all=>{
       const bound=new Set(d.tools||[]);
       const cats={};(all||[]).forEach(t=>{const c=(t.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(t)});
       let html=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">🔧 已绑定工具</div><span style="color:var(--dim);font-size:12px">${bound.size} / ${(all||[]).length} 已启用</span></div>`;
@@ -55,8 +63,7 @@ function renderATab(d){
       c.innerHTML=html;
     });
   } else if(atab==='ag-skills'){
-    api(`${A}/teams/${tid}/skills`).then(teamSkills=>{
-      const all=Array.isArray(teamSkills)?teamSkills:(teamSkills&&teamSkills.items)||[];
+    listApi(`${A}/teams/${tid}/skills`,200,0).then(all=>{
       const boundRefs=new Set(d.skills||[]);
       const boundSkills=[];const availableSkills=[];
       all.forEach(s=>{
@@ -121,7 +128,7 @@ function renderATab(d){
     renderWs('');
   } else if(atab==='ag-chat'){
     if(_chatSid){loadChatView(c);return}
-    api(`${A}/teams/${tid}/agents/${aid}/sessions`).then(ss=>{c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">💬 对话</div><button class="btn btn-pink btn-sm" onclick="newSession()">＋ 新建会话</button></div>${ss&&ss.length?ss.map(s=>`<div class="ws-item" style="cursor:pointer" onclick="openChatSession('${s.session_id||s.id}')"><span class="fname">💬 ${s.session_id||s.id}</span><span style="color:var(--dim);font-size:12px">${s.created_at||''}</span></div>`).join(''):'<p style="color:var(--dim)">暂无会话，点击上方按钮开始对话</p>'}</div>`});
+    listApi(`${A}/teams/${tid}/agents/${aid}/sessions`,200,0).then(ss=>{c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">💬 对话</div><button class="btn btn-pink btn-sm" onclick="newSession()">＋ 新建会话</button></div>${ss&&ss.length?ss.map(s=>`<div class="ws-item" style="cursor:pointer" onclick="openChatSession('${s.session_id||s.id}')"><span class="fname">💬 ${s.session_id||s.id}</span><span style="color:var(--dim);font-size:12px">${s.created_at||''}</span></div>`).join(''):'<p style="color:var(--dim)">暂无会话，点击上方按钮开始对话</p>'}</div>`});
   } else if(atab==='ag-logs'){
     api(`${A}/teams/${tid}/agents/${aid}/logs?limit=100`).then(lg=>{
       const logs=(lg&&lg.logs)||[];
