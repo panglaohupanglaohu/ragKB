@@ -3,7 +3,7 @@ $ErrorActionPreference = "Continue"
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ROOT
 
-Write-Host ">>> AgentsGroup2026 Starting..." -ForegroundColor Cyan
+Write-Host "=== AgentsGroup2026 Starting ===" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Port check ──
@@ -81,7 +81,7 @@ Write-Host "[OK] Dependencies ready" -ForegroundColor Green
 Write-Host ""
 
 # ── Start backend ──
-Write-Host "[>>] Starting backend on port 8080..." -ForegroundColor Cyan
+Write-Host "--- Starting backend on port 8080 ---" -ForegroundColor Cyan
 $backendProcess = Start-Process python -ArgumentList "main.py","--port","8080" -WorkingDirectory "$ROOT\src\backend" -WindowStyle Hidden -PassThru
 
 # Wait for backend
@@ -109,7 +109,7 @@ if (-not $ready) {
 }
 
 # ── Start frontend ──
-Write-Host "[>>] Starting frontend on port 5173..." -ForegroundColor Cyan
+Write-Host "--- Starting frontend on port 5173 ---" -ForegroundColor Cyan
 $frontendProcess = Start-Process cmd -ArgumentList "/c","npx vite --config vite.config.mjs --port 5173" -WorkingDirectory $ROOT -WindowStyle Hidden -PassThru
 
 Start-Sleep 3
