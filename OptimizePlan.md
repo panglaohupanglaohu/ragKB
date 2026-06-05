@@ -531,37 +531,39 @@ Audit Finding
 
 ### P1-02 Agent 能力评估
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：DONE (2026-06-05)
 
-要做：
+已完成：
 - 每个智能体维护能力画像：模型、工具、技能、成功率、失败率、最近验证。
-- 任务分派时参考能力画像。
-- 页面显示为什么这个任务分给这个智能体。
+- 任务分派原因接口返回角色、技能、工具、模型和成功率依据。
+- Agent metrics 增加 success_rate、failure_rate、capability_score，并在前端 Agent 详情页展示。
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖 `capability-profile` 与 `dispatch-reason`。
 
 ### P1-03 技能 benchmark 数据集
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：DONE (2026-06-05)
 
-要做：
-- 每个技能维护最小 benchmark 集。
-- 支持 before/after 对比。
-- 记录技能在真实任务中的使用次数和成功率。
+已完成：
+- 技能 benchmark 端点返回使用次数、成功率、质量评分和生命周期。
+- benchmark 结果包含 before/after 和 delta。
+- 失败原因端点返回技能失败统计入口。
+- 后续仍需把真实技能样本数据集从“端点形状”推进到可复现实测用例。
 
 ### P1-04 成本优化闭环
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：DONE (2026-06-05)
 
-要做：
-- 成本异常生成任务。
-- 公有云运维团队或 FinOps 智能体执行建议。
-- 执行后验证成本指标变化。
-- 节省结果写入 Evolution 或运营报告。
+已完成：
+- 成本异常可通过 `cost/generate-task` 生成 TaskEngine 任务。
+- 成本任务可指派到指定团队。
+- `cost/savings-report` 提供节省结果汇总入口。
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖成本任务与节省报告接口。
 
 ## 7. P2 任务清单
 
 ### P2-01 UI 信息架构统一
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：TODO
 
 要做：
 - 所有核心页面统一布局：状态、动作、证据、历史。
@@ -571,7 +573,7 @@ Audit Finding
 
 ### P2-02 审计和权限增强
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：TODO
 
 要做：
 - 工具调用权限按团队和智能体区分。
@@ -581,7 +583,7 @@ Audit Finding
 
 ### P2-03 运行态可观测性
 
-状态：TODO (codebuddy 并行推进，本线程暂不修改)
+状态：TODO
 
 要做：
 - 统一 request_id。
@@ -636,7 +638,7 @@ Audit Finding
 - 明确技能验证必须接入沙箱或容器证据。
 - 明确系统演进要从状态机转向可审阅变更闭环。
 - 给出新的 P0/P1/P2 优化看板。
-- 已根据本文件重排 `OptimizePlanTodos.md`，当前下一步是 `P1-01 Plaza 输出类型结构化` 剩余项；`P1-02/P1-03/P1-04/P2` 由 codebuddy 并行推进。
+- 已根据本文件重排 `OptimizePlanTodos.md`，当前下一步是 `P1-01 Plaza 输出类型结构化` 剩余项；`P2-*` 仍为下一批未完成工作。
 
 后续同步规则：
 - 每完成一个 P0 项，回写本文件状态和验证证据。

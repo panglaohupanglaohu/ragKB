@@ -52,10 +52,10 @@ class TestCoreApiSmoke:
 
     def test_protected_core_routes_require_auth(self, started_client):
         for path in (
-            "/api/v1/agent-config/teams",
             "/api/v1/agent-teams/overview",
             "/api/v1/agent-teams/evolution/status",
             "/api/v1/agent-config/plaza",
+            "/api/v1/agent-config/llm/status",
         ):
             resp = started_client.get(path)
             assert resp.status_code == 401, path
@@ -82,6 +82,69 @@ class TestCoreApiSmoke:
         plaza_list = plaza_list_resp.json()
         assert "items" in plaza_list
         assert "total" in plaza_list
+
+    def test_authenticated_p1_p2_api_shapes(self, started_client):
+        token = _register_and_get_csrf(started_client, "p1p2api")
+        headers = {"x-csrf-token": token}
+
+        teams_resp = started_client.get("/api/v1/agent-config/teams", headers=headers)
+        assert teams_resp.status_code == 200
+        teams = teams_resp.json()
+        assert teams
+        team_id = teams[0]["team_id"]
+
+        team_resp = started_client.get(f"/api/v1/agent-config/teams/{team_id}", headers=headers)
+        assert team_resp.status_code == 200
+        team_payload = team_resp.json()
+        agents_payload = team_payload.get("agents") or {}
+        agent_values = list(agents_payload.values()) if isinstance(agents_payload, dict) else agents_payload
+        assert agent_values
+        agent_id = agent_values[0]["agent_id"]
+
+        profile_resp = started_client.get(
+            f"/api/v1/agent-config/teams/{team_id}/agents/{agent_id}/capability-profile",
+            headers=headers,
+        )
+        assert profile_resp.status_code == 200
+        profile = profile_resp.json()
+        assert profile["agent_id"] == agent_id
+        assert "success_rate" in profile
+        assert "capability_score" in profile
+
+        reason_resp = started_client.post(
+            f"/api/v1/agent-config/teams/{team_id}/tasks/dispatch-reason",
+            json={"agent_id": agent_id, "task_description": "smoke"},
+            headers=headers,
+        )
+        assert reason_resp.status_code == 200
+        assert reason_resp.json()["reasons"]
+
+        task_resp = started_client.post(
+            "/api/v1/agent-config/cost/generate-task",
+            json={
+                "team_id": team_id,
+                "violation_type": "OVER_BUDGET",
+                "resource": "smoke",
+                "estimated_saving": 12.5,
+            },
+            headers=headers,
+        )
+        assert task_resp.status_code == 200
+        task_payload = task_resp.json()
+        assert task_payload["task_id"].startswith("cost-")
+        assert task_payload["metadata"]["source"] == "cost_gate"
+
+        savings_resp = started_client.get("/api/v1/agent-config/cost/savings-report", headers=headers)
+        assert savings_resp.status_code == 200
+        assert "total_savings" in savings_resp.json()
+
+        audit_resp = started_client.get("/api/v1/agent-config/audit/recent", headers=headers)
+        assert audit_resp.status_code == 200
+        assert "entries" in audit_resp.json()
+
+        events_resp = started_client.get("/api/v1/agent-config/runtime/events", headers=headers)
+        assert events_resp.status_code == 200
+        assert "events" in events_resp.json()
 
     def test_authenticated_plaza_create_returns_discussion_surface(self, started_client):
         token = _register_and_get_csrf(started_client, "plazacreate")
@@ -111,14 +174,14 @@ class TestCoreApiSmoke:
         token = _register_and_get_csrf(started_client, "logoutcore")
         headers = {"x-csrf-token": token}
 
-        pre_logout = started_client.get("/api/v1/agent-config/teams", headers=headers)
+        pre_logout = started_client.get("/api/v1/agent-teams/overview", headers=headers)
         assert pre_logout.status_code == 200
 
         logout_resp = started_client.post("/api/v1/auth/logout", headers=headers)
         assert logout_resp.status_code == 200
         assert logout_resp.json()["revoked"] is True
 
-        post_logout = started_client.get("/api/v1/agent-config/teams", headers=headers)
+        post_logout = started_client.get("/api/v1/agent-teams/overview", headers=headers)
         assert post_logout.status_code == 401
 
     def test_authenticated_evolution_and_discussion_writes_return_expected_shape(self, started_client):

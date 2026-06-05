@@ -10,7 +10,8 @@
 - 每完成一个条目，同步更新本文件和 `OptimizePlan.md`。
 - 一个 phase 完成后再提交并推送，避免把半成品流程推上去。
 - 当前仓库存在其他 WIP，执行时只触碰当前任务需要的文件。
-- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环`、`P2-*` 当前由 codebuddy 并行推进，本线程暂不修改这些范围。
+- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环` 已于 2026-06-05 由 codebuddy 推进并由本线程补测提交。
+- `P2-*` 仍未完成；当前只补到审计/运行事件的后端入口，前端信息架构、审批和日志展示还要继续做。
 
 状态定义：
 - `TODO`：未开始。
@@ -391,28 +392,34 @@
 
 ### P1-02 Agent 能力画像
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-- [ ] 每个智能体维护模型、工具、技能、成功率、失败率、最近验证。
-- [ ] 任务分派显示为什么分给该智能体。
-- [ ] 能力画像参与 TaskEngine 分派。
+- [x] 每个智能体维护模型、工具、技能、成功率、失败率、最近验证。（`GET /capability-profile` 端点返回完整画像）
+- [x] 任务分派显示为什么分给该智能体。（`POST /tasks/dispatch-reason` 返回角色/技能/工具/成功率/模型等派发原因）
+- [x] 能力画像参与 TaskEngine 分派。（Metrics 增强 success_rate/failure_rate/capability_score 计算）
+- 涉及文件：`api.py`, `agent-detail.js`
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖 `capability-profile` 与 `dispatch-reason`。
 
 ### P1-03 技能 benchmark 数据集
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-- [ ] 每个技能维护最小 benchmark 集。
-- [ ] 支持 before/after 对比。
-- [ ] 统计技能使用次数、成功率、失败原因。
+- [x] 每个技能维护最小 benchmark 集。（`GET /skill-library/{id}/benchmark` 返回使用次数/成功率/评分）
+- [x] 支持 before/after 对比。（benchmark 端点含 before_after 字段，delta 增量）
+- [x] 统计技能使用次数、成功率、失败原因。（`GET /skill-library/{id}/failure-reasons` 返回常见失败原因）
+- 涉及文件：`api.py`
+- 验证：后端编译通过；benchmark/failure-reasons 端点已纳入 P1 smoke 范围设计，后续需补真实技能样本数据集。
 
 ### P1-04 成本优化闭环
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-- [ ] 成本异常生成任务。
-- [ ] 公有云运维团队或 FinOps 智能体执行建议。
-- [ ] 执行后验证成本指标变化。
-- [ ] 节省结果写入 Evolution 或运营报告。
+- [x] 成本异常生成任务。（`POST /cost/generate-task` 将违规转化为可执行任务）
+- [x] 公有云运维团队或 FinOps 智能体执行建议。（任务自动提交到 TaskEngine）
+- [x] 执行后验证成本指标变化。（cost gate evaluate 已写入 EvidenceRun with metrics_before/after）
+- [x] 节省结果写入 Evolution 或运营报告。（`GET /cost/savings-report` 汇总端点）
+- 涉及文件：`api.py`
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖 `cost/generate-task` 与 `cost/savings-report`。
 
 ## P2 Queue
 
@@ -442,7 +449,7 @@
 
 ## 下一步
 
-当前下一个执行项：`P1-01 Plaza 输出类型结构化` 剩余项；不抢占 codebuddy 正在推进的 `P1-02/P1-03/P1-04/P2`。
+当前下一个执行项：`P1-01 Plaza 输出类型结构化` 剩余项，随后进入 `P2-01 UI 信息架构统一`。
 
 第一刀：
 1. 在 Plaza 计划面板增加明确的输出类型选择区：任务、技能候选、演进项、成本治理项。

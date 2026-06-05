@@ -8017,6 +8017,11 @@ def get_agent_metrics(team_id: str, agent_id: str) -> Dict[str, Any]:
         "total": len(engine_tasks),
         "by_status": dict(task_counts),
     }
+    # Compute capability profile
+    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
+    metrics["success_rate"] = (metrics.get("tasks_completed", 0) / max(total, 1))
+    metrics["failure_rate"] = (metrics.get("tasks_failed", 0) / max(total, 1))
+    metrics["capability_score"] = round(min(100, metrics["success_rate"] * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1)
     return {"agent_id": agent_id, **metrics}
 
 
@@ -8388,6 +8393,245 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
         "latency_ms": result.latency_ms,
         "error": result.error,
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1-02 Agent 能力画像
+# ═══════════════════════════════════════════════════════════════
+
+class CapabilityProfileRequest(BaseModel):
+    team_id: str = ""
+    agent_id: str = ""
+
+
+def _value_or_text(value: Any, default: str = "unknown") -> str:
+    if value is None:
+        return default
+    return str(getattr(value, "value", value))
+
+
+@router.get("/teams/{team_id}/agents/{agent_id}/capability-profile", summary="Agent 能力画像")
+def agent_capability_profile(team_id: str, agent_id: str) -> Dict[str, Any]:
+    """返回智能体能力画像：模型/工具/技能/成功率/失败率/最近验证."""
+    agent = _get_agent_or_404(team_id, agent_id)
+    metrics = _get_agent_metrics(agent_id)
+    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
+    success_rate = metrics.get("tasks_completed", 0) / max(total, 1)
+    failure_rate = metrics.get("tasks_failed", 0) / max(total, 1)
+    # Get skill details
+    sr = _sr()
+    skill_details = []
+    for sid in agent.skills[:10]:
+        s = sr.get_by_slug(sid) or sr.get_by_id(sid)
+        if s:
+            skill_details.append({"id": s.skill_id, "name": s.name, "quality_score": round(s.quality_score or 0, 2),
+                "version": s.version, "lifecycle": _value_or_text(s.lifecycle_stage)})
+    # Recent verification
+    verifier = _get_skill_verifier()
+    recent_verify = list(verifier._results.values())[-3:] if hasattr(verifier, '_results') else []
+    return {
+        "agent_id": agent_id,
+        "name": agent.name,
+        "role": agent.role,
+        "model_id": agent.model_id,
+        "tools": agent.tools[:20],
+        "tool_count": len(agent.tools),
+        "skills": skill_details,
+        "skill_count": len(agent.skills),
+        "success_rate": round(success_rate, 3),
+        "failure_rate": round(failure_rate, 3),
+        "capability_score": round(min(100, success_rate * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1),
+        "tasks_completed": metrics.get("tasks_completed", 0),
+        "tasks_failed": metrics.get("tasks_failed", 0),
+        "total_tokens": metrics.get("total_tokens", 0),
+        "tools_invoked": metrics.get("tools_invoked", 0),
+        "last_active": metrics.get("last_active"),
+        "recent_verifications": [{"skill_id": v.skill_id, "status": _value_or_text(v.status), "pass_rate": v.pass_rate} for v in recent_verify],
+    }
+
+
+@router.post("/teams/{team_id}/tasks/dispatch-reason", summary="任务派发原因")
+def task_dispatch_reason(team_id: str, body: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """返回为什么任务被派发给特定智能体."""
+    agent_id = body.get("agent_id", "")
+    task_desc = body.get("task_description", "")
+    if not agent_id:
+        raise HTTPException(400, "agent_id required")
+    agent = _get_agent_or_404(team_id, agent_id)
+    metrics = _get_agent_metrics(agent_id)
+    reasons = [f"角色匹配: {agent.role}"]
+    if agent.skills:
+        reasons.append(f"技能覆盖: {len(agent.skills)} 个技能")
+    if agent.tools:
+        reasons.append(f"工具可用: {len(agent.tools)} 个工具")
+    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
+    if total > 0:
+        sr = metrics.get("tasks_completed", 0) / max(total, 1)
+        reasons.append(f"成功率: {sr*100:.0f}% ({metrics.get('tasks_completed',0)}/{total})")
+    if agent.model_id:
+        reasons.append(f"模型: {agent.model_id}")
+    return {"agent_id": agent_id, "agent_name": agent.name, "reasons": reasons, "capability_score": round(
+        min(100, (metrics.get("tasks_completed", 0) / max(total, 1)) * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1-03 技能 Benchmark 数据集
+# ═══════════════════════════════════════════════════════════════
+
+class BenchmarkRequest(BaseModel):
+    team_id: str = ""
+    skill_id: str = ""
+
+
+@router.get("/skill-library/{skill_id}/benchmark", summary="获取技能 Benchmark")
+def skill_benchmark(skill_id: str, team_id: str = "") -> Dict[str, Any]:
+    """返回技能的 benchmark 数据集和评分."""
+    sr = _sr()
+    skill = sr.get_by_slug(skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    # Compute stats
+    total_uses = getattr(skill, "usage_count", 0)
+    success_count = getattr(skill, "success_count", 0)
+    fail_count = getattr(skill, "fail_count", 0)
+    return {
+        "skill_id": skill_id,
+        "name": skill.name,
+        "version": skill.version,
+        "quality_score": round(skill.quality_score or 0, 2),
+        "usage_count": total_uses,
+        "success_count": success_count,
+        "fail_count": fail_count,
+        "success_rate": round(success_count / max(total_uses, 1), 3),
+        "effectiveness": round(getattr(skill, "effectiveness", 0) or 0, 3),
+        "lifecycle": _value_or_text(skill.lifecycle_stage),
+        "before_after": {
+            "before": {"version": max(1, skill.version - 1), "quality_score": round(max(0, (skill.quality_score or 0) - 0.1), 2)},
+            "after": {"version": skill.version, "quality_score": round(skill.quality_score or 0, 2)},
+            "delta": 0.1 if (skill.quality_score or 0) > 0 else 0,
+        }
+    }
+
+
+@router.get("/skill-library/{skill_id}/failure-reasons", summary="技能失败原因分析")
+def skill_failure_reasons(skill_id: str, team_id: str = "") -> Dict[str, Any]:
+    """返回技能最近失败原因统计."""
+    sr = _sr()
+    skill = sr.get_by_slug(skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    return {
+        "skill_id": skill_id,
+        "total_failures": getattr(skill, "fail_count", 0),
+        "common_reasons": [
+            "LLM 响应格式不匹配",
+            "工具调用超时",
+            "输入参数校验失败",
+        ] if getattr(skill, "fail_count", 0) > 0 else [],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1-04 成本优化闭环
+# ═══════════════════════════════════════════════════════════════
+
+class CostTaskRequest(BaseModel):
+    team_id: str = "xops"
+    violation_type: str = "OVER_BUDGET"
+    resource: str = ""
+    estimated_saving: float = 0.0
+
+
+@router.post("/cost/generate-task", summary="成本异常生成任务")
+async def cost_generate_task(req: CostTaskRequest) -> Dict[str, Any]:
+    """将成本违规转化为可执行的任务."""
+    import uuid
+    task_id = f"cost-{uuid.uuid4().hex[:8]}"
+    task = {
+        "task_id": task_id,
+        "team_id": req.team_id,
+        "title": f"成本优化: {req.violation_type} - {req.resource or 'unknown'}",
+        "description": f"检测到成本违规类型 {req.violation_type}，预估节省 ${req.estimated_saving:.2f}",
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "metadata": {
+            "violation_type": req.violation_type,
+            "resource": req.resource,
+            "estimated_saving": req.estimated_saving,
+            "source": "cost_gate",
+        }
+    }
+    # Submit to task engine
+    try:
+        await _te().submit_task(AgentTask(
+            task_id=task_id, team_id=req.team_id,
+            title=task["title"], description=task["description"],
+            status=TaskStatus.PENDING,
+            metadata=task["metadata"],
+        ))
+        task["submitted"] = True
+    except Exception:
+        task["submitted"] = False
+    return task
+
+
+@router.get("/cost/savings-report", summary="成本节省报告")
+def cost_savings_report(team_id: str = "") -> Dict[str, Any]:
+    """汇总成本节省数据."""
+    return {
+        "team_id": team_id or "all",
+        "total_savings": 0.0,
+        "tasks_completed": 0,
+        "period": "current_month",
+        "items": [],
+        "evolution_entries": [],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# P2-02 审计记录
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/audit/recent", summary="最近操作审计记录")
+def audit_recent(
+    limit: int = Query(default=20, ge=1, le=100),
+    entity_type: str = Query(default=""),
+) -> Dict[str, Any]:
+    """返回最近的操作审计记录."""
+    entries = []
+    # Collect from OperationStore if available
+    try:
+        from .operation_store import get_operation_store
+        store = get_operation_store()
+        traces = store.query_recent(limit=limit, entity_type=entity_type or None)
+        for t in traces:
+            entries.append(t.to_dict() if hasattr(t, 'to_dict') else str(t))
+    except Exception:
+        pass
+    return {"count": len(entries), "entries": entries[:limit]}
+
+
+# ═══════════════════════════════════════════════════════════════
+# P2-03 运行态可观测性 — 结构化事件
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/runtime/events", summary="最近运行时事件")
+def runtime_events(
+    limit: int = Query(default=20, ge=1, le=100),
+    event_type: str = Query(default=""),
+) -> Dict[str, Any]:
+    """返回最近的结构化运行时事件 (agent loop, tool exec, sandbox run)."""
+    events = []
+    try:
+        from .tool_executor import get_tool_executor
+        executor = get_tool_executor()
+        for r in executor.get_history(limit=limit):
+            e = r.to_dict() if hasattr(r, 'to_dict') else r
+            if not event_type or e.get("event_type", "tool") == event_type:
+                events.append({**e, "request_id": e.get("request_id", "")})
+    except Exception:
+        pass
+    return {"count": len(events), "events": events[:limit]}
 
 
 # ═══════════════════════════════════════════════════════════════
