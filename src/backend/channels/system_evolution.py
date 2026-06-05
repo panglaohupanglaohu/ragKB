@@ -193,6 +193,8 @@ class EvolutionItem:
     dispatched_at: Optional[str] = None
     completed_at: Optional[str] = None
     closed_at: Optional[str] = None
+    close_reason: str = ""
+    close_verify_conclusion: str = ""
 
     # 重试
     retry_count: int = 0
@@ -1798,6 +1800,8 @@ class SystemEvolutionChannel(MarineChannel):
         item_ids: Optional[List[str]] = None,
         source_plaza_id: str = "",
         source_discussion_id: str = "",
+        close_reason: str = "",
+        verify_conclusion: str = "",
     ) -> List[str]:
         """Close a filtered set of verified items."""
         closed: List[str] = []
@@ -1812,6 +1816,8 @@ class SystemEvolutionChannel(MarineChannel):
                     continue
                 item.status = EvolutionStatus.CLOSED.value
                 item.closed_at = datetime.now().isoformat()
+                item.close_reason = close_reason or "verified improvement accepted"
+                item.close_verify_conclusion = verify_conclusion or (item.verify_detail or item.verify_result or "")
                 self.total_closed += 1
                 closed.append(item.id)
         return closed

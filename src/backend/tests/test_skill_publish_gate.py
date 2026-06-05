@@ -49,6 +49,8 @@ def test_publish_blocks_without_verification_evidence(monkeypatch, tmp_path):
     skill = _make_skill()
     team_manager = FakeTeamManager(FakeTeam(skill))
     library = SkillLibrary(team_manager=team_manager)
+    monkeypatch.setattr(library, "_snapshot_path", lambda: tmp_path / "skill_versions.json")
+    library._version_snapshots = {}
 
     result = library.publish("cloud_ops", "skill-cost-runbook")
 
@@ -64,6 +66,8 @@ def test_publish_allows_recent_verified_evidence(monkeypatch, tmp_path):
     skill = _make_skill()
     team_manager = FakeTeamManager(FakeTeam(skill))
     library = SkillLibrary(team_manager=team_manager)
+    monkeypatch.setattr(library, "_snapshot_path", lambda: tmp_path / "skill_versions.json")
+    library._version_snapshots = {}
     evidence = EvidenceRun.create(
         evidence_type="skill_verify",
         status="verified",
@@ -82,6 +86,11 @@ def test_publish_allows_recent_verified_evidence(monkeypatch, tmp_path):
     assert result["status"] == "published"
     assert result["gate"]["ok"] is True
     assert result["gate"]["latest_evidence"]["evidence_id"] == evidence.evidence_id
+    assert result["rollback_target_version"] == 1
+    assert result["version_snapshot"]["ok"] is True
+    versions = library.list_versions("skill-cost-runbook")
+    assert versions[0]["reason"] == "pre_production_publish"
+    assert versions[0]["metadata"]["latest_evidence_id"] == evidence.evidence_id
     assert skill.visibility == "public"
     assert skill.lifecycle_stage == SkillLifecycleStage.PUBLISHED
     assert team_manager.persisted is True

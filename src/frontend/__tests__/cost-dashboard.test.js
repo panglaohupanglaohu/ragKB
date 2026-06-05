@@ -247,4 +247,42 @@ describe('cost governance dashboard', () => {
     expect(created.discussion.id).toBe('disc-cost-1');
     expect(elements['cost-action-result'].innerHTML).toContain('打开议事厅');
   });
+
+  it('shows an actionable request_id error state when cost data is unavailable', async () => {
+    const request = vi.fn(async () => null);
+    const { context, elements } = buildContext(request);
+
+    await context.window.CostDashboard.refreshDashboard();
+
+    expect(elements['dashboard-alert'].textContent).toContain('成本接口暂时没有返回可用数据');
+    expect(elements['dashboard-alert'].textContent).toContain('请求ID: req-cost-1');
+    expect(elements['dashboard-alert'].classList.contains('show')).toBe(true);
+    expect(elements['summary-grid'].innerHTML).toContain('暂无成本摘要');
+    expect(elements['pods-tbody'].innerHTML).toContain('暂无 Pod 成本明细');
+  });
+
+  it('runs a Cost Gate self-check and refreshes gate stats', async () => {
+    const request = vi.fn(async (url, opts) => {
+      if (url === '/api/v1/cost-gate/evaluate') {
+        expect(opts.method).toBe('POST');
+        const body = JSON.parse(opts.body);
+        expect(body.project_id).toBe('cost-dashboard-self-check');
+        expect(body.metadata.source).toBe('cost-dashboard');
+        return { decision: 'blocked', violations: [{ id: 'gpu-budget' }] };
+      }
+      if (url === '/api/v1/cost-gate/stats') {
+        return { passed: 1, warned: 0, blocked: 1 };
+      }
+      return null;
+    });
+    const { context, elements } = buildContext(request);
+
+    const report = await context.window.CostDashboard.runCostGateSelfCheck();
+
+    expect(report.decision).toBe('blocked');
+    expect(elements['cost-action-result'].innerHTML).toContain('Gate 决策');
+    expect(elements['cost-action-result'].innerHTML).toContain('blocked');
+    expect(elements['governance-panel'].innerHTML).toContain('Gate 统计');
+    expect(elements['governance-panel'].innerHTML).toContain('阻断 1');
+  });
 });

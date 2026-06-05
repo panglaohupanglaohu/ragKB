@@ -161,4 +161,25 @@ describe('system-evolution dashboard', () => {
     expect(elements['ev-history-table'].innerHTML).toContain('run-1');
     expect(elements['ev-history-table'].innerHTML).toContain('75%');
   });
+
+  it('exposes item evidence detail, single-item verify, and reasoned close actions', () => {
+    const source = read('src/frontend/js/system-evolution.js');
+    const html = read('src/frontend/system-evolution.html');
+
+    expect(html).toContain('id="item-detail-panel"');
+    expect(source).toContain('async function openItemDetail(itemId, mode)');
+    expect(source).toContain('renderEvidenceRuns(evidenceRuns)');
+    expect(source).toContain('/verify');
+    expect(source).toContain('/close');
+    expect(source).toContain('关闭理由（必填，用于审计）');
+    expect(source).toContain('验证结论（必填，会写入演进记录）');
+    expect(source).toContain('function exposeEvolutionActions()');
+    expect(source).toContain('Object.assign(window');
+    expect(source).toContain('openItemDetail(deepLinkItemId)');
+    expect(source).toContain('构建完成证据');
+    expect(source).toContain('function renderBuildCompleteForm(item)');
+    expect(source).toContain('async function submitBuildComplete(itemId)');
+    expect(source).toContain('code_changes: codeChanges');
+    expect(source).toContain("onclick=\"openItemDetail('${item.id}', 'complete')\"");
+  });
 });

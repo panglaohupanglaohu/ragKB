@@ -159,30 +159,72 @@
 - 验证：`./scripts/frontend_test.sh src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `3 passed`。
 - 验证：`./scripts/frontend_build.sh` -> 通过。
 
+### SKILL-P0-02 技能发布增加质量门禁
+
+状态：DONE
+
+目标：技能可以停留在草稿/团队储备/实验验证状态，但进入公共/生产发布必须有最近一次真实验证证据。
+
+涉及文件：
+- `src/backend/agents/skill_library.py`
+- `src/backend/agents/api.py`
+- `src/frontend/js/skill-extract.js`
+- `src/backend/tests/test_skill_publish_gate.py`
+- `src/frontend/__tests__/skill-publish-gate.test.js`
+
+执行步骤：
+- [x] 批准技能前检查最近一次验证状态。
+- [x] 未验证或验证失败的技能不能直接发布到生产团队。
+- [x] 支持草稿/储备、实验验证、生产发布三层语义：储备/特质技能可团队内保留，`skill_verify` 通过后进入实验验证，公共发布走生产门禁。
+- [x] 生产发布前自动保存版本快照，记录最近验证 EvidenceRun、发布门禁结果和回滚目标版本。
+- [x] 前端公共发布入口统一走 `publishSkillWithGate()`，门禁失败时展示阻断原因和证据入口。
+
+验收标准：
+- 用户能区分草稿技能、实验技能、生产技能。
+- 生产技能必须有可查看的验证证据。
+- 技能失败后可以通过版本快照降级或回滚。
+
+完成记录：
+- `/api/v1/agent-config/skill-library/publish-gate` 返回最近验证证据、检查项和生产发布结论。
+- `/api/v1/agent-config/skill-library/publish` 在门禁未通过时返回 `publish_gate_blocked`，不会改成 public。
+- 生产发布成功前创建 `pre_production_publish` 版本快照，写入 `latest_evidence_id` 和 `rollback_target_version`。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `7 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `4 passed`。
+
 ### EVO-P0-01 演进条目增加证据详情
 
-状态：TODO
+状态：DONE
 
 目标：系统演进页不能只是状态表，必须展示发现、执行、diff、测试、验证、回滚和收益。
 
 涉及文件：
 - `src/frontend/system-evolution.html`
 - `src/frontend/js/system-evolution.js`
+- `src/backend/agent_team_api.py`
 - `src/backend/channels/system_evolution.py`
-- `src/backend/channels/evolution_executor.py`
+- `src/backend/tests/test_evolution_evidence_detail.py`
+- `src/frontend/__tests__/system-evolution.test.js`
 
 执行步骤：
-- [ ] 为 EvolutionItem 增加详情抽屉或详情页。
-- [ ] 展示 audit finding、影响范围、负责人、执行计划。
-- [ ] 展示 build task、agent execution、patch/diff、测试命令。
-- [ ] 展示 EvidenceRun 或验证详情。
-- [ ] VERIFY_PENDING 状态提供明确验证动作。
-- [ ] 关闭时要求关闭理由和验证结论。
-- [ ] 增加前端测试和浏览器 smoke。
+- [x] 为 EvolutionItem 增加详情面板。
+- [x] 展示 audit finding、影响范围、负责人、执行计划。
+- [x] 展示 build task、agent execution、patch/diff、测试命令。
+- [x] 展示 EvidenceRun 或验证详情。
+- [x] VERIFY_PENDING 状态提供明确验证动作。
+- [x] 关闭时要求关闭理由和验证结论。
+- [x] 增加前端测试和后端测试。
 
 验收标准：
 - 任意演进项都可以追溯为什么出现、谁处理、怎么验证、为什么关闭。
 - 用户能看到真实执行工件，而不是只看到状态变化。
+
+完成记录：
+- `/api/v1/agent-teams/evolution/items/{item_id}` 返回关联 `evidence_runs`。
+- 新增 `/api/v1/agent-teams/evolution/items/{item_id}/verify` 单项验证入口。
+- 新增 `/api/v1/agent-teams/evolution/items/{item_id}/close` 单项关闭入口，要求关闭理由和验证结论。
+- 系统演进页条目操作新增“详情/验证/关闭”，详情面板展示审查依据、Build task、代码变更、artifact、验证结论和 EvidenceRun。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `5 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
 
 ### UX-P0-02 智能体团队页升级为作业驾驶舱
 
@@ -214,7 +256,7 @@
 
 ### TEST-P0-01 核心页面真实浏览器验收
 
-状态：**PARTIAL** (智能体团队页 smoke 已完成)
+状态：**PARTIAL** (智能体团队页、系统演进页审查/详情 smoke 已完成)
 
 目标：不再只用 API 测试和页面打开证明可用，每个核心页面都要有一条用户任务路径。
 
@@ -226,15 +268,33 @@
 - Plaza 任务入口。
 
 执行步骤：
-- [ ] 成本页 smoke：summary、trend、pods、gate、创建任务入口、错误态。
-- [ ] 技能页 smoke：创建候选、验证、查看证据、发布。
-- [ ] 演进页 smoke：打开详情、运行验证、查看证据。
+- [ ] 成本页浏览器 smoke：summary、trend、pods、gate、创建任务入口、错误态；当前自动化 smoke 已覆盖，待浏览器登录输入通道恢复后补跑真实页面。
+- [ ] 技能页浏览器 smoke：创建候选、验证、查看证据、发布；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实创建候选。
+- [x] 演进页 smoke：运行审查、打开详情已通过真实浏览器。
+- [ ] 演进页补跑：完成证据表单提交、运行验证、查看 EvidenceRun 的完整浏览器路径；当前已由后端/前端回归覆盖，待输入通道恢复后补跑真实表单提交。
 - [x] 智能体页 smoke：切团队、切智能体、看技能、删除技能、运行 loop。（API测试覆盖：技能数据隔离✅、删除技能影响范围✅、Agent Loop执行✅）
-- [ ] Plaza smoke：讨论结论进入任务、技能或演进项。
+- [ ] Plaza 浏览器 smoke：讨论结论进入任务、技能或演进项；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实新建讨论。
 
 验收标准：
 - 每个核心页面至少一条"用户完成任务"的浏览器路径。
 - 失败时有清楚错误态和 request_id。
+
+最新进展：
+- 系统演进页真实浏览器 smoke：通过登录/注册路径进入 `system-evolution.html`，点击"运行审查"生成 4 个演进项，点击首个演进项"详情"打开证据面板，面板展示发现问题、期望行为、Build Task、验证结论和 EvidenceRun 区域。
+- 修复系统演进页内联按钮契约：页面动作通过 `exposeEvolutionActions()` 显式挂载到 `window`，`item_id` 深链会自动打开详情。
+- 修复演进项完成语义：`/evolution/items/{item_id}/complete` 支持 `code_changes` 和 `artifact_dir`，缺少构建证据时返回 400；前端"完成"改为打开"构建完成证据"表单再提交。
+- 当前 in-app Browser 的文字输入通道被虚拟剪贴板限制阻塞，因此系统演进页"完成证据表单"暂未完成真实浏览器提交；代码路径已由自动化回归覆盖。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `6 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
+- 成本页自动化 smoke 已补齐 summary、trend、pods、Cost Gate self-check、创建任务、Plaza 话题、标签补丁、错误态/request_id。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js` -> `8 passed`。
+- Plaza 动作路径自动化 smoke 已补齐讨论计划进入任务派发、拆解执行、系统演进、验证队列和技能萃取入口。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `9 passed`。
+- 技能萃取动作路径自动化 smoke 已补齐萃取启动、详情、批准入库、沙箱/容器验证和发布门禁入口。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/skill-publish-gate.test.js` -> `3 passed`。
+- 聚合验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `25 passed`。
+- 聚合验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `10 passed`。
 
 ---
 
@@ -343,14 +403,14 @@
 
 ## 下一步
 
-当前下一个执行项：`SKILL-P0-02 技能发布增加质量门禁`。
+当前下一个执行项：`TEST-P0-01 核心页面真实浏览器验收`。
 
 第一刀：
-1. 审查技能发布/批准入口，找到生产发布的后端路径。
-2. 读取最近 EvidenceRun，阻止未验证、失败或阻塞的技能进入生产发布。
-3. 前端发布确认里展示最近验证状态和证据入口。
+1. 固化成本页浏览器 smoke：summary、trend、pods、gate/self-check、错误态。
+2. 输入通道恢复后补跑系统演进页完整表单 smoke：提交构建证据、运行验证、查看 EvidenceRun。
+3. 固化技能萃取页和 Plaza 入口 smoke：创建候选/讨论、验证、查看 EvidenceRun、发布门禁。
 
 完成下一刀后：
-- 更新本文件 `SKILL-P0-02` 子项状态。
+- 更新本文件 `TEST-P0-01` 子项状态。
 - 同步 `OptimizePlan.md` 的状态。
-- 继续推进技能版本和回滚目标。
+- 继续推进剩余页面验收。

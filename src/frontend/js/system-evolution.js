@@ -77,6 +77,47 @@ function renderItemVerifyMeta(item) {
   if (!parts.length) return '';
   return `<div style="font-size:11px;color:var(--dim);margin-top:4px;line-height:1.6">${parts.join(' · ')}</div>`;
 }
+function evidenceSummary(run) {
+  if (window.evidenceRuns && typeof window.evidenceRuns.summarize === 'function') {
+    return window.evidenceRuns.summarize(run);
+  }
+  const runtime = run?.runtime || {};
+  return {
+    id: run?.evidence_id || '',
+    type: run?.evidence_type || '',
+    status: run?.status || '',
+    runtimeLabel: [runtime.mode, runtime.component || runtime.tool_name].filter(Boolean).join(' / '),
+    command: run?.command || '',
+    exitCode: run?.exit_code,
+    artifact: run?.artifact_dir || '',
+    requestId: run?.request_id || '',
+  };
+}
+function renderEvidenceRuns(runs) {
+  runs = Array.isArray(runs) ? runs : [];
+  if (!runs.length) {
+    return '<div style="font-size:12px;color:var(--dim);padding:8px 0">暂无关联 EvidenceRun</div>';
+  }
+  return runs.map(run => {
+    const s = evidenceSummary(run);
+    const statusColor = s.status === 'passed' || s.status === 'verified' ? 'var(--lime)' : s.status === 'failed' || s.status === 'blocked' ? 'var(--red)' : 'var(--amber)';
+    return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--koke)">${escapeHtml(s.id)}</span>
+        <span class="chip" style="font-size:10px">${escapeHtml(s.type)}</span>
+        <span style="font-size:11px;color:${statusColor};font-weight:700">${escapeHtml(s.status)}</span>
+        ${s.requestId ? `<span style="font-size:10px;color:var(--dim);font-family:var(--font-mono)">req ${escapeHtml(s.requestId)}</span>` : ''}
+      </div>
+      <div style="font-size:11px;color:var(--sumi-2);line-height:1.7;margin-top:4px">
+        ${s.runtimeLabel ? `runtime: ${escapeHtml(s.runtimeLabel)} · ` : ''}exit: ${s.exitCode ?? '—'}${s.command ? ` · cmd: <code>${escapeHtml(s.command)}</code>` : ''}
+      </div>
+      ${s.artifact ? `<div style="font-size:10px;color:var(--dim);font-family:var(--font-mono);margin-top:3px">artifact: ${escapeHtml(s.artifact)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+function kv(label, value) {
+  return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)"><div style="font-size:10px;color:var(--dim);text-transform:uppercase">${label}</div><div style="font-size:12px;color:var(--sumi-2);line-height:1.7;white-space:pre-wrap">${escapeHtml(value || '—')}</div></div>`;
+}
 
 // ── Panel Switch ──
 function switchPanel(name) {
@@ -214,6 +255,7 @@ async function loadItems() {
       requestAnimationFrame(() => {
         const row = document.getElementById(`evo-item-${deepLinkItemId}`);
         if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        openItemDetail(deepLinkItemId);
       });
     }
   } else {
@@ -223,23 +265,150 @@ async function loadItems() {
 
 function itemActions(item) {
   const s = item.status;
-  if (s === 'discovered') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
-  if (s === 'dispatched') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
-  if (s === 'in_progress') return `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markComplete('${item.id}')">完成</button>`;
-  if (s === 'verify_pending') return `<span style="font-size:11px;color:var(--amber)">待验证</span>`;
-  if (s === 'verified') return `<span style="font-size:11px;color:var(--koke)">✓ 已验证</span>`;
-  if (s === 'failed') return `<span style="font-size:11px;color:var(--shu)">✗ 失败</span>`;
-  if (s === 'closed') return `<span style="font-size:11px;color:var(--dim)">已关闭</span>`;
-  return '—';
+  const detail = `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openItemDetail('${item.id}')">详情</button>`;
+  if (s === 'discovered') return `${detail} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
+  if (s === 'dispatched') return `${detail} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="markProgress('${item.id}')">开始</button>`;
+  if (s === 'in_progress') return `${detail} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openItemDetail('${item.id}', 'complete')">完成</button>`;
+  if (s === 'verify_pending') return `${detail} <button class="btn btn-sm btn-primary" style="padding:2px 8px;font-size:11px" onclick="verifyItem('${item.id}')">验证</button>`;
+  if (s === 'verified') return `${detail} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="closeItem('${item.id}')">关闭</button>`;
+  if (s === 'failed') return `${detail} <span style="font-size:11px;color:var(--shu)">✗ 失败</span>`;
+  if (s === 'closed') return `${detail} <span style="font-size:11px;color:var(--dim)">已关闭</span>`;
+  return detail;
+}
+
+function renderBuildCompleteForm(item) {
+  if (item.status !== 'in_progress') return '';
+  return `<div style="margin-top:12px;padding:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03)">
+    <div class="section-title" style="margin-bottom:8px">构建完成证据</div>
+    <div style="font-size:11px;color:var(--dim);line-height:1.6;margin-bottom:8px">进入验证前必须记录本次构建产生的代码/配置变更或 artifact 目录。</div>
+    <label style="display:block;font-size:10px;color:var(--dim);margin-bottom:4px">代码或配置变更（一行一个）</label>
+    <textarea id="build-complete-code-changes" class="fi" rows="3" style="width:100%;resize:vertical" placeholder="例如：src/backend/agents/router.py 调整路由反馈记录"></textarea>
+    <label style="display:block;font-size:10px;color:var(--dim);margin:8px 0 4px">Artifact 目录</label>
+    <input id="build-complete-artifact-dir" class="fi" style="width:100%" placeholder="例如：storage/evolution_runs/${escapeHtml(item.id)}">
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <button class="btn btn-sm btn-primary" onclick="submitBuildComplete('${item.id}')">提交完成证据</button>
+      <span id="build-complete-status" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+  </div>`;
+}
+
+async function openItemDetail(itemId, mode) {
+  const panel = el('item-detail-panel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="font-size:12px;color:var(--muted)">加载演进证据...</div>';
+  let item = await apiRequest(`${EVP}/items/${encodeURIComponent(itemId)}`);
+  if (!item) {
+    panel.innerHTML = '<div style="font-size:12px;color:var(--shu)">详情加载失败</div>';
+    return;
+  }
+  let evidenceRuns = item.evidence_runs || [];
+  if (!evidenceRuns.length && window.evidenceRuns?.byObject) {
+    evidenceRuns = await window.evidenceRuns.byObject('evolution', itemId, { limit: 20 });
+  }
+  const buildArtifacts = item.build_artifacts || {};
+  panel.innerHTML = `
+    <div class="section-title" style="justify-content:space-between">
+      <span>演进项证据详情</span>
+      <button class="btn btn-sm" onclick="el('item-detail-panel').style.display='none'">收起</button>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);gap:16px">
+      <div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-family:var(--font-mono);color:var(--koke);font-size:12px">${escapeHtml(item.id)}</span>
+          <span style="color:${stColor(item.status)};font-weight:700;font-size:12px">${stL(item.status)}</span>
+          <span class="chip" style="font-size:10px">${escapeHtml(item.audit_domain || '')}</span>
+          <span style="font-size:11px;color:${sevColor(item.severity)}">${escapeHtml(item.severity || '')}</span>
+        </div>
+        <h3 style="margin:0 0 8px 0;font-size:16px;color:var(--sumi)">${escapeHtml(item.title || '')}</h3>
+        ${kv('发现问题', item.current_behavior || item.description)}
+        ${kv('期望行为', item.expected_behavior)}
+        ${kv('参考标准', item.reference_standard)}
+        ${kv('执行计划 / Build Task', item.build_task_id || (item.source_task_ids || []).join(', '))}
+        ${kv('代码变更', (item.code_changes || []).join('\\n'))}
+        ${kv('Artifact', item.artifact_dir || buildArtifacts.artifact_dir || '')}
+        ${kv('验证结论', item.verify_detail || item.verify_result || '')}
+        ${item.close_reason || item.close_verify_conclusion ? `${kv('关闭理由', item.close_reason)}${kv('关闭验证结论', item.close_verify_conclusion)}` : ''}
+        ${renderBuildCompleteForm(item)}
+      </div>
+      <div>
+        <div class="section-title">EvidenceRun</div>
+        ${renderEvidenceRuns(evidenceRuns)}
+      </div>
+    </div>`;
+  if (mode === 'complete') {
+    const input = el('build-complete-code-changes') || el('build-complete-artifact-dir');
+    if (input) input.focus();
+  }
+}
+
+async function verifyItem(itemId) {
+  const r = await apiRequest(`${EVP}/items/${encodeURIComponent(itemId)}/verify`, { method: 'POST' });
+  if (r) {
+    toast(`验证完成: ${r.count || 0} 项`);
+    await openItemDetail(itemId);
+    refreshCurrent();
+  } else {
+    toast('验证失败');
+  }
+}
+
+async function closeItem(itemId) {
+  const reason = prompt('关闭理由（必填，用于审计）') || '';
+  if (!reason.trim()) { toast('关闭失败：需要关闭理由'); return; }
+  const verifyConclusion = prompt('验证结论（必填，会写入演进记录）') || '';
+  if (!verifyConclusion.trim()) { toast('关闭失败：需要验证结论'); return; }
+  const r = await apiRequest(`${EVP}/items/${encodeURIComponent(itemId)}/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, verify_conclusion: verifyConclusion }),
+  });
+  if (r) {
+    toast('已关闭并记录理由');
+    await openItemDetail(itemId);
+    refreshCurrent();
+  } else {
+    toast('关闭失败');
+  }
 }
 
 async function markProgress(itemId) {
   const r = await apiRequest(`${EVP}/items/${itemId}/progress`, { method: 'POST' });
   if (r) { toast('已标记为进行中'); refreshCurrent(); } else toast('操作失败');
 }
-async function markComplete(itemId) {
-  const r = await apiRequest(`${EVP}/items/${itemId}/complete`, { method: 'POST' });
-  if (r) { toast('已标记完成，等待验证'); refreshCurrent(); } else toast('操作失败');
+async function submitBuildComplete(itemId) {
+  const changesText = (el('build-complete-code-changes')?.value || '').trim();
+  const artifactDir = (el('build-complete-artifact-dir')?.value || '').trim();
+  const codeChanges = changesText.split('\n').map(v => v.trim()).filter(Boolean);
+  const statusEl = el('build-complete-status');
+  if (!codeChanges.length && !artifactDir) {
+    if (statusEl) statusEl.textContent = '请先填写代码变更或 artifact 目录';
+    toast('完成失败：缺少构建证据');
+    return;
+  }
+  if (statusEl) statusEl.textContent = '提交中...';
+  await markComplete(itemId, { code_changes: codeChanges, artifact_dir: artifactDir });
+}
+
+async function markComplete(itemId, evidence) {
+  if (!evidence) {
+    await openItemDetail(itemId, 'complete');
+    return;
+  }
+  const r = await apiRequest(`${EVP}/items/${itemId}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(evidence),
+  });
+  if (r) {
+    toast('已记录构建证据，等待验证');
+    await openItemDetail(itemId);
+    refreshCurrent();
+  } else {
+    const statusEl = el('build-complete-status');
+    if (statusEl) statusEl.textContent = '提交失败，请查看错误提示';
+    toast('操作失败');
+  }
 }
 
 // ── Rules ──
@@ -1080,7 +1249,57 @@ async function loadEvolveHistory() {
     }).join('')}</tbody></table></div>`;
 }
 
+function exposeEvolutionActions() {
+  Object.assign(window, {
+    el,
+    switchPanel,
+    loadOverview,
+    loadItems,
+    loadRules,
+    loadZones,
+    loadTrail,
+    loadTrend,
+    loadHeritage,
+    openItemDetail,
+    verifyItem,
+    closeItem,
+    markProgress,
+    markComplete,
+    submitBuildComplete,
+    runAudit,
+    runAuditOnly,
+    recalcRating,
+    runCycleOnRatchet,
+    runCycleStepper,
+    refreshCurrent,
+    refreshAll,
+    loadEvolveLab,
+    loadEvolveTeams,
+    loadEvolveSkills,
+    onSkillSelected,
+    goToStep,
+    evGenerateDataset,
+    evImportKB,
+    evShowManualInput,
+    evAddManualExample,
+    evDeleteExample,
+    evRunBaseline,
+    evRunReflect,
+    evRunMutate,
+    evShowManualCandidate,
+    evAddManualCandidate,
+    evEvalCandidate,
+    evEvalAllCandidates,
+    evSelectCandidate,
+    evApplyEvolution,
+    runAutoTriage,
+    selectAndOptimize,
+    loadEvolveHistory,
+  });
+}
+
 // ── Init ──
+exposeEvolutionActions();
 if (deepLinkPanel) switchPanel(deepLinkPanel);
 else if (deepLinkItemId) switchPanel('items');
 else loadOverview();
