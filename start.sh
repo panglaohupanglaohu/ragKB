@@ -17,25 +17,30 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Kill existing processes on target ports for clean restart
-kill_port() {
+# 启动前清理 8080/5173 上的旧进程，防止端口被占用
+cleanup_port() {
     local port=$1
     local pids
     pids=$(lsof -ti:"$port" 2>/dev/null)
     if [ -n "$pids" ]; then
-        echo "🔪 Killing process(es) on port $port: $pids"
+        echo "🧹 清理端口 $port 上的旧进程 (PID: $pids)..."
         kill $pids 2>/dev/null
-        sleep 1
-        # Force kill if still alive
+        sleep 2
+        # 强制清理残留
         pids=$(lsof -ti:"$port" 2>/dev/null)
         if [ -n "$pids" ]; then
-            echo "🔪 Force killing port $port: $pids"
             kill -9 $pids 2>/dev/null
+            sleep 1
         fi
+        echo "   ✅ 端口 $port 已释放"
+    else
+        echo "   ✅ 端口 $port 空闲"
     fi
 }
-kill_port 8080
-kill_port 5173
+echo "🔍 检查端口..."
+cleanup_port 8080
+cleanup_port 5173
+echo ""
 
 # Python bootstrap helpers
 PYTHON_CORE_MODULES=(fastapi uvicorn pydantic httpx cryptography)
