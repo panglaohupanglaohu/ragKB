@@ -123,6 +123,21 @@ class SkillLibrary:
         if skill.source != "distilled" and skill.quality_score < 0.4 and skill.usage_count < 1:
             return {"error": "quality_too_low", "quality_score": skill.quality_score}
 
+        rollback_target_version = getattr(skill, "version", 1)
+        snapshot_result = self.create_version_snapshot(
+            skill,
+            reason="pre_production_publish",
+            metadata={
+                "publish_gate": publish_gate,
+                "rollback_target_version": rollback_target_version,
+                "latest_evidence_id": (
+                    publish_gate.get("latest_evidence", {}).get("evidence_id")
+                    if isinstance(publish_gate.get("latest_evidence"), dict)
+                    else ""
+                ),
+            },
+        )
+
         skill.visibility = "public"
         skill.lifecycle_stage = SkillLifecycleStage.PUBLISHED
         self._persist_skill(skill, team_id)
@@ -137,7 +152,13 @@ class SkillLibrary:
         )
         bus.publish(event)
         logger.info("Skill %s published to public library by team %s", skill_id, team_id)
-        return {"status": "published", "skill_id": skill_id, "gate": publish_gate}
+        return {
+            "status": "published",
+            "skill_id": skill_id,
+            "gate": publish_gate,
+            "version_snapshot": snapshot_result,
+            "rollback_target_version": rollback_target_version,
+        }
 
     def evaluate_publish_gate(self, team_id: str, skill_id: str) -> Dict[str, Any]:
         """Return whether a skill is allowed to enter public/production publish."""
@@ -503,19 +524,36 @@ class SkillLibrary:
         except Exception as e:
             logger.warning(f"Failed to save skill version snapshots: {e}")
 
-    def create_version_snapshot(self, skill: Any) -> Dict[str, Any]:
+    def create_version_snapshot(
+        self,
+        skill: Any,
+        *,
+        reason: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """保存技能当前状态为版本快照."""
         sid = getattr(skill, "skill_id", "") or getattr(skill, "slug", "")
         if not sid:
             return {"error": "invalid skill"}
         ver = getattr(skill, "version", 1)
+        lifecycle_stage = getattr(skill, "lifecycle_stage", "")
+        if hasattr(lifecycle_stage, "value"):
+            lifecycle_stage = lifecycle_stage.value
+        category = getattr(skill, "category", "general")
+        if hasattr(category, "value"):
+            category = category.value
         snap = {
             "version": ver,
             "name": getattr(skill, "name", ""),
             "description": getattr(skill, "description", ""),
             "instructions": getattr(skill, "instructions", ""),
-            "category": getattr(skill, "category", "general"),
+            "category": category,
             "icon": getattr(skill, "icon", "⚡"),
+            "visibility": getattr(skill, "visibility", ""),
+            "lifecycle_stage": lifecycle_stage,
+            "quality_score": getattr(skill, "quality_score", 0),
+            "reason": reason,
+            "metadata": metadata or {},
             "snapshot_at": datetime.now(timezone.utc).isoformat(),
         }
         self._version_snapshots.setdefault(sid, []).append(snap)

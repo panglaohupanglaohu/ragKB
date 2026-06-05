@@ -69,6 +69,17 @@ class TaskAssignment(BaseModel):
     agent_id: str
     task: str
 
+
+class EvolutionCloseRequest(BaseModel):
+    reason: str = Field(default="", description="关闭理由")
+    verify_conclusion: str = Field(default="", description="验证结论")
+
+
+class EvolutionCompleteRequest(BaseModel):
+    code_changes: List[str] = Field(default_factory=list, description="构建阶段产生的代码或配置变更")
+    artifact_dir: str = Field(default="", description="构建阶段产物目录")
+
+
 class FeedbackSubmission(BaseModel):
     category: str = "optimization"
     severity: str = "medium"
@@ -499,7 +510,54 @@ async def evolution_item_detail(item_id: str):
     item = _evolution_engine.evolution_items.get(item_id)
     if not item:
         raise HTTPException(404, f"Item '{item_id}' not found")
-    return item.to_dict()
+    detail = item.to_dict()
+    try:
+        from agents.evidence_store import get_evidence_store
+        store = get_evidence_store()
+        evidence_runs = await store.query_for_object("evolution", item_id, limit=50)
+        related_runs = list(evidence_runs)
+        if item.build_task_id:
+            related_runs.extend(await store.query_for_object("task", item.build_task_id, limit=20))
+        seen = set()
+        deduped = []
+        for run in related_runs:
+            if run.evidence_id in seen:
+                continue
+            seen.add(run.evidence_id)
+            deduped.append(run)
+        detail["evidence_runs"] = [run.to_dict() for run in deduped]
+    except Exception:
+        detail["evidence_runs"] = []
+    return detail
+
+
+@router.post("/evolution/items/{item_id}/verify")
+async def evolution_verify_item(item_id: str):
+    """验证单个待验证演进项。"""
+    if not _evolution_engine:
+        raise HTTPException(404, "Evolution engine not registered")
+    item = _evolution_engine.evolution_items.get(item_id)
+    if not item:
+        raise HTTPException(404, f"Item '{item_id}' not found")
+    return _evolution_engine.verify_pending_items(item_ids=[item_id])
+
+
+@router.post("/evolution/items/{item_id}/close")
+async def evolution_close_item(item_id: str, req: EvolutionCloseRequest):
+    """关闭单个已验证演进项，要求记录关闭理由和验证结论。"""
+    if not _evolution_engine:
+        raise HTTPException(404, "Evolution engine not registered")
+    item = _evolution_engine.evolution_items.get(item_id)
+    if not item:
+        raise HTTPException(404, f"Item '{item_id}' not found")
+    if item.status != "verified":
+        raise HTTPException(400, "Only verified evolution items can be closed")
+    closed = _evolution_engine.close_verified_items(
+        item_ids=[item_id],
+        close_reason=req.reason,
+        verify_conclusion=req.verify_conclusion,
+    )
+    return {"closed": closed, "count": len(closed), "item_id": item_id}
 
 
 @router.post("/evolution/items/{item_id}/progress")
@@ -514,13 +572,21 @@ async def evolution_mark_progress(item_id: str):
 
 
 @router.post("/evolution/items/{item_id}/complete")
-async def evolution_mark_complete(item_id: str):
+async def evolution_mark_complete(item_id: str, req: Optional[EvolutionCompleteRequest] = None):
     """标记演进项构建完成，进入待验证。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    ok = _evolution_engine.mark_build_complete(item_id)
-    if not ok:
+    item = _evolution_engine.evolution_items.get(item_id)
+    if not item:
         raise HTTPException(404, f"Item '{item_id}' not found")
+    req = req or EvolutionCompleteRequest()
+    ok = _evolution_engine.mark_build_complete(
+        item_id,
+        code_changes=req.code_changes,
+        artifact_dir=req.artifact_dir,
+    )
+    if not ok:
+        raise HTTPException(400, "Build completion requires code_changes or artifact_dir")
     return {"status": "ok", "item_id": item_id, "new_status": "verify_pending"}
 
 

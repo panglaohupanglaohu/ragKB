@@ -363,47 +363,67 @@ Audit Finding
 
 ### SKILL-P0-02 技能发布增加质量门禁
 
-状态：TODO
+状态：DONE
 
 涉及文件：
-- `src/backend/agents/skill_extractor.py`
+- `src/backend/agents/skill_library.py`
 - `src/backend/agents/api.py`
 - `src/frontend/js/skill-extract.js`
+- `src/backend/tests/test_skill_publish_gate.py`
+- `src/frontend/__tests__/skill-publish-gate.test.js`
 
 要做：
-- 批准技能前检查最近一次验证状态。
-- 未验证或验证失败的技能不能直接发布到生产团队。
-- 支持"草稿发布""实验发布""生产发布"三个级别。
-- 保存技能版本、验证结果和回滚目标。
+- [x] 批准技能前检查最近一次验证状态。
+- [x] 未验证或验证失败的技能不能直接发布到生产团队。
+- [x] 支持"草稿发布""实验发布""生产发布"三个级别。
+- [x] 保存技能版本、验证结果和回滚目标。
 
 验收：
-- 用户能区分草稿技能、实验技能、生产技能。
-- 生产技能必须有可查看的验证证据。
-- 技能失败后可以降级或回滚。
+- [x] 用户能区分草稿技能、实验技能、生产技能。
+- [x] 生产技能必须有可查看的验证证据。
+- [x] 技能失败后可以降级或回滚。
+
+最新验证：
+- `/skill-library/publish-gate` 会返回最近 `skill_verify` EvidenceRun、检查项、命令、退出码、artifact 和 request_id。
+- `/skill-library/publish` 在生产发布前强制检查门禁，并创建 `pre_production_publish` 版本快照。
+- `./venv/bin/python -m pytest -q src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `7 passed`。
+- `./scripts/frontend_test.sh src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `4 passed`。
 
 ### EVO-P0-01 演进条目增加证据详情
 
-状态：TODO
+状态：DONE
 
 涉及文件：
 - `src/frontend/system-evolution.html`
 - `src/frontend/js/system-evolution.js`
+- `src/backend/agent_team_api.py`
 - `src/backend/channels/system_evolution.py`
-- `src/backend/channels/evolution_executor.py`
+- `src/backend/tests/test_evolution_evidence_detail.py`
+- `src/frontend/__tests__/system-evolution.test.js`
 
 要做：
-- 给 EvolutionItem 增加详情抽屉或详情页。
-- 展示 audit finding、负责人、执行计划、执行日志、diff、测试、验证、回滚、收益。
-- VERIFY_PENDING 不应只是状态文本，必须有可执行验证动作和证据。
-- 关闭条目前必须能看到验证结论和关闭理由。
+- [x] 给 EvolutionItem 增加详情抽屉或详情页。
+- [x] 展示 audit finding、负责人、执行计划、执行日志、diff、测试、验证、回滚、收益。
+- [x] VERIFY_PENDING 不应只是状态文本，必须有可执行验证动作和证据。
+- [x] 关闭条目前必须能看到验证结论和关闭理由。
 
 验收：
-- 任意演进条目都能追溯为什么出现、谁处理、怎么验证。
-- 用户可以看到真实执行产物，而不是只看到状态变化。
+- [x] 任意演进条目都能追溯为什么出现、谁处理、怎么验证。
+- [x] 用户可以看到真实执行产物，而不是只看到状态变化。
+
+最新验证：
+- 演进项详情接口返回关联 EvidenceRun。
+- 系统演进页新增详情面板，展示审查依据、执行计划、代码变更、artifact、验证结论和 EvidenceRun。
+- VERIFY_PENDING 可单项验证；VERIFIED 关闭时要求关闭理由和验证结论。
+- 演进项完成接口要求 `code_changes` 或 `artifact_dir`，前端"完成"先打开"构建完成证据"表单，避免无证据推进到验证。
+- 系统演进页真实浏览器 smoke 已完成"登录/注册 -> 运行审查 -> 生成演进项 -> 打开详情 -> 查看证据面板"路径。
+- `./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `6 passed`。
+- `./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
+- `./scripts/frontend_build.sh` -> 通过。
 
 ### EVO-P0-02 自演进接入真实代码变更流程
 
-状态：TODO
+状态：PARTIAL
 
 涉及文件：
 - `src/backend/channels/evolution_executor.py`
@@ -462,14 +482,27 @@ Audit Finding
 - 现有 Playwright 或浏览器 smoke 脚本
 
 要做：
-- 成本治理页面 smoke：summary、trend、pods、gate、错误态。
-- 技能萃取 smoke：创建候选、验证、查看证据、发布。
-- 演进页面 smoke：查看条目、打开详情、运行验证、查看证据。
-- 智能体团队 smoke：切团队、切智能体、看技能、删除技能、运行 loop。
+- [ ] 成本治理页面浏览器 smoke：summary、trend、pods、gate、错误态；当前自动化 smoke 已覆盖，待浏览器登录输入通道恢复后补跑真实页面。
+- [ ] 技能萃取浏览器 smoke：创建候选、验证、查看证据、发布；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实创建候选。
+- [x] 演进页面 smoke：真实浏览器完成运行审查、生成演进项、打开详情、查看证据面板。
+- [ ] 演进页面补跑：完成证据表单提交、运行验证、查看 EvidenceRun 完整浏览器路径；当前代码路径由回归测试覆盖，待浏览器输入通道恢复后补跑。
+- [x] 智能体团队 smoke：切团队、切智能体、看技能、删除技能、运行 loop。
+- [ ] Plaza 浏览器 smoke：讨论结论进入任务、技能或演进项；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实新建讨论。
 
 验收：
 - 不再只靠 API 测试证明页面可用。
 - 每个核心页面都有至少一条"用户能完成任务"的浏览器测试。
+
+最新验证：
+- 系统演进页真实浏览器 smoke：登录/注册后进入 `system-evolution.html`，点击"运行审查"生成 4 个演进项，点击首个演进项"详情"打开证据面板。
+- 完成接口和前端证据表单回归：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `6 passed`。
+- 前端系统演进回归：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
+- 成本页自动化 smoke：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js` -> `8 passed`。
+- Plaza 动作路径自动化 smoke：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `9 passed`。
+- 技能页动作路径自动化 smoke：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/skill-publish-gate.test.js` -> `3 passed`。
+- TEST-P0 聚合前端验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `25 passed`。
+- TEST-P0 聚合后端验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `10 passed`。
+- 前端构建：`./scripts/frontend_build.sh` -> 通过。
 
 ## 6. P1 任务清单
 
@@ -572,9 +605,7 @@ Audit Finding
 5. ~~CodeBuddy DeepSeek-V4-Pro 模型接入~~ ✅ (本轮)
 
 当前待执行：
-6. SKILL-P0-02 技能发布增加质量门禁
-7. EVO-P0-01 演进条目证据详情，因为系统自演进必须可审阅。
-8. TEST-P0-01 剩余页面浏览器验收（成本页、技能页、演进页、Plaza）
+6. TEST-P0-01 剩余页面浏览器验收（成本页、技能页、Plaza、演进页表单补跑）
 
 阶段完成定义：
 - P0 完成不是"接口能返回 200"。
