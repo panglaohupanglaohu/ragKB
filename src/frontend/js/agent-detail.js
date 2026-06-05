@@ -97,8 +97,6 @@ function renderATab(d){
       c.innerHTML = html;
     });
   } else if(atab==='ag-relations'){
-    });
-  } else if(atab==='ag-relations'){
     api(`${A}/teams/${tid}/agents/${aid}/relationships`).then(rel=>{
       c.innerHTML=`<div class="section"><div class="section-title">🔗 关系</div>${rel&&rel.relationships&&rel.relationships.length?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${escapeHtml(r.target||r.name||'?')}</span><span class="chip">${escapeHtml(r.type||'peer')}</span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div><div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?d.channels.map(ch=>`<div class="ws-item"><span class="fname">📡 ${escapeHtml(ch.channel_name)}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span></span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div>`;
     });
