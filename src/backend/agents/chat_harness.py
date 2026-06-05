@@ -674,7 +674,7 @@ class ChatHarness:
             if not settings_path.is_absolute():
                 repo_root = Path(__file__).resolve().parents[3]
                 settings_path = repo_root / settings_path
-            with settings_path.open() as f:
+            with settings_path.open(encoding="utf-8") as f:
                 settings = json.load(f)
             config = ProviderConfig.from_settings(settings)
         except (FileNotFoundError, json.JSONDecodeError):

@@ -29,7 +29,7 @@ _SETTINGS_PATH = _CONFIG_DIR / "settings.json"
 def _load_settings() -> dict:
     try:
         if _SETTINGS_PATH.exists():
-            return json.loads(_SETTINGS_PATH.read_text())
+            return json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
     except Exception:
         pass
     return {}
