@@ -87,9 +87,9 @@ $backendProcess = Start-Process python -ArgumentList "main.py","--port","8080" -
 # Wait for backend
 Write-Host "   ... Waiting for backend ..." -ForegroundColor Yellow
 $ready = $false
-for ($i = 1; $i -le 20; $i++) {
+for ($i = 1; $i -le 30; $i++) {
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:8080/api/v1/health" -UseBasicParsing -TimeoutSec 2
+        $r = Invoke-WebRequest -Uri "http://localhost:8080/api/v1/health" -UseBasicParsing -TimeoutSec 3
         if ($r.StatusCode -eq 200) {
             Write-Host "   [OK] Backend ready" -ForegroundColor Green
             $ready = $true
