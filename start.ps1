@@ -6,16 +6,18 @@ Set-Location $ROOT
 Write-Host "=== AgentsGroup2026 Starting ===" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Port check ──
-function Test-PortInUse($port) {
+# ── Port check & auto-kill ──
+function Kill-Port($port) {
     $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
     if ($listener) {
-        Write-Host "[X] Port $port is already in use. Stop the process using that port first." -ForegroundColor Red
-        exit 1
+        $ownerPid = $listener.OwningProcess
+        Write-Host "   Port $port in use (PID $ownerPid), killing..." -ForegroundColor Yellow
+        Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
+        Start-Sleep 1
     }
 }
-Test-PortInUse 8080
-Test-PortInUse 5173
+Kill-Port 8080
+Kill-Port 5173
 
 # ── Python ──
 $py = Get-Command python -ErrorAction SilentlyContinue
