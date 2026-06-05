@@ -130,7 +130,6 @@ Write-Host "══════════════════════�
 Write-Host ""
 Write-Host "Press Ctrl+C to stop all services" -ForegroundColor Yellow
 
-# Cleanup handler
 $global:backendPid = $backendProcess.Id
 $global:frontendPid = $frontendProcess.Id
 
