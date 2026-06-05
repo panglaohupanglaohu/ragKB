@@ -3,14 +3,14 @@ $ErrorActionPreference = "Continue"
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ROOT
 
-Write-Host "🚀 AgentsGroup2026 Starting..." -ForegroundColor Cyan
+Write-Host ">>> AgentsGroup2026 Starting..." -ForegroundColor Cyan
 Write-Host ""
 
 # ── Port check ──
 function Test-PortInUse($port) {
     $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
     if ($listener) {
-        Write-Host "❌ Port $port is already in use. Stop the process using that port first." -ForegroundColor Red
+        Write-Host "[X] Port $port is already in use. Stop the process using that port first." -ForegroundColor Red
         exit 1
     }
 }
@@ -20,12 +20,12 @@ Test-PortInUse 5173
 # ── Python ──
 $py = Get-Command python -ErrorAction SilentlyContinue
 if (-not $py) {
-    Write-Host "❌ Python not found. Please install Python 3.11+" -ForegroundColor Red
+    Write-Host "[X] Python not found. Please install Python 3.11+" -ForegroundColor Red
     exit 1
 }
 
 $requiredModules = @("fastapi", "uvicorn", "pydantic", "httpx", "cryptography", "aiohttp")
-Write-Host "📦 Checking Python dependencies..." -ForegroundColor Yellow
+Write-Host "[*] Checking Python dependencies..." -ForegroundColor Yellow
 $missing = @()
 foreach ($mod in $requiredModules) {
     $result = python -c "import $mod" 2>&1
@@ -34,23 +34,23 @@ foreach ($mod in $requiredModules) {
     }
 }
 if ($missing.Count -gt 0) {
-    Write-Host "⚠️  Missing: $missing. Installing..." -ForegroundColor Yellow
+    Write-Host "[!] Missing: $missing. Installing..." -ForegroundColor Yellow
     pip install @missing 2>&1 | Out-Null
 }
-Write-Host "   ✅ Python dependencies ready" -ForegroundColor Green
+Write-Host "   [OK] Python dependencies ready" -ForegroundColor Green
 
 # ── Node ──
 $node = Get-Command node -ErrorAction SilentlyContinue
 if (-not $node) {
-    Write-Host "❌ Node.js not found. Please install Node.js." -ForegroundColor Red
+    Write-Host "[X] Node.js not found. Please install Node.js." -ForegroundColor Red
     exit 1
 }
 
 if (-not (Test-Path "$ROOT\node_modules")) {
-    Write-Host "📦 Installing Node dependencies..." -ForegroundColor Yellow
+    Write-Host "[*] Installing Node dependencies..." -ForegroundColor Yellow
     npm install
 }
-Write-Host "   ✅ Node dependencies ready" -ForegroundColor Green
+Write-Host "   [OK] Node dependencies ready" -ForegroundColor Green
 
 # ── Admin password (dev) ──
 $adminPasswordFile = "$ROOT\config\.dev_admin_password"
@@ -69,7 +69,7 @@ if (-not (Test-Path env:ADMIN_PASSWORD) -and -not (Test-Path env:AG_ALLOW_DEFAUL
         if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
         $password | Out-File -FilePath $adminPasswordFile -Encoding ascii -NoNewline
         $env:ADMIN_PASSWORD = $password
-        Write-Host "🔐 Local dev admin:" -ForegroundColor Yellow
+        Write-Host "(*) Local dev admin:" -ForegroundColor Yellow
         Write-Host "   Username: admin" -ForegroundColor Yellow
         Write-Host "   Password: $password" -ForegroundColor Yellow
         Write-Host "   Stored at config\.dev_admin_password (gitignored)." -ForegroundColor Yellow
@@ -77,44 +77,44 @@ if (-not (Test-Path env:ADMIN_PASSWORD) -and -not (Test-Path env:AG_ALLOW_DEFAUL
     }
 }
 
-Write-Host "✅ Dependencies ready" -ForegroundColor Green
+Write-Host "[OK] Dependencies ready" -ForegroundColor Green
 Write-Host ""
 
 # ── Start backend ──
-Write-Host "🔧 Starting backend on port 8080..." -ForegroundColor Cyan
+Write-Host "[>>] Starting backend on port 8080..." -ForegroundColor Cyan
 $backendProcess = Start-Process python -ArgumentList "main.py","--port","8080" -WorkingDirectory "$ROOT\src\backend" -WindowStyle Hidden -PassThru
 
 # Wait for backend
-Write-Host "   Waiting for backend..." -ForegroundColor Yellow
+Write-Host "   ... Waiting for backend ..." -ForegroundColor Yellow
 $ready = $false
 for ($i = 1; $i -le 20; $i++) {
     try {
         $r = Invoke-WebRequest -Uri "http://localhost:8080/api/v1/health" -UseBasicParsing -TimeoutSec 2
         if ($r.StatusCode -eq 200) {
-            Write-Host "   ✅ Backend ready" -ForegroundColor Green
+            Write-Host "   [OK] Backend ready" -ForegroundColor Green
             $ready = $true
             break
         }
     } catch { }
     if ($backendProcess.HasExited -and $backendProcess.ExitCode -ne 0) {
-        Write-Host "   ❌ Backend process exited unexpectedly (code $($backendProcess.ExitCode))." -ForegroundColor Red
+        Write-Host "   [X] Backend process exited unexpectedly (code $($backendProcess.ExitCode))." -ForegroundColor Red
         exit 1
     }
     Start-Sleep 1
 }
 if (-not $ready) {
-    Write-Host "   ❌ Backend did not respond in time." -ForegroundColor Red
+    Write-Host "   [X] Backend did not respond in time." -ForegroundColor Red
     Stop-Process $backendProcess -Force -ErrorAction SilentlyContinue
     exit 1
 }
 
 # ── Start frontend ──
-Write-Host "🌐 Starting frontend on port 5173..." -ForegroundColor Cyan
+Write-Host "[>>] Starting frontend on port 5173..." -ForegroundColor Cyan
 $frontendProcess = Start-Process cmd -ArgumentList "/c","npx vite --config vite.config.mjs --port 5173" -WorkingDirectory $ROOT -WindowStyle Hidden -PassThru
 
 Start-Sleep 3
 if ($frontendProcess.HasExited -and $frontendProcess.ExitCode -ne 0) {
-    Write-Host "❌ Frontend process exited unexpectedly." -ForegroundColor Red
+    Write-Host "[X] Frontend process exited unexpectedly." -ForegroundColor Red
     Stop-Process $backendProcess -Force -ErrorAction SilentlyContinue
     exit 1
 }
@@ -137,11 +137,11 @@ try {
     while ($true) {
         Start-Sleep 1
         if ($backendProcess.HasExited) {
-            Write-Host "⚠️  Backend process has exited." -ForegroundColor Red
+            Write-Host "[!] Backend process has exited." -ForegroundColor Red
             break
         }
         if ($frontendProcess.HasExited) {
-            Write-Host "⚠️  Frontend process has exited." -ForegroundColor Red
+            Write-Host "[!] Frontend process has exited." -ForegroundColor Red
             break
         }
     }
