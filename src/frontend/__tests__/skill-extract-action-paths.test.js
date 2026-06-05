@@ -12,9 +12,13 @@ describe('skill extraction action paths', () => {
     const html = read('src/frontend/skill-extract.html');
 
     expect(html).toContain('id="btn-extract"');
+    expect(html).toContain('id="plaza-source-meta"');
     expect(html).toContain('onclick="startExtraction()"');
     expect(source).toContain('window.startExtraction = async function()');
     expect(source).toContain('/skill-extract/start');
+    expect(source).toContain('function renderPlazaSourceMeta(src)');
+    expect(source).toContain('/plaza.html?plaza_id=');
+    expect(source).toContain('source_output_id');
     expect(source).toContain('window._openDetail = async function(itemId)');
     expect(source).toContain('switchModalTab');
     expect(source).toContain('window.approveAs = async function(skillType)');

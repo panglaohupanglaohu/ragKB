@@ -508,16 +508,30 @@ Audit Finding
 
 ### P1-01 Plaza 到任务和技能的强连接
 
-状态：TODO
+状态：DOING
 
 要做：
-- Plaza 讨论完成后必须能选择输出类型：任务、技能候选、演进项、成本治理项。
-- 输出对象保留 Plaza topic id 和结论摘要。
-- 前端展示从 Plaza 到后续执行的链路。
+- [ ] Plaza 讨论完成后必须能选择输出类型：任务、技能候选、演进项、成本治理项。
+- [x] 输出对象保留 Plaza topic id、结论摘要和参与团队。
+- [x] 任务派发、拆解执行、进入演进响应返回统一 `output/outputs`。
+- [x] 萃取技能前记录 `skill_candidate` 结构化输出。
+- [x] Plaza 前端计划面板展示从 Plaza 到后续执行的链路摘要。
+- [x] 技能萃取页展示 Plaza 来源并可回跳原讨论。
+- [ ] 成本治理项只记录来源和输出对象，不抢占 `P1-04` 的成本闭环执行。
+- [ ] 任务页、演进页、技能页统一展示 Plaza source 深链。
+
+最新进展：
+- `plaza_routes.py` 新增 structured output helper 和 `/plaza/{plaza_id}/discussions/{disc_id}/outputs`。
+- `dispatch`、`dispatch-and-execute`、`evolve` 已返回统一 `output/outputs`。
+- Plaza "萃取"会记录 `type=skill_candidate` 输出，并把 `source_plaza_id/source_discussion_id/source_output_id` 传入技能萃取页。
+- `skill-extract.html/js` 新增 Plaza 来源提示，用户可从技能候选创建页回跳原讨论。
+- Plaza 创建/讨论弹窗新增输入守卫，复制、粘贴、剪切和输入法组合事件不再冒泡导致输入焦点退出。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_plaza_structured_outputs.py src/backend/tests/test_plaza_task_artifact_bridge.py` -> `19 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-modal-input.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/extract-routing.test.js` -> `10 passed`。
 
 ### P1-02 Agent 能力评估
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 每个智能体维护能力画像：模型、工具、技能、成功率、失败率、最近验证。
@@ -526,7 +540,7 @@ Audit Finding
 
 ### P1-03 技能 benchmark 数据集
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 每个技能维护最小 benchmark 集。
@@ -535,7 +549,7 @@ Audit Finding
 
 ### P1-04 成本优化闭环
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 成本异常生成任务。
@@ -547,7 +561,7 @@ Audit Finding
 
 ### P2-01 UI 信息架构统一
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 所有核心页面统一布局：状态、动作、证据、历史。
@@ -557,7 +571,7 @@ Audit Finding
 
 ### P2-02 审计和权限增强
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 工具调用权限按团队和智能体区分。
@@ -567,7 +581,7 @@ Audit Finding
 
 ### P2-03 运行态可观测性
 
-状态：TODO
+状态：TODO (codebuddy 并行推进，本线程暂不修改)
 
 要做：
 - 统一 request_id。
@@ -605,7 +619,8 @@ Audit Finding
 5. ~~CodeBuddy DeepSeek-V4-Pro 模型接入~~ ✅ (本轮)
 
 当前待执行：
-6. TEST-P0-01 剩余页面浏览器验收（成本页、技能页、Plaza、演进页表单补跑）
+6. P1-01 Plaza 输出类型结构化剩余项（输出类型选择区、`cost_governance` 只记录来源、统一 Plaza source 深链）
+7. TEST-P0-01 剩余页面浏览器验收（成本页、技能页、Plaza、演进页表单补跑）
 
 阶段完成定义：
 - P0 完成不是"接口能返回 200"。
@@ -621,7 +636,7 @@ Audit Finding
 - 明确技能验证必须接入沙箱或容器证据。
 - 明确系统演进要从状态机转向可审阅变更闭环。
 - 给出新的 P0/P1/P2 优化看板。
-- 已根据本文件重排 `OptimizePlanTodos.md`，新的下一步是 `UX-P0-01 修复成本治理页面`。
+- 已根据本文件重排 `OptimizePlanTodos.md`，当前下一步是 `P1-01 Plaza 输出类型结构化` 剩余项；`P1-02/P1-03/P1-04/P2` 由 codebuddy 并行推进。
 
 后续同步规则：
 - 每完成一个 P0 项，回写本文件状态和验证证据。

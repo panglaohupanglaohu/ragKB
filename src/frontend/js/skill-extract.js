@@ -82,6 +82,22 @@ function collectionItems(payload) {
   return [];
 }
 
+function renderPlazaSourceMeta(src) {
+  const el = document.getElementById('plaza-source-meta');
+  if (!el) return;
+  const plazaId = src?.source_plaza_id || '';
+  const discussionId = src?.source_discussion_id || '';
+  if (!plazaId || !discussionId) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  const href = `/plaza.html?plaza_id=${encodeURIComponent(plazaId)}&discussion_id=${encodeURIComponent(discussionId)}`;
+  const outputId = src?.source_output_id || '';
+  el.innerHTML = `来源 Plaza：<a href="${href}" style="color:oklch(0.72 0.12 250);text-decoration:none">${escapeHtml(src.source_title || discussionId)}</a>${outputId ? ` · output <code>${escapeHtml(outputId)}</code>` : ''}`;
+  el.style.display = 'block';
+}
+
 async function listApi(path, limit = 200, offset = 0) {
   if (window.api && typeof window.api.list === 'function') {
     const payload = await window.api.list(API_BASE + path, limit, offset);
@@ -159,6 +175,7 @@ async function loadTeams() {
       document.getElementById('source-text').value = src.source_text || '';
       document.getElementById('source-title').value = src.source_title || '';
       document.getElementById('source-type').value = src.source_type || 'chat';
+      renderPlazaSourceMeta(src);
       document.getElementById('knowledge-input-section').classList.remove('collapsed');
       setTimeout(() => startExtraction(), 500);
     } catch(e) { console.error('Failed to parse extract_source', e); }

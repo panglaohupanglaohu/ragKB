@@ -66,6 +66,22 @@ class SetVisualModeRequest(BaseModel):
     mode: str = Field(default="modern")  # modern | rome_320ad | senedd
 
 
+class DiscussionOutputRequest(BaseModel):
+    output_type: str = Field(..., min_length=1, max_length=50)
+    target_ids: List[str] = Field(default_factory=list)
+    team_id: str = Field(default="")
+    status_value: str = Field(default="created")
+
+
+_ALLOWED_DISCUSSION_OUTPUT_TYPES = {
+    "task",
+    "task_execution",
+    "evolution_item",
+    "skill_candidate",
+    "cost_governance",
+}
+
+
 def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
     """Keep old array responses by default, but support stable optional pagination."""
     limit = getattr(limit, "default", limit)
@@ -85,6 +101,66 @@ def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) 
         "offset": offset,
         "has_more": offset + limit < total,
     }
+
+
+def _participant_team_ids(plaza) -> List[str]:
+    """Return discussion participant team IDs in stable first-seen order."""
+    team_ids: List[str] = []
+    for participant in getattr(plaza, "participants", {}).values():
+        team_id = getattr(participant, "team_id", "") or ""
+        if team_id and team_id not in team_ids:
+            team_ids.append(team_id)
+    return team_ids
+
+
+def _discussion_summary_text(disc) -> str:
+    """Pick the best short conclusion text for downstream output tracing."""
+    if getattr(disc, "summary", ""):
+        return str(disc.summary)[:1000]
+    conclusions = getattr(disc, "key_conclusions", []) or []
+    if conclusions:
+        return "\n".join(str(item) for item in conclusions[:5])[:1000]
+    plan = getattr(disc, "plan", {}) or {}
+    if plan.get("content"):
+        return str(plan["content"])[:1000]
+    return str(getattr(disc, "description", "") or getattr(disc, "topic", ""))[:1000]
+
+
+def _record_discussion_output(
+    plaza,
+    disc,
+    *,
+    output_type: str,
+    target_ids: List[str],
+    team_id: str = "",
+    status_value: str = "created",
+) -> Dict[str, Any]:
+    """Record a structured downstream object created from a Plaza discussion."""
+    clean_targets = [target_id for target_id in target_ids if target_id]
+    output = {
+        "id": f"{disc.id}:{output_type}:{':'.join(clean_targets) or team_id or 'none'}",
+        "type": output_type,
+        "status": status_value,
+        "target_ids": clean_targets,
+        "team_id": team_id or getattr(disc, "assigned_team_id", ""),
+        "source": {
+            "type": "plaza_discussion",
+            "plaza_id": getattr(plaza, "id", ""),
+            "discussion_id": disc.id,
+            "topic": disc.topic,
+            "summary": _discussion_summary_text(disc),
+            "participant_team_ids": _participant_team_ids(plaza),
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if not disc.plan:
+        disc.plan = {"content": _discussion_summary_text(disc)}
+    outputs = list(disc.plan.get("outputs") or [])
+    outputs = [item for item in outputs if item.get("id") != output["id"]]
+    outputs.append(output)
+    disc.plan["outputs"] = outputs[-20:]
+    return output
 
 
 def _get_plan_source(disc) -> str:
@@ -628,6 +704,36 @@ async def assign_plan_to_team(
         return {"status": "assigned_no_task", "team_id": req.team_id, "error": str(e)}
 
 
+# ── 讨论输出对象记录 ──────────────────────────────────────
+
+@router.post("/{plaza_id}/discussions/{disc_id}/outputs", summary="记录讨论结论输出到下游对象")
+async def record_discussion_output(
+    plaza_id: str, disc_id: str, req: DiscussionOutputRequest,
+) -> Dict[str, Any]:
+    """Persist the downstream object selected from a Plaza conclusion."""
+    if req.output_type not in _ALLOWED_DISCUSSION_OUTPUT_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不支持的输出类型")
+
+    engine = get_plaza_engine()
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+
+    output = _record_discussion_output(
+        plaza,
+        disc,
+        output_type=req.output_type,
+        target_ids=req.target_ids,
+        team_id=req.team_id,
+        status_value=req.status_value,
+    )
+    engine._store.save_plaza(engine._plazas[plaza_id])
+    return {"status": "recorded", "output": output, "outputs": [output]}
+
+
 # ── 讨论→任务批量派发 ──────────────────────────────────────
 
 class DispatchTasksRequest(BaseModel):
@@ -648,6 +754,14 @@ async def dispatch_tasks_from_discussion(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
     created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=False)
+    output = _record_discussion_output(
+        plaza,
+        disc,
+        output_type="task",
+        target_ids=[task.get("task_id", "") for task in created_tasks],
+        team_id=req.team_id,
+        status_value="dispatched",
+    )
     engine._store.save_plaza(engine._plazas[plaza_id])
 
     return {
@@ -655,6 +769,8 @@ async def dispatch_tasks_from_discussion(
         "team_id": req.team_id,
         "task_count": len(created_tasks),
         "tasks": created_tasks,
+        "output": output,
+        "outputs": [output],
     }
 
 
@@ -769,12 +885,22 @@ async def dispatch_and_execute(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
     created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=True)
+    output = _record_discussion_output(
+        plaza,
+        disc,
+        output_type="task_execution",
+        target_ids=[task.get("task_id", "") for task in created_tasks],
+        team_id=req.team_id,
+        status_value="executing",
+    )
     engine._store.save_plaza(engine._plazas[plaza_id])
     return {
         "status": "executing",
         "team_id": req.team_id,
         "task_count": len(created_tasks),
         "tasks": created_tasks,
+        "output": output,
+        "outputs": [output],
     }
 
 
@@ -880,6 +1006,15 @@ async def evolve_from_discussion(
     )
     payload["cycle_result"] = cycle_result
     await engine._broadcast(disc.id, payload)
+    output = _record_discussion_output(
+        plaza,
+        disc,
+        output_type="evolution_item",
+        target_ids=evolution_item_ids,
+        team_id=req.team_id,
+        status_value="evolving",
+    )
+    engine._store.save_plaza(engine._plazas[plaza_id])
 
     return {
         "status": "evolving",
@@ -888,6 +1023,8 @@ async def evolve_from_discussion(
         "cycle_result": cycle_result,
         "tasks": dispatched_tasks,
         "task_count": len(dispatched_tasks),
+        "output": output,
+        "outputs": [output],
     }
 
 

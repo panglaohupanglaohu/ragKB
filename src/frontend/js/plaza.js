@@ -24,8 +24,33 @@ function toast(m) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = finalText;
   $('toasts').appendChild(t); setTimeout(() => t.remove(), 3500);
 }
-function openM(id) { $(id).classList.add('open') }
-function closeM(id) { $(id).classList.remove('open') }
+const MODAL_TEXT_INPUT_EVENTS = [
+  'keydown', 'keyup', 'keypress',
+  'copy', 'cut', 'paste',
+  'beforeinput', 'input',
+  'compositionstart', 'compositionupdate', 'compositionend'
+];
+
+function isModalTextInput(target) {
+  return !!target?.closest?.('input, textarea, select, [contenteditable="true"]');
+}
+
+function installModalInputGuards(modal) {
+  if (!modal || modal._plazaInputGuardsInstalled) return;
+  const guard = event => {
+    if (isModalTextInput(event.target)) event.stopPropagation();
+  };
+  MODAL_TEXT_INPUT_EVENTS.forEach(type => modal.addEventListener(type, guard));
+  modal._plazaInputGuardsInstalled = true;
+}
+
+function openM(id) {
+  const modal = $(id);
+  if (!modal) return;
+  installModalInputGuards(modal);
+  modal.classList.add('open');
+}
+function closeM(id) { $(id)?.classList.remove('open') }
 window.openM = openM; window.closeM = closeM;
 async function api(url, opts) { return window.api.request ? window.api.request(url, opts) : null; }
 async function listApi(path, limit = 200, offset = 0) {
@@ -1581,6 +1606,7 @@ window.dispatchTasks = async function() {
   if (r && r.task_count) {
     toast(`已拆解 ${r.task_count} 个任务并派发到团队`);
     renderDispatchedTasks(r.tasks);
+    renderStructuredOutput(r.output || (r.outputs || [])[0]);
   } else {
     toast('拆解失败');
   }
@@ -1598,6 +1624,7 @@ window.dispatchAndExecute = async function() {
   if (r && r.task_count) {
     toast(`已拆解 ${r.task_count} 个任务，正在执行中`);
     renderDispatchedTasks(r.tasks);
+    renderStructuredOutput(r.output || (r.outputs || [])[0]);
   } else {
     toast('拆解执行失败');
   }
@@ -1614,6 +1641,7 @@ window.enterEvolution = async function() {
   if (r && r.status === 'evolving') {
     toast(`演化已启动: ${r.evolution_items || 0} 项演进需求`);
     if (r.tasks) renderDispatchedTasks(r.tasks);
+    renderStructuredOutput(r.output || (r.outputs || [])[0]);
     await refreshVerificationState();
   } else {
     toast('演化启动失败');
@@ -1700,6 +1728,35 @@ function renderDispatchedTasks(tasks) {
   if (existing) existing.outerHTML = html;
   else p.querySelector('.plan-card').insertAdjacentHTML('beforeend', html);
   renderVerificationState();
+}
+
+function renderStructuredOutput(output) {
+  if (!output) return;
+  const p = $('plan-panel');
+  if (!p) return;
+  const card = p.querySelector('.plan-card');
+  if (!card) return;
+  const existing = card.querySelector('.structured-output');
+  const source = output.source || {};
+  const targets = Array.isArray(output.target_ids) ? output.target_ids : [];
+  const typeLabel = {
+    task: '任务',
+    task_execution: '任务执行',
+    evolution_item: '演进项',
+    skill_candidate: '技能候选',
+    cost_governance: '成本治理项',
+  }[output.type] || output.type || '输出';
+  const html = `<div class="structured-output" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+    <h4 style="font-size:10px;color:var(--dim);margin-bottom:6px;letter-spacing:1px">STRUCTURED OUTPUT</h4>
+    <div style="display:grid;grid-template-columns:80px 1fr;gap:4px 8px;font-size:11px;color:var(--dim);line-height:1.6">
+      <span>类型</span><strong style="color:var(--text)">${esc(typeLabel)}</strong>
+      <span>团队</span><strong style="color:var(--text)">${esc(output.team_id || '-')}</strong>
+      <span>目标</span><span style="font-family:var(--font-mono);color:var(--text);word-break:break-all">${esc(targets.join(', ') || '-')}</span>
+      <span>来源</span><span style="color:var(--text)">${esc(source.topic || source.discussion_id || '-')}</span>
+    </div>
+  </div>`;
+  if (existing) existing.outerHTML = html;
+  else card.insertAdjacentHTML('beforeend', html);
 }
 
 window.openCreateDisc = async function() {
@@ -1857,14 +1914,36 @@ window.extractFromDisc = async function(event, discId) {
   const planText = disc.plan?.content || disc.summary || '';
   if (!planText) { toast('暂无执行计划可萃取'); return; }
   const title = disc.topic || '讨论萃取';
-  sessionStorage.setItem('extract_source', JSON.stringify({
-    source_text: planText,
-    source_title: title,
-    source_type: 'document'
-  }));
   // Pass participating teams to extract page
   const plaza = await api(`${API}/plaza/${curPlaza}`);
   const routing = buildExtractRouting(plaza, disc);
+  let recordedOutput = null;
+  const outputPayload = {
+    output_type: 'skill_candidate',
+    target_ids: [],
+    team_id: routing.preferredTeamId || '',
+    status_value: 'prepared',
+  };
+  const outputResp = await api(`${API}/plaza/${curPlaza}/discussions/${id}/outputs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(outputPayload),
+  });
+  recordedOutput = outputResp?.output || (outputResp?.outputs || [])[0] || null;
+  if (recordedOutput) {
+    renderStructuredOutput(recordedOutput);
+    sessionStorage.setItem('plaza_structured_output', JSON.stringify(recordedOutput));
+  } else {
+    sessionStorage.removeItem('plaza_structured_output');
+  }
+  sessionStorage.setItem('extract_source', JSON.stringify({
+    source_text: planText,
+    source_title: title,
+    source_type: 'document',
+    source_plaza_id: curPlaza,
+    source_discussion_id: id,
+    source_output_id: recordedOutput?.id || '',
+  }));
   // 只有从讨论参与者中提取到团队信息时才过滤，避免空参与者导致默认跳到错误团队
   if (routing.teamIds.length) {
     sessionStorage.setItem('extract_teams', JSON.stringify(routing.teamIds));

@@ -20,7 +20,14 @@ describe('plaza action paths', () => {
     expect(source).toContain('/evolve`,');
     expect(source).toContain('window.runVerificationQueue = async function()');
     expect(source).toContain('/verification-queue/run`,');
+    expect(source).toContain('function renderStructuredOutput(output)');
+    expect(source).toContain('STRUCTURED OUTPUT');
+    expect(source).toContain('renderStructuredOutput(r.output || (r.outputs || [])[0])');
     expect(source).toContain('window.extractFromDisc = async function(event, discId)');
+    expect(source).toContain('/outputs`,');
+    expect(source).toContain("output_type: 'skill_candidate'");
+    expect(source).toContain("sessionStorage.setItem('plaza_structured_output'");
+    expect(source).toContain('source_output_id');
     expect(source).toContain("sessionStorage.setItem('extract_source'");
     expect(source).toContain("window.location.href = targetUrl.pathname + targetUrl.search");
   });

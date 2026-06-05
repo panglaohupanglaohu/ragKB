@@ -10,6 +10,7 @@
 - 每完成一个条目，同步更新本文件和 `OptimizePlan.md`。
 - 一个 phase 完成后再提交并推送，避免把半成品流程推上去。
 - 当前仓库存在其他 WIP，执行时只触碰当前任务需要的文件。
+- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环`、`P2-*` 当前由 codebuddy 并行推进，本线程暂不修改这些范围。
 
 状态定义：
 - `TODO`：未开始。
@@ -283,6 +284,9 @@
 - 系统演进页真实浏览器 smoke：通过登录/注册路径进入 `system-evolution.html`，点击"运行审查"生成 4 个演进项，点击首个演进项"详情"打开证据面板，面板展示发现问题、期望行为、Build Task、验证结论和 EvidenceRun 区域。
 - 修复系统演进页内联按钮契约：页面动作通过 `exposeEvolutionActions()` 显式挂载到 `window`，`item_id` 深链会自动打开详情。
 - 修复演进项完成语义：`/evolution/items/{item_id}/complete` 支持 `code_changes` 和 `artifact_dir`，缺少构建证据时返回 400；前端"完成"改为打开"构建完成证据"表单再提交。
+- 修复 Plaza 创建广场/创建讨论弹窗输入守卫：输入框内 `Ctrl/Cmd+C`、`Ctrl/Cmd+V`、剪切、输入法组合事件不再冒泡到页面外层，避免复制粘贴时焦点退出输入框。
+- 本轮尝试用 in-app Browser 打开 `127.0.0.1:5173/plaza.html` 和 `localhost:5173/plaza.html`，均被客户端拦截为 `ERR_BLOCKED_BY_CLIENT`；因此不计入真实浏览器 smoke，保留自动化契约测试和后续补跑项。
+
 - 当前 in-app Browser 的文字输入通道被虚拟剪贴板限制阻塞，因此系统演进页"完成证据表单"暂未完成真实浏览器提交；代码路径已由自动化回归覆盖。
 - 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `6 passed`。
 - 验证：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
@@ -293,8 +297,29 @@
 - 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `9 passed`。
 - 技能萃取动作路径自动化 smoke 已补齐萃取启动、详情、批准入库、沙箱/容器验证和发布门禁入口。
 - 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/skill-publish-gate.test.js` -> `3 passed`。
-- 聚合验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `25 passed`。
-- 聚合验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `10 passed`。
+- 聚合验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/plaza-modal-input.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `26 passed`。
+- 聚合验证：`./venv/bin/python -m pytest -q src/backend/tests/test_plaza_structured_outputs.py src/backend/tests/test_plaza_task_artifact_bridge.py src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `29 passed`。
+
+### BUG-P0-01 Plaza 创建弹窗输入法快捷键保护
+
+状态：DONE
+
+目标：创建议事广场和创建讨论时，输入框内的复制、粘贴、剪切、输入法组合事件必须保持在输入控件内，不能触发外层页面行为或导致焦点退出。
+
+涉及文件：
+- `src/frontend/js/plaza.js`
+- `src/frontend/__tests__/plaza-modal-input.test.js`
+
+执行步骤：
+- [x] 为 Plaza modal 安装输入事件守卫。
+- [x] 对 `keydown/keyup/keypress/copy/cut/paste/beforeinput/input/composition*` 只做 `stopPropagation`，不阻断默认复制粘贴行为。
+- [x] 覆盖创建广场、编辑广场、创建讨论三个 Plaza modal。
+- [x] 增加前端静态契约测试。
+
+验收标准：
+- 用户在 Plaza 创建弹窗输入内容时，`Ctrl/Cmd+C` 和 `Ctrl/Cmd+V` 不会让输入框退出焦点。
+- 输入法组合输入不会被外层页面事件打断。
+- 复制粘贴默认行为仍由浏览器处理。
 
 ---
 
@@ -344,11 +369,25 @@
 
 ### P1-01 Plaza 输出类型结构化
 
-状态：TODO
+状态：DOING
 
 - [ ] Plaza 讨论完成后可选择输出为任务、技能候选、演进项或成本治理项。
-- [ ] 输出对象保留 Plaza topic id、结论摘要、参与团队。
+- [x] 输出对象保留 Plaza topic id、结论摘要、参与团队。
+- [x] 任务派发、拆解执行、进入演进响应返回统一 `output/outputs`。
+- [x] 萃取技能前记录 `skill_candidate` 结构化输出。
+- [x] Plaza 前端计划面板展示结构化输出摘要。
+- [x] 技能萃取页展示 Plaza 来源并可回跳原讨论。
 - [ ] 后续页面能反向追溯来源 Plaza。
+
+最新进展：
+- 新增 Plaza structured output helper，统一记录 `type/status/target_ids/team_id/source(plaza_id/discussion_id/topic/summary/participant_team_ids)`。
+- `/dispatch` 返回 `type=task` 输出；`/dispatch-and-execute` 返回 `type=task_execution` 输出；`/evolve` 返回 `type=evolution_item` 输出。
+- 新增 `/plaza/{plaza_id}/discussions/{disc_id}/outputs`，用于记录 `skill_candidate`、`cost_governance` 等非任务型输出。
+- 前端 `renderStructuredOutput()` 在计划面板展示输出类型、团队、目标对象和来源讨论。
+- Plaza "萃取"动作会先记录 `type=skill_candidate` 输出，再把 Plaza source metadata 传到技能萃取页。
+- 技能萃取页新增 Plaza 来源提示，可从候选创建页面回跳 `plaza.html?plaza_id=...&discussion_id=...`。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_plaza_structured_outputs.py src/backend/tests/test_plaza_task_artifact_bridge.py` -> `19 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-modal-input.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/extract-routing.test.js` -> `10 passed`。
 
 ### P1-02 Agent 能力画像
 
@@ -403,14 +442,15 @@
 
 ## 下一步
 
-当前下一个执行项：`TEST-P0-01 核心页面真实浏览器验收`。
+当前下一个执行项：`P1-01 Plaza 输出类型结构化` 剩余项；不抢占 codebuddy 正在推进的 `P1-02/P1-03/P1-04/P2`。
 
 第一刀：
-1. 固化成本页浏览器 smoke：summary、trend、pods、gate/self-check、错误态。
-2. 输入通道恢复后补跑系统演进页完整表单 smoke：提交构建证据、运行验证、查看 EvidenceRun。
-3. 固化技能萃取页和 Plaza 入口 smoke：创建候选/讨论、验证、查看 EvidenceRun、发布门禁。
+1. 在 Plaza 计划面板增加明确的输出类型选择区：任务、技能候选、演进项、成本治理项。
+2. 对 `cost_governance` 只先记录 Plaza structured output 和来源，不实现成本闭环执行，避免和 codebuddy 的 `P1-04` 冲突。
+3. 补齐任务页 / 演进页 / 技能页对 Plaza source 的统一展示或深链。
+4. 输入通道恢复后补跑 TEST-P0 浏览器表单路径：成本页、技能页、Plaza、演进页。
 
 完成下一刀后：
-- 更新本文件 `TEST-P0-01` 子项状态。
+- 更新本文件 `P1-01` 和 `TEST-P0-01` 子项状态。
 - 同步 `OptimizePlan.md` 的状态。
-- 继续推进剩余页面验收。
+- 若 codebuddy 已完成 P1/P2 并合入，再基于最新代码重排后续 TODO。
