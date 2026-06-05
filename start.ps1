@@ -110,7 +110,7 @@ if (-not $ready) {
 
 # ── Start frontend ──
 Write-Host "🌐 Starting frontend on port 5173..." -ForegroundColor Cyan
-$frontendProcess = Start-Process npx -ArgumentList "vite","--config","vite.config.mjs","--port","5173" -WorkingDirectory $ROOT -WindowStyle Hidden -PassThru
+$frontendProcess = Start-Process cmd -ArgumentList "/c","npx vite --config vite.config.mjs --port 5173" -WorkingDirectory $ROOT -WindowStyle Hidden -PassThru
 
 Start-Sleep 3
 if ($frontendProcess.HasExited -and $frontendProcess.ExitCode -ne 0) {
