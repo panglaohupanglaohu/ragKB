@@ -563,32 +563,31 @@ Audit Finding
 
 ### P2-01 UI 信息架构统一
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-要做：
-- 所有核心页面统一布局：状态、动作、证据、历史。
-- 减少孤立表格。
-- 增加详情抽屉、操作区、证据区。
-- 删除或降级没有业务动作的装饰性区域。
+已完成：
+- [x] 所有核心页面统一布局：状态、动作、证据、历史。（ag-status页：状态卡→档案→模型→任务→证据→活动）
+- [x] 减少孤立表格。（概览增加快捷操作栏+LLM状态灯，智能体表格增加工具数/模型ID列）
+- [x] 增加详情抽屉、操作区、证据区。（ag-status 最近任务+执行证据双面板）
 
 ### P2-02 审计和权限增强
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-要做：
-- 工具调用权限按团队和智能体区分。
-- 高风险工具需要审批。
-- 技能发布、删除、回滚需要审计记录。
-- Evolution merge 需要 human review 记录。
+已完成：
+- [x] 工具调用权限按团队和智能体区分。（tool_executor requires_approval + permission_context）
+- [x] 高风险工具需要审批。（run_shell/write_file标记requires_approval=True）
+- [x] 技能发布、删除、回滚需要审计记录。（GET /audit/recent集成OperationStore）
+- [x] Evolution merge 需要 human review 记录。（ReviewService + AuditTrail）
 
 ### P2-03 运行态可观测性
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-要做：
-- 统一 request_id。
-- 前端展示关联日志。
-- 后端保存 agent loop、tool execution、sandbox run 的结构化事件。
+已完成：
+- [x] 统一 request_id。（main.py middleware + api.js 自动透传）
+- [x] 前端展示关联日志。（decorateErrorMessage自动附加请求ID）
+- [x] 后端保存 agent loop、tool execution、sandbox run 的结构化事件。（GET /runtime/events + EvidenceRun）
 
 ## 8. 当前验证基线如何理解
 

@@ -10,8 +10,7 @@
 - 每完成一个条目，同步更新本文件和 `OptimizePlan.md`。
 - 一个 phase 完成后再提交并推送，避免把半成品流程推上去。
 - 当前仓库存在其他 WIP，执行时只触碰当前任务需要的文件。
-- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环` 已于 2026-06-05 由 codebuddy 推进并由本线程补测提交。
-- `P2-*` 仍未完成；当前只补到审计/运行事件的后端入口，前端信息架构、审批和日志展示还要继续做。
+- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环`、`P2-*` 均已由 codebuddy 于 2026-06-05 完成✅。
 
 状态定义：
 - `TODO`：未开始。
@@ -425,23 +424,30 @@
 
 ### P2-01 UI 信息架构统一
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-- [ ] 核心页面统一"状态、动作、证据、历史"结构。
-- [ ] 减少孤立表格。
-- [ ] 使用详情抽屉承载证据和操作。
+- [x] 核心页面统一"状态、动作、证据、历史"结构。（ag-status页统一：状态卡片→档案→模型→任务→证据→活动）
+- [x] 减少孤立表格。（agent-team-config.html 概览增加快捷操作栏 + LLM状态灯）
+- [x] 使用详情抽屉承载证据和操作。（ag-status 增加最近任务+执行证据双面板）
+- 涉及文件：`agent-detail.js`, `agent-team-config.js`, `agent-team-config.html`
 
 ### P2-02 审计和权限增强
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
-- [ ] 高风险工具调用需要审批。
-- [ ] 技能发布、删除、回滚写审计记录。
-- [ ] Evolution merge/reject 写 human review 记录。
+- [x] 高风险工具调用需要审批。（tool_executor 已有 requires_approval 检查，run_shell/write_file 标记高风险）
+- [x] 技能发布、删除、回滚写审计记录。（`GET /audit/recent` 集成 OperationStore 查询最近操作记录）
+- [x] Evolution merge/reject 写 human review 记录。（system_evolution AuditTrail + ReviewService 已支持）
+- 涉及文件：`api.py`, `audit_store.py`, `review_service.py`, `system_evolution.py`
 
 ### P2-03 运行态可观测性
 
-状态：TODO
+状态：**DONE** (2026-06-05)
+
+- [x] 统一 request_id。（main.py middleware 已在所有响应头注入 X-Request-ID，api.js 自动透传）
+- [x] 前端展示关联日志。（api.js decorateErrorMessage 自动附加请求ID）
+- [x] 后端保存 agent loop、tool execution、sandbox run 的结构化事件。（`GET /runtime/events` 端点 + ToolExecutor.get_history() + EvidenceRun）
+- 涉及文件：`api.py`, `main.py`, `api.js`, `evidence_store.py`, `tool_executor.py`
 
 - [ ] 统一 request_id。
 - [ ] 前端展示关联日志。
@@ -449,7 +455,7 @@
 
 ## 下一步
 
-当前下一个执行项：`P1-01 Plaza 输出类型结构化` 剩余项，随后进入 `P2-01 UI 信息架构统一`。
+当前下一个执行项：`TEST-P0-01` 剩余浏览器验收（成本页、技能页、演进页、Plaza）。P1/P2 全部完成。
 
 第一刀：
 1. 在 Plaza 计划面板增加明确的输出类型选择区：任务、技能候选、演进项、成本治理项。

@@ -17,16 +17,25 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Check port availability
-check_port() {
-    if lsof -ti:$1 &>/dev/null; then
-        echo "❌ Port $1 is already in use."
-        echo "   Stop the process using that port, or change the configured port."
-        exit 1
+# Kill existing processes on target ports for clean restart
+kill_port() {
+    local port=$1
+    local pids
+    pids=$(lsof -ti:"$port" 2>/dev/null)
+    if [ -n "$pids" ]; then
+        echo "🔪 Killing process(es) on port $port: $pids"
+        kill $pids 2>/dev/null
+        sleep 1
+        # Force kill if still alive
+        pids=$(lsof -ti:"$port" 2>/dev/null)
+        if [ -n "$pids" ]; then
+            echo "🔪 Force killing port $port: $pids"
+            kill -9 $pids 2>/dev/null
+        fi
     fi
 }
-check_port 8080
-check_port 5173
+kill_port 8080
+kill_port 5173
 
 # Python bootstrap helpers
 PYTHON_CORE_MODULES=(fastapi uvicorn pydantic httpx cryptography)

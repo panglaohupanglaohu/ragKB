@@ -8488,6 +8488,12 @@ def skill_benchmark(skill_id: str, team_id: str = "") -> Dict[str, Any]:
     """返回技能的 benchmark 数据集和评分."""
     sr = _sr()
     skill = sr.get_by_slug(skill_id)
+    if not skill and team_id:
+        lib = _get_skill_library()
+        skill = lib._find_skill(team_id, skill_id) if lib else None
+    if not skill:
+        # Try by name as fallback
+        skill = sr.get_by_slug(skill_id.lower().replace(" ","_"))
     if not skill:
         raise HTTPException(404, "Skill not found")
     # Compute stats
@@ -8518,6 +8524,9 @@ def skill_failure_reasons(skill_id: str, team_id: str = "") -> Dict[str, Any]:
     """返回技能最近失败原因统计."""
     sr = _sr()
     skill = sr.get_by_slug(skill_id)
+    if not skill and team_id:
+        lib = _get_skill_library()
+        skill = lib._find_skill(team_id, skill_id) if lib else None
     if not skill:
         raise HTTPException(404, "Skill not found")
     return {
