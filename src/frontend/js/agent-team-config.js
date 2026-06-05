@@ -368,6 +368,19 @@ async function loadOverview(){
   const sc=el('ov-stats');
   const _teamIcons={'build_system':'🏗️','energy_first_principle':'⚡','ai_coding':'💻','d083a568':'☁️'};
   const allTeams=teamsList||[];
+
+  // ── Quick Actions Bar ──
+  const modelOk = ov?.evolution?.compliance_rating ? true : false;
+  const qaHtml = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn btn-pink btn-sm" onclick="switchView('runtime')" title="运行 Agent Loop 测试智能体能力">▶ 运行 Agent Loop</button>
+    <button class="btn btn-sm" onclick="switchView('models')">🧠 模型配置</button>
+    <button class="btn btn-sm" onclick="switchView('tasks')">📋 任务队列</button>
+    <button class="btn btn-sm" onclick="switchView('skills')">⚡ 技能管理</button>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+      <span id="ov-llm-status" style="padding:2px 8px;border-radius:4px;font-size:10px">加载中…</span>
+    </span>
+  </div>`;
+
   if(ov){
     const sh=ov.scheduler||{};
     const ev=ov.evolution||{};
@@ -376,18 +389,51 @@ async function loadOverview(){
     const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
     const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
     const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
-    sc.innerHTML=`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
+
+    // Team readiness indicator
+    const teamAgents=curTm?.agents ? (Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents)) : [];
+    const workingCount=teamAgents.filter(a=>a.state==='working').length;
+    const readyBadge=workingCount>0
+      ? `<span style="color:var(--lime);font-size:11px">● ${workingCount} 个智能体工作中</span>`
+      : `<span style="color:var(--amber);font-size:11px">● 团队待命中</span>`;
+
+    sc.innerHTML=qaHtml+`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
+
     const curTmMeta=allTeams.find(t=>t&&t.team_id===tid);
     const teamTitle=(curTm&&curTm.name)||(curTmMeta&&curTmMeta.name)||tid;
     const teamIcon=_teamIcons[tid]||'🤖';
     renderSbAgents(curTm);
-    el('ov-team-title').textContent=`${teamIcon} ${teamTitle}`;
+    el('ov-team-title').innerHTML=`${teamIcon} ${teamTitle} ${readyBadge}`;
     const tbody=el('ov-team-agents');tbody.innerHTML='';
     if(curTm&&curTm.agents){
       const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);
-      aa.forEach(a=>{tbody.innerHTML+=`<tr><td><b>${escapeHtml(a.name||a.agent_id)}</b></td><td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td><td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td><td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+s+'</span>').join('')}</td><td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td></tr>`});
+      aa.forEach(a=>{
+        const skillChips=(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+escapeHtml(s)+'</span>').join('');
+        const toolCount=a.tools?.length||0;
+        const modelId=a.model_id||'-';
+        tbody.innerHTML+=`<tr>
+          <td><b>${escapeHtml(a.name||a.agent_id)}</b></td>
+          <td style="color:var(--muted);font-size:12px">${escapeHtml(a.role||'-')}</td>
+          <td><span class="st st-${a.state||'idle'}" style="font-size:11px">${stL(a.state)}</span></td>
+          <td style="font-size:11px">${skillChips||'<span style="color:var(--dim)">无</span>'}</td>
+          <td style="font-size:10px;color:var(--muted)">🔧${toolCount} 🧠${escapeHtml(modelId)}</td>
+          <td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td>
+        </tr>`;
+      });
     }
-    if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
+    if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="6" style="color:var(--dim)">暂无</td></tr>';
+
+    // LLM status indicator
+    api(`${A}/llm/status`).then(llm=>{
+      const badge=el('ov-llm-status');
+      if(llm&&llm.provider){
+        badge.innerHTML=`🧠 ${escapeHtml(llm.provider)}/${escapeHtml(llm.model||'?')}`;
+        badge.style.background='rgba(38,162,105,0.1)';badge.style.color='var(--lime)';
+      } else {
+        badge.innerHTML='🧠 未配置';badge.style.background='rgba(224,27,36,0.1)';badge.style.color='var(--red)';
+      }
+    });
+
     refreshTracePanel();
     agRuntime.overviewTimer=setInterval(()=>{
       if(document.hidden||!document.querySelector('#view-overview:not(.hidden)')){
@@ -395,7 +441,6 @@ async function loadOverview(){
         agRuntime.overviewTimer=null;
         return;
       }
-      // Incremental refresh
       if (typeof refreshBudgetPanel === 'function') refreshBudgetPanel();
       if (typeof refreshTracePanel === 'function') refreshTracePanel();
     },10000);
@@ -680,8 +725,21 @@ async function testLLM(){
 async function loadModels(){const d=await apiList(`${A}/teams/${tid}/models`,200,0);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
 async function delModel(mid){if(!confirm('删除此模型？'))return;await csrfFetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
-  const r=await api(`${A}/teams/${tid}/models/${mid}/default`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
-  if(r){toast(`模型 ${mid} 已设为默认，所有智能体已同步`);loadModels();loadSbAgents();if(aid)loadAgent()}else toast('设置失败')
+  await _ensureCsrf();
+  var r = await (window._agFetch || fetch)(`${A}/teams/${tid}/models/${mid}/default`, {method:'PUT', headers:{'Content-Type':'application/json','x-csrf-token':_csrfToken||''}, body:'{}'});
+  if(r && r.ok){
+    try { var d = await r.json(); } catch(e) { d = null; }
+    if(d && d.is_default){
+      toast(`模型 ${mid} 已设为默认，所有智能体已同步`);
+    } else {
+      toast(`模型 ${mid} 设为默认失败`);
+    }
+    loadModels(); loadSbAgents(); if(aid)loadAgent();
+  } else {
+    var msg = '';
+    try { var ed = await r.json(); msg = ed.detail || ''; } catch(e) {}
+    toast('设为默认失败' + (msg ? ': '+msg : ''));
+  }
 }
 async function openEditModel(mid){
   agRuntime.editModelId=mid;
@@ -701,7 +759,7 @@ async function openEditModel(mid){
   updateEmUrlHint();
   openModal('modal-edit-model');
 }
-const _providerDefaultUrls={deepseek:'https://api.deepseek.com',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',github:'https://models.inference.ai.azure.com',qwen:'https://dashscope.aliyuncs.com/compatible-mode/v1',openrouter:'https://openrouter.ai/api/v1',local:'http://127.0.0.1:11434/v1'};
+const _providerDefaultUrls={codebuddy:'https://copilot.tencent.com/v2',deepseek:'https://api.deepseek.com',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',github:'https://models.inference.ai.azure.com',qwen:'https://dashscope.aliyuncs.com/compatible-mode/v1',openrouter:'https://openrouter.ai/api/v1',local:'http://127.0.0.1:11434/v1'};
 function updateEmUrlHint(){
   const prov=el('em-prov').value;
   const defaultUrl=_providerDefaultUrls[prov]||'';
@@ -711,6 +769,28 @@ function updateEmUrlHint(){
   if(hint){
     if(urlInput.value){hint.textContent=`自定义 URL（默认: ${defaultUrl}）`}
     else{hint.textContent=`当前使用默认: ${defaultUrl}`}
+  }
+}
+async function submitAddModel(){
+  const name=el('am-name').value.trim();
+  if(!name){toast('模型名称不能为空');return}
+  await _ensureCsrf();
+  const body={provider:el('am-prov').value,name:name,max_tokens:parseInt(el('am-tok').value)||8192,temperature:parseFloat(el('am-temp').value)||0.7,is_default:el('am-def').value==='true',api_key:el('am-key').value,api_base_url:el('am-url').value};
+  var r = await (window._agFetch || fetch)(`${A}/teams/${tid}/models`,{method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':_csrfToken||''},body:JSON.stringify(body)});
+  if(r && r.ok){
+    try { var d = await r.json(); } catch(e) { d = null; }
+    if(d){
+      toast(`模型 ${name} 已添加`);
+      closeModal('modal-add-model');
+      loadModels();
+      if(body.is_default){loadSbAgents();if(aid)loadAgent()}
+      // Clear form
+      el('am-name').value=''; el('am-key').value=''; el('am-url').value='';
+    } else { toast('添加失败: 后端返回空'); }
+  } else {
+    var msg = '';
+    try { var ed = await r.json(); msg = ed.detail || ''; } catch(e) {}
+    toast('添加失败' + (msg ? ': '+msg : ''));
   }
 }
 async function submitEditModel(){

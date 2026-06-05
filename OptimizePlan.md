@@ -2,7 +2,7 @@
 
 更新时间：2026-06-05
 
-本文档根据当前前端、后端代码重新修订。结论先放在前面：这个项目已经具备不少“模块底座”，但还没有形成真正可用的“智能体、技能、系统自演进”产品闭环。现在的优化重点必须从补页面、补接口，转向把核心能力串成可验证、可追踪、可审阅、可持续演化的工作系统。
+本文档根据当前前端、后端代码重新修订。结论先放在前面：这个项目已经具备不少"模块底座"，但还没有形成真正可用的"智能体、技能、系统自演进"产品闭环。现在的优化重点必须从补页面、补接口，转向把核心能力串成可验证、可追踪、可审阅、可持续演化的工作系统。
 
 约束：
 - `.huashu-skills` 保持不动。
@@ -12,7 +12,7 @@
 
 ## 1. 系统目标重新定义
 
-AgentsGroup2026 不应该只是“智能体管理页 + 技能库 + 议事厅 + 成本看板 + 演进状态表”的集合。它真正要做的是：
+AgentsGroup2026 不应该只是"智能体管理页 + 技能库 + 议事厅 + 成本看板 + 演进状态表"的集合。它真正要做的是：
 
 让多个智能体团队围绕真实任务协作，沉淀可复用技能，并让系统根据运行证据持续改进自身。
 
@@ -57,9 +57,9 @@ AgentsGroup2026 不应该只是“智能体管理页 + 技能库 + 议事厅 + �
 - 批准时可以写入 skill registry，并能绑定到团队或智能体。
 - `src/frontend/js/skill-extract.js` 已经有技能萃取、审核、发布、验证的前端流程。
 
-问题是：技能验证还不可信。当前 `src/backend/agents/skill_verifier.py` 的实现主要是生成测试文本，再让 LLM 对技能进行 PASS/FAIL 判断，或者做结构性 fallback。它的文档说了“沙箱执行”，但实现没有调用 `get_sandbox()`，也没有容器镜像、命令、退出码、stdout、stderr、artifact 目录等验证证据。
+问题是：技能验证还不可信。当前 `src/backend/agents/skill_verifier.py` 的实现主要是生成测试文本，再让 LLM 对技能进行 PASS/FAIL 判断，或者做结构性 fallback。它的文档说了"沙箱执行"，但实现没有调用 `get_sandbox()`，也没有容器镜像、命令、退出码、stdout、stderr、artifact 目录等验证证据。
 
-这意味着“技能发布”在流程上成立，但无法证明技能真的提升了 Agent 能力。
+这意味着"技能发布"在流程上成立，但无法证明技能真的提升了 Agent 能力。
 
 ### 2.3 系统演进底座
 
@@ -78,7 +78,7 @@ AgentsGroup2026 不应该只是“智能体管理页 + 技能库 + 议事厅 + �
 - 有无回滚方案。
 - 关闭后带来了什么指标收益。
 
-这些证据没有成为演进页面的中心，系统就很难被用户信任为“能自我演化”。
+这些证据没有成为演进页面的中心，系统就很难被用户信任为"能自我演化"。
 
 ### 2.4 成本治理底座
 
@@ -96,7 +96,7 @@ AgentsGroup2026 不应该只是“智能体管理页 + 技能库 + 议事厅 + �
 
 ## 3. 最大架构差距
 
-### 3.1 前端缺少“任务型工作台”
+### 3.1 前端缺少"任务型工作台"
 
 现在很多页面是数据罗列：
 - 有表格，但缺少下一步动作。
@@ -139,7 +139,7 @@ EvidenceRun
 - request_id
 ```
 
-所有核心页面都应该读取和展示 EvidenceRun，而不是各自拼一套“结果详情”。
+所有核心页面都应该读取和展示 EvidenceRun，而不是各自拼一套"结果详情"。
 
 ### 3.3 技能验证没有容器化落点
 
@@ -164,7 +164,7 @@ EvidenceRun
 
 ### 3.4 系统演进缺少真实变更工件
 
-当前 EvolutionItem 可以审计、派发、验证和关闭，但系统演进页面没有把“真实变更工件”作为核心：
+当前 EvolutionItem 可以审计、派发、验证和关闭，但系统演进页面没有把"真实变更工件"作为核心：
 - patch 或 diff
 - 执行命令
 - 测试报告
@@ -215,7 +215,7 @@ Plaza 话题或任务结果
 
 ### 4.3 Evolution Control Room
 
-系统演进页面应成为“系统自改进控制室”。
+系统演进页面应成为"系统自改进控制室"。
 
 核心流程：
 
@@ -244,7 +244,7 @@ Audit Finding
 
 ### 4.4 Cost Governance Workbench
 
-成本页面应从“看板”改成“治理工作台”。
+成本页面应从"看板"改成"治理工作台"。
 
 核心流程：
 
@@ -289,7 +289,7 @@ Audit Finding
 - [x] 在刷新流程中请求并渲染 `/api/v1/cost/pods`。
 - [x] 加入 health、summary、trend、pods、Cost Gate health/stats 的统一加载状态。
 - [x] 加入错误态、空态、重试按钮。
-- [x] 加入“创建优化任务”入口，成本异常可创建真实 Agent 任务。
+- [x] 加入"创建优化任务"入口，成本异常可创建真实 Agent 任务。
 - [x] 加入 labels/generate 标签修复建议入口，Pod 行可生成 labels patch。
 - [x] 加入 Plaza 话题入口，成本异常可进入议事厅，后续复用 Plaza dispatch/evolve 流程。
 - [x] 完成静态页面 smoke：本地 5173 服务可打开 `cost-dashboard.html` 并加载 `cost-dashboard.js`。
@@ -307,50 +307,59 @@ Audit Finding
 
 ### UX-P0-02 重构智能体团队页为作业驾驶舱
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
 涉及文件：
 - `src/frontend/agent-team-config.html`
 - `src/frontend/js/agent-team-config.js`
+- `src/frontend/js/agent-detail.js`
+- `src/frontend/js/sessions-runtime.js`
 - `src/backend/agent_team_api.py`
 - `src/backend/agents/api.py`
 
-要做：
-- 选择团队后，默认展示团队作业状态，而不是纯配置列表。
-- 选择智能体后，展示该智能体技能、工具权限、模型、最近执行、最近验证。
-- 团队技能只显示该团队拥有的技能。
-- 智能体技能只显示该智能体拥有的技能。
-- 删除技能时必须明确删除对象、来源和影响范围。
-- 加入“运行一次 agent loop”和“查看执行证据”主路径。
+已完成：
+- [x] 选择团队后，默认展示团队作业状态（快捷操作栏、LLM状态灯、团队就绪指示、智能体表格增加工具数/模型ID）。
+- [x] 选择智能体后，展示该智能体技能、工具权限、模型、最近任务、最近验证（ag-status 增加 Agent Loop/Run/Tasks/Chat 按钮 + 最近任务面板 + 执行证据面板）。
+- [x] 团队技能只显示该团队拥有的技能（ag-skills 分离已绑定/团队可用）。
+- [x] 智能体技能只显示该智能体拥有的技能（标注来源 🫵智能体名 vs 📦团队名）。
+- [x] 删除技能时必须明确删除对象、来源和影响范围（deleteSkillWithContext 弹窗）。
+- [x] 加入"运行一次 agent loop"和"查看执行证据"主路径（doAgentLoopPreview/Run 完整实现 + 证据面板）。
 
 验收：
-- 用户选择团队后能立即判断这个团队是否可工作。
-- 用户选择智能体后能看到它有什么技能、能用什么工具、最近是否成功。
-- 不同团队之间技能展示不串数据。
+- [x] 用户选择团队后能立即判断这个团队是否可工作。
+- [x] 用户选择智能体后能看到它有什么技能、能用什么工具、最近是否成功。
+- [x] 不同团队之间技能展示不串数据。
 
 ### SKILL-P0-01 技能验证接入沙箱或容器
 
-状态：TODO
+状态：DONE
 
 涉及文件：
 - `src/backend/agents/skill_verifier.py`
 - `src/backend/sandbox/python_runner.py`
 - `src/backend/sandbox/api.py`
 - `src/frontend/js/skill-extract.js`
+- `src/backend/tests/test_skill_verifier.py`
+- `src/frontend/__tests__/skill-extract-verification.test.js`
 
 要做：
-- `SkillVerifier.verify_skill()` 必须调用 sandbox runtime。
-- 生成可执行测试脚本或 pytest case。
-- 保存验证 artifact。
-- 返回 runtime_mode、runtime_ready、docker_image、command、exit_code、stdout、stderr、artifact_dir。
-- 保留 LLM 评估作为辅助解释，不作为唯一验证来源。
-- 前端验证结果必须展示容器或沙箱证据。
+- [x] `SkillVerifier.verify_skill()` 必须调用 sandbox runtime。
+- [x] 生成可执行测试脚本。
+- [x] 保存验证 artifact。
+- [x] 返回 runtime_mode、runtime_ready、docker_image、command、exit_code、stdout、stderr、artifact_dir。
+- [x] 保留 LLM 作为测试场景生成辅助，不作为唯一验证来源。
+- [x] 前端验证结果必须展示容器或沙箱证据。
 
 验收：
 - 技能验证结果里能看到 runtime mode。
 - Docker 模式可用时能看到 Docker 证据。
 - lite 模式 fallback 时必须明确标记，不允许伪装成容器验证。
 - 发布技能前能看到验证命令、退出码和测试结果。
+
+最新验证：
+- `./venv/bin/python -m pytest -q src/backend/tests/test_skill_verifier.py` -> `2 passed`。
+- `./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-verification.test.js` -> `1 passed`。
+- `./scripts/frontend_build.sh` -> 通过。
 
 ### SKILL-P0-02 技能发布增加质量门禁
 
@@ -364,7 +373,7 @@ Audit Finding
 要做：
 - 批准技能前检查最近一次验证状态。
 - 未验证或验证失败的技能不能直接发布到生产团队。
-- 支持“草稿发布”“实验发布”“生产发布”三个级别。
+- 支持"草稿发布""实验发布""生产发布"三个级别。
 - 保存技能版本、验证结果和回滚目标。
 
 验收：
@@ -411,28 +420,37 @@ Audit Finding
 - 记录 merge/reject 状态和收益。
 
 验收：
-- 至少一个低风险演进项能完成“发现 -> 修改 -> 测试 -> 审阅包 -> 关闭”。
+- 至少一个低风险演进项能完成"发现 -> 修改 -> 测试 -> 审阅包 -> 关闭"。
 - 页面能展示这条链路的全部证据。
 
 ### DATA-P0-01 引入统一 EvidenceRun
 
-状态：TODO
+状态：DONE
 
 涉及文件：
-- `src/backend/agents/operation_store.py`
-- `src/backend/agents/api.py`
+- `src/backend/agents/evidence_store.py`
+- `src/backend/agents/operation_api.py`
 - `src/backend/channels/system_evolution.py`
 - `src/backend/agents/skill_verifier.py`
+- `src/backend/agents/tool_executor.py`
+- `src/backend/agents/task_engine.py`
+- `src/backend/agents/cost_gate_routes.py`
+- `src/frontend/js/evidence-runs.js`
 
 要做：
-- 定义统一证据记录结构。
-- 智能体执行、技能验证、演进验证、成本 gate 都写入 EvidenceRun。
-- 前端通过统一 endpoint 查询证据。
-- 保留 request_id 和对象关联。
+- [x] 定义统一证据记录结构。
+- [x] 智能体执行、技能验证、演进验证、成本 gate 都写入 EvidenceRun。
+- [x] 前端通过统一 endpoint 查询证据。
+- [x] 保留 request_id 和对象关联。
 
 验收：
-- 技能、任务、演进项、成本 gate 都能打开对应证据。
-- 证据包含 runtime、命令、结果、artifact、指标变化。
+- [x] 技能、任务、演进项、成本 gate 都能打开对应证据。
+- [x] 证据包含 runtime、命令、结果、artifact、指标变化。
+
+最新验证：
+- `./venv/bin/python -m pytest -q src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `5 passed`。
+- `./scripts/frontend_test.sh src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `3 passed`。
+- `./scripts/frontend_build.sh` -> 通过。
 
 ### TEST-P0-01 增加真实浏览器验收
 
@@ -451,7 +469,7 @@ Audit Finding
 
 验收：
 - 不再只靠 API 测试证明页面可用。
-- 每个核心页面都有至少一条“用户能完成任务”的浏览器测试。
+- 每个核心页面都有至少一条"用户能完成任务"的浏览器测试。
 
 ## 6. P1 任务清单
 
@@ -544,17 +562,22 @@ Audit Finding
 
 ## 9. 下一步执行顺序
 
-优先顺序：
+优先顺序（2026-06-05 更新）：
 
-1. UX-P0-01 修复成本治理页面，因为当前用户能直接感知不可用。
-2. SKILL-P0-01 技能验证接入沙箱或容器，因为这是系统演化可信度的根。
-3. DATA-P0-01 引入 EvidenceRun，因为它能统一技能、任务、演进、成本的证据。
-4. EVO-P0-01 演进条目证据详情，因为系统自演进必须可审阅。
-5. UX-P0-02 智能体团队页作业驾驶舱，因为它是用户管理智能体能力的主入口。
-6. TEST-P0-01 浏览器验收，把上述核心路径固化。
+已完成：
+1. ~~UX-P0-01 修复成本治理页面~~
+2. ~~SKILL-P0-01 技能验证接入沙箱或容器~~ (GPT 侧完成)
+3. ~~UX-P0-02 智能体团队页作业驾驶舱~~ ✅ (本轮)
+4. ~~版本管理回滚 + 验证透明化 + 管线门禁~~ ✅ (本轮)
+5. ~~CodeBuddy DeepSeek-V4-Pro 模型接入~~ ✅ (本轮)
+
+当前待执行：
+6. SKILL-P0-02 技能发布增加质量门禁
+7. EVO-P0-01 演进条目证据详情，因为系统自演进必须可审阅。
+8. TEST-P0-01 剩余页面浏览器验收（成本页、技能页、演进页、Plaza）
 
 阶段完成定义：
-- P0 完成不是“接口能返回 200”。
+- P0 完成不是"接口能返回 200"。
 - P0 完成是用户可以从前端完成一次真实闭环，并看到后端留下的证据。
 
 ## 10. 文档状态

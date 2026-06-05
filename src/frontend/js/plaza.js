@@ -1731,7 +1731,24 @@ window.doCreateDisc = async function() {
 
 window.startDiscussion = async function() {
   if (!curPlaza || !curDisc) return;
-  unlockAudio(); // Ensure audio is unlocked on this user gesture
+
+  // 检查 LLM 配置是否就绪
+  const llmStatus = await api('/api/v1/agent-config/llm/status').catch(() => null);
+  if(!llmStatus || !llmStatus.provider){
+    var shouldConfig = confirm('⚠️ LLM 提供商尚未配置，讨论将无法生成回复。\n\n是否前往「模型与连接」页面配置？');
+    if(shouldConfig) window.location.href = '/agent-team-config.html?view=llm';
+    $('btn-start').disabled = false;
+    $('btn-start').textContent = curDiscData?.status === 'closed' ? '重新讨论' : '开始';
+    return;
+  }
+  if(llmStatus.provider === 'local' && !llmStatus.model){
+    toast('⚠️ LLM 提供商已配置为本地，但模型名未填。请在「LLM 配置」中补全模型信息。');
+    $('btn-start').disabled = false;
+    $('btn-start').textContent = curDiscData?.status === 'closed' ? '重新讨论' : '开始';
+    return;
+  }
+
+  unlockAudio();
   const previousStatus = curDiscData?.status || 'open';
   $('btn-start').disabled = true; $('btn-start').textContent = '启动中…';
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/start`, { method: 'POST' });
@@ -1739,7 +1756,7 @@ window.startDiscussion = async function() {
   else {
     $('btn-start').disabled = false;
     $('btn-start').textContent = previousStatus === 'closed' ? '重新讨论' : '开始';
-    toast('启动失败');
+    toast('启动失败 — 请确认 LLM 已正确配置');
   }
 };
 
@@ -1848,8 +1865,17 @@ window.extractFromDisc = async function(event, discId) {
   // Pass participating teams to extract page
   const plaza = await api(`${API}/plaza/${curPlaza}`);
   const routing = buildExtractRouting(plaza, disc);
-  if (routing.teamIds.length) sessionStorage.setItem('extract_teams', JSON.stringify(routing.teamIds));
-  if (routing.preferredTeamId) sessionStorage.setItem('extract_team_id', routing.preferredTeamId);
+  // 只有从讨论参与者中提取到团队信息时才过滤，避免空参与者导致默认跳到错误团队
+  if (routing.teamIds.length) {
+    sessionStorage.setItem('extract_teams', JSON.stringify(routing.teamIds));
+  } else {
+    sessionStorage.removeItem('extract_teams');  // 不清除的话 skill-extract 会显示所有团队
+  }
+  if (routing.preferredTeamId) {
+    sessionStorage.setItem('extract_team_id', routing.preferredTeamId);
+  } else {
+    sessionStorage.removeItem('extract_team_id');
+  }
   toast('正在跳转萃取页面…');
   const targetUrl = new URL('/skill-extract.html', window.location.origin);
   if (routing.preferredTeamId) targetUrl.searchParams.set('team_id', routing.preferredTeamId);

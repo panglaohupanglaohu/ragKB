@@ -1547,6 +1547,56 @@ class SystemEvolutionChannel(MarineChannel):
         else:
             item.escalation_tier = EscalationTier.NORMAL.value
 
+    def _record_evolution_verify_evidence(
+        self,
+        item: EvolutionItem,
+        *,
+        status: str,
+        detail: str,
+        exit_code: Optional[int],
+    ) -> str:
+        """Persist an evolution verification attempt as EvidenceRun."""
+        try:
+            from agents.evidence_store import EvidenceRun, get_evidence_store
+
+            run = EvidenceRun.create(
+                evidence_type="evolution_verify",
+                status=status,
+                summary=f"演进验证: {item.id} -> {status}",
+                team_id="build_team",
+                agent_id=item.assigned_agent or "system_evolution",
+                task_id=item.build_task_id,
+                evolution_item_id=item.id,
+                plaza_topic_id=item.source_plaza_id or None,
+                request_id=f"evolution-verify:{item.id}:{datetime.now().isoformat()}",
+                runtime={
+                    "mode": "in_process",
+                    "component": "system_evolution",
+                    "verify_test_name": item.verify_test_name,
+                    "target_channel": item.target_channel,
+                },
+                command=f"system_evolution.verify:{item.verify_test_name or item.build_task_id or 'unregistered'}",
+                exit_code=exit_code,
+                artifact_dir=item.artifact_dir,
+                metrics_after={
+                    "retry_count": item.retry_count,
+                    "max_retries": item.max_retries,
+                    "consecutive_failures": item.consecutive_failures,
+                    "escalation_tier": item.escalation_tier,
+                },
+                detail={
+                    "verify_detail": detail,
+                    "verify_result": item.verify_result,
+                    "item_status": item.status,
+                    "item": item.to_dict(),
+                },
+            )
+            get_evidence_store().append_evidence_sync(run)
+            return run.evidence_id
+        except Exception as exc:
+            logger.warning("Failed to record evolution verification EvidenceRun: %s", exc)
+            return ""
+
     def verify_pending_items(
         self,
         *,
@@ -1578,9 +1628,16 @@ class SystemEvolutionChannel(MarineChannel):
                         test_fn = lambda ch=channel, fn=rule.check_fn: fn(ch)
 
             if test_fn is None:
+                evidence_run_id = self._record_evolution_verify_evidence(
+                    item,
+                    status="blocked",
+                    detail=f"验证函数 '{item.verify_test_name}' 未注册",
+                    exit_code=None,
+                )
                 results.append({
                     "item_id": item.id, "status": "skip",
                     "reason": f"验证函数 '{item.verify_test_name}' 未注册",
+                    "evidence_run_id": evidence_run_id,
                 })
                 continue
 
@@ -1610,9 +1667,16 @@ class SystemEvolutionChannel(MarineChannel):
                         f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
                     )
 
+            evidence_run_id = self._record_evolution_verify_evidence(
+                item,
+                status="passed" if passed else "failed",
+                detail=detail,
+                exit_code=0 if passed else 1,
+            )
             results.append({
                 "item_id": item.id, "passed": passed, "detail": detail,
                 "retry_count": item.retry_count,
+                "evidence_run_id": evidence_run_id,
             })
 
         return {"verified": results, "count": len(results)}

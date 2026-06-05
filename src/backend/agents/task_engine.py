@@ -185,6 +185,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, old, TaskStatus.CANCELLED)
             self._store.save_task(task)
+            await self._record_task_evidence(task)
             self._publish_event("cancelled", task)
         return task
 
@@ -203,6 +204,7 @@ class TaskEngine:
                 task.result = {"message": f"Task '{task.title}' completed"}
             self._fire_callbacks(task, old, TaskStatus.COMPLETED)
             self._store.save_task(task)
+            await self._record_task_evidence(task)
             self._publish_event("completed", task)
             self._cascade_dependents()
         return task
@@ -233,6 +235,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, old, TaskStatus.FAILED)
             self._store.save_task(task)
+            await self._record_task_evidence(task)
             self._publish_event("failed", task)
         return task
 
@@ -284,6 +287,7 @@ class TaskEngine:
                 task.error = "Dependency not met"
                 task.completed_at = datetime.now(timezone.utc).isoformat()
                 self._fire_callbacks(task, old, TaskStatus.FAILED)
+                await self._record_task_evidence(task)
                 self._publish_event("failed", task)
                 self._cascade_dependents()
                 continue
@@ -321,6 +325,7 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.COMPLETED)
             self._store.save_task(task)
+            await self._record_task_evidence(task)
             self._publish_event("completed", task)
         except Exception as exc:
             logger.error("TaskEngine: task %s failed — %s", task.task_id, exc, exc_info=True)
@@ -329,8 +334,46 @@ class TaskEngine:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.FAILED)
             self._store.save_task(task)
+            await self._record_task_evidence(task)
             self._publish_event("failed", task)
-        self._cascade_dependents()
+            self._cascade_dependents()
+
+    async def _record_task_evidence(self, task: AgentTask) -> str:
+        """Persist task completion/failure as a unified EvidenceRun."""
+        try:
+            from .evidence_store import EvidenceRun, get_evidence_store
+
+            run = EvidenceRun.create(
+                evidence_type="agent_task",
+                status="passed" if task.status == TaskStatus.COMPLETED else task.status.value,
+                summary=f"任务执行: {task.title or task.task_id} -> {task.status.value}",
+                team_id=task.team_id or None,
+                agent_id=task.agent_id or None,
+                task_id=task.task_id,
+                request_id=str(task.metadata.get("request_id") or task.metadata.get("requestId") or "") or None,
+                runtime={
+                    "mode": "in_process",
+                    "component": "task_engine",
+                    "max_concurrency": self._max_concurrency,
+                },
+                command=f"task_engine.execute:{task.task_id}",
+                exit_code=0 if task.status == TaskStatus.COMPLETED else 1,
+                stderr=task.error[:2000],
+                detail={
+                    "title": task.title,
+                    "description": task.description,
+                    "status": task.status.value,
+                    "metadata": task.metadata,
+                    "result_preview": str(task.result)[:4000],
+                    "error": task.error,
+                    "dependencies": task.dependencies,
+                },
+            )
+            await get_evidence_store().append_evidence(run)
+            return run.evidence_id
+        except Exception as exc:
+            logger.warning("TaskEngine: failed to record task EvidenceRun for %s — %s", task.task_id, exc)
+            return ""
 
     def _cascade_dependents(self) -> None:
         if not self._executor:

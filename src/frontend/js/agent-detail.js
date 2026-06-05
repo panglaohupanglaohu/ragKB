@@ -28,13 +28,28 @@ document.querySelectorAll('#agent-tabs .tab').forEach(t=>t.addEventListener('cli
 function renderATab(d){
   const c=el('agent-content'),p=d.personality||{},m=d.metadata||{},cr=d.created_at?d.created_at.split('T')[0]:'?';
   if(atab==='ag-status'){
-    // Fetch real metrics from the new endpoint
+    // Fetch real metrics + tasks for evidence
     Promise.all([
       api(`${A}/teams/${tid}/agents/${aid}/metrics`),
-      api(`${A}/teams/${tid}/agents/${aid}/activity`)
-    ]).then(([mt,act])=>{
+      api(`${A}/teams/${tid}/agents/${aid}/activity`),
+      api(`${A}/teams/${tid}/tasks?limit=5&offset=0`),
+      api(`${A}/teams/${tid}/agents/${aid}/logs?limit=5`),
+    ]).then(([mt,act,tasks,lg])=>{
       mt=mt||{};act=act||{};
-      c.innerHTML=`<div class="card-grid"><div class="stat-card"><div class="label">📋 状态</div><div class="value" style="font-size:16px"><span class="st st-${d.state||'idle'}">● ${stL(d.state)}</span></div><div class="sub"><button class="btn btn-sm" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="startStop('${escapeHtml(d.state)}')">${d.state==='working'?'⏹ 停止':'▶ 启动'}</button></div></div><div class="stat-card"><div class="label">📊 今日 Token</div><div class="value">${(mt.today_tokens||0).toLocaleString()}</div></div><div class="stat-card"><div class="label">📈 本月 Token</div><div class="value">${((mt.month_tokens||0)/1000).toFixed(1)}K</div></div><div class="stat-card"><div class="label">🤖 今日 LLM 调用</div><div class="value">${mt.today_llm_calls||0}</div><div class="sub">消息: ${mt.messages_sent||0}</div></div><div class="stat-card"><div class="label">🔄 总 Token</div><div class="value">${((mt.total_tokens||0)/1000).toFixed(1)}K</div></div><div class="stat-card"><div class="label">✅ 任务完成</div><div class="value">${mt.tasks_completed||0}</div><div class="sub">失败: ${mt.tasks_failed||0}</div></div><div class="stat-card"><div class="label">🔧 工具调用</div><div class="value">${mt.tools_invoked||0}</div></div><div class="stat-card"><div class="label">🔴 24h 活动</div><div class="value">${act.total_actions||0}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div class="card"><div class="section-title">📁 Agent 档案</div><div class="detail-row"><span class="lbl">👤 角色</span><span class="val">${escapeHtml(d.role||d.description||'-')}</span></div><div class="detail-row"><span class="lbl">📅 创建时间</span><span class="val">${cr}</span></div><div class="detail-row"><span class="lbl">👤 创建者</span><span class="val">@system</span></div><div class="detail-row"><span class="lbl">🔴 最后活跃</span><span class="val">${mt.last_active?mt.last_active.split('T')[0]:'从未'}</span></div><div class="detail-row"><span class="lbl">💬 会话数</span><span class="val">${mt.sessions_created||0}</span></div><div class="detail-row"><span class="lbl">🧠 是否 Hermes</span><span class="val">${d.is_hermes_agent?'<span style="color:var(--lime)">✓</span>':'—'}</span></div></div><div class="card"><div class="section-title">🧠 模型配置</div><div class="detail-row"><span class="lbl">🟠 模型</span><span class="val">${escapeHtml(d.model_id||'未配置')}</span></div><div class="detail-row"><span class="lbl">📁 模板</span><span class="val">${escapeHtml(d.template_type||'-')}</span></div><div class="detail-row"><span class="lbl">🔧 工具数</span><span class="val">${(d.tools||[]).length}</span></div><div class="detail-row"><span class="lbl">⚡ 技能数</span><span class="val">${(d.skills||[]).length}</span></div><div class="detail-row"><span class="lbl">📡 通道数</span><span class="val">${(d.channels||[]).length}</span></div></div></div><div class="section" style="margin-top:20px"><div class="section-title">📊 近期活动</div>${act.recent_logs&&act.recent_logs.length?act.recent_logs.slice(-8).reverse().map(l=>`<div class="focus-item" style="padding:10px 14px"><div class="title" style="font-size:13px"><span class="chip" style="font-size:10px">${escapeHtml(l.action)}</span> ${escapeHtml(l.detail||'')}</div><div class="meta">${l.timestamp?l.timestamp.replace('T',' ').slice(0,19):''}</div></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无活动记录 — 发送消息或启动 Agent 后将显示</p>'}</div>`;
+      const taskItems = tasks?.items || tasks || [];
+      const logs = (lg?.logs || []).slice(-3).reverse();
+      const recentTasksHtml = taskItems.length
+        ? taskItems.slice(0,5).map(t => `<div class="focus-item" style="padding:8px 12px"><div class="title" style="font-size:12px"><span class="chip" style="font-size:9px;background:${t.status==='completed'?'rgba(38,162,105,0.1)':t.status==='failed'?'rgba(224,27,36,0.1)':'rgba(128,128,128,0.1)'};color:${t.status==='completed'?'var(--lime)':t.status==='failed'?'var(--red)':'var(--muted)'}">${escapeHtml(t.status||'pending')}</span> ${escapeHtml((t.title||t.task_id||'').slice(0,60))}</div><div class="meta">${t.created_at?t.created_at.slice(0,16):''}</div></div>`).join('')
+        : '<p style="color:var(--dim);font-size:12px">暂无任务</p>';
+      const evidenceHtml = logs.length
+        ? logs.map(l => `<div class="focus-item" style="padding:6px 12px"><span class="chip" style="font-size:9px">${escapeHtml(l.action||'log')}</span> <span style="font-size:11px;color:var(--muted)">${escapeHtml((l.detail||'').slice(0,80))}</span></div>`).join('')
+        : '<p style="color:var(--dim);font-size:12px">暂无执行记录 — 运行 Agent Loop 后显示</p>';
+
+      c.innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 任务队列</button><button class="btn btn-sm" onclick="atab='ag-chat';loadAgent()">💬 对话</button></div>
+<div class="card-grid"><div class="stat-card"><div class="label">📋 状态</div><div class="value" style="font-size:16px"><span class="st st-${d.state||'idle'}">● ${stL(d.state)}</span></div><div class="sub"><button class="btn btn-sm" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="startStop('${escapeHtml(d.state)}')">${d.state==='working'?'⏹ 停止':'▶ 启动'}</button></div></div><div class="stat-card"><div class="label">📊 今日 Token</div><div class="value">${(mt.today_tokens||0).toLocaleString()}</div></div><div class="stat-card"><div class="label">📈 本月 Token</div><div class="value">${((mt.month_tokens||0)/1000).toFixed(1)}K</div></div><div class="stat-card"><div class="label">🤖 今日 LLM 调用</div><div class="value">${mt.today_llm_calls||0}</div><div class="sub">消息: ${mt.messages_sent||0}</div></div><div class="stat-card"><div class="label">✅ 任务完成</div><div class="value">${mt.tasks_completed||0}</div><div class="sub">失败: ${mt.tasks_failed||0}</div></div><div class="stat-card"><div class="label">🔧 工具调用</div><div class="value">${mt.tools_invoked||0}</div></div><div class="stat-card"><div class="label">⚡ 技能数</div><div class="value">${(d.skills||[]).length}</div></div><div class="stat-card"><div class="label">🔴 24h 活动</div><div class="value">${act.total_actions||0}</div></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div class="card"><div class="section-title">📁 Agent 档案</div><div class="detail-row"><span class="lbl">👤 角色</span><span class="val">${escapeHtml(d.role||d.description||'-')}</span></div><div class="detail-row"><span class="lbl">📅 创建时间</span><span class="val">${cr}</span></div><div class="detail-row"><span class="lbl">🔴 最后活跃</span><span class="val">${mt.last_active?mt.last_active.split('T')[0]:'从未'}</span></div><div class="detail-row"><span class="lbl">💬 会话数</span><span class="val">${mt.sessions_created||0}</span></div></div><div class="card"><div class="section-title">🧠 模型配置</div><div class="detail-row"><span class="lbl">🟠 模型</span><span class="val">${escapeHtml(d.model_id||'未配置')}</span></div><div class="detail-row"><span class="lbl">📁 模板</span><span class="val">${escapeHtml(d.template_type||'-')}</span></div><div class="detail-row"><span class="lbl">🔧 工具数</span><span class="val">${(d.tools||[]).length}</span></div><div class="detail-row"><span class="lbl">📡 通道数</span><span class="val">${(d.channels||[]).length}</span></div></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px"><div class="card"><div class="section-title">📋 最近任务</div>${recentTasksHtml}</div><div class="card"><div class="section-title">📡 执行证据</div>${evidenceHtml}</div></div>
+<div class="section" style="margin-top:20px"><div class="section-title">📊 近期活动</div>${act.recent_logs&&act.recent_logs.length?act.recent_logs.slice(-8).reverse().map(l=>`<div class="focus-item" style="padding:10px 14px"><div class="title" style="font-size:13px"><span class="chip" style="font-size:10px">${escapeHtml(l.action)}</span> ${escapeHtml(l.detail||'')}</div><div class="meta">${l.timestamp?l.timestamp.replace('T',' ').slice(0,19):''}</div></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无活动记录 — 发送消息或启动 Agent 后将显示</p>'}</div>`;
     });
   } else if(atab==='ag-aware'){
     const tr=m.traits||[],bd=m.behavior_boundaries||[];
@@ -63,21 +78,25 @@ function renderATab(d){
       c.innerHTML=html;
     });
   } else if(atab==='ag-skills'){
+    // 只显示当前智能体的技能，数据隔离
+    const agentSkillIds = new Set(d.skills||[]);
     listApi(`${A}/teams/${tid}/skills`,200,0).then(all=>{
-      const boundRefs=new Set(d.skills||[]);
-      const boundSkills=[];const availableSkills=[];
-      all.forEach(s=>{
-        const isBound=boundRefs.has(s.skill_id)||boundRefs.has(s.name)||boundRefs.has(s.slug);
-        (isBound?boundSkills:availableSkills).push(s);
-      });
-      const renderSkillRow=(s,isBound)=>`<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b> <span style="color:var(--dim);font-size:11px">${s.category||''}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button>${isBound?`<button class="btn btn-sm btn-ghost" onclick="deleteSkill('${s.skill_id}','${s.name}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
-      let html=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 当前团队技能</div><span style="color:var(--dim);font-size:12px">${boundSkills.length} / ${all.length} 已绑定</span></div>`;
-      html+=`<div class="sb-section" style="margin-top:12px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">已绑定技能</div>`;
-      html+=boundSkills.length?boundSkills.map(s=>renderSkillRow(s,true)).join(''):'<p style="color:var(--dim);padding:0 14px 12px">该智能体当前没有已绑定技能</p>';
-      html+=`<div class="sb-section" style="margin-top:16px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">团队可用技能</div>`;
-      html+=availableSkills.length?availableSkills.map(s=>renderSkillRow(s,false)).join(''):'<p style="color:var(--dim);padding:0 14px 4px">当前团队没有更多可绑定技能</p>';
-      html+=`</div>`;
-      c.innerHTML=html;
+      const mySkills = all.filter(s => agentSkillIds.has(s.skill_id) || agentSkillIds.has(s.name) || agentSkillIds.has(s.slug));
+      const teamSkills = all.filter(s => !(agentSkillIds.has(s.skill_id) || agentSkillIds.has(s.name) || agentSkillIds.has(s.slug)));
+      const renderSkillRow = (s, isBound, source) => {
+        const versionInfo = s.version ? ` v${s.version}` : '';
+        const lifecycle = s.lifecycle_stage ? `<span class="chip" style="font-size:9px">${escapeHtml(s.lifecycle_stage)}</span>` : '';
+        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button>${isBound?`<button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${escapeHtml(s.skill_id)}','${escapeHtml(s.name)}','agent','${escapeHtml(aid)}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
+      };
+      let html = `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 智能体技能</div><span style="color:var(--dim);font-size:12px">${mySkills.length} 个已绑定 · 团队共 ${all.length} 个</span></div>`;
+      html += `<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop 测试</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 查看任务</button></div>`;
+      html += mySkills.length ? mySkills.map(s => renderSkillRow(s, true, `🫵 ${escapeHtml(d.name||d.agent_id)}`)).join('') : '<p style="color:var(--dim);padding:0 14px 12px">该智能体当前没有已绑定技能</p>';
+      html += `<div class="sb-section" style="margin-top:16px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">团队可用技能 (${teamSkills.length})</div>`;
+      html += teamSkills.length ? teamSkills.map(s => renderSkillRow(s, false, `📦 ${escapeHtml(tid)}`)).join('') : '<p style="color:var(--dim);padding:0 14px 4px">当前团队没有更多可绑定技能</p>';
+      html += `</div>`;
+      c.innerHTML = html;
+    });
+  } else if(atab==='ag-relations'){
     });
   } else if(atab==='ag-relations'){
     api(`${A}/teams/${tid}/agents/${aid}/relationships`).then(rel=>{
@@ -218,6 +237,50 @@ async function togAgentSkill(skillId,bind){
   await api(`${A}/teams/${tid}/agents/${aid}/skills`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({skill_ids:[...cur]})});
   toast(bind?`已绑定 ${skillId}`:`已解绑 ${skillId}`);loadAgent();
 }
+
+// ── Enhanced Skill Delete (with context) ──
+async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) {
+  // 查找技能详情确定影响范围
+  const teamSkills = await listApi(`${A}/teams/${tid}/skills`, 200, 0);
+  const skill = teamSkills.find(s => s.skill_id === skillId || s.name === skillName || s.slug === skillId);
+  const boundAgents = []; // Will be populated from API
+  let impactHtml = '';
+  if (skill) {
+    // Check which agents in the team have this skill bound
+    const teamDetail = await api(`${A}/teams/${tid}`);
+    if (teamDetail && teamDetail.agents) {
+      const agents = Array.isArray(teamDetail.agents) ? teamDetail.agents : Object.values(teamDetail.agents);
+      agents.forEach(a => {
+        const aSkills = a.skills || [];
+        if (aSkills.includes(skillId) || aSkills.includes(skill.name) || aSkills.includes(skill.slug)) {
+          boundAgents.push(a.name || a.agent_id);
+        }
+      });
+    }
+    impactHtml = `
+      <div style="margin:12px 0;padding:12px;background:rgba(224,27,36,0.06);border-radius:0;font-size:12px">
+        <div><b>删除对象:</b> ${escapeHtml(skill.name)} (${escapeHtml(skillId)})</div>
+        <div><b>来源:</b> ${sourceType === 'agent' ? `智能体 ${escapeHtml(sourceId)}` : `团队 ${escapeHtml(sourceType)}`}</div>
+        <div><b>类别:</b> ${escapeHtml(skill.category||'general')} · 版本: ${skill.version||1}</div>
+        ${skill.lifecycle_stage ? `<div><b>生命周期:</b> ${escapeHtml(skill.lifecycle_stage)}</div>` : ''}
+        ${boundAgents.length > 0 ? `<div style="margin-top:6px;color:var(--amber)"><b>⚠️ 影响范围:</b> ${boundAgents.length} 个智能体仍绑定此技能 (${boundAgents.map(escapeHtml).join(', ')})</div>` : ''}
+        ${skill.is_default ? '<div style="margin-top:4px;color:var(--pink)"><b>⚠️ 此为默认技能</b> — 删除可能影响团队基础能力</div>' : ''}
+      </div>`;
+  }
+  const confirmed = confirm(`确认删除技能「${skillName}」？\n\n${skill ? '来源: ' + sourceType + ' · 影响智能体: ' + boundAgents.length + ' 个' : ''}\n\n此操作不可撤销。`);
+  if (!confirmed) return;
+  const r = await api(`${A}/teams/${tid}/skills/${skillId}`, { method: 'DELETE' });
+  if (r) {
+    toast(`✅ 已删除「${skillName}」`);
+    if (typeof loadAgent === 'function' && window.aid) loadAgent();
+    if (typeof loadSkills === 'function') loadSkills();
+  } else {
+    toast('删除失败');
+  }
+}
+
+// Export
+window.deleteSkillWithContext = deleteSkillWithContext;
 
 // ══════════════════════════════════
 //  5-STEP WIZARD

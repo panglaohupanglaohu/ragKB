@@ -187,6 +187,10 @@ _AUTH_EXEMPT_PATHS = {
     "/api/v1/health",
     "/api/v1/info",
     "/api/v1/log/client-error",
+    # 只读元数据端点 — 前端页面加载时可能先于登录被调用，豁免避免401日志噪声
+    "/api/v1/agent-config/agents",
+    "/api/v1/agent-config/teams",
+    "/api/v1/agent-config/tools",
 }
 _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/startup-check",
@@ -346,15 +350,16 @@ async def startup():
 
     # 2. Agent Team API (evolution endpoints)
     try:
-        from agent_team_api import router as agent_team_router, set_teams
+        from agent_team_api import router as agent_team_router, set_teams, AgentScheduler
         from channels.marine_base import get_default_registry
 
         registry = get_default_registry()
         evo_engine = registry.get("system_evolution")
+        _scheduler = AgentScheduler()
         set_teams(
             build_team=None,
             execution_team=None,
-            scheduler=None,
+            scheduler=_scheduler,
             evolution_engine=evo_engine,
         )
         app.include_router(agent_team_router)
@@ -477,6 +482,20 @@ async def startup():
             logger.info("✅ SkillRouter API mounted (/api/v1/skill-router)")
         except Exception as e:
             logger.warning(f"⚠️ SkillRouter API failed: {e}")
+
+        # 4d-bis. Operations / Evidence API
+        try:
+            from agents.operation_api import (
+                router as operation_router,
+                slices_router,
+                evidence_router,
+            )
+            app.include_router(operation_router)
+            app.include_router(slices_router)
+            app.include_router(evidence_router)
+            logger.info("✅ Operations & Evidence API mounted (/api/v1/operations, /api/v1/evidence-runs)")
+        except Exception as e:
+            _handle_startup_failure("operations_evidence_api", e, critical=True)
 
         # 4e. 技能萃取 WebSocket
         try:
@@ -1043,6 +1062,8 @@ async def info():
             "evolution": "/api/v1/agent-teams/evolution",
             "chat": "/api/v1/bridge-chat",
             "health": "/api/v1/health",
+            "operations": "/api/v1/operations",
+            "evidence_runs": "/api/v1/evidence-runs",
         },
     }
 

@@ -7062,10 +7062,39 @@ async def execute_skill(
     elif skill_name == "task_decomposition":
         result = await _execute_task_decomposition(req.prompt, agent, team_id, req.task_id)
     else:
-        # Generic skill: return instructions for LLM-based execution
-        result["status"] = "ready"
-        result["instructions"] = skill.instructions
+        # Generic skill: try LLM-based execution with skill instructions as system prompt
+        instructions = skill.instructions or skill.description or ""
+        result["instructions"] = instructions
         result["prompt"] = req.prompt
+        try:
+            from .chat_harness import get_chat_harness
+            harness = get_chat_harness()
+            system_prompt = (
+                f"你是 {agent.name}，你被分配了技能「{skill_name}」。\n\n"
+                f"技能说明: {instructions}\n\n"
+                f"请根据用户的提示词，以这个技能的身份和能力来回答。"
+            )
+            llm_result = await harness.chat(
+                req.prompt,
+                agent_id=agent.agent_id,
+                session_id=f"skill_{skill_name}_{req.task_id or 'test'}",
+                system_prompt=system_prompt,
+            )
+            if llm_result and llm_result.response:
+                result["status"] = "completed"
+                result["output"] = llm_result.response[:4000]
+                result["usage"] = {
+                    "total_tokens": llm_result.usage.total_tokens if llm_result.usage else 0,
+                }
+            else:
+                result["status"] = "failed"
+                result["error"] = "LLM 返回空响应"
+        except Exception as e:
+            result["status"] = "failed"
+            result["error"] = str(e)[:500]
+            # Fallback: return instructions so user can at least see the skill description
+            if not result.get("output"):
+                result["output"] = f"[技能 {skill_name}] 执行遇到错误，以下是指令内容:\n\n{instructions}"
 
     return result
 
@@ -9422,11 +9451,59 @@ def skill_library_publish(req: SkillLibraryActionRequest) -> Dict[str, Any]:
     return _get_skill_library().publish(req.team_id, req.skill_id)
 
 
+@router.post("/skill-library/publish-gate", summary="检查技能发布质量门禁")
+def skill_library_publish_gate(req: SkillLibraryActionRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    return _get_skill_library().evaluate_publish_gate(req.team_id, req.skill_id)
+
+
 @router.post("/skill-library/import", summary="引入公共技能到团队")
 def skill_library_import(req: SkillLibraryActionRequest) -> Dict[str, Any]:
     if not req.target_team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="target_team_id and skill_id required")
     return _get_skill_library().import_skill(req.target_team_id, req.skill_id)
+
+
+# ── Skill Version Management ───────────────────────────────────
+
+class VersionRollbackRequest(BaseModel):
+    team_id: str = ""
+    skill_id: str = ""
+    target_version: int = 0
+
+
+class VersionSnapshotRequest(BaseModel):
+    team_id: str = ""
+    skill_id: str = ""
+
+
+@router.post("/skill-library/version/snapshot", summary="创建版本快照")
+def skill_version_snapshot(req: VersionSnapshotRequest) -> Dict[str, Any]:
+    """保存技能当前状态作为版本快照，用于后续回滚."""
+    if not req.team_id or not req.skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    lib = _get_skill_library()
+    skill = lib._find_skill(req.team_id, req.skill_id)
+    if not skill:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
+    return lib.create_version_snapshot(skill)
+
+
+@router.get("/skill-library/{skill_id}/versions", summary="获取版本历史")
+def skill_list_versions(skill_id: str, team_id: str = "") -> Dict[str, Any]:
+    """列出技能的所有版本快照."""
+    lib = _get_skill_library()
+    versions = lib.list_versions(skill_id)
+    return {"skill_id": skill_id, "versions": versions, "count": len(versions)}
+
+
+@router.post("/skill-library/version/rollback", summary="回滚技能版本")
+def skill_version_rollback(req: VersionRollbackRequest) -> Dict[str, Any]:
+    """回滚技能到指定版本."""
+    if not req.team_id or not req.skill_id or not req.target_version:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id, skill_id, and target_version required")
+    return _get_skill_library().rollback_version(req.team_id, req.skill_id, req.target_version)
 
 
 @router.get("/skill-library/{skill_id}/lineage", summary="获取技能演化谱系")

@@ -93,6 +93,8 @@ class SkillEvolver:
             return {"error": "skill_not_found"}
 
         old_version = skill.version
+        # 演化前自动创建版本快照，支持后续回滚
+        self._skill_library.create_version_snapshot(skill)
         skill.instructions = new_instructions
         skill.version += 1
         skill.lifecycle_stage = SkillLifecycleStage.TEAM_LOCAL  # Reset to team_local after evolution
@@ -102,6 +104,7 @@ class SkillEvolver:
         return {
             "status": "evolved",
             "skill_id": skill_id,
+            "old_version": old_version,
             "version": skill.version,
         }
 

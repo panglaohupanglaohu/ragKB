@@ -36,6 +36,7 @@ from .operation_models import (
     ContextType,
 )
 from .operation_store import get_operation_store
+from .evidence_store import EvidenceRun, EvidenceQuery, get_evidence_store
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ router = APIRouter(prefix="/api/v1/operations", tags=["Operations"])
 
 # 额外的情境切片子路由
 slices_router = APIRouter(prefix="/api/v1/context-slices", tags=["Context Slices"])
+
+# 统一验证/执行证据子路由
+evidence_router = APIRouter(prefix="/api/v1/evidence-runs", tags=["Evidence Runs"])
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -119,6 +123,47 @@ class VerifyResponse(BaseModel):
     ok: bool = True
     verification: Dict[str, Any]
     healthy: bool
+
+
+class RecordEvidenceRunRequest(BaseModel):
+    """记录统一证据的请求体."""
+    evidence_type: str = Field(..., description="证据类型: skill_verify / agent_loop / evolution_verify / cost_gate")
+    status: str = Field(..., description="结果状态: passed / failed / blocked / ...")
+    summary: str = ""
+    team_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    skill_id: Optional[str] = None
+    task_id: Optional[str] = None
+    evolution_item_id: Optional[str] = None
+    cost_target_id: Optional[str] = None
+    plaza_topic_id: Optional[str] = None
+    session_id: Optional[str] = None
+    request_id: Optional[str] = None
+    operation_id: Optional[str] = None
+    runtime: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    command: str = ""
+    exit_code: Optional[int] = None
+    artifact_dir: str = ""
+    stdout: str = ""
+    stderr: str = ""
+    metrics_before: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    metrics_after: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    detail: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class EvidenceRunResponse(BaseModel):
+    """统一证据响应."""
+    ok: bool = True
+    evidence: Dict[str, Any]
+
+
+class EvidenceRunListResponse(BaseModel):
+    """统一证据列表响应."""
+    ok: bool = True
+    evidence_runs: List[Dict[str, Any]]
+    total: int
+    limit: int
+    offset: int
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -284,6 +329,123 @@ async def get_causal_chain(
         chain=[op.to_dict() for op in chain],
         depth=len(chain),
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# EvidenceRun Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+
+@evidence_router.post("", response_model=EvidenceRunResponse)
+async def record_evidence_run(req: RecordEvidenceRunRequest):
+    """记录一条统一执行/验证证据."""
+    run = EvidenceRun.create(
+        evidence_type=req.evidence_type,
+        status=req.status,
+        summary=req.summary,
+        team_id=req.team_id,
+        agent_id=req.agent_id,
+        skill_id=req.skill_id,
+        task_id=req.task_id,
+        evolution_item_id=req.evolution_item_id,
+        cost_target_id=req.cost_target_id,
+        plaza_topic_id=req.plaza_topic_id,
+        session_id=req.session_id,
+        request_id=req.request_id,
+        operation_id=req.operation_id,
+        runtime=req.runtime or {},
+        command=req.command,
+        exit_code=req.exit_code,
+        artifact_dir=req.artifact_dir,
+        stdout=req.stdout,
+        stderr=req.stderr,
+        metrics_before=req.metrics_before or {},
+        metrics_after=req.metrics_after or {},
+        detail=req.detail or {},
+    )
+    await get_evidence_store().append_evidence(run)
+    return EvidenceRunResponse(ok=True, evidence=run.to_dict())
+
+
+@evidence_router.get("", response_model=EvidenceRunListResponse)
+async def list_evidence_runs(
+    evidence_type: Optional[str] = Query(None, description="按证据类型过滤"),
+    status: Optional[str] = Query(None, description="按状态过滤"),
+    team_id: Optional[str] = Query(None, description="按团队 ID 过滤"),
+    agent_id: Optional[str] = Query(None, description="按 Agent ID 过滤"),
+    skill_id: Optional[str] = Query(None, description="按技能 ID 过滤"),
+    task_id: Optional[str] = Query(None, description="按任务 ID 过滤"),
+    evolution_item_id: Optional[str] = Query(None, description="按演进项 ID 过滤"),
+    cost_target_id: Optional[str] = Query(None, description="按成本目标 ID 过滤"),
+    plaza_topic_id: Optional[str] = Query(None, description="按 Plaza 话题 ID 过滤"),
+    request_id: Optional[str] = Query(None, description="按 request_id 过滤"),
+    start_time: Optional[str] = Query(None, description="起始时间 (ISO 8601)"),
+    end_time: Optional[str] = Query(None, description="结束时间 (ISO 8601)"),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """查询统一执行/验证证据."""
+    q = EvidenceQuery(
+        evidence_type=evidence_type,
+        status=status,
+        team_id=team_id,
+        agent_id=agent_id,
+        skill_id=skill_id,
+        task_id=task_id,
+        evolution_item_id=evolution_item_id,
+        cost_target_id=cost_target_id,
+        plaza_topic_id=plaza_topic_id,
+        request_id=request_id,
+        start_time=start_time,
+        end_time=end_time,
+        limit=limit,
+        offset=offset,
+    )
+    results = await get_evidence_store().query_evidence(q)
+    return EvidenceRunListResponse(
+        evidence_runs=[run.to_dict() for run in results],
+        total=len(results),
+        limit=limit,
+        offset=offset,
+    )
+
+
+@evidence_router.get("/by-object/{entity_type}/{entity_id}", response_model=EvidenceRunListResponse)
+async def list_evidence_by_object(
+    entity_type: str,
+    entity_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """按关联对象查询证据，如 skill/xxx、task/xxx、evolution/xxx."""
+    results = await get_evidence_store().query_for_object(
+        entity_type,
+        entity_id,
+        limit=limit,
+        offset=offset,
+    )
+    return EvidenceRunListResponse(
+        evidence_runs=[run.to_dict() for run in results],
+        total=len(results),
+        limit=limit,
+        offset=offset,
+    )
+
+
+@evidence_router.get("/verify", response_model=VerifyResponse)
+async def verify_evidence_runs():
+    """验证 EvidenceRun 存储完整性."""
+    v = await get_evidence_store().verify_all()
+    return VerifyResponse(ok=True, verification=v, healthy=v["corrupt"] == 0)
+
+
+@evidence_router.get("/{evidence_id}", response_model=EvidenceRunResponse)
+async def get_evidence_run(evidence_id: str):
+    """获取单条统一执行/验证证据."""
+    run = await get_evidence_store().get_evidence(evidence_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"证据 {evidence_id} 不存在")
+    return EvidenceRunResponse(ok=True, evidence=run.to_dict())
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -95,6 +95,59 @@ def _get_cost_gate():
     return gate
 
 
+async def _record_cost_gate_evidence(report, request: TerraformPlanEvaluationRequest, result: Dict[str, Any]) -> str:
+    """Persist a cost gate evaluation as a unified EvidenceRun."""
+    try:
+        from agents.evidence_store import EvidenceRun, get_evidence_store
+
+        decision = str(result.get("decision", "")).lower()
+        status = {
+            "pass": "passed",
+            "warn": "warning",
+            "block": "blocked",
+        }.get(decision, decision or "unknown")
+        metadata = request.metadata or {}
+        run = EvidenceRun.create(
+            evidence_type="cost_gate",
+            status=status,
+            summary=f"Cost gate {result.get('decision')} for {request.project_id}",
+            team_id=str(metadata.get("team_id") or "cloud_ops"),
+            agent_id=str(metadata.get("agent_id") or "cost_gate"),
+            cost_target_id=report.report_id,
+            task_id=metadata.get("task_id"),
+            plaza_topic_id=metadata.get("plaza_topic_id"),
+            request_id=str(metadata.get("request_id") or report.report_id),
+            runtime={
+                "mode": "in_process",
+                "component": "cost_gate",
+                "policy_engine": "cost_policy",
+            },
+            command="cost_gate.evaluate_plan",
+            exit_code=0 if not report.is_blocked else 1,
+            metrics_before={
+                "current_spend_usd": (request.budget or {}).get("current_spend_usd"),
+                "monthly_budget_usd": (request.budget or {}).get("monthly_budget_usd"),
+            },
+            metrics_after={
+                "estimated_monthly_cost_usd": result.get("estimated_monthly_cost_usd"),
+                "estimated_cost_change_usd": result.get("estimated_cost_change_usd"),
+                "violations_total": (result.get("violations_summary") or {}).get("total", 0),
+                "critical_count": (result.get("violations_summary") or {}).get("critical", 0),
+                "high_count": (result.get("violations_summary") or {}).get("high", 0),
+            },
+            detail={
+                "project_id": request.project_id,
+                "report": result,
+                "metadata": metadata,
+            },
+        )
+        await get_evidence_store().append_evidence(run)
+        return run.evidence_id
+    except Exception as exc:
+        logger.warning("Failed to record cost gate EvidenceRun: %s", exc)
+        return ""
+
+
 # ══════════════════════════════════════════════════════════════════
 # API Endpoints
 # ══════════════════════════════════════════════════════════════════
@@ -166,6 +219,9 @@ async def evaluate_terraform_plan(request: TerraformPlanEvaluationRequest):
         )
 
         result = report.to_dict()
+        evidence_run_id = await _record_cost_gate_evidence(report, request, result)
+        if evidence_run_id:
+            result["evidence_run_id"] = evidence_run_id
 
         # If blocked, return 422 to signal CI/CD failure
         if report.is_blocked:

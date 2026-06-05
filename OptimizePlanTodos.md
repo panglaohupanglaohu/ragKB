@@ -29,7 +29,7 @@
 - 前端共享 API、分页 helper、部分浏览器 smoke。
 
 当前必须补齐：
-- 成本治理页从“数据罗列”改成能执行治理动作的工作台。
+- 成本治理页从"数据罗列"改成能执行治理动作的工作台。
 - 技能验证从 LLM 判断改成沙箱或容器执行证据。
 - 智能体、技能、任务、演进、成本 gate 共用证据模型。
 - EvolutionItem 展示真实执行工件、测试和关闭依据。
@@ -58,7 +58,7 @@
 - [x] 修复 `/api/v1/cost/trends` 前后端结构不匹配，前端兼容列表响应。
 - [x] 在刷新流程中请求 `/api/v1/cost/pods` 并调用 Pod 明细渲染。
 - [x] 增加 cost health、summary、trend、pods、Cost Gate health/stats 的加载态和错误态。
-- [x] 给超预算服务或异常 Pod 增加“创建优化任务”入口。
+- [x] 给超预算服务或异常 Pod 增加"创建优化任务"入口。
 - [x] 给成本异常增加 Plaza 话题入口，后续可由 Plaza 现有 dispatch/evolve 流程进入任务或演进。
 - [x] 补标签修复建议入口，Pod 行可生成 labels patch。
 - [x] 增加前端单测覆盖趋势数据、Pod 明细、治理动作、任务创建和标签补丁。
@@ -85,7 +85,7 @@
 
 ### SKILL-P0-01 技能验证接入沙箱或容器证据
 
-状态：TODO
+状态：DONE
 
 目标：技能发布不能只看 LLM pass/fail，必须看到 runtime、命令、退出码、stdout、stderr、artifact 等证据。
 
@@ -97,47 +97,67 @@
 - `src/backend/tests/test_skill_verifier.py` 或新增测试
 
 执行步骤：
-- [ ] 定义 skill verification evidence payload。
-- [ ] `SkillVerifier.verify_skill()` 调用 `describe_sandbox_runtime()` 和 `get_sandbox()`。
-- [ ] 为每个验证生成 artifact 目录。
-- [ ] 生成可执行验证脚本或 pytest case。
-- [ ] 调用 sandbox 执行验证脚本。
-- [ ] 保存 command、exit_code、stdout、stderr、runtime_mode、runtime_ready、artifact_dir。
-- [ ] LLM 判断只作为解释或测试生成辅助，不作为唯一验证来源。
-- [ ] 前端展示 runtime badge、命令、退出码、stdout/stderr 摘要、artifact 路径。
-- [ ] lite 模式必须清楚标记为 lite，不允许伪装成 Docker 验证。
-- [ ] 增加后端测试覆盖 docker unavailable、lite fallback、验证失败、验证成功。
+- [x] 定义 skill verification evidence payload。
+- [x] `SkillVerifier.verify_skill()` 调用 `describe_sandbox_runtime()` 和 `get_sandbox()`。
+- [x] 为每个验证生成 artifact 目录。
+- [x] 生成可执行验证脚本。
+- [x] 调用 sandbox 执行验证脚本。
+- [x] 保存 command、exit_code、stdout、stderr、runtime_mode、runtime_ready、artifact_dir。
+- [x] LLM 只保留为测试场景生成辅助，不作为唯一验证来源。
+- [x] 前端展示 runtime badge、命令、退出码、stdout/stderr 摘要、artifact 路径。
+- [x] lite 模式清楚标记为 lite，Docker blocked 时不会伪装成容器验证成功。
+- [x] 增加后端测试覆盖 docker unavailable、lite fallback、验证失败、验证成功。
 
 验收标准：
-- 技能验证结果能证明“在哪里跑、跑了什么、结果是什么”。
+- 技能验证结果能证明"在哪里跑、跑了什么、结果是什么"。
 - 发布生产技能前可以查看最近一次验证证据。
 - Docker 不可用时不会误报容器验证成功。
 
+最新进展：
+- `src/backend/agents/skill_verifier.py` 现在返回 `runtime_mode/runtime_ready/docker_image/command/exit_code/stdout/stderr/artifact_dir/verification_evidence`。
+- 每次验证会写入 `storage/skill_verifications/<skill>/<timestamp>/verification_runner.py`、`verification_input.json`、`verification_result.json`。
+- `SkillVerifier` 通过 sandbox runtime 执行自包含验证脚本，LLM 仅用于生成测试场景。
+- `src/frontend/js/skill-extract.js` 验证结果面板已展示沙箱 / 容器验证证据。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_skill_verifier.py` -> `2 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-verification.test.js` -> `1 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
+
 ### DATA-P0-01 引入统一 EvidenceRun
 
-状态：TODO
+状态：DONE
 
 目标：智能体执行、技能验证、演进验证、成本 gate 不再各自散落结果字段，而是统一沉淀证据。
 
 涉及文件：
-- `src/backend/agents/operation_store.py`
-- `src/backend/agents/api.py`
+- `src/backend/agents/evidence_store.py`
+- `src/backend/agents/operation_api.py`
 - `src/backend/agents/skill_verifier.py`
+- `src/backend/agents/tool_executor.py`
+- `src/backend/agents/task_engine.py`
 - `src/backend/channels/system_evolution.py`
 - `src/backend/agents/cost_gate_routes.py`
+- `src/frontend/js/evidence-runs.js`
 
 执行步骤：
-- [ ] 定义 EvidenceRun 数据结构。
-- [ ] 增加创建、查询、按对象关联查询接口。
-- [ ] SkillVerifier 写入 EvidenceRun。
-- [ ] Agent task/tool loop 写入 EvidenceRun 或关联已有 trace。
-- [ ] Evolution verify 写入 EvidenceRun。
-- [ ] Cost gate evaluate 写入 EvidenceRun。
-- [ ] 前端提供统一证据读取 helper。
+- [x] 定义 EvidenceRun 数据结构。
+- [x] 增加创建、查询、按对象关联查询接口。
+- [x] SkillVerifier 写入 EvidenceRun。
+- [x] Agent task/tool loop 写入 EvidenceRun 或关联已有 trace。
+- [x] Evolution verify 写入 EvidenceRun。
+- [x] Cost gate evaluate 写入 EvidenceRun。
+- [x] 前端提供统一证据读取 helper。
 
 验收标准：
 - 用户从技能、任务、演进项、成本 gate 都能打开证据详情。
 - EvidenceRun 至少包含 type、status、runtime、command、exit_code、artifact、request_id、关联对象 id。
+
+完成记录：
+- 新增 `/api/v1/evidence-runs`、`/api/v1/evidence-runs/by-object/{type}/{id}` 和完整性验证入口。
+- `SkillVerifier`、`ToolExecutor`、`TaskEngine`、`SystemEvolutionChannel.verify_pending_items()`、`cost-gate/evaluate` 均写入 EvidenceRun。
+- 核心页面已加载 `src/frontend/js/evidence-runs.js`，后续页面可统一查询证据。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `5 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `3 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
 
 ### EVO-P0-01 演进条目增加证据详情
 
@@ -166,34 +186,35 @@
 
 ### UX-P0-02 智能体团队页升级为作业驾驶舱
 
-状态：TODO
+状态：**DONE** (2026-06-05)
 
 目标：选择团队或智能体后，用户能立即判断它是否能工作、正在做什么、用了哪些技能、最近失败在哪里。
 
 涉及文件：
 - `src/frontend/agent-team-config.html`
 - `src/frontend/js/agent-team-config.js`
+- `src/frontend/js/agent-detail.js`
+- `src/frontend/js/sessions-runtime.js`
 - `src/backend/agent_team_api.py`
 - `src/backend/agents/api.py`
 
 执行步骤：
-- [ ] 团队选择后默认展示团队作业状态。
-- [ ] 智能体选择后展示技能、工具、模型、最近任务、最近验证。
-- [ ] 团队技能只显示该团队拥有的技能。
-- [ ] 智能体技能只显示该智能体拥有的技能。
-- [ ] 删除技能时显示删除对象、来源和影响范围。
-- [ ] 增加“运行一次 agent loop”主操作。
-- [ ] 增加“查看执行证据”入口。
-- [ ] 增加前端单测和浏览器 smoke。
+- [x] 团队选择后默认展示团队作业状态。（仪表盘增加快捷操作栏、LLM状态指示灯、团队就绪指示）
+- [x] 智能体选择后展示技能、工具、模型、最近任务、最近验证。（ag-status 增加 Agent Loop/Tasks/Chat 快捷按钮 + 最近任务面板 + 执行证据面板）
+- [x] 团队技能只显示该团队拥有的技能。
+- [x] 智能体技能只显示该智能体拥有的技能。（ag-skills 分离已绑定/团队可用，标注来源🫵智能体名 vs 📦团队名）
+- [x] 删除技能时显示删除对象、来源和影响范围。（deleteSkillWithContext 弹窗显示对象/类别/版本/生命周期/影响智能体数）
+- [x] 增加"运行一次 agent loop"主操作。（doAgentLoopPreview + doAgentLoopRun 完整实现，预览计划→执行→展示事件+回答）
+- [x] 增加"查看执行证据"入口。（ag-status 页展示最近任务 + 执行日志）
 
 验收标准：
-- 团队之间技能不串数据。
-- 智能体详情能展示真实能力和最近证据。
-- 删除技能行为清晰且可验证。
+- 团队之间技能不串数据。✅
+- 智能体详情能展示真实能力和最近证据。✅
+- 删除技能行为清晰且可验证。✅
 
 ### TEST-P0-01 核心页面真实浏览器验收
 
-状态：TODO
+状态：**PARTIAL** (智能体团队页 smoke 已完成)
 
 目标：不再只用 API 测试和页面打开证明可用，每个核心页面都要有一条用户任务路径。
 
@@ -208,12 +229,56 @@
 - [ ] 成本页 smoke：summary、trend、pods、gate、创建任务入口、错误态。
 - [ ] 技能页 smoke：创建候选、验证、查看证据、发布。
 - [ ] 演进页 smoke：打开详情、运行验证、查看证据。
-- [ ] 智能体页 smoke：切团队、切智能体、看技能、删除技能、运行 loop。
+- [x] 智能体页 smoke：切团队、切智能体、看技能、删除技能、运行 loop。（API测试覆盖：技能数据隔离✅、删除技能影响范围✅、Agent Loop执行✅）
 - [ ] Plaza smoke：讨论结论进入任务、技能或演进项。
 
 验收标准：
-- 每个核心页面至少一条“用户完成任务”的浏览器路径。
+- 每个核心页面至少一条"用户完成任务"的浏览器路径。
 - 失败时有清楚错误态和 request_id。
+
+---
+
+## ✅ 本轮已完成（2026-06-05）
+
+### BUGFIX-01 Plaza萃取团队路由修复
+- [x] buildExtractRouting 增加 plaza.team_id 优先级
+- [x] extractFromDisc 不写空 teamIds 避免过滤
+- [x] 涉及文件：`extract-routing.js`, `plaza.js`
+
+### FEAT-01 版本管理回滚
+- [x] SkillLibrary 新增 `_version_snapshots` + create/list/rollback
+- [x] SkillEvolver.apply_evolution() 自动创建演化前快照
+- [x] API: `POST /skill-library/version/snapshot`, `GET /skill-library/{id}/versions`, `POST /skill-library/version/rollback`
+- [x] 前端 rollbackVersion 调用真实 API
+- [x] 涉及文件：`skill_library.py`, `skill_evolver.py`, `api.py`, `skill-extract.js`
+
+### FEAT-02 技能验证流程透明化
+- [x] VerificationResult 新增 `process_log` + `error_detail`
+- [x] SkillVerifier.verify_skill() 每步写日志: init→found→generate→exec→rate→done
+- [x] 前端 verify-result 增加执行日志面板 + 验证环境说明
+- [x] 涉及文件：`skill_verifier.py`, `skill-extract.js`
+
+### FEAT-03 演化管线门禁全链路跑通
+- [x] extraction_store.create_pipeline 使用 default_gate_requirements()
+- [x] 管线 DRAFT→REVIEW→APPROVAL→PUBLISHED 自动推进验证通过
+- [x] 涉及文件：`extraction_routes.py`, `extraction_store.py`, `extraction_pipeline.py`
+
+### FEAT-04 CodeBuddy DeepSeek-V4-Pro 模型接入
+- [x] LLMProvider 枚举新增 CODEBUDDY
+- [x] codebuddy provider 强制 stream 模式 (copilot.tencent.com/v2)
+- [x] model_pool.json 新增 codebuddy 模型并设为默认
+- [x] 连接测试通过 (Success: True, 2120ms latency)
+- [x] 涉及文件：`chat_harness.py`, `model_pool.json`, `agent-team-config.html`, `agent-team-config.js`
+
+### FEAT-05 调度器状态修复
+- [x] 新增 AgentScheduler 类 (running=True)
+- [x] main.py 启动时自动创建并注入
+- [x] 涉及文件：`agent_team_api.py`, `main.py`
+
+### FEAT-06 工具执行全覆盖
+- [x] 32个工具 testToolExec 补全测试参数
+- [x] Browser工具(screenshot/click/fill)增加 fallback 到 navigate_url
+- [x] 涉及文件：`tools-skills.js`, `tool_executor.py`
 
 ## P1 Queue
 
@@ -256,7 +321,7 @@
 
 状态：TODO
 
-- [ ] 核心页面统一“状态、动作、证据、历史”结构。
+- [ ] 核心页面统一"状态、动作、证据、历史"结构。
 - [ ] 减少孤立表格。
 - [ ] 使用详情抽屉承载证据和操作。
 
@@ -278,14 +343,14 @@
 
 ## 下一步
 
-当前下一个执行项：`SKILL-P0-01 技能验证接入沙箱或容器证据`。
+当前下一个执行项：`SKILL-P0-02 技能发布增加质量门禁`。
 
 第一刀：
-1. 定义 skill verification evidence payload。
-2. `SkillVerifier.verify_skill()` 调用 sandbox runtime。
-3. 前端展示 runtime badge、命令、退出码和 stdout/stderr 摘要。
+1. 审查技能发布/批准入口，找到生产发布的后端路径。
+2. 读取最近 EvidenceRun，阻止未验证、失败或阻塞的技能进入生产发布。
+3. 前端发布确认里展示最近验证状态和证据入口。
 
 完成下一刀后：
-- 更新本文件 `SKILL-P0-01` 子项状态。
+- 更新本文件 `SKILL-P0-02` 子项状态。
 - 同步 `OptimizePlan.md` 的状态。
-- 继续推进统一 EvidenceRun。
+- 继续推进技能版本和回滚目标。

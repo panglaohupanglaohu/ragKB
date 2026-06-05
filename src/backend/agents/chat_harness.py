@@ -184,6 +184,7 @@ class LLMProvider(Enum):
     LOCAL = "local"         # Ollama / vLLM / local OpenAI-compatible
     GITHUB = "github"       # GitHub Copilot models
     QWEN = "qwen"
+    CODEBUDDY = "codebuddy"  # CodeBuddy IDE built-in AI
 
 
 @dataclass
@@ -208,6 +209,7 @@ class ProviderConfig:
         LLMProvider.LOCAL: "http://127.0.0.1:11434/v1",
         LLMProvider.GITHUB: "https://models.inference.ai.azure.com",
         LLMProvider.QWEN: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        LLMProvider.CODEBUDDY: "https://api.deepseek.com",
     }, repr=False)
 
     def resolve_base_url(self) -> str:
@@ -504,9 +506,9 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temp,
-            "stream": False,
+            "stream": self._config.provider == LLMProvider.CODEBUDDY,  # CodeBuddy requires stream
         }
-        if self._config.thinking:
+        if self._config.thinking and self._config.provider != LLMProvider.CODEBUDDY:
             payload["thinking"] = self._config.thinking
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
@@ -543,6 +545,26 @@ class LLMClient:
                             "status": resp.status,
                             "message": error_text[:500],
                         }
+                    # CodeBuddy returns SSE stream; collect all chunks
+                    if self._config.provider == LLMProvider.CODEBUDDY:
+                        full_content = ""
+                        full_json = None
+                        async for line in resp.content:
+                            text = line.decode(errors='replace')
+                            if text.startswith("data: ") and text.strip() != "data: [DONE]":
+                                try:
+                                    chunk = json.loads(text[6:])
+                                    full_json = chunk  # keep last chunk for metadata
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        full_content += content
+                                except json.JSONDecodeError:
+                                    pass
+                        if full_json:
+                            full_json["choices"][0]["message"] = {"role": "assistant", "content": full_content}
+                            return full_json
+                        return {"choices": [{"message": {"role": "assistant", "content": full_content}}]}
                     return await resp.json(content_type=None)
         except Exception as exc:
             return {

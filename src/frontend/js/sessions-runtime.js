@@ -136,6 +136,87 @@ async function doAssemblePool(){
 }
 
 // ══════════════════════════════════
+//  AGENT LOOP RUNTIME — 执行计划预览+运行
+// ══════════════════════════════════
+async function doAgentLoopPreview(){
+  const prompt = el('al-prompt')?.value?.trim();
+  if(!prompt){ toast('请输入 Prompt'); return; }
+  toast('正在生成执行计划…');
+  const r = await api(`${A}/agent-loop/plan-preview`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prompt, agent_id: (el('al-agent-id')?.value||aid||'')})
+  });
+  const rc = el('al-results');
+  if(!r){ rc.innerHTML='<p style="color:var(--pink)">生成失败 — 请检查后端</p>'; return; }
+  const steps = r.steps || r.plan || [];
+  let html = '<div class="section" style="margin-top:8px"><div class="section-title">🗺️ 执行计划</div>';
+  html += `<p style="color:var(--muted);font-size:12px">意图: ${escapeHtml(r.intent||r.goal||'')} | 步骤数: ${steps.length||0}</p>`;
+  if(steps.length){
+    html += '<div style="margin-top:8px">';
+    steps.forEach((s,i)=>{
+      const action = s.action || s.type || s.tool || 'unknown';
+      html += `<div class="focus-item" style="padding:8px 14px;margin-bottom:4px">
+        <div class="title"><span class="chip" style="font-size:10px;background:rgba(38,162,105,0.1);color:var(--lime)">${i+1}</span> ${escapeHtml(action)}</div>
+        <div class="meta" style="font-size:11px;color:var(--muted)">${escapeHtml(s.description||s.reason||'')}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  rc.innerHTML = html;
+  toast('计划已生成');
+}
+async function doAgentLoopRun(){
+  const prompt = el('al-prompt')?.value?.trim();
+  if(!prompt){ toast('请输入 Prompt'); return; }
+  const agentId = el('al-agent-id')?.value?.trim() || aid || '';
+  const sessionId = el('al-session-id')?.value?.trim() || 'runtime-' + Date.now();
+  const maxIter = parseInt(el('al-max-iterations')?.value) || 4;
+  const rc = el('al-results');
+  rc.innerHTML = '<p style="color:var(--dim)">⏳ Agent Loop 运行中…</p>';
+  toast('Agent Loop 启动中…');
+  try {
+    const r = await api(`${A}/agent-loop`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt, agent_id: agentId, session_id: sessionId, max_iterations: maxIter})
+    });
+    if(!r){ rc.innerHTML='<p style="color:var(--pink)">运行失败 — 请检查后端日志</p>'; toast('Agent Loop 失败'); return; }
+    let html = '<div class="section"><div class="section-title">▶ Agent Loop 执行结果</div>';
+    // Stats
+    html += `<div class="card-grid" style="margin-bottom:12px">
+      <div class="stat-card"><div class="label">迭代次数</div><div class="value">${r.iterations||0}</div></div>
+      <div class="stat-card"><div class="label">计划步骤</div><div class="value">${(r.plan?.length||0)}</div></div>
+      <div class="stat-card"><div class="label">事件数</div><div class="value">${(r.events?.length||0)}</div></div>
+      <div class="stat-card"><div class="label">Token</div><div class="value">${(r.turn_result?.usage?.total_tokens||0).toLocaleString()}</div></div>
+    </div>`;
+    // Observations
+    if(r.observations && r.observations.length){
+      html += '<div class="section-title" style="margin-top:12px">📋 观察记录</div>';
+      r.observations.forEach((o,i)=>{
+        html += `<div class="focus-item" style="padding:6px 12px;margin-bottom:2px"><span class="chip" style="font-size:10px">${i+1}</span> ${escapeHtml(String(o).slice(0,200))}</div>`;
+      });
+    }
+    // Events
+    if(r.events && r.events.length){
+      html += '<div class="section-title" style="margin-top:12px">📡 执行事件</div><div style="max-height:300px;overflow-y:auto;font-family:monospace;font-size:11px;background:oklch(0.1 0.005 110);padding:8px;border-radius:4px">';
+      r.events.forEach(e=>{
+        html += `<div style="padding:1px 0"><span class="chip" style="font-size:9px">${escapeHtml(e.type||'')}</span> ${escapeHtml(String(e.output||e.result||'').slice(0,150))}</div>`;
+      });
+      html += '</div>';
+    }
+    // Final response
+    html += `<div class="section-title" style="margin-top:12px">💬 最终回答</div>
+      <div style="padding:14px;background:rgba(232,240,250,0.7);border-radius:0;font-size:13px;line-height:1.7;white-space:pre-wrap">${escapeHtml((r.final_response||r.response||'(无)').slice(0,2000))}</div>`;
+    html += '</div>';
+    rc.innerHTML = html;
+    toast('Agent Loop 完成');
+  } catch(e){
+    rc.innerHTML = `<p style="color:var(--pink)">异常: ${escapeHtml(e.message||'')}</p>`;
+    toast('Agent Loop 异常');
+  }
+}
+
+// ══════════════════════════════════
 //  TOKEN FACTORY — 自主 Token 工厂
 // ══════════════════════════════════
 

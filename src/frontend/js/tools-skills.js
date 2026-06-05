@@ -34,18 +34,75 @@ async function togTool(id,en){
 async function testToolExec(toolName){
   toast(`正在执行 ${toolName}...`);
   const args={};
-  if(toolName==='web_search')args.query='AgentsGroup2026 maritime system';
-  else if(toolName==='engine_status')args.engine_id='main';
-  else if(toolName==='ais_query')args.mmsi='';
-  else if(toolName==='weather_fetch'){args.lat=31.2;args.lon=121.5}
-  else if(toolName==='cargo_status')args.hold_id='all';
-  else if(toolName==='list_directory')args.path='.';
+  // Browser tools — use real URLs so extract_content / navigate_url can work
+  if(toolName==='web_search')args.query='AgentsGroup2026 multi-agent system';
+  else if(toolName==='navigate_url')args.url='https://httpbin.org/get';
+  else if(toolName==='screenshot')args.url='https://httpbin.org/get';
+  else if(toolName==='click_element')args.selector='body';
+  else if(toolName==='fill_form'){args.selector='input'; args.value='test';}
+  else if(toolName==='extract_content'||toolName==='web_extract')args.url='https://httpbin.org/get';
+  // Code Execution
   else if(toolName==='run_python')args.code='print("Hello from AgentsGroup2026!")';
-  else if(toolName==='colregs_check'){args.own_vessel={};args.target_vessel={}}
-  else if(toolName==='route_calculate'){args.origin={lat:31.2,lon:121.5};args.destination={lat:22.3,lon:114.2}}
+  else if(toolName==='run_shell')args.command='echo "Hello from shell" && uname -a';
+  else if(toolName==='run_javascript')args.code='console.log("Hello from Node.js")';
+  else if(toolName==='execute_code'){args.language='python'; args.code='print("Hello!")';}
+  // File Operations
+  else if(toolName==='read_file')args.path='README.md';
+  else if(toolName==='list_files'||toolName==='list_directory')args.path='.';
+  else if(toolName==='search_files')args.pattern='*.py';
+  else if(toolName==='find_files')args.pattern='*.json';
+  else if(toolName==='write_file'){args.path='_temp/test_tool.txt'; args.content='Test content from tool executor';}
+  else if(toolName==='edit_file'){args.path='_temp/test_tool.txt'; args.patch='Test content from tool executor';}
+  else if(toolName==='delete_file')args.path='_temp/test_tool.txt';
+  else if(toolName==='read_document')args.path='README.md';
+  // Communication
+  else if(toolName==='send_message'){args.target_agent_id='build_developer'; args.content='Hello from tool test!';}
+  else if(toolName==='broadcast'){args.content='Test broadcast'; args.channel='default';}
+  else if(toolName==='subscribe_channel')args.channel='test-channel';
+  else if(toolName==='publish_event'){args.channel='test-channel'; args.content='{"type":"test"}';}
+  // Maritime
+  else if(toolName==='engine_status')args.engine_id='main';
+  else if(toolName==='ais_query')args.mmsi='311000480';
+  else if(toolName==='ais_vessel_track')args.mmsi='311000480';
+  else if(toolName==='weather_fetch'){args.lat=31.2; args.lon=121.5;}
+  else if(toolName==='weather_marine_forecast'){args.lat=31.2; args.lon=121.5;}
+  else if(toolName==='route_calculate'){args.origin={lat:31.2,lon:121.5}; args.destination={lat:22.3,lon:114.2};}
+  else if(toolName==='colregs_check'){args.own_vessel={}; args.target_vessel={};}
+  else if(toolName==='cargo_status')args.hold_id='all';
+  else if(toolName==='chart_ecdis_query'||toolName==='chart_lookup')args.area='SHANGHAI';
+  // Memory
+  else if(toolName==='memory_save'){args.key='test_key'; args.value='{"test": true}';}
+  else if(toolName==='memory_read')args.key='test_key';
+  else if(toolName==='session_search')args.query='hello';
+  // Skills
+  else if(toolName==='skill_list')args.team_id=tid||'build_system';
+  else if(toolName==='skill_view')args.skill_id='default';
+  else if(toolName==='skill_manage'){args.action='list'; args.team_id=tid||'build_system';}
+  // Delegation
+  else if(toolName==='delegate_task'){args.target_agent='build_developer'; args.task='Test delegation';}
+  else if(toolName==='mixture_of_agents')args.query='test';
+  // Discovery
+  else if(toolName==='list_agents')args.team_id=tid||'build_system';
+  else if(toolName==='list_capabilities')args.agent_id='build_developer';
+  // Digital Twin
+  else if(toolName==='dt_camera_move'){args.x=10; args.y=5; args.z=15;}
+  else if(toolName==='dt_model_load'){args.model_id='test-cube'; args.path='/models/cube.obj';}
+  else if(toolName==='dt_model_transform'){args.model_id='test-cube'; args.position={x:0,y:0,z:0};}
+  else if(toolName==='dt_material_set'){args.model_id='test-cube'; args.material='metallic';}
+  else if(toolName==='dt_physics_toggle'){args.model_id='test-cube'; args.enabled=true;}
+  else if(toolName==='dt_light_adjust'){args.type='ambient'; args.intensity=0.8;}
+  else if(toolName==='dt_render_mode')args.mode='wireframe';
+  else if(toolName==='dt_inspection_path'){args.waypoints=[{x:0,y:0,z:0},{x:5,y:0,z:5}];}
+  // Triggers
+  else if(toolName==='schedule_task'){args.task_name='test'; args.cron='*/5 * * * *';}
+  else if(toolName==='set_alarm'){args.name='test'; args.threshold=80;}
+  else if(toolName==='watch_file'){args.path='README.md'; args.event='modify';}
+  else if(toolName==='cron_trigger'){args.cron='*/5 * * * *'; args.action='log';}
+  // Vision
+  else if(toolName==='vision_analyze'){args.image_url='https://httpbin.org/image/png'; args.query='What is this?';}
   const r=await api(`${A}/tools/${toolName}/execute`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({arguments:args})}).catch(()=>null);
-  if(r&&r.success){toast(`✅ ${toolName} 执行成功`);alert(`工具: ${toolName}\n\n${r.output||'(无输出)'}`)}
-  else if(r){toast(`❌ ${toolName} 执行失败`);alert(`工具: ${toolName}\n\n错误: ${r.error||'未知错误'}`)}
+  if(r&&r.success){toast(`✅ ${toolName} 执行成功`);showInfoModal(`${toolName} 执行结果`,`输出:\n${r.output||'(无输出)'}`)}
+  else if(r){toast(`❌ ${toolName} 执行失败`);showInfoModal(`${toolName} 执行失败`,`错误: ${r.error||'未知错误'}\n\n输出: ${r.output||'(无输出)'}`)}
   else toast('执行请求失败')
 }
 function openToolConfig(toolId){_tcToolId=toolId;listApi(`${A}/tools`,200,0).then(all=>{const t=(all||[]).find(x=>x.tool_id===toolId);if(!t){toast('工具未找到');return}el('tc-title').textContent=`${t.icon||'🔧'} ${t.name} 配置`;const sch=t.config_schema||{};const cfg=t.config||{};let html='';Object.keys(sch).forEach(k=>{const s=sch[k];const v=cfg[k]??s.default??'';html+=`<div class="form-group"><label class="form-label">${k} <span style="color:var(--dim);font-size:11px">${escapeHtml(s.description||"")}</span></label>${s.type==='boolean'?`<select class="fi" id="tc-${k}"><option value="true"${v?'selected':''}>是</option><option value="false"${!v?' selected':''}>否</option></select>`:`<input class="fi" id="tc-${k}" value="${Array.isArray(v)?v.join(', '):v}" placeholder="${s.default||''}">`}</div>`});if(!html)html='<p style="color:var(--dim)">此工具暂无可配置项</p>';el('tc-form').innerHTML=html;openModal('modal-tool-config')})}
@@ -194,28 +251,36 @@ async function saveSkillConfig(skillName){
   if(r){toast(`${skillName} 配置已保存`);loadSkills()}else toast('保存失败');
 }
 async function testSkillExec(skillName){
-  const prompt=window.prompt(`输入测试提示词 (${skillName}):`);
-  if(!prompt)return;
-  toast('正在执行...');
+  // Use a modal dialog instead of window.prompt() for better UX
+  var html=`<div class="modal-overlay open" id="modal-exec-skill" onclick="if(event.target===this)this.remove()"><div class="modal"><h3>▶ 执行技能: ${escapeHtml(skillName)}</h3><div class="form-group"><label class="form-label">测试提示词</label><textarea class="fi" id="esk-prompt" rows="3" placeholder="输入测试提示词，技能将根据此提示词执行..."></textarea></div><div class="modal-actions"><button class="btn" onclick="document.getElementById('modal-exec-skill').remove()">取消</button><button class="btn btn-pink" onclick="doSkillExec('${escapeHtml(skillName)}')">▶ 执行</button></div></div></div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+  setTimeout(function(){var inp=document.getElementById('esk-prompt');if(inp)inp.focus();},100);
+}
+async function doSkillExec(skillName){
+  const prompt=el('esk-prompt')?.value?.trim();
+  if(!prompt){toast('请输入测试提示词');return}
+  const m=document.getElementById('modal-exec-skill');if(m)m.remove();
+  toast('正在执行技能 ' + skillName + '...');
   const agentId=aid||'build_developer';const teamId=tid||'build_system';
   const r=await api(`${A}/teams/${teamId}/agents/${agentId}/skills/${skillName}/execute`,{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({prompt,task_id:'',config_overrides:{}})
+    body:JSON.stringify({prompt:prompt,task_id:'skill_test_'+Date.now(),config_overrides:{}})
   });
   if(r){
     if(r.session_id && r.status==='streaming'){
       // Open terminal panel and stream output
-      openClaudeTerm(r.session_id);
+      if(typeof openClaudeTerm==='function') openClaudeTerm(r.session_id);
+      else alert('Claude 终端不可用，session_id: '+r.session_id);
     } else {
       const status=r.status||'unknown';
       let msg=`技能: ${skillName}\n状态: ${status}`;
-      if(r.output)msg+=`\n\n输出:\n${r.output?.slice(0,500)||''}`;
+      if(r.output)msg+=`\n\n输出:\n${r.output?.slice(0,800)||''}`;
       if(r.error)msg+=`\n\n错误: ${r.error}`;
-      if(r.subtasks)msg+=`\n\n子任务: ${r.count} 个`;
-      showInfoModal('技能执行结果', msg);
+      if(r.instructions)msg+=`\n\n指令:\n${r.instructions?.slice(0,500)||''}`;
+      showInfoModal('技能执行: ' + skillName, msg);
       toast(`${skillName} 执行: ${status}`);
     }
-  } else toast('执行失败');
+  } else toast('执行请求失败，请检查 LLM 配置')
 }
 
 // ── Export Skills ──
@@ -258,5 +323,6 @@ window.submitGenerateSkill = submitGenerateSkill;
 window.saveSkillConfig = saveSkillConfig;
 window.submitEditSkill = submitEditSkill;
 window.testSkillExec = testSkillExec;
+window.doSkillExec = doSkillExec;
 
 })();

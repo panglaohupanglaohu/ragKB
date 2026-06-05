@@ -1,15 +1,26 @@
 {
   "build_system": {
-    "qwen3": {
-      "model_id": "qwen3",
-      "provider": "openai",
-      "name": "Qwen3.6-27B-FP8",
-      "max_tokens": 8192,
+    "codebuddy": {
+      "model_id": "codebuddy",
+      "provider": "codebuddy",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 65536,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://copilot.tencent.com/v2"
+    },
+    "qwen3": {
+      "model_id": "qwen3",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "is_default": false,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
     },
     "copilot": {
       "model_id": "copilot",
@@ -37,14 +48,14 @@
   "ai_coding": {
     "qwen3": {
       "model_id": "qwen3",
-      "provider": "openai",
-      "name": "Qwen3.6-27B-FP8",
-      "max_tokens": 8192,
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -61,14 +72,14 @@
   "energy_first_principle": {
     "qwen3": {
       "model_id": "qwen3",
-      "provider": "openai",
-      "name": "Qwen3.6-27B-FP8",
-      "max_tokens": 8192,
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -96,17 +107,40 @@
   "d083a568": {
     "deepseek": {
       "model_id": "deepseek",
-      "provider": "openai",
-      "name": "Qwen3.6-27B-FP8",
-      "max_tokens": 8192,
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
-  "team-001": {},
-  "t2": {},
-  "t1": {}
+  "1d630202": {},
+  "559e3e1d": {},
+  "90c56695": {},
+  "e71cde7b": {},
+  "5d79cf6b": {},
+  "dc95944f": {},
+  "4a861f52": {},
+  "2135dfad": {},
+  "29a3c7a0": {},
+  "cec7b88d": {},
+  "bee7c2c0": {},
+  "c06acbe1": {},
+  "c6b0ec33": {},
+  "c974cc63": {},
+  "79f5a7d1": {},
+  "79b53c38": {},
+  "dfac5479": {},
+  "a139461e": {},
+  "54df5b09": {},
+  "3cd6e17a": {},
+  "056a8c6a": {},
+  "86ac0f88": {},
+  "48fbaa7c": {},
+  "69aeb1d4": {},
+  "357f8ba9": {},
+  "97994562": {}
 }

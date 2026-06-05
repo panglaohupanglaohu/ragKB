@@ -1118,9 +1118,53 @@ window.triggerVerify = async function() {
   document.getElementById('verify-passed').textContent = result.passed;
   document.getElementById('verify-failed').textContent = result.failed;
   const detailsEl = document.getElementById('verify-details');
-  detailsEl.innerHTML = (result.test_details || []).map((t, i) =>
-    `<div style="padding:4px 0;border-bottom:1px solid oklch(0.15 0.005 110)">${t.passed ? '✅' : '❌'} 测试${i + 1}: ${t.scenario}</div>`
+
+  // Build detailed results including process log
+  let html = '<div style="margin-top:8px"><b>测试场景:</b></div><div style="max-height:200px;overflow-y:auto;margin:4px 0">';
+  html += (result.test_details || []).map((t, i) =>
+    `<div style="padding:4px 0;border-bottom:1px solid oklch(0.15 0.005 110)">${t.passed ? '✅' : '❌'} 测试${(t.test_index || i + 1)}: ${t.scenario}</div>`
   ).join('');
+  html += '</div>';
+
+  // Show process log for transparency
+  if (result.process_log && result.process_log.length) {
+    html += '<div style="margin-top:12px"><b>📋 执行日志:</b></div><div style="max-height:250px;overflow-y:auto;font-family:monospace;font-size:11px;background:oklch(0.1 0.005 110);padding:8px;border-radius:4px;margin:4px 0">';
+    html += result.process_log.map(l =>
+      `<div style="padding:1px 0;color:${l.passed === false ? 'oklch(0.7 0.1 25)' : 'oklch(0.5 0.01 110)'}">  ${escapeHtml(l.msg || '')}</div>`
+    ).join('');
+    html += '</div>';
+  }
+  if (result.error_detail) {
+    html += `<div style="margin-top:6px;color:oklch(0.7 0.1 25);font-size:12px">⚠️ ${escapeHtml(result.error_detail)}</div>`;
+  }
+  const evidence = result.verification_evidence || {};
+  const runtime = evidence.runtime || {};
+  const runtimeMode = result.runtime_mode || evidence.runtime_mode || runtime.mode || 'unknown';
+  const runtimeReady = result.runtime_ready ?? evidence.runtime_ready ?? runtime.ready;
+  const exitCode = result.exit_code ?? evidence.exit_code;
+  html += '<div style="margin-top:12px;border:1px solid oklch(0.18 0.01 110);border-radius:6px;padding:10px;background:oklch(0.105 0.006 110)">';
+  html += '<div style="font-weight:700;margin-bottom:6px">沙箱 / 容器验证证据</div>';
+  html += `<div style="font-size:12px;color:oklch(0.55 0.01 110)">runtime: <b>${escapeHtml(runtimeMode)}</b> · ready: <b>${runtimeReady ? 'yes' : 'no'}</b> · exit: <b>${escapeHtml(String(exitCode ?? '-'))}</b></div>`;
+  if (result.docker_image || evidence.docker_image || runtime.docker_image) {
+    html += `<div style="font-size:12px;color:oklch(0.55 0.01 110)">docker image: ${escapeHtml(result.docker_image || evidence.docker_image || runtime.docker_image || '')}</div>`;
+  }
+  if (result.command || evidence.command) {
+    html += `<div style="font-size:12px;color:oklch(0.55 0.01 110)">command: <code>${escapeHtml(result.command || evidence.command || '')}</code></div>`;
+  }
+  if (result.artifact_dir || evidence.artifact_dir) {
+    html += `<div style="font-size:12px;color:oklch(0.55 0.01 110)">artifact: <code>${escapeHtml(result.artifact_dir || evidence.artifact_dir || '')}</code></div>`;
+  }
+  if (result.stdout || evidence.stdout || result.stderr || evidence.stderr) {
+    html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px">stdout / stderr</summary>';
+    html += `<pre style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:11px;background:oklch(0.08 0.005 110);padding:8px;border-radius:4px">${escapeHtml((result.stdout || evidence.stdout || '') + (result.stderr || evidence.stderr ? '\n--- stderr ---\n' + (result.stderr || evidence.stderr || '') : ''))}</pre>`;
+    html += '</details>';
+  }
+  if (runtime.self_check_blocked) {
+    html += `<div style="font-size:12px;color:oklch(0.7 0.1 25);margin-top:6px">runtime blocked: ${escapeHtml(runtime.ready_reason || 'self check blocked')}</div>`;
+  }
+  html += '</div>';
+  detailsEl.innerHTML = html;
+
   showToast(result.status === 'verified' ? '✅ 验证通过' : '❌ 验证未通过');
   // Rebuild to reflect lifecycle changes
   if (result.status === 'verified') { loadSkills(); }
@@ -1219,8 +1263,22 @@ window.showVersionDiff = function(idxA, idxB) {
   diffEl.style.display = 'block';
 };
 window.rollbackVersion = async function(versionKey) {
-  if (!confirm(`确认回滚到版本 ${versionKey}？`)) return;
-  showToast(`ℹ️ 回滚功能待后端支持`, 'info');
+  const targetVer = parseInt(versionKey.replace('v', ''));
+  if (!targetVer || !currentTeamId || !skillId) {
+    showToast('缺少必要信息: team_id/skill_id/version'); return;
+  }
+  if (!confirm(`确认回滚技能到版本 v${targetVer}？\n当前版本将自动保存为快照。`)) return;
+  showToast('正在回滚...');
+  const r = await api('/skill-library/version/rollback', {
+    method: 'POST',
+    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, target_version: targetVer }),
+  });
+  if (r && r.ok) {
+    showToast(`✅ 已回滚到 v${targetVer}（新版本号: v${r.new_version}）`);
+    loadVersionTab(); // 刷新版本时间线
+  } else {
+    showToast(`回滚失败: ${r?.error || '未知错误'}`, true);
+  }
 };
 
 // ── Version Creation Functions ─────────────────────────────────
@@ -1282,6 +1340,30 @@ window.saveEdits = async function() {
   if (r) { showToast('已保存'); loadQueue(); }
 };
 
+async function publishSkillWithGate(skillId, skillName) {
+  if (!skillId) return { error: 'missing_skill_id' };
+  const gate = await api('/skill-library/publish-gate', {
+    method: 'POST',
+    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+  });
+  if (gate && gate.ok === false) {
+    const latest = gate.latest_evidence || {};
+    const checks = (gate.checks || []).map(c => `${c.passed ? '✓' : '✕'} ${c.name}: ${c.detail}`).join('<br>');
+    addMessage('system', `🚧 技能「${skillName || skillId}」未通过发布门禁。<br>${checks || gate.reason || '缺少验证证据'}${latest.evidence_id ? `<br>证据: <code>${latest.evidence_id}</code> · ${latest.command || ''}` : ''}`);
+    showToast('发布门禁未通过，请先完成技能验证', 'error');
+    return { error: 'publish_gate_blocked', gate };
+  }
+  const pr = await api('/skill-library/publish', {
+    method: 'POST',
+    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+  });
+  if (pr && pr.error === 'publish_gate_blocked') {
+    addMessage('system', `🚧 技能「${skillName || skillId}」发布被质量门禁阻断，请查看最近验证证据。`);
+    showToast('发布门禁未通过', 'error');
+  }
+  return pr;
+}
+
 window.approveAs = async function(skillType) {
   if (!selectedItemId) return;
   const edits = {
@@ -1309,10 +1391,7 @@ window.approveAs = async function(skillType) {
   if (skillType === 'public') {
     const skillId = r.draft_slug;
     if (skillId) {
-      const pr = await api('/skill-library/publish', {
-        method: 'POST',
-        body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-      });
+      const pr = await publishSkillWithGate(skillId, r.draft_name);
       if (pr && !pr.error) {
         addMessage('system', `🌍 技能「${r.draft_name}」已发布为公共技能，所有智能体已获得此技能`);
       }
@@ -1361,10 +1440,7 @@ window._quickApprove = async function(itemId, skillType = 'reserve') {
     if (skillType === 'public') {
       const skillId = r.draft_slug;
       if (skillId) {
-        await api('/skill-library/publish', {
-          method: 'POST',
-          body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-        });
+        await publishSkillWithGate(skillId, r.draft_name);
       }
     }
     showToast(`${icons[skillType]} 已批准为${labels[skillType]}`);
@@ -4142,7 +4218,7 @@ ctxMenu.addEventListener('click', async (e) => {
       else addMessage('system', `${s.icon || '⚡'} <b>${s.name}</b> — ${s.description || ''}`);
       break;
     case 'publish':
-      const pr = await api('/skill-library/publish', { method: 'POST', body: JSON.stringify({ team_id: currentTeamId, skill_id: s.skill_id }) });
+      const pr = await publishSkillWithGate(s.skill_id, s.name);
       if (pr && !pr.error) { showToast('🌐 已发布'); loadSkills(); addMessage('system', `🌐 技能「${s.name}」已发布为公共技能`); }
       else showToast(pr?.error || '发布失败', 'error');
       break;

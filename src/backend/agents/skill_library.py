@@ -25,12 +25,15 @@ class SkillLibrary:
     - SkillRegistry (内存全局默认技能)
     - SkillStore (持久化 JSON 文件)
     - Team-local (team.skills dict)
+    - _version_snapshots (版本快照，支持回滚)
     """
 
     def __init__(self, team_manager=None, skill_registry=None, skill_store=None):
         self._team_manager = team_manager
         self._skill_registry = skill_registry
         self._skill_store = skill_store
+        self._version_snapshots: Dict[str, List[Dict[str, Any]]] = {}  # skill_id -> [{version, name, instructions, desc, ...}]
+        self._load_snapshots()
 
     # ── Browse: 统一搜索 ─────────────────────────────────────────
 
@@ -103,10 +106,18 @@ class SkillLibrary:
     # ── Publish: private → public ────────────────────────────────
 
     def publish(self, team_id: str, skill_id: str) -> Dict[str, Any]:
-        """发布技能到公共库. Filter阶段: quality_score > 0.4."""
+        """发布技能到公共库. 生产发布必须通过最近一次 EvidenceRun 验证."""
         skill = self._find_skill(team_id, skill_id)
         if not skill:
             return {"error": "skill_not_found"}
+
+        publish_gate = self.evaluate_publish_gate(team_id, skill_id)
+        if not publish_gate.get("ok"):
+            return {
+                "error": "publish_gate_blocked",
+                "skill_id": skill_id,
+                "gate": publish_gate,
+            }
 
         # Filter gate — skip for skills from distillation (source=distilled) which have LLM confidence
         if skill.source != "distilled" and skill.quality_score < 0.4 and skill.usage_count < 1:
@@ -126,7 +137,106 @@ class SkillLibrary:
         )
         bus.publish(event)
         logger.info("Skill %s published to public library by team %s", skill_id, team_id)
-        return {"status": "published", "skill_id": skill_id}
+        return {"status": "published", "skill_id": skill_id, "gate": publish_gate}
+
+    def evaluate_publish_gate(self, team_id: str, skill_id: str) -> Dict[str, Any]:
+        """Return whether a skill is allowed to enter public/production publish."""
+        skill = self._find_skill(team_id, skill_id)
+        if not skill:
+            return {"ok": False, "reason": "skill_not_found", "checks": []}
+
+        latest = self._latest_skill_verification(team_id, skill_id)
+        checks: List[Dict[str, Any]] = []
+
+        def add_check(name: str, passed: bool, detail: str) -> None:
+            checks.append({"name": name, "passed": passed, "detail": detail})
+
+        if not latest:
+            add_check("recent_verification", False, "no skill_verify EvidenceRun found")
+            return {
+                "ok": False,
+                "reason": "missing_verification_evidence",
+                "checks": checks,
+                "required": {
+                    "evidence_type": "skill_verify",
+                    "status": ["verified", "passed"],
+                    "pass_rate_min": 0.7,
+                    "exit_code": 0,
+                },
+            }
+
+        latest_dict = latest.to_dict()
+        metrics = latest.metrics_after or {}
+        runtime = latest.runtime or {}
+        status_value = str(latest.status or "").lower()
+        pass_rate = float(metrics.get("pass_rate") or skill.quality_score or 0)
+        lifecycle = skill.lifecycle_stage.value if hasattr(skill.lifecycle_stage, "value") else str(skill.lifecycle_stage)
+
+        add_check(
+            "verification_status",
+            status_value in {"verified", "passed"},
+            f"latest status={latest.status}",
+        )
+        add_check(
+            "pass_rate",
+            pass_rate >= 0.7,
+            f"pass_rate={pass_rate:.2f}",
+        )
+        add_check(
+            "runtime_ready",
+            bool(runtime.get("ready", False)),
+            f"runtime mode={runtime.get('mode', 'unknown')} ready={runtime.get('ready', False)}",
+        )
+        add_check(
+            "exit_code",
+            latest.exit_code == 0,
+            f"exit_code={latest.exit_code}",
+        )
+        add_check(
+            "lifecycle_verified",
+            lifecycle == SkillLifecycleStage.VERIFIED.value or status_value in {"verified", "passed"},
+            f"lifecycle_stage={lifecycle}",
+        )
+
+        ok = all(c["passed"] for c in checks)
+        return {
+            "ok": ok,
+            "reason": "" if ok else "latest_verification_not_publishable",
+            "checks": checks,
+            "latest_evidence": {
+                "evidence_id": latest.evidence_id,
+                "created_at": latest.created_at,
+                "status": latest.status,
+                "runtime": runtime,
+                "command": latest.command,
+                "exit_code": latest.exit_code,
+                "artifact_dir": latest.artifact_dir,
+                "request_id": latest.request_id,
+                "metrics_after": metrics,
+            },
+            "skill": {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "quality_score": skill.quality_score,
+                "lifecycle_stage": lifecycle,
+            },
+        }
+
+    def _latest_skill_verification(self, team_id: str, skill_id: str):
+        try:
+            from .evidence_store import EvidenceQuery, get_evidence_store
+            results = get_evidence_store().query_evidence_sync(
+                EvidenceQuery(
+                    evidence_type="skill_verify",
+                    team_id=team_id,
+                    skill_id=skill_id,
+                    limit=1,
+                )
+            )
+            return results[0] if results else None
+        except Exception as exc:
+            logger.warning("Skill publish gate failed to load EvidenceRun: %s", exc)
+            return None
 
     # ── Import: 从公共库引入到自己团队 ───────────────────────────
 
@@ -368,6 +478,81 @@ class SkillLibrary:
         if not tokens_a or not tokens_b:
             return 0.0
         return len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+
+    # ── Version Snapshots (回滚支持) ──────────────────────────────
+
+    def _snapshot_path(self) -> Path:
+        from pathlib import Path as _Path
+        return _Path(__file__).resolve().parents[3] / "storage" / "skill_versions.json"
+
+    def _load_snapshots(self) -> None:
+        try:
+            p = self._snapshot_path()
+            if p.exists():
+                import json
+                self._version_snapshots = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            self._version_snapshots = {}
+
+    def _save_snapshots(self) -> None:
+        try:
+            import json
+            p = self._snapshot_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(self._version_snapshots, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to save skill version snapshots: {e}")
+
+    def create_version_snapshot(self, skill: Any) -> Dict[str, Any]:
+        """保存技能当前状态为版本快照."""
+        sid = getattr(skill, "skill_id", "") or getattr(skill, "slug", "")
+        if not sid:
+            return {"error": "invalid skill"}
+        ver = getattr(skill, "version", 1)
+        snap = {
+            "version": ver,
+            "name": getattr(skill, "name", ""),
+            "description": getattr(skill, "description", ""),
+            "instructions": getattr(skill, "instructions", ""),
+            "category": getattr(skill, "category", "general"),
+            "icon": getattr(skill, "icon", "⚡"),
+            "snapshot_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._version_snapshots.setdefault(sid, []).append(snap)
+        # Keep last 10 versions
+        if len(self._version_snapshots[sid]) > 10:
+            self._version_snapshots[sid] = self._version_snapshots[sid][-10:]
+        self._save_snapshots()
+        return {"skill_id": sid, "version": ver, "ok": True}
+
+    def list_versions(self, skill_id: str) -> List[Dict[str, Any]]:
+        """列出技能的所有版本快照."""
+        return self._version_snapshots.get(skill_id, [])
+
+    def rollback_version(self, team_id: str, skill_id: str, target_version: int) -> Dict[str, Any]:
+        """回滚技能到指定版本."""
+        versions = self._version_snapshots.get(skill_id, [])
+        target = next((v for v in versions if v.get("version") == target_version), None)
+        if not target:
+            return {"error": f"版本 {target_version} 不存在", "available_versions": [v.get("version") for v in versions]}
+
+        skill = self._find_skill(team_id, skill_id)
+        if not skill:
+            return {"error": f"技能 {skill_id} 未找到"}
+
+        # Save current state as snapshot before rollback
+        self.create_version_snapshot(skill)
+
+        # Apply target version
+        skill.name = target.get("name", skill.name)
+        skill.description = target.get("description", skill.description)
+        skill.instructions = target.get("instructions", skill.instructions)
+        skill.category = target.get("category", skill.category)
+        skill.icon = target.get("icon", skill.icon)
+        skill.version = getattr(skill, "version", 1) + 1
+
+        self._persist_skill(skill, team_id)
+        return {"skill_id": skill_id, "rolled_back_to": target_version, "new_version": skill.version, "ok": True}
 
 
 # ── Singleton ────────────────────────────────────────────────────
