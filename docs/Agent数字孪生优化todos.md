@@ -1,7 +1,7 @@
 # Agent 数字孪生 — 按钮级功能 TODO（代码对齐版）
 # AgentsGroup2026 Digital Twin — Button-Level TODO (Code-Grounded)
 
-> 版本：v3.0 · 日期：2026-06-10
+> 版本：v3.1 · 日期：2026-06-10 · 全部 18 项 `[x]` ✅
 > 配套文档：`Agent数字孪生优化plan.md`（v3.0）
 > 主页面：`src/frontend/Agent-digital-twin.html`
 > 关联脚本：`src/frontend/js/digital-twin-cli.js`
@@ -53,9 +53,9 @@
 | `autoRun` | 3269 | `[x]` | 委托 `sexyAutoRun` → `/run` |
 | `pauseSim` | 3270 | `[x]` | `POST /api/v1/sandbox/sessions/{sid}/pause` |
 | `terminate` | 3271 | `[x]` | `sexyStopSim` + `/stop` |
-| `forkBranch` | 3283 | `[~]` | `POST /api/v1/twin-trials/{tid}/branches` |
+| `forkBranch` | 3294 | `[x]` ← P4-02 已完成 | `POST /api/v1/twin-trials/{tid}/branches` |
 | `showInjectDropdown` | 3284 | `[x]` | 前端切换（BUG-A 已修复） |
-| `doInjectEvent` | 3285 | `[~]` | `POST /api/v1/twin-trials/{tid}/branches/{bid}/events` |
+| `doInjectEvent` | 3296 | `[x]` ← P2-02 已完成 | `POST /api/v1/twin-trials/{tid}/branches/{bid}/events` |
 | `evaluateTrial` | 3286 | `[x]` | `POST /api/v1/twin-trials/{tid}/evaluate` |
 | `extractSop` | 3287 | `[x]` | `POST /api/v1/twin-trials/{tid}/extract-sop` |
 | `feedbackAgents` | 3288 | `[x]` | `POST /api/v1/twin-trials/{tid}/feedback`（BUG-D 已修复） |
