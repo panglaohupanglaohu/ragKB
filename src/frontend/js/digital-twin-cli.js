@@ -40,17 +40,19 @@ function defaultRooms(){return[
 async function loadTeamsAndAgents(){
   try{
     const teams=await _list(`${API}/teams`,200,0);
-    if(!teams.length)return;
+    console.log('[DT] loadTeamsAndAgents: teams count=',teams.length);
+    if(!teams.length){console.warn('[DT] loadTeamsAndAgents: 0 teams from API');return;}
     S.teams=[];S.agents=[];
     const fetches=teams.map(async t=>{
       const tid=t.team_id||t.id;
-      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch{}
+      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch(e){console.warn('[DT] loadTeamsAndAgents: agents fetch failed for',tid,e.message)}
     });
     await Promise.all(fetches);
+    console.log('[DT] loadTeamsAndAgents: loaded',S.teams.length,'teams,',S.agents.length,'agents');
     // 仅首次加载或无选中时设置全选，否则保留用户选择
     if(!S.selectedTeams.length) S.selectedTeams=S.teams.map(t=>t.id);
     renderTeamSelector();
-  }catch{}
+  }catch(e){console.error('[DT] loadTeamsAndAgents: FAILED',e.message)}
 }
 function renderTeamSelector(){
   const el=document.getElementById('team-selector');

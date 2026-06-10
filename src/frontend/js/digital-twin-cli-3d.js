@@ -202,9 +202,10 @@ function buildRoom(roomId){
 
   // ── 添加智能体 (来自选中团队) ──
   // 议事厅和工作坊自己处理智能体摆放，跳过通用逻辑
+  var roomName = (typeof window.getRoomName==='function') ? window.getRoomName(roomId) : roomId;
   if(roomId==='council'||roomId==='workshop'||roomId==='rest'){
     document.getElementById('env-3d-info').textContent=
-      (window.ROOM_NAMES||{})[roomId]+' — '+(window.S?window.S.agents.filter(a=>window.S.selectedTeams&&window.S.selectedTeams.includes(a._teamId)).length:0)+' 个智能体';
+      roomName+' — '+(window.S?window.S.agents.filter(a=>window.S.selectedTeams&&window.S.selectedTeams.includes(a._teamId)).length:0)+' 个智能体';
     return;
   }
   const S=window.S;if(!S)return;
@@ -222,7 +223,7 @@ function buildRoom(roomId){
     scene.add(fig);agentMeshes.push(fig);
   });
   document.getElementById('env-3d-info').textContent=
-    (window.ROOM_NAMES||{})[roomId]+' — '+agents.length+' 个智能体';
+    roomName+' — '+agents.length+' 个智能体';
 }
 
 
