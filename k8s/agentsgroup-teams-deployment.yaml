@@ -1,0 +1,372 @@
+---
+# ===== Team: build_system =====
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentsgroup-build-system
+  namespace: agentsgroup
+  labels:
+    app: agentsgroup2026
+    service: agentsgroup-backend
+    team: build_system
+    component: backend
+    cost.opencost.io/app: agentsgroup2026
+    cost.opencost.io/team: build_system
+    cost.opencost.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentsgroup2026
+      team: build_system
+  template:
+    metadata:
+      labels:
+        app: agentsgroup2026
+        team: build_system
+        service: agentsgroup-backend
+        environment: production
+        component: backend
+        cost.opencost.io/app: agentsgroup2026
+        cost.opencost.io/service: agentsgroup-backend
+        cost.opencost.io/environment: production
+        cost.opencost.io/team: build_system
+        cost.opencost.io/component: backend
+    spec:
+      containers:
+        - name: agentsgroup
+          image: agentsgroup:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AG_HOST
+              value: "0.0.0.0"
+            - name: AG_PORT
+              value: "8080"
+            - name: AG_TEAM_ID
+              value: "build_system"
+            - name: AG_OPENCOST_URL
+              value: "http://opencost.opencost:9003"
+            - name: AG_ALLOWED_ORIGINS
+              value: "http://localhost:8080"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: csrf-secret
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/model_pool.json
+              subPath: model_pool.json
+            - name: config
+              mountPath: /app/config/settings.json
+              subPath: settings.json
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentsgroup-config
+---
+# ===== Team: ai_coding =====
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentsgroup-ai-coding
+  namespace: agentsgroup
+  labels:
+    app: agentsgroup2026
+    service: agentsgroup-backend
+    team: ai_coding
+    component: backend
+    cost.opencost.io/app: agentsgroup2026
+    cost.opencost.io/team: ai_coding
+    cost.opencost.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentsgroup2026
+      team: ai_coding
+  template:
+    metadata:
+      labels:
+        app: agentsgroup2026
+        team: ai_coding
+        service: agentsgroup-backend
+        environment: production
+        component: backend
+        cost.opencost.io/app: agentsgroup2026
+        cost.opencost.io/service: agentsgroup-backend
+        cost.opencost.io/environment: production
+        cost.opencost.io/team: ai_coding
+        cost.opencost.io/component: backend
+    spec:
+      containers:
+        - name: agentsgroup
+          image: agentsgroup:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AG_HOST
+              value: "0.0.0.0"
+            - name: AG_PORT
+              value: "8080"
+            - name: AG_TEAM_ID
+              value: "ai_coding"
+            - name: AG_OPENCOST_URL
+              value: "http://opencost.opencost:9003"
+            - name: AG_ALLOWED_ORIGINS
+              value: "http://localhost:8080"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: csrf-secret
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/model_pool.json
+              subPath: model_pool.json
+            - name: config
+              mountPath: /app/config/settings.json
+              subPath: settings.json
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentsgroup-config
+---
+# ===== Team: energy =====
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentsgroup-energy
+  namespace: agentsgroup
+  labels:
+    app: agentsgroup2026
+    service: agentsgroup-backend
+    team: energy
+    component: backend
+    cost.opencost.io/app: agentsgroup2026
+    cost.opencost.io/team: energy
+    cost.opencost.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentsgroup2026
+      team: energy
+  template:
+    metadata:
+      labels:
+        app: agentsgroup2026
+        team: energy
+        service: agentsgroup-backend
+        environment: production
+        component: backend
+        cost.opencost.io/app: agentsgroup2026
+        cost.opencost.io/service: agentsgroup-backend
+        cost.opencost.io/environment: production
+        cost.opencost.io/team: energy
+        cost.opencost.io/component: backend
+    spec:
+      containers:
+        - name: agentsgroup
+          image: agentsgroup:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AG_HOST
+              value: "0.0.0.0"
+            - name: AG_PORT
+              value: "8080"
+            - name: AG_TEAM_ID
+              value: "energy"
+            - name: AG_OPENCOST_URL
+              value: "http://opencost.opencost:9003"
+            - name: AG_ALLOWED_ORIGINS
+              value: "http://localhost:8080"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: csrf-secret
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/model_pool.json
+              subPath: model_pool.json
+            - name: config
+              mountPath: /app/config/settings.json
+              subPath: settings.json
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentsgroup-config
+---
+# ===== Team: xops =====
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentsgroup-xops
+  namespace: agentsgroup
+  labels:
+    app: agentsgroup2026
+    service: agentsgroup-backend
+    team: xops
+    component: backend
+    cost.opencost.io/app: agentsgroup2026
+    cost.opencost.io/team: xops
+    cost.opencost.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentsgroup2026
+      team: xops
+  template:
+    metadata:
+      labels:
+        app: agentsgroup2026
+        team: xops
+        service: agentsgroup-backend
+        environment: production
+        component: backend
+        cost.opencost.io/app: agentsgroup2026
+        cost.opencost.io/service: agentsgroup-backend
+        cost.opencost.io/environment: production
+        cost.opencost.io/team: xops
+        cost.opencost.io/component: backend
+    spec:
+      containers:
+        - name: agentsgroup
+          image: agentsgroup:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AG_HOST
+              value: "0.0.0.0"
+            - name: AG_PORT
+              value: "8080"
+            - name: AG_TEAM_ID
+              value: "xops"
+            - name: AG_OPENCOST_URL
+              value: "http://opencost.opencost:9003"
+            - name: AG_ALLOWED_ORIGINS
+              value: "http://localhost:8080"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: csrf-secret
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/model_pool.json
+              subPath: model_pool.json
+            - name: config
+              mountPath: /app/config/settings.json
+              subPath: settings.json
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentsgroup-config

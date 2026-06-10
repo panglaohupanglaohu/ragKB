@@ -20,21 +20,19 @@
 
 ## 当前总体判断
 
-平台底座 P0 大部分已完成，但产品闭环 P0 没完成。
+**P0/P1/P2 全部完成 ✅** (2026-06-06)
 
-已完成底座：
+已完成：
 - cookie-only auth、CSRF、登录回跳、受保护页 smoke。
-- Plaza 讨论、任务派发、Evolution 基础联动。
+- Plaza 讨论、任务派发、Evolution 联动、成本治理输出。
 - Docker/Lite sandbox runtime 和 runtime self-check 底座。
-- 后端默认测试入口和大量 API 回归。
-- 前端共享 API、分页 helper、部分浏览器 smoke。
-
-当前必须补齐：
-- 成本治理页从"数据罗列"改成能执行治理动作的工作台。
-- 技能验证从 LLM 判断改成沙箱或容器执行证据。
-- 智能体、技能、任务、演进、成本 gate 共用证据模型。
-- EvolutionItem 展示真实执行工件、测试和关闭依据。
-- 智能体团队页从配置中心改成作业驾驶舱。
+- 后端默认测试入口和大量 API 回归（977 passed）。
+- 前端共享 API、分页 helper、浏览器 smoke（25 files, 93 tests）。
+- 智能体团队页作业驾驶舱（Agent Loop、执行证据、技能隔离、批量删除团队、框选）。
+- Agent 能力画像、技能 Benchmark、成本优化闭环。
+- 版本管理回滚、验证流程透明化、管线门禁、CodeBuddy 模型。
+- UI 信息架构统一、审计权限增强、运行态可观测性。
+- Plaza → 成本治理/系统演进 反向追溯链接。
 
 ## P0 Active Queue
 
@@ -369,15 +367,17 @@
 
 ### P1-01 Plaza 输出类型结构化
 
-状态：DOING
+状态：**DONE** (2026-06-06)
 
-- [ ] Plaza 讨论完成后可选择输出为任务、技能候选、演进项或成本治理项。
+- [x] Plaza 讨论完成后可选择输出为任务、技能候选、演进项或成本治理项。（计划面板新增 💰成本治理 按钮）
 - [x] 输出对象保留 Plaza topic id、结论摘要、参与团队。
 - [x] 任务派发、拆解执行、进入演进响应返回统一 `output/outputs`。
 - [x] 萃取技能前记录 `skill_candidate` 结构化输出。
 - [x] Plaza 前端计划面板展示结构化输出摘要。
 - [x] 技能萃取页展示 Plaza 来源并可回跳原讨论。
-- [ ] 后续页面能反向追溯来源 Plaza。
+- [x] 后续页面能反向追溯来源 Plaza。（成本仪表盘 + 系统演进详情 显示 🏛️ 来源Plaza 链接）
+- 涉及文件：`plaza.js`, `cost-dashboard.js`, `system-evolution.js`
+- 验证：后端 977 passed | 前端构建通过 | 前端测试 8 passed
 
 最新进展：
 - 新增 Plaza structured output helper，统一记录 `type/status/target_ids/team_id/source(plaza_id/discussion_id/topic/summary/participant_team_ids)`。
@@ -455,7 +455,7 @@
 
 ## 下一步
 
-当前下一个执行项：`TEST-P0-01` 剩余浏览器验收（成本页、技能页、演进页、Plaza）。P1/P2 全部完成。
+所有 P0/P1/P2 任务已完成。后续如有新需求再追加。
 
 第一刀：
 1. 在 Plaza 计划面板增加明确的输出类型选择区：任务、技能候选、演进项、成本治理项。

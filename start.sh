@@ -1,6 +1,8 @@
 #!/bin/bash
 # AgentsGroup2026 — Quick Start Script
-set -euo pipefail
+# 注：不设 set -e，因为后台进程和子shell的退出码会导致脚本提前终止
+set -u
+set -o pipefail
 
 cd "$(dirname "$0")"
 ROOT_DIR="$(pwd)"
@@ -19,19 +21,12 @@ fi
 
 # 启动前清理 8080/5173 上的旧进程，防止端口被占用
 cleanup_port() {
-    local port=$1
-    local pids
-    pids=$(lsof -ti:"$port" 2>/dev/null)
+    local port=$1 pids
+    pids=$(lsof -ti:"$port" 2>/dev/null || true)
     if [ -n "$pids" ]; then
-        echo "🧹 清理端口 $port 上的旧进程 (PID: $pids)..."
-        kill $pids 2>/dev/null
-        sleep 2
-        # 强制清理残留
-        pids=$(lsof -ti:"$port" 2>/dev/null)
-        if [ -n "$pids" ]; then
-            kill -9 $pids 2>/dev/null
-            sleep 1
-        fi
+        echo "🧹 清理端口 $port 旧进程 (PID: $pids)"
+        kill -9 $pids 2>/dev/null || true
+        sleep 1
         echo "   ✅ 端口 $port 已释放"
     else
         echo "   ✅ 端口 $port 空闲"

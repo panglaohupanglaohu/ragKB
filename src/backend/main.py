@@ -190,11 +190,26 @@ _AUTH_EXEMPT_PATHS = {
     # 只读元数据端点 — 前端页面加载时可能先于登录被调用，豁免避免401日志噪声
     "/api/v1/agent-config/agents",
     "/api/v1/agent-config/teams",
+    "/api/v1/agent-config/skills",
     "/api/v1/agent-config/tools",
+    "/api/v1/agent-config/digital-twin/state",
+    "/api/v1/agent-config/tasks/stats",
+    "/api/v1/extraction/stats",
+    # 启动自检内部端点 — httpx 调自己不带 auth，豁免避免日志噪声
+    "/api/v1/agent-teams/overview",
+    "/api/v1/agent-teams/evolution/status",
+    "/api/v1/agent-teams/evolution/summary",
+    "/api/v1/bridge-chat/status",
+    # 沙箱运行时自检 — 前端调用，豁免认证
+    "/api/v1/sandbox/runtime-status",
+    "/api/v1/sandbox/runtime-self-check",
 }
 _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/startup-check",
     "/api/v1/webhook/",
+    "/api/v1/cost",
+    "/api/v1/agent-config/teams/",    # teams/{id}/agents 等子路径
+    "/api/v1/sandbox/",               # 沙箱所有 API（sessions/sync/stats/world等）
 )
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
@@ -373,45 +388,57 @@ async def startup():
         from agents.team_manager import TeamManager
         from agents.teams.build_team import create_build_team
 
+        # Support per-team deployment: AG_TEAM_ID env var filters which team to load.
+        # When empty, load all teams (backward-compatible).
+        _target_team = os.environ.get("AG_TEAM_ID", "").strip()
+
         _team_manager = TeamManager()
-        build_team_obj = create_build_team()
-        _team_manager._teams[build_team_obj.team_id] = build_team_obj
+        if not _target_team or _target_team == "build_system":
+            build_team_obj = create_build_team()
+            _team_manager._teams[build_team_obj.team_id] = build_team_obj
 
         # AI 编程团队
-        try:
-            from agents.teams.ai_coding_team import create_ai_coding_team
-            ai_coding_obj = create_ai_coding_team()
-            _team_manager._teams[ai_coding_obj.team_id] = ai_coding_obj
-        except Exception as e:
-            logger.warning(f"⚠️ AI Coding team not loaded: {e}")
+        if not _target_team or _target_team == "ai_coding":
+            try:
+                from agents.teams.ai_coding_team import create_ai_coding_team
+                ai_coding_obj = create_ai_coding_team()
+                _team_manager._teams[ai_coding_obj.team_id] = ai_coding_obj
+            except Exception as e:
+                logger.warning(f"⚠️ AI Coding team not loaded: {e}")
 
-        # Try energy team (optional)
-        try:
-            from agents.teams.energy_team import create_energy_team
-            energy_team_obj = create_energy_team()
-            _team_manager._teams[energy_team_obj.team_id] = energy_team_obj
-        except Exception as e:
-            logger.warning(f"⚠️ Energy team not loaded: {e}")
+        # Energy team
+        if not _target_team or _target_team == "energy":
+            try:
+                from agents.teams.energy_team import create_energy_team
+                energy_team_obj = create_energy_team()
+                _team_manager._teams[energy_team_obj.team_id] = energy_team_obj
+            except Exception as e:
+                logger.warning(f"⚠️ Energy team not loaded: {e}")
 
         # 公有云 xOPs 团队 (optional)
-        try:
-            from agents.teams.xops_team import create_xops_team
-            xops_team_obj = create_xops_team()
-            _team_manager._teams[xops_team_obj.team_id] = xops_team_obj
-        except Exception as e:
-            logger.warning(f"⚠️ xOPs team not loaded: {e}")
+        if not _target_team or _target_team == "xops":
+            try:
+                from agents.teams.xops_team import create_xops_team
+                xops_team_obj = create_xops_team()
+                _team_manager._teams[xops_team_obj.team_id] = xops_team_obj
+            except Exception as e:
+                logger.warning(f"⚠️ xOPs team not loaded: {e}")
 
         # 云平台运维运营团队 (storage lifecycle + network egress)
-        try:
-            from agents.teams.cloud_ops_team import create_cloud_ops_team
-            cloud_ops_obj = create_cloud_ops_team()
-            _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
-            logger.info(
-                f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
-                f"— {len(cloud_ops_obj.members)} agents"
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
+        if not _target_team or _target_team == "cloud_ops":
+            try:
+                from agents.teams.cloud_ops_team import create_cloud_ops_team
+                cloud_ops_obj = create_cloud_ops_team()
+                _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
+                logger.info(
+                    f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
+                    f"— {len(cloud_ops_obj.members)} agents"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
+
+        if _target_team:
+            logger.info("🎯 Team filter active: only team=%s loaded", _target_team)
 
         init_agent_config(_team_manager)
         app.include_router(agent_config_router)
@@ -508,7 +535,11 @@ async def startup():
         # 4f. Cost Monitoring API (OpenCost integration)
         try:
             from agents.cost_routes import router as cost_router
+            from agents.cost_aggregator import get_cost_aggregator
             app.include_router(cost_router, prefix="/api/v1")
+            # Start the aggregator background poll (falls back to mock data when OpenCost is down)
+            cost_agg = get_cost_aggregator()
+            await cost_agg.start()
             logger.info("✅ Cost Monitoring API mounted (/api/v1/cost)")
         except Exception as e:
             logger.warning(f"⚠️ Cost Monitoring API failed: {e}")
@@ -555,6 +586,14 @@ async def startup():
         logger.info("✅ SECS Sandbox API mounted (/api/v1/sandbox)")
     except Exception as e:
         _handle_startup_failure("secs_sandbox_api", e, critical=False)
+
+    # 5.5 Trial API — 数字孪生试炼三层模型 (阶段二)
+    try:
+        from sandbox.trial_api import router as trial_router
+        app.include_router(trial_router)
+        logger.info("✅ Trial API mounted (/api/v1/twin-trials)")
+    except Exception as e:
+        _handle_startup_failure("trial_api", e, critical=False)
 
     # 6. Datacenter ratchet demo API
     try:
@@ -715,14 +754,16 @@ async def csrf_token():
 async def csrf_middleware(request: Request, call_next):
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         path = request.url.path
-        # Skip CSRF for auth endpoints
-        if not _is_rate_limit_exempt(path):
-            csrf_header = request.headers.get("x-csrf-token", "")
-            if not csrf_header or not _validate_csrf_token(csrf_header):
-                return JSONResponse(
-                    status_code=403,
-                    content={"error": True, "detail": "CSRF token invalid or expired, please refresh the page", "status_code": 403},
-                )
+        # Skip CSRF for auth-exempt, rate-limit-exempt endpoints, or Bearer token requests
+        if not _is_rate_limit_exempt(path) and not _is_auth_exempt(path):
+            auth_header = request.headers.get("authorization", "")
+            if not auth_header.lower().startswith("bearer "):
+                csrf_header = request.headers.get("x-csrf-token", "")
+                if not csrf_header or not _validate_csrf_token(csrf_header):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"error": True, "detail": "CSRF token invalid or expired, please refresh the page", "status_code": 403},
+                    )
     response = await call_next(request)
     return response
 

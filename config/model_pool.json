@@ -69,6 +69,19 @@
       "api_base_url": "https://api.deepseek.com"
     }
   },
+  "d083a568": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "is_default": true,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
+    }
+  },
   "energy_first_principle": {
     "qwen3": {
       "model_id": "qwen3",
@@ -104,49 +117,6 @@
       "api_base_url": ""
     }
   },
-  "d083a568": {
-    "deepseek": {
-      "model_id": "deepseek",
-      "provider": "deepseek",
-      "name": "deepseek-v4-pro",
-      "max_tokens": 4096,
-      "temperature": 0.7,
-      "is_default": true,
-      "enabled": true,
-      "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
-    }
-  },
-  "1d630202": {},
-  "559e3e1d": {},
-  "90c56695": {},
-  "e71cde7b": {},
-  "5d79cf6b": {},
-  "dc95944f": {},
-  "4a861f52": {},
-  "2135dfad": {},
-  "29a3c7a0": {},
-  "cec7b88d": {},
-  "bee7c2c0": {},
-  "c06acbe1": {},
-  "c6b0ec33": {},
-  "c974cc63": {},
-  "79f5a7d1": {},
-  "79b53c38": {},
-  "dfac5479": {},
-  "a139461e": {},
-  "54df5b09": {},
-  "3cd6e17a": {},
-  "056a8c6a": {},
-  "86ac0f88": {},
-  "48fbaa7c": {},
-  "69aeb1d4": {},
-  "357f8ba9": {},
-  "97994562": {},
-  "aaf3b444": {},
-  "b6a81e62": {},
-  "f310a8d9": {},
-  "ee36ce8d": {},
-  "2085366a": {},
-  "89cf4845": {}
+  "19d079d4": {},
+  "31e7594e": {}
 }

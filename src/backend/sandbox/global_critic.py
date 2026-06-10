@@ -118,6 +118,9 @@ class GlobalCritic:
 
         for step in steps:
             for action in step.agent_actions.values():
+                # [fix] 防御: action 可能是 None 或非 dict（混沌注入禁用的 Agent）
+                if not isinstance(action, dict):
+                    continue
                 total_agent_steps += 1
                 if action.get("action") in ("work_on_task", "claim_task"):
                     working_steps += 1
@@ -179,6 +182,9 @@ class GlobalCritic:
 
         for step in steps:
             for action in step.agent_actions.values():
+                # [fix] 防御: action 可能是 None 或非 dict
+                if not isinstance(action, dict):
+                    continue
                 if action.get("action") != "idle":
                     active_steps += 1
 
@@ -205,6 +211,9 @@ class GlobalCritic:
             # 检测同一步骤内多个 claim_task 指向同一任务
             claimed_tasks: Dict[str, int] = {}
             for action in step.agent_actions.values():
+                # [fix] 防御: action 可能是 None 或非 dict
+                if not isinstance(action, dict):
+                    continue
                 if action.get("action") == "claim_task":
                     task = action.get("task", "")
                     claimed_tasks[task] = claimed_tasks.get(task, 0) + 1

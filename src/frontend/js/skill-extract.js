@@ -203,15 +203,20 @@ window.selectTeamChip = function(el, teamId) {
 function renderTeamChips() {
   const container = document.getElementById('team-chips');
   const activeIds = window._activeTeamIds || [];
-  const chips = activeIds.map(tid => {
+  // 折叠策略: 最多展示 2 个 chip + "+N" 按钮
+  const MAX_VISIBLE = 2;
+  const visible = activeIds.slice(0, MAX_VISIBLE);
+  const hidden = activeIds.length - visible.length;
+  const chips = visible.map(tid => {
     const t = allTeams.find(x => x.team_id === tid);
     if (!t) return '';
     return `<span class="team-chip" data-tid="${t.team_id}"><span onclick="selectTeamChip(this.parentElement,'${t.team_id}')">${t.name}</span><span class="chip-close" onclick="event.stopPropagation();window._removeTeamChip('${t.team_id}')">✕</span></span>`;
   }).join('');
+  const more = hidden > 0 ? `<span class="team-chips__more" onclick="window._toggleChipDropdown()">+${hidden}</span>` : '';
   // Add button + dropdown
   const addBtn = `<span class="chip-add" onclick="window._toggleChipDropdown()">＋</span>`;
   const dropdown = `<div class="chip-dropdown" id="chip-dropdown"></div>`;
-  container.innerHTML = chips + addBtn + dropdown;
+  container.innerHTML = chips + more + addBtn + dropdown;
   // Re-activate current
   if (currentTeamId) {
     const el = container.querySelector(`[data-tid="${currentTeamId}"]`);

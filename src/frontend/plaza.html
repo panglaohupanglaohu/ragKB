@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智能体广场 — AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/topbar-ws.css">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Noto+Sans+SC:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
 /* ── 安藤忠雄式清水混凝土 · Tadao Ando Exposed Concrete ─────── */
@@ -51,7 +52,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .top-bar .nav-links .cur{color:var(--slit-glow);border-bottom:1px solid var(--slit-glow);font-size:11px;padding:6px 14px;letter-spacing:0.5px;cursor:default;pointer-events:none;display:inline-block}
 
 /* ── Layout ── */
-.layout{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 44px);margin-top:44px}
+.layout{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 56px);margin-top:56px}
 
 /* ── Left: concrete wall panel ── */
 .left{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
@@ -265,16 +266,26 @@ textarea.fi{resize:vertical;min-height:45px}
 </head>
 <body>
 
-<div class="top-bar">
-  <span class="logo">议事广场</span>
-  <div class="nav-links">
+<header class="topbar-ws">
+  <div class="topbar-ws__left">
+    <h1>议事广场</h1>
+  </div>
+  <nav class="topbar-ws__nav" aria-label="主导航">
     <a href="/agent-team-config.html">智能体团队</a>
     <span class="cur">议事广场</span>
     <a href="/skill-extract.html">技能萃取/赋予</a>
-    <a href="/digital-twin-cli.html">数字孪生</a>
+    <a href="/Agent-digital-twin.html">数字孪生</a>
     <a href="/system-evolution.html">系统演进</a>
+    <a href="/cost-dashboard.html">成本监控</a>
+  </nav>
+  <div class="topbar-ws__right">
+    <div class="topbar-ws__user">
+      <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+      <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+      <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+    </div>
   </div>
-</div>
+</header>
 
 <div class="layout">
   <div class="left">
@@ -393,6 +404,28 @@ window.addEventListener('unhandledrejection', function(e) {
   } catch(ex) {}
 });
 </script>
-  <script src="/js/global-nav.js" data-page="plaza"></script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
 </body>
 </html>

@@ -159,12 +159,29 @@ class SECSOrchestrator:
             for i, r in enumerate(rooms)
         ]
 
-        # positions → agent 状态 (agent 在哪个房间)
-        agents = [
-            {"id": agent_id, "name": agent_id, "role": "general",
-             "state": "idle", "room": room_id, "skills": [], "tools": []}
-            for agent_id, room_id in positions.items()
-        ]
+        # positions → agent 状态 (agent 在哪个房间, 含真实 skills)
+        agents = []
+        for agent_id, room_id in positions.items():
+            # 尝试从 TeamManager 获取真实 skills
+            skills = []
+            tools = []
+            role = "general"
+            if _team_manager:
+                try:
+                    for team in _team_manager.list_teams():
+                        for agent in (team.agents if isinstance(team.agents, list) else team.agents.values() if isinstance(team.agents, dict) else []):
+                            if (getattr(agent, 'agent_id', None) == agent_id):
+                                role = getattr(agent, 'role', 'general')
+                                skills = getattr(agent, 'skills', []) or []
+                                tools = getattr(agent, 'tools', []) or []
+                                break
+                except Exception:
+                    pass
+            agents.append({
+                "id": agent_id, "name": agent_id, "role": role,
+                "state": "idle", "room": room_id or "",
+                "skills": skills, "tools": tools,
+            })
 
         # interactions → workflow edges (谁和谁通信过)
         edges = []
@@ -207,6 +224,8 @@ class SECSOrchestrator:
 
         流程: 快照 → 仿真 → 评估 → 对齐 → 输出
 
+        容错保证: 无论评估/对齐是否成功，session 状态都不会卡在 EVALUATING。
+
         Returns:
             包含仿真结果、评估得分、最优SOP的完整结果
         """
@@ -230,13 +249,40 @@ class SECSOrchestrator:
 
         except Exception as e:
             logger.error(f"❌ 流水线执行失败: {e}")
-            return {"error": str(e), "session_id": session_id}
+            # [fix] 确保状态不会卡在 EVALUATING: 任何异常都回退到 COMPLETED
+            if session.status == SandboxStatus.EVALUATING:
+                session.status = SandboxStatus.COMPLETED
+                logger.info(f"🔄 状态回退: EVALUATING → COMPLETED (因异常)")
+            return {"error": str(e), "session_id": session_id, "status": session.status.value}
 
     # ── 策略注入 ────────────────────────────────────────────────
 
     async def inject_strategy(self, session_id: str) -> Dict[str, Any]:
         """注入最优策略到真实环境."""
         return await self.twin_loop.inject_strategy(session_id)
+
+    async def inject_chaos_event(
+        self,
+        session_id: str,
+        event_type: str,
+        target_agent: Optional[str] = None,
+        skill_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """注入混沌事件到运行中的沙箱."""
+        return await self.twin_loop.inject_chaos_event(
+            session_id=session_id,
+            event_type=event_type,
+            target_agent=target_agent,
+            skill_id=skill_id,
+        )
+
+    def stop_simulation(self, session_id: str) -> Dict[str, Any]:
+        """停止正在运行的仿真."""
+        return self.twin_loop.stop_simulation(session_id)
+
+    async def step_once(self, session_id: str) -> Dict[str, Any]:
+        """单步执行仿真."""
+        return await self.twin_loop.step_once(session_id)
 
     # ── 偏移处理 ────────────────────────────────────────────────
 

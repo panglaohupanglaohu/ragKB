@@ -47,7 +47,10 @@ class ZeroExpEngine:
         self, session_id: str, step: SimulationStep, agent_id: str, twin_id: str
     ) -> ExperienceEntry:
         """从仿真步骤中收集单个智能体的经验."""
-        action = step.agent_actions.get(twin_id, {})
+        action = step.agent_actions.get(twin_id)
+        # [fix] 防御: action 可能是 None 或非 dict（如混沌禁用 Agent 的 disabled 标记）
+        if not isinstance(action, dict):
+            action = {"action": "unknown"}
         reward = step.step_rewards.get(twin_id, 0.0)
 
         # 确定结果
@@ -175,6 +178,9 @@ class ZeroExpEngine:
 
         for step in high_reward_steps:
             for twin_id, action in step.agent_actions.items():
+                # [fix] 防御: action 可能是 None 或非 dict
+                if not isinstance(action, dict):
+                    continue
                 agent_id = agent_twin_map.get(twin_id, twin_id)
                 if agent_id not in role_actions:
                     role_actions[agent_id] = []

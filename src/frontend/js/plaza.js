@@ -1571,6 +1571,7 @@ function renderPlanCard(planContent, revised = false) {
       <button class="plan-btn primary" onclick="dispatchTasks()">智能拆解</button>
       <button class="plan-btn primary" onclick="dispatchAndExecute()">拆解并执行</button>
       <button class="plan-btn accent" onclick="enterEvolution()">进入演化</button>
+      <button class="plan-btn accent" onclick="enterCostGov()" title="将讨论结论作为成本治理输入">💰 成本治理</button>
       <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
     </div></div>`;
   renderConsensusState();
@@ -1646,6 +1647,28 @@ window.enterEvolution = async function() {
   } else {
     toast('演化启动失败');
   }
+};
+
+// ── 成本治理入口 ──
+window.enterCostGov = async function() {
+  if (!curPlaza || !curDisc) return;
+  const teamId = $('assign-team')?.value;
+  const disc = curDiscData || await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}`);
+  const planText = disc?.plan?.content || disc?.summary || '';
+  // Record cost_governance output
+  try {
+    await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/outputs`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'cost_governance', team_id: teamId || '', summary: planText.slice(0,500) })
+    });
+  } catch(e) { /* non-critical */ }
+  toast('正在跳转成本治理…');
+  const targetUrl = new URL('/cost-dashboard.html', window.location.origin);
+  targetUrl.searchParams.set('source', 'plaza');
+  targetUrl.searchParams.set('plaza_id', curPlaza);
+  targetUrl.searchParams.set('discussion_id', curDisc);
+  if (teamId) targetUrl.searchParams.set('team_id', teamId);
+  window.location.href = targetUrl.pathname + targetUrl.search;
 };
 
 window.refreshVerificationState = async function(silent = false) {

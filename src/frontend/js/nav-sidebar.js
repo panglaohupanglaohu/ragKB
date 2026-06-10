@@ -29,6 +29,7 @@
     { id: 'plaza',      icon: '⊙', label: 'nav.plaza',      href: '/plaza.html' },
     { id: 'tasks',      icon: '任', label: 'nav.tasks',      href: '/tasks.html' },
     { id: 'evolution',  icon: '演', label: 'nav.evolution',  href: '/system-evolution.html' },
+    { id: 'cost',       icon: '💰', label: 'nav.cost',      href: '/cost-dashboard.html' },
     { id: 'kb',         icon: '知', label: 'nav.kb',         href: '/knowledge-base.html' },
     { id: 'llm-config', icon: '配', label: 'nav.llm-config', href: '/poseidon-config.html' },
   ];

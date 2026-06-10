@@ -214,11 +214,14 @@ class AgentTwin:
     source_agent_id: str = ""
     role: str = ""
     skills: List[str] = field(default_factory=list)
+    tools: List[str] = field(default_factory=list)
     # 当前状态
     state: str = "idle"  # idle, thinking, acting, waiting
     current_task: Optional[str] = None
     # 决策策略参数
     strategy_params: Dict[str, Any] = field(default_factory=dict)
+    # 演化代数
+    generation: int = 0
     # 仿真统计
     actions_taken: int = 0
     rewards_collected: float = 0.0
@@ -242,6 +245,8 @@ class SimulationStep:
     # 步骤奖励
     step_rewards: Dict[str, float] = field(default_factory=dict)
     global_reward: float = 0.0
+    # 混沌注入：当前步被禁用的 Agent
+    disabled_agents: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -337,7 +342,193 @@ class SandboxSession:
     # 评估结果
     evaluation: Optional[CriticEvaluation] = None
     best_sop: Optional[CollaborationSOP] = None
+    # 并行模式的所有分支结果（前端多线图）
+    branches_results: List[List[SimulationStep]] = field(default_factory=list)
+    # 演化模式的多代记录
+    evolution_generations: List[Dict[str, Any]] = field(default_factory=list)
+    max_generations: int = 3
 
     # 注入状态
     injected: bool = False
     injection_time: Optional[str] = None
+    # 失败归因
+    failed_agents: List[Dict[str, Any]] = field(default_factory=list)
+    chaos_events: List[Dict[str, Any]] = field(default_factory=list)
+
+    # ── Trial/Branch 关联字段 (M-04: 向后兼容) ──
+    branch_id: Optional[str] = None       # 所属 Branch ID
+    trial_id: Optional[str] = None        # 所属 Trial ID
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Trial / Branch / Event — 数字孪生试炼三层模型 (阶段二)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TrialStatus(str, Enum):
+    """试炼生命周期状态."""
+    IDLE = "idle"
+    CREATING = "creating"
+    READY = "ready"
+    RUNNING = "running"
+    PAUSED = "paused"
+    EVALUATING = "evaluating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ARCHIVED = "archived"
+
+
+class BranchStatus(str, Enum):
+    """分支状态."""
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class TrialEventType(str, Enum):
+    """统一事件类型."""
+    STEP = "step"                    # 仿真步进
+    BRANCH_CREATED = "branch_created"   # 分支创建
+    BRANCH_FORKED = "branch_forked"     # 分支分裂
+    CHAOS_INJECTED = "chaos_injected"   # 混沌注入
+    REWARD_UPDATE = "reward_update"     # 奖励更新
+    SESSION_COMPLETE = "session_complete"  # 会话完成
+    TRIAL_COMPLETE = "trial_complete"    # 试练完成
+    EVALUATION_DONE = "evaluation_done"  # 评估完成
+    SOP_EXTRACTED = "sop_extracted"      # SOP萃取
+    FEEDBACK_APPLIED = "feedback_applied"# 反哺完成
+    AGENT_MOVE = "agent_move"            # Agent移动
+    FAULT_RECOVERED = "fault_recovered"  # 故障恢复
+
+
+class TrialMode(str, Enum):
+    """五种试炼模式."""
+    WHAT_IF = "what_if"               # What-if 推演
+    MULTI_BRANCH = "multi_branch"      # 多分支对比
+    CHAOS_DRILL = "chaos_drill"        # 混沌演练
+    EVOLUTIONARY = "evolutionary"      # 演化试炼
+    REPLAY = "replay"                  # 回放复盘
+
+
+@dataclass
+class Trial:
+    """试炼 — 数字孪生的顶级实验单元 (M-01)."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    status: TrialStatus = TrialStatus.IDLE
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # 配置
+    team_id: str = ""
+    team_snapshot: Dict[str, Any] = field(default_factory=dict)
+    task_goal: Dict[str, Any] = field(default_factory=dict)
+    scenario: str = ""          # 场景名
+    mode: TrialMode = TrialMode.WHAT_IF
+    max_steps: int = 100
+    acceleration: int = 1       # 加速倍率
+    parallel_branches: int = 1
+
+    # 分支列表
+    branches: List[str] = field(default_factory=list)  # branch_id 列表
+
+    # 评估结果
+    evaluation: Optional[Dict[str, Any]] = None
+    extracted_sops: List[Dict[str, Any]] = field(default_factory=list)
+    feedback_actions: List[Dict[str, Any]] = field(default_factory=list)
+
+    # 统计
+    total_sessions: int = 0
+    total_steps: int = 0
+    best_score: Optional[float] = None
+
+
+@dataclass
+class Branch:
+    """分支 — 试炼内的独立运行线 (M-02)."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    trial_id: str = ""
+    name: str = ""
+    label: str = ""              # 显示标签，如 "baseline", "chaos-v1", "optimized"
+    color: str = "#4A90E2"       # UI 颜色
+
+    parent_branch_id: Optional[str] = None
+    fork_at_step: Optional[int] = None
+    initial_conditions: Dict[str, Any] = field(default_factory=dict)
+    injected_events: List[Dict[str, Any]] = field(default_factory=list)
+
+    sessions: List[str] = field(default_factory=list)  # session_id 列表
+    current_session_id: Optional[str] = None
+    status: BranchStatus = BranchStatus.PENDING
+    current_step: int = 0
+    final_score: Optional[float] = None
+    reward_curve: List[Dict[str, Any]] = field(default_factory=list)  # [{step, reward}]
+    agent_contributions: List[Dict[str, Any]] = field(default_factory=list)
+
+    checkpoints: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    completed_at: Optional[str] = None
+
+
+@dataclass
+class TrialEvent:
+    """统一事件模型 (M-03)."""
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
+    event_type: TrialEventType = TrialEventType.STEP
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # 关联
+    trial_id: str = ""
+    branch_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+    # 数据负载
+    data: Dict[str, Any] = field(default_factory=dict)
+
+    # 元信息
+    source: str = "system"       # system | user | agent
+    processed: bool = False
+
+
+@dataclass
+class TrialEvaluation:
+    """五维评分结果."""
+    eval_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
+    trial_id: str = ""
+    evaluated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # 五维评分 (0~1)
+    task_completion: float = 0.0           # 目标完成度 (权重30%)
+    collaboration_efficiency: float = 0.0  # 协作效率 (权重25%)
+    resilience: float = 0.0                # 韧性评分 (权重20%)
+    cost_efficiency: float = 0.0           # 成本控制 (权重15%)
+    extractability: float = 0.0            # 可萃取性 (权重10%)
+
+    # 加权总分
+    total_score: float = 0.0
+
+    # 各分支评分
+    branch_scores: Dict[str, float] = field(default_factory=dict)
+
+    # 分析
+    best_branch_id: Optional[str] = None
+    worst_branch_id: Optional[str] = None
+    key_insights: List[str] = field(default_factory=list)
+    turning_points: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class SOPCandidate:
+    """SOP 萃取候选."""
+    sop_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
+    name: str = ""
+    confidence: float = 0.0
+    source_branch_id: str = ""
+    applicable_scenarios: List[str] = field(default_factory=list)
+    steps_count: int = 0
+    steps: List[Dict[str, Any]] = field(default_factory=list)  # [{order, agent_role, action, precondition, expected_output, fallback}]
+
+    status: str = "candidate"  # candidate | approved | rejected | applied
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

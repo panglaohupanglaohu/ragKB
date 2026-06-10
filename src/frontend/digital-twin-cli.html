@@ -64,11 +64,12 @@ body {
 .header {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  padding: 0 24px;
-  height: 52px;
+  padding: 0;
+  height: auto;
   display: flex;
-  align-items: center;
-  gap: 20px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   flex-shrink: 0;
 }
 .header-brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; }
@@ -80,7 +81,7 @@ body {
   font-size: 14px; font-weight: 600; color: #000;
 }
 .header-brand h1 { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
-.header-nav { display: flex; gap: 2px; flex: 1; }
+.header-nav { display: flex; gap: 2px; flex: 1; padding: 0 24px; height: 40px; align-items: center; }
 .nav-item {
   padding: 8px 16px; font-size: 12.5px; font-weight: 500; color: var(--muted);
   cursor: pointer; border-radius: 6px; transition: all 0.25s cubic-bezier(.4,0,.2,1);
@@ -326,32 +327,46 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 </style>
+<link rel="stylesheet" href="/css/topbar-ws.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 </head>
 <body>
 
 <div class="header">
-  <div class="header-brand">
-    <div class="logo">DT</div>
-    <h1>智能体数字孪生</h1>
+  <!-- 主导航 (wabi-sabi topbar) -->
+  <div class="topbar-ws" style="border-radius:0;flex-basis:100%">
+    <div class="topbar-ws__left">
+      <div class="logo" style="width:32px;height:32px;border-radius:6px;background:var(--cyan);color:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:var(--font-mono)">DT</div>
+      <h1>智能体数字孪生</h1>
+    </div>
+    <nav class="topbar-ws__nav" aria-label="主导航">
+      <a href="/agent-team-config.html">智能体团队</a>
+      <a href="/plaza.html">议事广场</a>
+      <a href="/skill-extract.html">技能萃取/赋予</a>
+      <span class="cur">数字孪生</span>
+      <a href="/Agent-digital-twin.html">SECS沙箱</a>
+      <a href="/system-evolution.html">系统演进</a>
+      <a href="/cost-dashboard.html">成本监控</a>
+    </nav>
+    <div class="topbar-ws__right">
+      <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
+      <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
+      <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
+      <div class="topbar-ws__user">
+        <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+        <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+        <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
+    </div>
   </div>
-  <div class="header-nav">
+  <!-- 子导航 (页面内 view 切换) -->
+  <div class="header-nav" style="flex-basis:100%;border-top:1px solid var(--border);background:var(--panel2)">
     <div class="nav-item active" data-view="architecture" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 系统状态</div>
     <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 交互流 <span class="badge" id="msg-count">0</span></div>
     <div class="nav-item" data-view="pipeline" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg> 编排管线</div>
     <div class="nav-item" data-view="environment" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 环境空间</div>
     <div class="nav-item" data-view="cli" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> CLI</div>
-  </div>
-  <div class="header-actions">
-    <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
-    <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
-    <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
-    <a href="/agent-team-config.html">智能体团队</a>
-    <a href="/plaza.html">议事广场</a>
-    <a href="/skill-extract.html">技能萃取/赋予</a>
-    <span class="gn-cur">数字孪生</span>
-    <a href="/system-evolution.html">系统演进</a>
-    <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
   </div>
 </div>
 
@@ -601,6 +616,79 @@ window.addEventListener('unhandledrejection', function(e) {
     navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
   } catch(ex) {}
 });
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+
+// ═══ 阶段六：CLI Trial 命令组扩展 (C-01~C-03) ═══
+window._trialCommands = {
+  'trial.create': {desc:'创建新试炼',fn:async(args)=>{
+    var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:(args[0]||'build-system'),mode:(args[1]||'what_if'),max_steps:parseInt(args[2])||150})});
+    var d=await resp.json();return d.error?'Error: '+d.error:'✅ Trial '+d.trial_id+' created, branch='+d.branch_id;
+  }},
+  'trial.list': {desc:'列出所有试炼',fn:async()=>{
+    var r=await fetch('/api/v1/twin-trials');var d=await r.json();var s='Trials ('+d.total+'):
+';(d.trials||[]).forEach(function(t){s+='  ['+t.id.substring(0,8)+'] '+t.name+' ('+t.status+') score='+(t.max_reward||'—')+'
+'});return s||'No trials';
+  }},
+  'trial.show': {desc:'查看试炼详情',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.show <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]);var d=await r.json();
+    if(d.error) return 'Error: '+d.error;
+    return 'Trial: '+d.name+' | Mode:'+d.mode+' | Status:'+d.status+'
+Branches: '+(d.branches||[]).length+' | Steps:'+d.total_steps+' | Score:'+(d.best_score||'—');
+  }},
+  'trial.fork': {desc:'分裂分支',fn:async(args)=>{
+    if(!args[0]||!args[1]) return 'Usage: trial.fork <trial_id> <branch_id> [name]';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fork_from_branch_id:args[1],name:args[2]||''})});
+    var d=await r.json();return d.error?'Error: '+d.error:'✅ Forked: branch='+d.branch_id;
+  }},
+  'trial.inject': {desc:'注入事件',fn:async(args)=>{
+    if(!args[0]||!args[1]||!args[2]) return 'Usage: trial.inject <trial_id> <branch_id> <event_type>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches/'+args[1]+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:args[2],payload:{}})});
+    return '✅ Injected: '+args[2];
+  }},
+  'trial.eval': {desc:'五维评估',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.eval <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/evaluate',{method:'POST'});
+    var d=await r.json();return d.error?'Error: '+'d.error':'Score: '+d.total_score+' | TC:'+((d.task_completion||0)*100).toFixed(0)+'%';
+  }},
+  'trial.extract': {desc:'萃取SOP',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.extract <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/extract-sop',{method:'POST'});
+    var d=await r.json();return d.error?'Error: ':'✅ Extracted '+(d.sops||[]).length+' SOP(s)';
+  }},
+  'trial.feedback': {desc:'反哺Agent',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.feedback <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/feedback',{method:'POST'});
+    var d=await r.json();return '✅ Applied: '+d.applied_sops+' SOPs, '+d.updated_agents.length+' agents updated';
+  }},
+  'trial.status': {desc:'当前Trial状态',fn:()=>{
+    if(window._DTS&&window._DTS.activeTrialId) return 'Active Trial: '+window._DTS.activeTrialId.substring(0,8)+' Status:'+window._DTS.trialStatus+' Branch:'+(window._DTS.activeBranchId||'?');
+    return 'No active trial. Use "trial create" to start.';
+  }}
+};
+
 </script>
 </body>
 </html>

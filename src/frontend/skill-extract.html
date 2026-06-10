@@ -17,6 +17,7 @@
 </script>
 
 <link rel="stylesheet" href="/css/skill-extract.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
 </head>
 
 <body>
@@ -24,26 +25,41 @@
 
 <div class="overlay">
   <!-- ── Topbar ──────────────────────────────────────────────── -->
-  <div class="topbar">
-    <div class="topbar-left">
+  <header class="topbar-ws" style="grid-column:1 / -1;position:relative">
+    <div class="topbar-ws__left">
       <span class="seal" id="mode-seal">萃</span>
       <h1 id="mode-title">技能萃取/赋予</h1>
       <div class="mode-toggle">
-        <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">🩸 萃取</button>
-        <button data-mode="router" onclick="window._switchPageMode('router')">🧭 赋予</button>
+        <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">萃取</button>
+        <button data-mode="router" onclick="window._switchPageMode('router')">赋予</button>
       </div>
     </div>
-    <div class="topbar-nav">
-      <a href="agent-team-config.html">智能体团队</a>
-      <a href="plaza.html">议事广场</a>
-      <span class="cur">技能萃取/赋予</span>
-      <a href="digital-twin-cli.html">数字孪生</a>
-      <a href="system-evolution.html">系统演进</a>
-    </div>
-    <div class="topbar-right">
+    <nav class="topbar-ws__nav nav-grouped" aria-label="主导航">
+      <div class="nav-group">
+        <span class="nav-group__label">资产</span>
+        <a href="/agent-team-config.html">智能体</a>
+        <a href="/plaza.html">广场</a>
+        <span class="cur">技能</span>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group__label">演练</span>
+        <a href="/Agent-digital-twin.html">孪生</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group__label">观测</span>
+        <a href="/system-evolution.html">演进</a>
+        <a href="/cost-dashboard.html">成本</a>
+      </div>
+    </nav>
+    <div class="topbar-ws__right">
       <div class="team-chips" id="team-chips" style="position:relative"></div>
+      <div class="topbar-ws__user">
+        <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+        <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+        <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      </div>
     </div>
-  </div>
+  </header>
 
   <!-- ── Left Panel: Message Flow + Submission ────────────────────── -->
   <div class="panel-left extract-left" id="panel-left">
@@ -812,10 +828,29 @@ A：北极星指标：配置变更引发的事故数降至每季度≤1次；辅
 <script src="/js/api.js"></script>
 <script src="/js/evidence-runs.js"></script>
 <script src="/js/skill-extract.js" type="module"></script>
-
-
-  <script src="/js/global-nav.js" data-page="skill-extract"></script>
-
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
   <script src="/js/utils.js"></script>
 </body>
 </html>

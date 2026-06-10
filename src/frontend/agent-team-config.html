@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/css/agent-team-config.css">
   <link rel="stylesheet" href="/css/openbridge-theme.css">
   <link rel="stylesheet" href="/css/ws-theme-bridge.css">
+  <link rel="stylesheet" href="/css/topbar-ws.css">
 </head>
 <body>
 <a href="#main-content" class="skip-link">跳转到主内容</a>
@@ -34,7 +35,29 @@
   </div>
   <!-- Main -->
   <div class="main" id="main-content">
-    <div class="topbar"><div class="topbar-left"><h1 id="main-title">团队概览</h1><span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span></div><nav class="global-nav"></nav><div class="topbar-right"><button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button><button class="btn btn-sm btn-ghost" onclick="deleteTeam()" style="color:var(--red)">🗑 删除团队</button></div></div>
+    <div class="topbar-ws">
+      <div class="topbar-ws__left">
+        <h1 id="main-title">团队概览</h1>
+        <span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span>
+      </div>
+      <nav class="topbar-ws__nav" aria-label="主导航">
+        <span class="cur">智能体团队</span>
+        <a href="/plaza.html">议事广场</a>
+        <a href="/skill-extract.html">技能萃取/赋予</a>
+        <a href="/Agent-digital-twin.html">数字孪生</a>
+        <a href="/system-evolution.html">系统演进</a>
+        <a href="/cost-dashboard.html">成本监控</a>
+      </nav>
+      <div class="topbar-ws__right">
+        <button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button>
+        <button class="btn btn-sm btn-ghost" onclick="deleteTeam()" style="color:var(--red)">🗑 删除团队</button>
+        <div class="topbar-ws__user">
+          <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+          <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+          <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+        </div>
+      </div>
+    </div>
     <!-- Views -->
     <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
 <!-- 演进状态摘要 -->
@@ -271,6 +294,28 @@ window.addEventListener('unhandledrejection', function(e) {
   } catch(ex) {}
 });
 </script>
-  <script src="/js/global-nav.js" data-page="agents"></script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
 </body>
 </html>

@@ -371,11 +371,12 @@ async function loadOverview(){
 
   // ── Quick Actions Bar ──
   const modelOk = ov?.evolution?.compliance_rating ? true : false;
-  const qaHtml = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  const qaHtml = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <button class="btn btn-pink btn-sm" onclick="switchView('runtime')" title="运行 Agent Loop 测试智能体能力">▶ 运行 Agent Loop</button>
     <button class="btn btn-sm" onclick="switchView('models')">🧠 模型配置</button>
     <button class="btn btn-sm" onclick="switchView('tasks')">📋 任务队列</button>
     <button class="btn btn-sm" onclick="switchView('skills')">⚡ 技能管理</button>
+    <button class="btn btn-sm btn-danger" id="btn-del-teams" onclick="deleteSelectedTeams()" style="display:none" title="删除勾选的团队">🗑️ 删除选中团队 (<span id="del-team-count">0</span>)</button>
     <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
       <span id="ov-llm-status" style="padding:2px 8px;border-radius:4px;font-size:10px">加载中…</span>
     </span>
@@ -388,7 +389,7 @@ async function loadOverview(){
     const taskSummary=curTm?.tasks||{};
     const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
     const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
-    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
+    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card ov-team-card" style="position:relative;cursor:pointer" data-tid="${t.team_id}" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><input type="checkbox" class="ov-team-cb" data-tid="${t.team_id}" onclick="event.stopPropagation();updateDelTeamBtn()" style="position:absolute;top:6px;right:6px;width:14px;height:14px;cursor:pointer;opacity:0.35" title="勾选以批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
 
     // Team readiness indicator
     const teamAgents=curTm?.agents ? (Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents)) : [];
@@ -446,7 +447,114 @@ async function loadOverview(){
     },10000);
     loadEvolution(ov?.evolution?.compliance_rating||null);
   }
+  // Update delete button + init marquee after render
+  updateDelTeamBtn();
+  initMarqueeSelect();
 }
+
+// ── 鼠标框选多团队 ──
+let _marquee = { active: false, startX: 0, startY: 0, box: null, inited: false };
+function initMarqueeSelect() {
+  if (_marquee.inited) return;  // 只挂一次，防止重复监听
+  const container = el('ov-stats');
+  if (!container) return;
+  _marquee.inited = true;
+
+  container.addEventListener('mousedown', function(e) {
+    // Only start on left-click, not on checkboxes/buttons
+    if (e.button !== 0) return;
+    if (e.target.closest('input,button,a,.btn')) return;
+    _marquee.active = true;
+    _marquee.startX = e.clientX;
+    _marquee.startY = e.clientY;
+    // Create selection box
+    _marquee.box = document.createElement('div');
+    _marquee.box.style.cssText = 'position:fixed;border:2px dashed var(--pink);background:rgba(224,27,36,0.08);pointer-events:none;z-index:9999';
+    _marquee.box.style.left = e.clientX + 'px';
+    _marquee.box.style.top = e.clientY + 'px';
+    _marquee.box.style.width = '0px';
+    _marquee.box.style.height = '0px';
+    document.body.appendChild(_marquee.box);
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!_marquee.active || !_marquee.box) return;
+    const x1 = Math.min(_marquee.startX, e.clientX);
+    const y1 = Math.min(_marquee.startY, e.clientY);
+    const x2 = Math.max(_marquee.startX, e.clientX);
+    const y2 = Math.max(_marquee.startY, e.clientY);
+    _marquee.box.style.left = x1 + 'px';
+    _marquee.box.style.top = y1 + 'px';
+    _marquee.box.style.width = (x2 - x1) + 'px';
+    _marquee.box.style.height = (y2 - y1) + 'px';
+  });
+
+  document.addEventListener('mouseup', function(e) {
+    if (!_marquee.active) return;
+    _marquee.active = false;
+    if (_marquee.box) { _marquee.box.remove(); _marquee.box = null; }
+    // Check which cards overlap with the selection rect
+    const x1 = Math.min(_marquee.startX, e.clientX);
+    const y1 = Math.min(_marquee.startY, e.clientY);
+    const x2 = Math.max(_marquee.startX, e.clientX);
+    const y2 = Math.max(_marquee.startY, e.clientY);
+    const minSize = 5;
+    if (Math.abs(x2 - x1) < minSize && Math.abs(y2 - y1) < minSize) return;
+    const c = el('ov-stats'); if (!c) return;  // fresh DOM ref
+    const cards = c.querySelectorAll('.ov-team-card');
+    cards.forEach(function(card) {
+      const r = card.getBoundingClientRect();
+      if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2) {
+        const cb = card.querySelector('.ov-team-cb');
+        if (cb) cb.checked = true;
+      }
+    });
+    updateDelTeamBtn();
+  });
+}
+
+// ── 批量删除团队 ──
+function updateDelTeamBtn() {
+  const cbs = document.querySelectorAll('.ov-team-cb:checked');
+  const count = cbs.length;
+  const btn = el('btn-del-teams');
+  const cnt = el('del-team-count');
+  if (btn) btn.style.display = count > 0 ? '' : 'none';
+  if (cnt) cnt.textContent = count;
+}
+async function deleteSelectedTeams() {
+  const cbs = document.querySelectorAll('.ov-team-cb:checked');
+  if (!cbs.length) { toast('请先勾选要删除的团队'); return; }
+  const ids = Array.from(cbs).map(cb => cb.dataset.tid);
+  const names = ids.join(', ');
+  if (!confirm(`⚠️ 确认删除 ${ids.length} 个团队？\n\n${names}\n\n此操作不可撤销！将删除团队下所有智能体、技能、任务。`)) return;
+  
+  let ok = 0, fail = 0, notFound = 0;
+  for (const tid of ids) {
+      try {
+        await _ensureCsrf();
+        const r = await (window._agFetch || fetch)(`${A}/teams/${tid}`, {
+          method: 'DELETE',
+          headers: { 'x-csrf-token': _csrfToken || '' }
+        });
+        if (r && r.ok) { ok++; }
+        else if (r && r.status === 404) { notFound++; }  // already deleted
+        else { fail++; }
+      } catch(e) { fail++; }
+  }
+  // Clear team list cache so refreshed list shows correct data
+  window.AG.state._teamsListCache = null;
+  window.AG.state._teamsListCacheAt = 0;
+  let msg = ok > 0 ? `✅ 已删除 ${ok} 个团队` : '';
+  if (notFound > 0) msg += (msg ? '，' : '') + `${notFound} 个团队已不存在（可能已被删除）`;
+  if (fail > 0) msg += (msg ? '，' : '') + `${fail} 个失败`;
+  toast(msg || '❌ 删除失败');
+  loadView();
+}
+
+// Export
+window.updateDelTeamBtn = updateDelTeamBtn;
+window.deleteSelectedTeams = deleteSelectedTeams;
 
 function _traceReqText(id){
   return id?`请求ID: ${escapeHtml(id)}`:'';

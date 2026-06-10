@@ -3,12 +3,49 @@
  * Darwin Ratchet mechanism, compliance rating, audit rules,
  * evolution items, heritage ledger, and Qwen reflection lab.
  * Includes interactive 5-step evolution stepper.
+ *
+ * v2 — Optimized: cache layer, SSE real-time, skeletons, unified error handling
  */
 'use strict';
 
+// ═══ State & Cache ═══
 let _allRules = [];
 let _allItems = [];
 let _panelLoaded = {};  // Track which panels have been loaded
+
+const _panelCache = new Map();  // { key → { data, ts, ttl } }
+const CACHE_TTL = {
+  overview: 30000,        // 30s
+  'compliance-rating': 60000,  // 60s (expensive)
+  items: 15000,           // 15s
+  rules: 30000,
+  zones: 30000,
+  trail: 15000,
+  trend: 30000,
+  heritage: 30000,
+  'evolve-skills': 15000,
+  default: 30000,
+};
+
+const _evolutionState = {
+  rules: null,
+  items: null,
+  zones: null,
+  zonesActive: null,
+  summary: null,
+  compliance: null,
+  trail: null,
+  trend: null,
+  history: null,
+  monitoring: null,
+  heritage: null,
+};
+
+// SSE state
+let _sseSource = null;
+let _ssePollTimer = null;
+let _ssePollActive = false;
+
 const Q = new URLSearchParams(window.location.search);
 const deepLinkPanel = Q.get('panel') || '';
 const deepLinkItemId = Q.get('item_id') || '';
@@ -17,6 +54,85 @@ const EVP = '/api/v1/agent-teams/evolution';
 // ── Utilities ──
 function el(id) { return document.getElementById(id); }
 function escapeHtml(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+// ── Unified Error-Handling Fetch ──
+var _requestIdCounter = 0;
+function _nextRequestId() { _requestIdCounter++; return 'se-' + Date.now().toString(36) + '-' + _requestIdCounter; }
+
+async function safeFetch(url, options) {
+  const rid = _nextRequestId();
+  const opts = options || {};
+  const headers = { 'X-Request-ID': rid, ...(opts.headers || {}) };
+  try {
+    const resp = await fetch(url, { ...opts, headers });
+    if (!resp.ok) {
+      let detail = '';
+      try { const j = await resp.clone().json(); detail = j.detail || j.message || ''; } catch (_) {}
+      const err = new Error(detail || `HTTP ${resp.status}`);
+      err._requestId = rid;
+      err._status = resp.status;
+      throw err;
+    }
+    if (resp.status === 204) return null;
+    return await resp.json();
+  } catch (e) {
+    if (e._requestId) throw e;
+    const netErr = new Error('网络请求失败');
+    netErr._requestId = rid;
+    netErr._status = 0;
+    netErr._cause = e;
+    throw netErr;
+  }
+}
+
+function formatError(e, context) {
+  const rid = e?._requestId || 'unknown';
+  const status = e?._status || 0;
+  const msg = e?.message || '未知错误';
+  if (status === 401 || status === 403) return `权限不足 — 请重新登录 [${rid}]`;
+  if (status === 404) return `${context || '资源'}未找到 [${rid}]`;
+  if (status === 0) return `网络连接失败 — 请检查后端服务是否运行 [${rid}]`;
+  return `${msg} [${rid}]`;
+}
+
+function renderError(containerId, error, context, retryFn) {
+  const c = typeof containerId === 'string' ? el(containerId) : containerId;
+  if (!c) return;
+  const msg = formatError(error, context);
+  const retryBtn = retryFn ? `<button class="btn btn-sm" style="margin-top:8px" onclick="(${retryFn.toString()})()">🔄 重试</button>` : '';
+  c.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red)">
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px">${escapeHtml(msg)}</div>
+    <div style="font-size:11px;color:var(--dim)">${context || ''}</div>
+    ${retryBtn}
+  </div>`;
+}
+
+function renderEmpty(containerId, message) {
+  const c = typeof containerId === 'string' ? el(containerId) : containerId;
+  if (!c) return;
+  c.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--dim);font-size:13px">
+    <div style="font-size:28px;margin-bottom:8px;opacity:0.4">📭</div>
+    <div>${escapeHtml(message || '暂无数据')}</div>
+  </div>`;
+}
+
+// ── Cache Helpers ──
+function cacheGet(key) {
+  const entry = _panelCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > entry.ttl) { _panelCache.delete(key); return null; }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttl) {
+  _panelCache.set(key, { data, ts: Date.now(), ttl: ttl || CACHE_TTL.default });
+}
+
+function cacheClear(prefix) {
+  if (!prefix) { _panelCache.clear(); return; }
+  for (const k of _panelCache.keys()) { if (k.startsWith(prefix)) _panelCache.delete(k); }
+}
+
 function toast(m) {
   const text = String(m ?? '');
   const shouldDecorate = /失败|错误|异常|不可用|未找到|无法|无效|请求失败/.test(text);
@@ -42,13 +158,25 @@ function btnLoading(btn, loading, originalText) {
 var _apiClient_se = window.api || null;
 async function apiRequest(p, o) {
   const client = (window.api && typeof window.api.request === 'function') ? window.api : _apiClient_se;
-  if (!client || typeof client.request !== 'function') return null;
+  if (!client || typeof client.request !== 'function') {
+    // Fallback to native fetch via safeFetch
+    const method = (o?.method || 'GET').toUpperCase();
+    const fetchOpts = { method };
+    if (o?.headers) fetchOpts.headers = o.headers;
+    if (o?.body) fetchOpts.body = o.body;
+    try { return await safeFetch(p, fetchOpts); } catch (e) { toast(formatError(e, 'API请求')); return null; }
+  }
   _apiClient_se = client;
-  return client.request(p, o);
+  try { return await client.request(p, o); } catch (e) { return null; }
 }
 async function apiList(base, limit, offset) {
   const client = (window.api && typeof window.api.request === 'function') ? window.api : _apiClient_se;
-  if (!client) return null;
+  if (!client) {
+    const pageLimit = limit || 50;
+    const pageOffset = offset || 0;
+    const sep = base.includes('?') ? '&' : '?';
+    try { return await safeFetch(`${base}${sep}limit=${pageLimit}&offset=${pageOffset}`); } catch (e) { toast(formatError(e, '列表请求')); return null; }
+  }
   _apiClient_se = client;
   if (typeof client.list === 'function') {
     return client.list(base, limit, offset);
@@ -120,30 +248,56 @@ function kv(label, value) {
 }
 
 // ── Panel Switch ──
+function showSkeleton(name) {
+  const panel = el('panel-' + name);
+  if (!panel) return;
+  // Find skeleton container or the first major content area
+  const skelId = 'skel-' + name;
+  let skel = el(skelId);
+  if (!skel) {
+    skel = document.createElement('div');
+    skel.id = skelId;
+    skel.className = 'skeleton-panel';
+    skel.innerHTML = '<div class="skel-row"><div class="skel-block" style="width:60%;height:20px"></div></div><div class="skel-row"><div class="skel-block" style="width:100%;height:60px"></div></div><div class="skel-row"><div class="skel-block" style="width:45%;height:16px"></div><div class="skel-block" style="width:45%;height:16px"></div></div>';
+    panel.insertBefore(skel, panel.firstChild);
+  }
+  skel.style.display = 'block';
+  // Hide content containers while loading
+  panel.querySelectorAll('.card-grid, .section, #ratchet-flow, #items-table, #rules-grid, #trail-list, #trend-data, #heritage-list, #zones-all, #zones-active, #history-list, #monitoring-data').forEach(el => { el._wasVisible = el.style.display !== 'none'; });
+}
+
+function hideSkeleton(name) {
+  const skel = el('skel-' + name);
+  if (skel) skel.style.display = 'none';
+}
+
 function switchPanel(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.sb-nav a').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll('.sb-nav a').forEach(a => { a.classList.remove('active'); a.setAttribute('aria-selected', 'false'); });
   const panel = el('panel-' + name);
-  // Show loading in panel content area
-  if (panel) {
-    var contentEl = panel.querySelector('.card-grid, .section, #ratchet-flow, #items-table, #rules-grid, #trail-list, #trend-data');
-    if (contentEl) {
-      var firstChild = contentEl.firstChild;
-      if (firstChild && firstChild.tagName !== 'DIV') {
-        var loading = document.createElement('div');
-        loading.style.cssText = 'text-align:center;padding:40px;color:var(--muted);font-size:13px';
-        loading.textContent = '加载中...';
-        contentEl.insertBefore(loading, firstChild);
-      }
-    }
-  }
   if (panel) panel.classList.add('active');
+
   const links = document.querySelectorAll('.sb-nav a');
   const map = { overview: 0, ratchet: 1, 'evolve-lab': 2, 'rules-zones': 3, items: 4, trail: 5, trend: 6 };
-  if (map[name] !== undefined && links[map[name]]) links[map[name]].classList.add('active');
+  if (map[name] !== undefined && links[map[name]]) {
+    links[map[name]].classList.add('active');
+    links[map[name]].setAttribute('aria-selected', 'true');
+  }
   const titles = { overview: '演进概览', ratchet: '达尔文棘轮', 'evolve-lab': '🧬 技能演化', 'rules-zones': '规则与区域', items: '演进条目', trail: '审计轨迹', trend: '趋势分析' };
   el('panel-title').textContent = titles[name] || name;
-  // Load data for panel (skip if already loaded, unless it's overview or evolve-lab)
+
+  // Check cache first
+  const cacheKey = 'panel-' + name;
+  const cached = cacheGet(cacheKey);
+  if (cached && _panelLoaded[name]) {
+    // Panel already loaded with fresh data — skip re-fetch
+    return;
+  }
+
+  // Show skeleton for panels that load data
+  const needsSkeleton = ['overview', 'ratchet', 'rules-zones', 'items', 'trail', 'trend'];
+  if (needsSkeleton.includes(name)) showSkeleton(name);
+
   const alwaysRefresh = ['overview'];
   if (!_panelLoaded[name] || alwaysRefresh.includes(name)) {
     _panelLoaded[name] = true;
@@ -159,54 +313,68 @@ function switchPanel(name) {
 
 // ── Overview ──
 async function loadOverview() {
-  const [summary, compliance, itemsPayload, zones] = await Promise.all([
-    apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiList(`${EVP}/items`, 50, 0), apiRequest(`${EVP}/zones/active`)
-  ]);
-  const items = collectionItems(itemsPayload);
+  try {
+    const [summary, compliance, itemsPayload, zones] = await Promise.all([
+      apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiList(`${EVP}/items`, 50, 0), apiRequest(`${EVP}/zones/active`)
+    ]);
+    const items = collectionItems(itemsPayload);
 
-  // Compliance Rating
-  const rc = el('ov-rating');
-  if (compliance) {
-    const g = compliance.grade || '?', s = compliance.score ?? 0;
-    const gc = { A: 'var(--lime)', B: 'var(--koke)', C: 'var(--amber)', D: 'var(--kitsune)', E: 'var(--red)' }[g] || 'var(--muted)';
-    rc.innerHTML = `<div class="stat-card" style="grid-column:span 2"><div class="gauge-wrap">
-      <div class="gauge-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--groove)" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${s} ${100 - s}" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center"/></svg><div class="gauge-grade" style="color:${gc}">${g}</div></div>
-      <div><div class="label">DNV 合规评级</div><div class="value" style="font-size:20px;color:${gc}">${s}/100</div><div class="sub">${escapeHtml(compliance.description || '')}</div></div>
-    </div></div>
-    <div class="stat-card"><div class="label">升级层级</div><div class="value" style="font-size:16px">${escapeHtml(compliance.escalation_tier || 'normal')}</div><div class="sub">DNV SEEMP Part III</div></div>`;
+    // Update state
+    _evolutionState.summary = summary;
+    _evolutionState.compliance = compliance;
+    _evolutionState.zonesActive = zones;
+
+    // Compliance Rating
+    const rc = el('ov-rating');
+    if (compliance) {
+      const g = compliance.grade || '?', s = compliance.score ?? 0;
+      const gc = { A: 'var(--lime)', B: 'var(--koke)', C: 'var(--amber)', D: 'var(--kitsune)', E: 'var(--red)' }[g] || 'var(--muted)';
+      rc.innerHTML = `<div class="stat-card" style="grid-column:span 2"><div class="gauge-wrap">
+        <div class="gauge-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--groove)" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${s} ${100 - s}" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center"/></svg><div class="gauge-grade" style="color:${gc}">${g}</div></div>
+        <div><div class="label">DNV 合规评级</div><div class="value" style="font-size:20px;color:${gc}">${s}/100</div><div class="sub">${escapeHtml(compliance.description || '')}</div></div>
+      </div></div>
+      <div class="stat-card"><div class="label">升级层级</div><div class="value" style="font-size:16px">${escapeHtml(compliance.escalation_tier || 'normal')}</div><div class="sub">DNV SEEMP Part III</div></div>`;
+    } else {
+      renderEmpty(rc, '暂无合规评级数据');
+    }
+
+    // Stats
+    if (summary) {
+      const bs = summary.by_status || {}, bd = summary.by_domain || {};
+      const bsv = summary.by_severity || {}, bop = summary.by_operational_domain || {};
+      el('ov-stats').innerHTML = `
+        <div class="stat-card"><div class="label"><span class="seal">规</span> 审查规则</div><div class="value">${summary.audit_rules_count || 0}</div><div class="sub">验证函数 ${summary.verify_tests_registered || 0}</div></div>
+        <div class="stat-card"><div class="label"><span class="seal seal-shu">项</span> 演进项</div><div class="value">${summary.total_items || 0}</div><div class="sub">${Object.entries(bs).map(([k, v]) => stL(k) + ': ' + v).join(' · ') || '无'}</div></div>
+        <div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k, v]) => k + ' ' + v).join(' · ') || '-'}</div></div>
+        <div class="stat-card"><div class="label">⚠ 严重度</div><div class="value" style="font-size:13px">${Object.entries(bsv).map(([k, v]) => `<span style="color:${sevColor(k)}">${k}: ${v}</span>`).join(' · ') || '-'}</div></div>
+        <div class="stat-card"><div class="label">🏢 运营域</div><div class="value" style="font-size:11px;line-height:1.6">${Object.entries(bop).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join('<br>') || '-'}</div></div>`;
+      el('panel-badge').textContent = `${summary.total_items || 0} 项`;
+    }
+
+    // Mini ratchet
+    buildMiniRatchet();
+
+    // Recent items (top 10)
+    if (items && items.length) {
+      const recent = items.slice(0, 10);
+      el('ov-items').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>${recent.map(i => `<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
+        <td><b>${escapeHtml(i.title)}</b></td>
+        <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
+        <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
+        <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
+        <td style="white-space:nowrap">${itemActions(i)}</td>
+      </tr>`).join('')}</tbody></table></div>
+      ${items.length > 10 ? `<button class="btn btn-sm" style="margin-top:8px" onclick="switchPanel('items')">查看全部 (${items.length})</button>` : ''}`;
+    } else {
+      renderEmpty('ov-items', '暂无演进条目 — 点击「运行审查」开始');
+    }
+
+    cacheSet('panel-overview', true, CACHE_TTL.overview);
+  } catch (e) {
+    renderError('ov-rating', e, '概览面板加载失败', loadOverview);
   }
-
-  // Stats
-  if (summary) {
-    const bs = summary.by_status || {}, bd = summary.by_domain || {};
-    const bsv = summary.by_severity || {}, bop = summary.by_operational_domain || {};
-    el('ov-stats').innerHTML = `
-      <div class="stat-card"><div class="label"><span class="seal">规</span> 审查规则</div><div class="value">${summary.audit_rules_count || 0}</div><div class="sub">验证函数 ${summary.verify_tests_registered || 0}</div></div>
-      <div class="stat-card"><div class="label"><span class="seal seal-shu">项</span> 演进项</div><div class="value">${summary.total_items || 0}</div><div class="sub">${Object.entries(bs).map(([k, v]) => stL(k) + ': ' + v).join(' · ') || '无'}</div></div>
-      <div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k, v]) => k + ' ' + v).join(' · ') || '-'}</div></div>
-      <div class="stat-card"><div class="label">⚠ 严重度</div><div class="value" style="font-size:13px">${Object.entries(bsv).map(([k, v]) => `<span style="color:${sevColor(k)}">${k}: ${v}</span>`).join(' · ') || '-'}</div></div>
-      <div class="stat-card"><div class="label">🏢 运营域</div><div class="value" style="font-size:11px;line-height:1.6">${Object.entries(bop).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join('<br>') || '-'}</div></div>`;
-    el('panel-badge').textContent = `${summary.total_items || 0} 项`;
-  }
-
-  // Mini ratchet
-  buildMiniRatchet();
-
-  // Recent items (top 10)
-  if (items && items.length) {
-    const recent = items.slice(0, 10);
-    el('ov-items').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>${recent.map(i => `<tr>
-      <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
-      <td><b>${escapeHtml(i.title)}</b></td>
-      <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
-      <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
-      <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
-      <td style="white-space:nowrap">${itemActions(i)}</td>
-    </tr>`).join('')}</tbody></table></div>
-    ${items.length > 10 ? `<button class="btn btn-sm" style="margin-top:8px" onclick="switchPanel('items')">查看全部 (${items.length})</button>` : ''}`;
-  } else {
-    el('ov-items').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px">暂无演进条目 — 点击「运行审查」开始</div>';
-  }
+  hideSkeleton('overview');
 }
 
 function buildMiniRatchet() {
@@ -222,45 +390,76 @@ function buildMiniRatchet() {
 }
 
 // ── Items ──
-async function loadItems() {
-  const sf = el('item-status-filter')?.value || '';
-  const df = el('item-domain-filter')?.value || '';
-  let url = `${EVP}/items`;
-  if (sf) url += `?status=${encodeURIComponent(sf)}`;
-  const itemsPayload = await apiList(url, 50, 0);
-  _allItems = collectionItems(itemsPayload);
-  // Populate domain filter
-  const domains = [...new Set(_allItems.map(i => i.audit_domain).filter(Boolean))];
-  const dSel = el('item-domain-filter');
-  const curDom = dSel.value;
-  if (dSel.options.length <= 1) {
-    domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
-  }
-  let filtered = _allItems;
-  if (df) filtered = filtered.filter(i => i.audit_domain === df);
-  el('item-count').textContent = `${filtered.length} 条`;
+let _itemSortKey = '';
+let _itemSortDir = 1;  // 1=asc, -1=desc
 
-  if (filtered.length) {
-    el('items-table').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态 / 验证</th><th>目标通道</th><th>参考标准</th><th>操作</th></tr></thead><tbody>${filtered.map(i => `<tr id="evo-item-${escapeHtml(i.id || '')}"${i.id === deepLinkItemId ? ' style="outline:1px solid var(--koke);background:rgba(107,196,127,0.06)"' : ''}>
-      <td style="font-family:var(--font-mono);font-size:11px" title="${escapeHtml(i.id || '')}">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
-      <td><b>${escapeHtml(i.title)}</b><br><span style="font-size:11px;color:var(--dim)">${escapeHtml(i.description?.slice(0, 60) || '')}</span></td>
-      <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
-      <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
-      <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span>${renderItemVerifyMeta(i)}</td>
-      <td style="font-size:12px">${escapeHtml(i.target_channel || '')}</td>
-      <td style="font-size:11px;color:var(--dim)">${escapeHtml(i.reference_standard || '')}</td>
-      <td style="white-space:nowrap">${itemActions(i)}</td>
-    </tr>`).join('')}</tbody></table></div>`;
-    if (deepLinkItemId) {
-      requestAnimationFrame(() => {
-        const row = document.getElementById(`evo-item-${deepLinkItemId}`);
-        if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        openItemDetail(deepLinkItemId);
-      });
+function sortItems(items, key, dir) {
+  if (!key) return items;
+  return [...items].sort((a, b) => {
+    let va = a[key] ?? '', vb = b[key] ?? '';
+    if (key === 'severity') {
+      const order = { critical: 4, high: 3, medium: 2, low: 1 };
+      va = order[va] || 0; vb = order[vb] || 0;
     }
-  } else {
-    el('items-table').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px">暂无演进条目</div>';
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return 0;
+  });
+}
+
+function renderSortIndicator(key) {
+  if (_itemSortKey !== key) return ' ↕';
+  return _itemSortDir === 1 ? ' ↑' : ' ↓';
+}
+
+async function loadItems() {
+  try {
+    const sf = el('item-status-filter')?.value || '';
+    const df = el('item-domain-filter')?.value || '';
+    let url = `${EVP}/items`;
+    if (sf) url += `?status=${encodeURIComponent(sf)}`;
+    const itemsPayload = await apiList(url, 50, 0);
+    _allItems = collectionItems(itemsPayload);
+    // Populate domain filter
+    const domains = [...new Set(_allItems.map(i => i.audit_domain).filter(Boolean))];
+    const dSel = el('item-domain-filter');
+    const curDom = dSel.value;
+    if (dSel.options.length <= 1) {
+      domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
+    }
+    let filtered = _allItems;
+    if (df) filtered = filtered.filter(i => i.audit_domain === df);
+    // Apply sort
+    if (_itemSortKey) filtered = sortItems(filtered, _itemSortKey, _itemSortDir);
+    el('item-count').textContent = `${filtered.length} 条`;
+
+    if (filtered.length) {
+      const thClick = (key, label) => `<th style="cursor:pointer" onclick="event.stopPropagation();_itemSortKey='${key}';_itemSortDir=_itemSortKey==='${key}'&&_itemSortDir===1?-1:1;loadItems()" title="点击排序">${label}${renderSortIndicator(key)}</th>`;
+      el('items-table').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr>${thClick('id','ID')}${thClick('title','标题')}<th>域</th>${thClick('severity','严重度')}<th>状态 / 验证</th><th>目标通道</th><th>参考标准</th><th>操作</th></tr></thead><tbody>${filtered.map(i => `<tr id="evo-item-${escapeHtml(i.id || '')}"${i.id === deepLinkItemId ? ' style="outline:1px solid var(--koke);background:rgba(107,196,127,0.06)"' : ''}>
+        <td style="font-family:var(--font-mono);font-size:11px" title="${escapeHtml(i.id || '')}">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
+        <td><b>${escapeHtml(i.title)}</b><br><span style="font-size:11px;color:var(--dim)">${escapeHtml(i.description?.slice(0, 60) || '')}</span></td>
+        <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
+        <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
+        <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span>${renderItemVerifyMeta(i)}</td>
+        <td style="font-size:12px">${escapeHtml(i.target_channel || '')}</td>
+        <td style="font-size:11px;color:var(--dim)">${escapeHtml(i.reference_standard || '')}</td>
+        <td style="white-space:nowrap">${itemActions(i)}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+      if (deepLinkItemId) {
+        requestAnimationFrame(() => {
+          const row = document.getElementById(`evo-item-${deepLinkItemId}`);
+          if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          openItemDetail(deepLinkItemId);
+        });
+      }
+    } else {
+      renderEmpty('items-table', '暂无演进条目');
+    }
+    cacheSet('panel-items', true, CACHE_TTL.items);
+  } catch (e) {
+    renderError('items-table', e, '条目列表加载失败', loadItems);
   }
+  hideSkeleton('items');
 }
 
 function itemActions(item) {
@@ -321,6 +520,7 @@ async function openItemDetail(itemId, mode) {
           <span style="font-size:11px;color:${sevColor(item.severity)}">${escapeHtml(item.severity || '')}</span>
         </div>
         <h3 style="margin:0 0 8px 0;font-size:16px;color:var(--sumi)">${escapeHtml(item.title || '')}</h3>
+        ${(item.metadata?.source_plaza_id || item.source_plaza_id) ? `<div style="margin-bottom:8px"><a href="/plaza.html?plaza_id=${encodeURIComponent(item.metadata?.source_plaza_id || item.source_plaza_id)}&discussion_id=${encodeURIComponent(item.metadata?.source_discussion_id || item.source_discussion_id || '')}" style="font-size:11px;color:var(--lime);text-decoration:none">🏛️ 来源: 议事厅讨论 ← 返回</a></div>` : ''}
         ${kv('发现问题', item.current_behavior || item.description)}
         ${kv('期望行为', item.expected_behavior)}
         ${kv('参考标准', item.reference_standard)}
@@ -413,36 +613,73 @@ async function markComplete(itemId, evidence) {
 
 // ── Rules ──
 async function loadRules() {
-  if (!_allRules.length) _allRules = collectionItems(await apiList(`${EVP}/rules`, 50, 0));
-  // Populate domain filter
-  const domains = [...new Set(_allRules.map(r => r.domain).filter(Boolean))];
-  const dSel = el('rule-domain-filter');
-  if (dSel.options.length <= 1) {
-    domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
+  try {
+    if (!_allRules.length) _allRules = collectionItems(await apiList(`${EVP}/rules`, 50, 0));
+    // Populate domain filter
+    const domains = [...new Set(_allRules.map(r => r.domain).filter(Boolean))];
+    const dSel = el('rule-domain-filter');
+    if (dSel.options.length <= 1) {
+      domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
+    }
+    renderRules();
+    cacheSet('panel-rules-zones', true, CACHE_TTL.rules);
+  } catch (e) {
+    renderError('rules-grid', e, '规则列表加载失败', loadRules);
   }
-  renderRules();
+  hideSkeleton('rules-zones');
 }
+
+let _ruleSearchTerm = '';
 
 function renderRules() {
   const df = el('rule-domain-filter')?.value || '';
   const sf = el('rule-severity-filter')?.value || '';
+  const searchTerm = (_ruleSearchTerm || '').toLowerCase();
   let filtered = _allRules;
   if (df) filtered = filtered.filter(r => r.domain === df);
   if (sf) filtered = filtered.filter(r => r.severity === sf);
+  if (searchTerm) {
+    filtered = filtered.filter(r =>
+      (r.title || '').toLowerCase().includes(searchTerm) ||
+      (r.id || '').toLowerCase().includes(searchTerm) ||
+      (r.reference || '').toLowerCase().includes(searchTerm) ||
+      (r.domain || '').toLowerCase().includes(searchTerm)
+    );
+  }
   el('rule-count').textContent = `${filtered.length} 条规则`;
-  el('rules-grid').innerHTML = filtered.map(r => `<div class="rule-card">
-    <div class="r-head"><span class="r-id">${escapeHtml(r.id)}</span><span class="chip" style="font-size:10px">${escapeHtml(r.domain)}</span></div>
-    <div class="r-title">${escapeHtml(r.title)}</div>
-    <div class="r-ref">${escapeHtml(r.reference || '')}</div>
-    <div class="r-meta"><span style="color:${sevColor(r.severity)}">${escapeHtml(r.severity)}</span> · ${escapeHtml(r.target_channel || '')}${r.operational_domain ? ' · ' + r.operational_domain.replace(/_/g, ' ') : ''}${r.rating_weight ? ' · 权重 ' + r.rating_weight : ''}</div>
-  </div>`).join('');
+  if (filtered.length) {
+    el('rules-grid').innerHTML = filtered.map(r => `<div class="rule-card" role="listitem" aria-label="${escapeHtml(r.title)}">
+      <div class="r-head"><span class="r-id">${escapeHtml(r.id)}</span><span class="chip" style="font-size:10px">${escapeHtml(r.domain)}</span></div>
+      <div class="r-title">${escapeHtml(r.title)}</div>
+      <div class="r-ref">${escapeHtml(r.reference || '')}</div>
+      <div class="r-meta"><span style="color:${sevColor(r.severity)}">${escapeHtml(r.severity)}</span> · ${escapeHtml(r.target_channel || '')}${r.operational_domain ? ' · ' + r.operational_domain.replace(/_/g, ' ') : ''}${r.rating_weight ? ' · 权重 ' + r.rating_weight : ''}</div>
+    </div>`).join('');
+  } else {
+    renderEmpty('rules-grid', searchTerm ? `未找到匹配 "${escapeHtml(_ruleSearchTerm)}" 的规则` : '暂无审查规则');
+  }
 }
 
 // ── Zones ──
 async function loadZones() {
-  const [allZones, activeZones] = await Promise.all([
-    apiRequest(`${EVP}/zones`), apiRequest(`${EVP}/zones/active`)
-  ]);
+  try {
+    const cachedZ = cacheGet('zones-data');
+    const cachedZA = cacheGet('zones-active-data');
+    if (cachedZ && cachedZA) {
+      renderZonesUI(cachedZ, cachedZA);
+      return;
+    }
+    const [allZones, activeZones] = await Promise.all([
+      apiRequest(`${EVP}/zones`), apiRequest(`${EVP}/zones/active`)
+    ]);
+    cacheSet('zones-data', allZones, CACHE_TTL.zones);
+    cacheSet('zones-active-data', activeZones, CACHE_TTL.zones);
+    renderZonesUI(allZones, activeZones);
+  } catch (e) {
+    renderError('zones-all', e, '合规区域加载失败', loadZones);
+  }
+}
+
+function renderZonesUI(allZones, activeZones) {
   if (allZones && allZones.length) {
     el('zones-all').innerHTML = allZones.map(z => `<div class="stat-card">
       <div class="label" style="font-weight:600">${escapeHtml(z.name || z.zone_id || z.id || '')}</div>
@@ -451,98 +688,201 @@ async function loadZones() {
       ${z.activated_rule_ids ? `<div style="font-size:10px;color:var(--koke);margin-top:6px;font-family:var(--font-mono)">${z.activated_rule_ids.length} 规则</div>` : ''}
     </div>`).join('');
   } else {
-    el('zones-all').innerHTML = '<div style="color:var(--dim);font-size:12px">暂无合规区域</div>';
+    renderEmpty('zones-all', '暂无合规区域');
   }
   if (activeZones && activeZones.length) {
     el('zones-active').innerHTML = activeZones.map(z => `<div class="zone-badge"><b>${escapeHtml(z.name || z.zone_id || '')}</b>${z.standards ? ` · ${z.standards.length} 标准` : ''}</div>`).join('');
   } else {
-    el('zones-active').innerHTML = '<div style="color:var(--dim);font-size:12px">无活跃区域</div>';
+    renderEmpty('zones-active', '无活跃区域');
   }
 }
 
 // ── Audit Trail ──
-async function loadTrail() {
-  const tf = el('trail-type-filter')?.value || '';
-  let url = `${EVP}/audit-trail`;
-  if (tf) url += `?event_type=${encodeURIComponent(tf)}`;
-  const trail = collectionItems(await apiList(url, 100, 0));
-  if (trail && trail.length) {
-    el('trail-list').innerHTML = trail.map(e => `<div class="audit-entry">
-      <span class="ae-time">${timeAgo(e.timestamp)}</span>
-      <span class="ae-type" style="color:${stColor(e.event_type)}">${escapeHtml(e.event_type || '')}</span>
-      <span class="ae-detail">${escapeHtml(e.detail || '')}${e.rule_id ? ' · ' + e.rule_id : ''}${e.item_id ? ' · ' + e.item_id.slice(0, 8) : ''}</span>
-    </div>`).join('');
-  } else {
-    el('trail-list').innerHTML = '<div style="padding:16px;color:var(--dim);font-size:12px;text-align:center">暂无审计记录</div>';
+let _trailOffset = 0;
+const _trailPageSize = 50;
+
+async function loadTrail(reset) {
+  try {
+    if (reset) { _trailOffset = 0; el('trail-list').innerHTML = ''; }
+    const tf = el('trail-type-filter')?.value || '';
+    let url = `${EVP}/audit-trail`;
+    if (tf) url += `?event_type=${encodeURIComponent(tf)}`;
+    const trail = collectionItems(await apiList(url, _trailPageSize, _trailOffset));
+    if (reset) el('trail-list').innerHTML = '';
+    if (trail && trail.length) {
+      const html = trail.map(e => `<div class="audit-entry">
+        <span class="ae-time">${timeAgo(e.timestamp)}</span>
+        <span class="ae-type" style="color:${stColor(e.event_type)}">${escapeHtml(e.event_type || '')}</span>
+        <span class="ae-detail">${escapeHtml(e.detail || '')}${e.rule_id ? ' · ' + e.rule_id : ''}${e.item_id ? ' · ' + e.item_id.slice(0, 8) : ''}</span>
+      </div>`).join('');
+      el('trail-list').insertAdjacentHTML('beforeend', html);
+      _trailOffset += trail.length;
+      // Show load more button
+      const moreBtn = el('trail-more');
+      if (trail.length >= _trailPageSize) {
+        if (moreBtn) moreBtn.style.display = 'block';
+        else {
+          const btn = document.createElement('button');
+          btn.id = 'trail-more';
+          btn.className = 'btn btn-sm';
+          btn.style.cssText = 'margin-top:12px;width:100%';
+          btn.textContent = '加载更多...';
+          btn.onclick = () => loadTrail(false);
+          el('trail-list').insertAdjacentElement('afterend', btn);
+        }
+      } else {
+        if (moreBtn) moreBtn.style.display = 'none';
+        if (reset && !trail.length) renderEmpty('trail-list', '暂无审计记录');
+      }
+    } else if (reset) {
+      renderEmpty('trail-list', '暂无审计记录');
+    }
+    cacheSet('panel-trail', true, CACHE_TTL.trail);
+  } catch (e) {
+    renderError('trail-list', e, '审计轨迹加载失败', () => loadTrail(true));
   }
+  hideSkeleton('trail');
 }
 
 // ── Trend ──
+function renderTrendChart(scores) {
+  if (!scores || !scores.length) return '<div class="trend-chart">暂无趋势数据</div>';
+
+  const W = 600, H = 200, pad = { top: 20, right: 20, bottom: 30, left: 50 };
+  const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
+
+  const vals = scores.map(s => typeof s === 'object' ? (s.score ?? s.value ?? 0) : Number(s));
+  const labels = scores.map((s, i) => typeof s === 'object' ? (s.label || s.date || i) : i);
+  const minVal = Math.min(...vals, 0); const maxVal = Math.max(...vals, 100);
+  const range = maxVal - minVal || 1;
+
+  const xScale = (i) => pad.left + (i / Math.max(vals.length - 1, 1)) * pw;
+  const yScale = (v) => pad.top + ph - ((v - minVal) / range) * ph;
+
+  // Build path
+  const points = vals.map((v, i) => `${xScale(i).toFixed(1)},${yScale(v).toFixed(1)}`).join(' ');
+
+  // Grid lines
+  const gridLines = [];
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ph / 4) * i;
+    gridLines.push(`<line x1="${pad.left}" y1="${y}" x2="${W - pad.right}" y2="${y}" stroke="var(--groove)" stroke-width="0.5"/>`);
+  }
+
+  // X-axis labels (show max 6)
+  const xLabels = [];
+  const step = Math.max(1, Math.floor(labels.length / 6));
+  for (let i = 0; i < labels.length; i += step) {
+    xLabels.push(`<text x="${xScale(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--dim)">${escapeHtml(String(labels[i]).slice(0, 8))}</text>`);
+  }
+  // Always show last label
+  if (labels.length > 1 && (labels.length - 1) % step !== 0) {
+    xLabels.push(`<text x="${xScale(labels.length - 1).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--dim)">${escapeHtml(String(labels[labels.length - 1]).slice(0, 8))}</text>`);
+  }
+
+  // Y-axis labels
+  const yLabels = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = minVal + (range / 4) * i;
+    yLabels.push(`<text x="${pad.left - 6}" y="${yScale(v).toFixed(1) + 3}" text-anchor="end" font-size="9" fill="var(--dim)">${Math.round(v)}</text>`);
+  }
+
+  // Fill area
+  const areaPoints = `${xScale(0)},${pad.top + ph} ${points} ${xScale(vals.length - 1)},${pad.top + ph}`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="合规分数趋势图">
+    <rect width="${W}" height="${H}" fill="var(--ishi)" rx="2"/>
+    ${gridLines.join('')}
+    ${yLabels.join('')}
+    ${xLabels.join('')}
+    <polygon points="${areaPoints}" fill="rgba(107,196,127,0.08)"/>
+    <polyline points="${points}" fill="none" stroke="var(--koke)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${vals.map((v, i) => `<circle cx="${xScale(i).toFixed(1)}" cy="${yScale(v).toFixed(1)}" r="3" fill="var(--koke)" stroke="var(--shironeri)" stroke-width="1"><title>${escapeHtml(String(labels[i]))}: ${Math.round(v)}</title></circle>`).join('')}
+  </svg>`;
+}
+
 async function loadTrend() {
-  const [trend, historyPayload, monitoring] = await Promise.all([
-    apiRequest(`${EVP}/trend`), apiList(`${EVP}/history`, 50, 0), apiRequest(`${EVP}/monitoring`)
-  ]);
-  const history = collectionItems(historyPayload);
+  try {
+    const [trend, historyPayload, monitoring] = await Promise.all([
+      apiRequest(`${EVP}/trend`), apiList(`${EVP}/history`, 50, 0), apiRequest(`${EVP}/monitoring`)
+    ]);
+    const history = collectionItems(historyPayload);
 
-  // Trend
-  if (trend) {
-    const scores = trend.scores || trend.data || [];
-    if (scores.length) {
-      el('trend-data').innerHTML = `<div class="card-grid">
-        ${trend.current_score !== undefined ? `<div class="stat-card"><div class="label">当前分数</div><div class="value">${trend.current_score}</div></div>` : ''}
-        ${trend.trend_direction ? `<div class="stat-card"><div class="label">趋势方向</div><div class="value" style="font-size:16px">${escapeHtml(trend.trend_direction)}</div></div>` : ''}
-        ${trend.improvement_rate !== undefined ? `<div class="stat-card"><div class="label">改善率</div><div class="value" style="font-size:16px">${trend.improvement_rate}%</div></div>` : ''}
-      </div>`;
+    // Trend + SVG chart
+    if (trend) {
+      const scores = trend.scores || trend.data || [];
+      let chartHtml = '';
+      if (scores.length) {
+        chartHtml = renderTrendChart(scores);
+        el('trend-data').innerHTML = `<div class="card-grid">
+          ${trend.current_score !== undefined ? `<div class="stat-card"><div class="label">当前分数</div><div class="value">${trend.current_score}</div></div>` : ''}
+          ${trend.trend_direction ? `<div class="stat-card"><div class="label">趋势方向</div><div class="value" style="font-size:16px">${escapeHtml(trend.trend_direction)}</div></div>` : ''}
+          ${trend.improvement_rate !== undefined ? `<div class="stat-card"><div class="label">改善率</div><div class="value" style="font-size:16px">${trend.improvement_rate}%</div></div>` : ''}
+        </div>
+        <div style="margin-top:12px">${chartHtml}</div>`;
+      } else if (typeof trend === 'object') {
+        el('trend-data').innerHTML = `<div class="trend-chart"><pre style="font-size:11px;text-align:left;white-space:pre-wrap">${escapeHtml(JSON.stringify(trend, null, 2))}</pre></div>`;
+      }
     } else {
-      el('trend-data').innerHTML = `<div class="trend-chart">${typeof trend === 'object' ? '<pre style="font-size:11px;text-align:left">' + escapeHtml(JSON.stringify(trend, null, 2)) + '</pre>' : '暂无趋势数据'}</div>`;
+      renderEmpty(el('trend-data'), '暂无趋势数据');
     }
-  } else {
-    el('trend-data').innerHTML = '<div class="trend-chart">暂无趋势数据</div>';
-  }
 
-  // History
-  if (history && history.length) {
-    el('history-list').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>时间</th><th>通过</th><th>失败</th><th>总计</th></tr></thead><tbody>${history.slice(0, 20).map(h => `<tr>
-      <td style="font-family:var(--font-mono);font-size:11px">${timeAgo(h.timestamp || h.run_at)}</td>
-      <td style="color:var(--koke)">${h.passed || 0}</td>
-      <td style="color:var(--shu)">${h.failed || 0}</td>
-      <td>${h.total || (h.passed || 0) + (h.failed || 0)}</td>
-    </tr>`).join('')}</tbody></table></div>`;
-  } else {
-    el('history-list').innerHTML = '<div style="color:var(--dim);font-size:12px">暂无审查历史</div>';
-  }
+    // History
+    if (history && history.length) {
+      el('history-list').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>时间</th><th>通过</th><th>失败</th><th>总计</th></tr></thead><tbody>${history.slice(0, 20).map(h => `<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${timeAgo(h.timestamp || h.run_at)}</td>
+        <td style="color:var(--koke)">${h.passed || 0}</td>
+        <td style="color:var(--shu)">${h.failed || 0}</td>
+        <td>${h.total || (h.passed || 0) + (h.failed || 0)}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+    } else {
+      renderEmpty('history-list', '暂无审查历史');
+    }
 
-  // Monitoring
-  if (monitoring) {
-    el('monitoring-data').innerHTML = `
-      <div class="stat-card"><div class="label">监控状态</div><div class="value" style="font-size:16px">${monitoring.active ? '✓ 运行中' : '⏸ 停止'}</div></div>
-      ${monitoring.last_check ? `<div class="stat-card"><div class="label">上次检查</div><div class="value" style="font-size:14px">${timeAgo(monitoring.last_check)}</div></div>` : ''}
-      ${monitoring.interval_seconds ? `<div class="stat-card"><div class="label">检查间隔</div><div class="value" style="font-size:14px">${monitoring.interval_seconds}s</div></div>` : ''}`;
+    // Monitoring
+    if (monitoring) {
+      el('monitoring-data').innerHTML = `
+        <div class="stat-card"><div class="label">监控状态</div><div class="value" style="font-size:16px">${monitoring.active ? '✓ 运行中' : '⏸ 停止'}</div></div>
+        ${monitoring.last_check ? `<div class="stat-card"><div class="label">上次检查</div><div class="value" style="font-size:14px">${timeAgo(monitoring.last_check)}</div></div>` : ''}
+        ${monitoring.interval_seconds ? `<div class="stat-card"><div class="label">检查间隔</div><div class="value" style="font-size:14px">${monitoring.interval_seconds}s</div></div>` : ''}`;
+    }
+    cacheSet('panel-trend', true, CACHE_TTL.trend);
+  } catch (e) {
+    renderError(el('trend-data'), e, '趋势数据加载失败', loadTrend);
   }
+  hideSkeleton('trend');
 }
 
 // ── Heritage (Ratchet Lock ledger) ──
 async function loadHeritage() {
-  // Heritage = verified + closed items (ratchet-locked improvements)
-  const [verifiedPayload, closedPayload] = await Promise.all([
-    apiRequest(`${EVP}/items?status=verified`), apiRequest(`${EVP}/items?status=closed`)
-  ]);
-  const verified = collectionItems(verifiedPayload);
-  const closed = collectionItems(closedPayload);
-  const heritage = [...(verified || []), ...(closed || [])].sort((a, b) => (b.closed_at || b.completed_at || '').localeCompare(a.closed_at || a.completed_at || ''));
-  el('heritage-count').textContent = `${heritage.length} 条锁定记录`;
+  try {
+    // Heritage = verified + closed items (ratchet-locked improvements)
+    const [verifiedPayload, closedPayload] = await Promise.all([
+      apiRequest(`${EVP}/items?status=verified`), apiRequest(`${EVP}/items?status=closed`)
+    ]);
+    const verified = collectionItems(verifiedPayload);
+    const closed = collectionItems(closedPayload);
+    const heritage = [...(verified || []), ...(closed || [])].sort((a, b) => (b.closed_at || b.completed_at || '').localeCompare(a.closed_at || a.completed_at || ''));
+    el('heritage-count').textContent = `${heritage.length} 条锁定记录`;
 
-  if (heritage.length) {
-    el('heritage-list').innerHTML = heritage.map(h => `<div class="heritage-item">
-      <div>
-        <div class="h-title">🔒 ${escapeHtml(h.title)}</div>
-        <div class="h-meta">${escapeHtml(h.audit_domain || '')} · ${escapeHtml(h.reference_standard || '')} · ${timeAgo(h.closed_at || h.completed_at)}</div>
-      </div>
-      <div class="h-delta">${h.status === 'closed' ? '✓ LOCKED' : '⏳ VERIFIED'}</div>
-    </div>`).join('');
-  } else {
-    el('heritage-list').innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px">暂无遗产记录 — 运行演进周期后，通过验证的改进将被锁定于此</div>';
+    if (heritage.length) {
+      el('heritage-list').innerHTML = heritage.map(h => `<div class="heritage-item">
+        <div>
+          <div class="h-title">🔒 ${escapeHtml(h.title)}</div>
+          <div class="h-meta">${escapeHtml(h.audit_domain || '')} · ${escapeHtml(h.reference_standard || '')} · ${timeAgo(h.closed_at || h.completed_at)}</div>
+        </div>
+        <div class="h-delta">${h.status === 'closed' ? '✓ LOCKED' : '⏳ VERIFIED'}</div>
+      </div>`).join('');
+    } else {
+      renderEmpty('heritage-list', '暂无遗产记录 — 运行演进周期后，通过验证的改进将被锁定于此');
+    }
+    // Build ratchet flow diagram too
+    buildRatchetFlow();
+    cacheSet('panel-ratchet', true, CACHE_TTL.heritage);
+  } catch (e) {
+    renderError('heritage-list', e, '遗产账本加载失败', loadHeritage);
   }
+  hideSkeleton('ratchet');
 }
 
 // ── Actions ──
@@ -553,15 +893,6 @@ async function runAudit() {
   else toast('审查失败');
 }
 
-async function runAuditOnly() {
-  toast('正在审查...');
-  const r = await apiRequest(`${EVP}/audit`, { method: 'POST' });
-  if (r) {
-    el('r-audit').classList.add('done');
-    toast(`审查完成: ${r.passed || 0} 通过, ${r.failed || 0} 未通过`);
-  } else toast('审查失败');
-}
-
 async function recalcRating() {
   toast('正在重算评级...');
   const r = await apiRequest(`${EVP}/compliance-rating/calculate`, { method: 'POST' });
@@ -569,54 +900,120 @@ async function recalcRating() {
   else toast('重算失败');
 }
 
+// ═══ RatchetAnimator — Shared animation logic ═══
+const RatchetAnimator = {
+  stepLabels: ['审查', '派发', '验证', '关闭'],
+  stepKeys: ['audit', 'dispatch', 'verify', 'close'],
+
+  resetFlow(dotPrefix, connPrefix, dotCount, hasLock) {
+    for (let i = 0; i < dotCount; i++) {
+      const d = el(dotPrefix + (i + 1));
+      if (d) d.className = 'ratchet-dot';
+    }
+    for (let i = 1; i <= dotCount - 1; i++) {
+      const c = el(connPrefix + i);
+      if (c) c.className = 'ratchet-connector';
+    }
+    if (hasLock) {
+      const lock = el(dotPrefix + 'lock'); if (lock) lock.className = 'ratchet-dot';
+    }
+  },
+
+  activateDot(id) { const d = el(id); if (d) d.classList.add('active'); },
+  doneDot(id) { const d = el(id); if (d) { d.classList.remove('active'); d.classList.add('done'); } },
+  failedDot(id) { const d = el(id); if (d) { d.classList.remove('active'); d.classList.add('failed'); } },
+  doneConnector(id) { const c = el(id); if (c) c.classList.add('done'); },
+
+  async runCycle({ dotIds, connIds, lockId, logEl, onComplete, stepNames }) {
+    const log = typeof logEl === 'string' ? el(logEl) : logEl;
+    if (log) { log.style.display = 'block'; log.innerHTML = ''; }
+
+    const labels = stepNames || this.stepLabels;
+    const keys = this.stepKeys;
+
+    for (let i = 0; i < keys.length; i++) {
+      this.activateDot(dotIds[i]);
+      if (log) log.innerHTML += `<div class="run">⏳ ${labels[i]}...</div>`;
+      const r = await apiRequest(`${EVP}/${keys[i]}`, { method: 'POST' });
+      if (r) {
+        this.doneDot(dotIds[i]);
+        const count = r.count || r.passed || r.dispatched || (r.closed || []).length || 0;
+        if (log) log.innerHTML += `<div class="ok">✓ ${labels[i]}完成 (${count})</div>`;
+      } else {
+        this.failedDot(dotIds[i]);
+        if (log) log.innerHTML += `<div class="err">✗ ${labels[i]}失败</div>`;
+        return false;
+      }
+      if (connIds[i]) this.doneConnector(connIds[i]);
+    }
+
+    // Ratchet lock animation
+    if (lockId) {
+      const lock = el(lockId); if (lock) lock.classList.add('done');
+    }
+    if (log) log.innerHTML += `<div class="ok" style="font-weight:700">🔒 棘轮锁定 — 改进已不可逆记录</div>`;
+    if (onComplete) await onComplete();
+    return true;
+  }
+};
+
+// Shared ratchet flow builder
+function buildRatchetFlow() {
+  // The Ratchet panel flow is in HTML, just returns
+}
+
+function buildMiniRatchet() {
+  const steps = [
+    { id: 'ov-r-audit', label: '审查', sub: 'AUDIT' },
+    { id: 'ov-r-dispatch', label: '派发', sub: 'DISPATCH' },
+    { id: 'ov-r-verify', label: '验证', sub: 'VERIFY' },
+    { id: 'ov-r-close', label: '关闭', sub: 'CLOSE' }
+  ];
+  el('ov-ratchet').innerHTML = steps.map((s, i) =>
+    `<div class="ratchet-node"><div class="ratchet-dot" id="${s.id}">${s.label[0]}</div><div class="ratchet-label">${s.label}</div><div class="ratchet-sublabel">${s.sub}</div></div>${i < 3 ? '<div class="ratchet-connector" id="ov-rc-' + (i + 1) + '"></div>' : ''}`
+  ).join('');
+}
+
 // Ratchet Cycle Stepper (on ratchet page)
 async function runCycleOnRatchet() {
-  const log = el('ratchet-log');
-  log.style.display = 'block';
-  log.innerHTML = '';
-  const steps = ['audit', 'dispatch', 'verify', 'close'];
-  const labels = ['审查', '派发', '验证', '关闭'];
-  const dotIds = ['r-audit', 'r-dispatch', 'r-verify', 'r-close'];
-  const connIds = ['rc-1', 'rc-2', 'rc-3', 'rc-4'];
-  // Reset
-  dotIds.forEach(id => { const d = el(id); d.className = 'ratchet-dot'; });
-  connIds.forEach(id => { const c = el(id); if (c) c.className = 'ratchet-connector'; });
-  el('r-lock').className = 'ratchet-dot';
-
-  for (let i = 0; i < steps.length; i++) {
-    el(dotIds[i]).classList.add('active');
-    log.innerHTML += `<div class="run">⏳ ${labels[i]}...</div>`;
-    const r = await apiRequest(`${EVP}/${steps[i]}`, { method: 'POST' });
-    el(dotIds[i]).classList.remove('active');
-    if (r) {
-      el(dotIds[i]).classList.add('done');
-      const count = r.count || r.passed || r.dispatched || (r.closed || []).length || 0;
-      log.innerHTML += `<div class="ok">✓ ${labels[i]}完成 (${count})</div>`;
-    } else {
-      el(dotIds[i]).classList.add('failed');
-      log.innerHTML += `<div class="err">✗ ${labels[i]}失败</div>`;
-      break;
-    }
-    if (connIds[i]) { const c = el(connIds[i]); if (c) c.classList.add('done'); }
-  }
-
-  // Ratchet lock animation
-  el('r-lock').classList.add('done');
-  log.innerHTML += `<div class="ok" style="font-weight:700">🔒 棘轮锁定 — 改进已不可逆记录</div>`;
+  RatchetAnimator.resetFlow('r-', 'rc-', 4, true);
+  await RatchetAnimator.runCycle({
+    dotIds: ['r-audit', 'r-dispatch', 'r-verify', 'r-close'],
+    connIds: ['rc-1', 'rc-2', 'rc-3', 'rc-4'],
+    lockId: 'r-lock',
+    logEl: 'ratchet-log',
+    onComplete: () => loadHeritage(),
+  });
   toast('演进周期完成');
-  loadHeritage();
+}
+
+async function runAuditOnly() {
+  toast('正在审查...');
+  const r = await apiRequest(`${EVP}/audit`, { method: 'POST' });
+  if (r) {
+    RatchetAnimator.doneDot('r-audit');
+    toast(`审查完成: ${r.passed || 0} 通过, ${r.failed || 0} 未通过`);
+  } else toast('审查失败');
 }
 
 // Cycle stepper on overview
 async function runCycleStepper() {
+  RatchetAnimator.resetFlow(
+    (i) => `ov-r-${['audit','dispatch','verify','close'][i]}`,
+    (i) => `ov-rc-${i}`,
+    4, false
+  );
+  // Manual reset for overview dots (using prefix pattern)
+  ['ov-r-audit','ov-r-dispatch','ov-r-verify','ov-r-close'].forEach(id => { const d = el(id); if (d) d.className = 'ratchet-dot'; });
+  ['ov-rc-1','ov-rc-2','ov-rc-3'].forEach(id => { const c = el(id); if (c) c.className = 'ratchet-connector'; });
+
   const log = el('ov-cycle-log');
   log.style.display = 'block';
   log.innerHTML = '';
+
   const steps = ['audit', 'dispatch', 'verify', 'close'];
   const labels = ['审查', '派发', '验证', '关闭'];
   const dotIds = ['ov-r-audit', 'ov-r-dispatch', 'ov-r-verify', 'ov-r-close'];
-  dotIds.forEach(id => { const d = el(id); if (d) d.className = 'ratchet-dot'; });
-  ['ov-rc-1', 'ov-rc-2', 'ov-rc-3'].forEach(id => { const c = el(id); if (c) c.className = 'ratchet-connector'; });
 
   for (let i = 0; i < steps.length; i++) {
     const d = el(dotIds[i]); if (d) d.classList.add('active');
@@ -642,12 +1039,15 @@ function refreshCurrent() {
   const active = document.querySelector('.tab-panel.active');
   if (!active) return;
   const id = active.id.replace('panel-', '');
+  cacheClear('panel-' + id);  // Clear cache for this panel
+  _panelLoaded[id] = false;
   switchPanel(id);
 }
 
 function refreshAll() {
   _allRules = []; _allItems = [];
   _panelLoaded = {};  // Clear panel cache on manual refresh
+  _panelCache.clear();
   refreshCurrent();
   toast('已刷新');
 }
@@ -657,12 +1057,28 @@ function refreshAll() {
 // ═══════════════════════════════════════════════════════════════════
 
 let _evolveSkills = [];
-let _evDataset = null;       // Current dataset object
-let _evBaseline = null;      // Baseline evaluation result
-let _evReflection = null;    // Reflection result
-let _evCandidates = [];      // Mutation candidates [{strategy, instructions, score?}]
-let _evSelectedCandidate = -1; // Index of selected candidate
 let _evCurrentStep = 1;
+
+// Per-skill stepper state: Map<skillId, { dataset, baseline, reflection, candidates, selectedCandidate, step }>
+const _evolveStepperState = new Map();
+
+function _getEvolveState(skillId) {
+  if (!skillId) return null;
+  if (!_evolveStepperState.has(skillId)) {
+    _evolveStepperState.set(skillId, {
+      dataset: null,
+      baseline: null,
+      reflection: null,
+      candidates: [],
+      selectedCandidate: -1,
+      step: 1,
+    });
+  }
+  return _evolveStepperState.get(skillId);
+}
+
+// Convenience getters/setters for current skill's state
+function _evState() { return _getEvolveState(el('ev-skill-select')?.value); }
 
 async function loadEvolveLab() {
   await loadEvolveTeams();
@@ -709,17 +1125,32 @@ async function loadEvolveSkills() {
 }
 
 function onSkillSelected() {
-  // Reset state when skill changes
-  _evDataset = null;
-  _evBaseline = null;
-  _evReflection = null;
-  _evCandidates = [];
-  _evSelectedCandidate = -1;
-  goToStep(1);
-  renderDatasetTable();
+  const skillId = el('ev-skill-select').value;
+  const state = _getEvolveState(skillId);
+
+  // Restore persisted state if exists, otherwise reset
+  if (state && state.dataset) {
+    // Restore previous state
+    goToStep(state.step || 1);
+    renderDatasetTable();
+    if (state.baseline) renderBaselineState();
+    if (state.reflection) renderReflectionState();
+    if (state.candidates.length) renderCandidates();
+  } else {
+    // New skill — reset
+    if (state) {
+      state.dataset = null;
+      state.baseline = null;
+      state.reflection = null;
+      state.candidates = [];
+      state.selectedCandidate = -1;
+      state.step = 1;
+    }
+    goToStep(1);
+    renderDatasetTable();
+  }
 
   // Show skill info card
-  const skillId = el('ev-skill-select').value;
   const infoCard = el('ev-skill-info');
   if (!skillId) {
     infoCard.style.display = 'none';
@@ -741,10 +1172,37 @@ function onSkillSelected() {
   el('ev-skill-instructions').textContent = instructions || '(无指令)';
 }
 
+// Helpers to restore complex state UI
+function renderBaselineState() {
+  const r = _evState()?.baseline;
+  if (!r) return;
+  const gc = r.mean_composite >= 0.8 ? 'var(--koke)' : r.mean_composite >= 0.6 ? 'var(--amber)' : 'var(--shu)';
+  el('ev-baseline-cards').innerHTML = `
+    <div class="stat-card"><div class="label">复合 Fitness</div><div class="value" style="color:${gc}">${(r.mean_composite * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">指令遵循</div><div class="value">${(r.mean_instruction_following * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">输出质量</div><div class="value">${(r.mean_output_quality * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">简洁度</div><div class="value">${(r.mean_conciseness * 100).toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="label">评估数</div><div class="value">${r.eval_count || r.total_examples}</div></div>
+    <div class="stat-card"><div class="label">失败案例</div><div class="value" style="color:${r.failure_count ? 'var(--shu)' : 'var(--koke)'}">${r.failure_count || 0}</div></div>`;
+  el('ev-step2-next').style.display = 'inline-block';
+}
+
+function renderReflectionState() {
+  const r = _evState()?.reflection;
+  if (!r) return;
+  el('ev-reflect-result').style.display = 'block';
+  el('ev-reflect-causes').value = (r.root_causes || []).join('\n');
+  el('ev-reflect-defects').value = (r.specific_defects || []).join('\n');
+  el('ev-reflect-directions').value = (r.improvement_directions || []).join('\n');
+  el('ev-step3-next').style.display = 'inline-block';
+}
+
 // ── Stepper Navigation ──
 
 function goToStep(step) {
   _evCurrentStep = step;
+  const state = _evState();
+  if (state) state.step = step;
   document.querySelectorAll('.ev-step').forEach(s => s.style.display = 'none');
   const target = el(`ev-step-${step}`);
   if (target) target.style.display = 'block';
@@ -1024,7 +1482,8 @@ function evShowManualCandidate() {
 function evAddManualCandidate() {
   const text = el('ev-candidate-text').value.trim();
   if (!text) { toast('请填写候选指令'); return; }
-  _evCandidates.push({ strategy: '手动', instructions: text, score: null, evaluated: false });
+  const state = _evState();
+  if (state) state.candidates.push({ strategy: '手动', instructions: text, score: null, evaluated: false });
   el('ev-candidate-text').value = '';
   el('ev-manual-candidate').style.display = 'none';
   renderCandidates();
@@ -1298,8 +1757,96 @@ function exposeEvolutionActions() {
   });
 }
 
+// ═══ SSE Real-time Updates ═══
+function _startSSE() {
+  if (_sseSource) return;
+  try {
+    _sseSource = new EventSource(`${EVP}/stream`);
+    _sseSource.onmessage = function(e) {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'stats_update' || data.type === 'item_update') {
+          // Incrementally refresh overview KPIs
+          const active = document.querySelector('.tab-panel.active');
+          if (active && active.id === 'panel-overview') {
+            loadOverview();
+          }
+        }
+        if (data.type === 'trail_update') {
+          cacheClear('panel-trail');
+        }
+      } catch (_) {}
+    };
+    _sseSource.onerror = function() {
+      _closeSSE();
+      // Fallback to polling
+      if (!_ssePollTimer && _ssePollActive) {
+        _ssePollTimer = setInterval(() => {
+          const active = document.querySelector('.tab-panel.active');
+          if (active && active.id === 'panel-overview') loadOverview();
+        }, 30000);
+      }
+    };
+  } catch (_) {
+    _fallbackPoll();
+  }
+}
+
+function _closeSSE() {
+  if (_sseSource) { _sseSource.close(); _sseSource = null; }
+}
+
+function _fallbackPoll() {
+  if (!_ssePollTimer) {
+    _ssePollActive = true;
+    _ssePollTimer = setInterval(() => {
+      const active = document.querySelector('.tab-panel.active');
+      if (active && active.id === 'panel-overview') loadOverview();
+    }, 30000);
+  }
+}
+
+function _stopPolling() {
+  if (_ssePollTimer) { clearInterval(_ssePollTimer); _ssePollTimer = null; }
+  _ssePollActive = false;
+}
+
 // ── Init ──
 exposeEvolutionActions();
+
+// Route evolve stepper global vars through per-skill state
+Object.defineProperty(window, '_evDataset', {
+  get() { const s = _evState(); return s ? s.dataset : null; },
+  set(v) { const s = _evState(); if (s) s.dataset = v; },
+  configurable: true, enumerable: true
+});
+Object.defineProperty(window, '_evBaseline', {
+  get() { const s = _evState(); return s ? s.baseline : null; },
+  set(v) { const s = _evState(); if (s) s.baseline = v; },
+  configurable: true, enumerable: true
+});
+Object.defineProperty(window, '_evReflection', {
+  get() { const s = _evState(); return s ? s.reflection : null; },
+  set(v) { const s = _evState(); if (s) s.reflection = v; },
+  configurable: true, enumerable: true
+});
+Object.defineProperty(window, '_evCandidates', {
+  get() { const s = _evState(); return s ? s.candidates : []; },
+  set(v) { const s = _evState(); if (s) s.candidates = v; },
+  configurable: true, enumerable: true
+});
+Object.defineProperty(window, '_evSelectedCandidate', {
+  get() { const s = _evState(); return s ? (s.selectedCandidate ?? -1) : -1; },
+  set(v) { const s = _evState(); if (s) s.selectedCandidate = v; },
+  configurable: true, enumerable: true
+});
+
 if (deepLinkPanel) switchPanel(deepLinkPanel);
 else if (deepLinkItemId) switchPanel('items');
 else loadOverview();
+
+// Start SSE connection for real-time updates
+_startSSE();
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => { _closeSSE(); _stopPolling(); });

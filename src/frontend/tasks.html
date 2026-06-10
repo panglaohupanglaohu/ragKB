@@ -8,9 +8,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@200;300;400;600;900&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/variables.css">
 <link rel="stylesheet" href="/css/openbridge-theme.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<link rel="stylesheet" href="/css/tasks-ws.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-left:56px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 .container{max-width:1200px;margin:0 auto;padding:24px}
 h1{font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:10px}
 h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;border-radius:10px}
@@ -41,11 +43,34 @@ h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;bor
 </style>
 </head>
 <body>
-<script src="/js/nav-sidebar.js" data-active="tasks"></script>
+<header class="topbar-ws">
+  <div class="topbar-ws__left">
+    <h1>任务中心</h1>
+  </div>
+  <nav class="topbar-ws__nav" aria-label="主导航">
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取/赋予</a>
+    <a href="/Agent-digital-twin.html">数字孪生</a>
+    <a href="/system-evolution.html">系统演进</a>
+    <a href="/cost-dashboard.html">成本监控</a>
+    <span class="cur">任务中心</span>
+  </nav>
+  <div class="topbar-ws__right">
+    <div class="topbar-ws__user">
+      <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+      <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+      <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+    </div>
+  </div>
+</header>
 <script src="/js/api.js"></script>
 <script src="/js/evidence-runs.js"></script>
 <div class="container">
-  <h1>任务中心 <span class="badge" id="total-badge">0</span></h1>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <span style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--kitsune);font-weight:600">Task Center</span>
+    <span class="badge" id="total-badge">0</span>
+  </div>
   <div class="stats-bar" id="stats-bar"></div>
   <div class="toolbar">
     <select id="filter-status">
@@ -64,6 +89,29 @@ h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;bor
     <div class="empty-state">加载中...</div>
   </div>
 </div>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
 <script>
 const API = '/api/v1/agent-config';
 let allTasks = [];

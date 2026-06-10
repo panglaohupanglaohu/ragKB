@@ -645,6 +645,8 @@ def teams_tree(
                     "agent_id": a.agent_id,
                     "name": a.name or a.agent_id,
                     "role": a.role or "",
+                    "skills": getattr(a, "skills", []) or [],
+                    "tools": getattr(a, "tools", []) or [],
                 }
                 for a in agents_list
             ],

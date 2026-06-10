@@ -35,6 +35,7 @@ export default defineConfig({
         digitalTwinCli: page('digital-twin-cli.html'),
         sandboxTwin: page('sandbox-twin.html'),
         datacenterRatchetEvolution: page('datacenter-ratchet-evolution.html'),
+        costDashboard: page('cost-dashboard.html'),
       },
       output: {
         manualChunks(id) {

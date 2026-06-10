@@ -2421,9 +2421,38 @@ function closeSecsReport(){
   document.getElementById('secs-report-modal').style.display = 'none';
 }
 
-function secsInjectFromReport(){
-  closeSecsReport();
-  addActivity({type:'info', text:'✅ SECS 开发流程优化策略已注入', time:new Date().toISOString()});
-  document.getElementById('secs-sync-status').innerHTML = 
-    '<span style="color:var(--green)">✓ 策略已注入</span> <span style="color:var(--dim)">开发流程优化方案生效中</span>';
+async function secsInjectFromReport(){
+  var sessionId = window._lastReportSessionId;
+  if (!sessionId) {
+    // 无 sessionId 时仅做 UI 反馈
+    closeSecsReport();
+    addActivity({type:'info', text:'⚠️ 无可用会话，无法注入策略', time:new Date().toISOString()});
+    return;
+  }
+  try {
+    var btn = document.querySelector('#secs-report-modal button[onclick*="secsInjectFromReport"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 注入中...'; }
+    var r = await fetch('/api/v1/sandbox/sessions/'+encodeURIComponent(sessionId)+'/inject', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ confirm: true })
+    });
+    if (!r.ok) {
+      var ej = await r.json().catch(function(){return{};});
+      throw new Error(ej.detail || 'HTTP '+r.status);
+    }
+    var d = await r.json();
+    closeSecsReport();
+    addActivity({type:'info', text:'✅ SECS 优化策略已注入: '+(d.sop_name||d.sop_id||sessionId.slice(0,8)), time:new Date().toISOString()});
+    var syncEl = document.getElementById('secs-sync-status');
+    if (syncEl) syncEl.innerHTML = '<span style="color:var(--green)">✓ 策略已注入</span> <span style="color:var(--dim)">SOP 已同步至真实环境</span>';
+    // 刷新统计
+    if (typeof loadSecsStats === 'function') loadSecsStats();
+    if (typeof loadExerciseHistory === 'function') loadExerciseHistory();
+  } catch(e) {
+    closeSecsReport();
+    addActivity({type:'error', text:'❌ 策略注入失败: '+e.message, time:new Date().toISOString()});
+    var syncEl = document.getElementById('secs-sync-status');
+    if (syncEl) syncEl.innerHTML = '<span style="color:var(--red)">✗ 注入失败</span> <span style="color:var(--dim)">'+esc(e.message)+'</span>';
+  }
 }
