@@ -1313,6 +1313,10 @@ window.addEventListener('unhandledrejection', function(e) {
   window.loadRuntimeStatus = async function() {
     try {
       var r = await fetch(SECS+'/runtime-status');
+      if (r.status === 401) {
+        _setRuntimeStatus('offline');
+        return;
+      }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       var d = await r.json();
       var healthy = !!d.ready;
