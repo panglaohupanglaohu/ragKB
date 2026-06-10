@@ -9,7 +9,7 @@ function _csrf(){if(_csrfTk)return Promise.resolve(_csrfTk);if(_csrfPr)return _c
 _csrf();
 async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}return (window._agFetch||fetch)(url,opts)}
 function _listItems(payload){if(Array.isArray(payload))return payload;if(Array.isArray(payload?.items))return payload.items;if(Array.isArray(payload?.sessions))return payload.sessions;return[]}
-async function _list(url,limit=200,offset=0){if(window.api&&typeof window.api.list==='function'){return _listItems(await window.api.list(url,limit,offset))}const sep=url.includes('?')?'&':'?';const r=await _af(`${url}${sep}limit=${limit}&offset=${offset}`);if(!r.ok)return[];return _listItems(await r.json())}
+async function _list(url,limit=200,offset=0){var items;if(window.api&&typeof window.api.list==='function'){items=_listItems(await window.api.list(url,limit,offset))}var sep=url.includes('?')?'&':'?';if(!items||!items.length){var r=await _af(`${url}${sep}limit=${limit}&offset=${offset}`);if(r.ok){items=_listItems(await r.json())}else{console.warn('[DT] _list fallback failed:',url,r.status)}}return items||[]}
 async function _plazas(){return _list(`${API}/plaza`,200,0)}
 async function _plazaDiscussions(plazaId){return _list(`${API}/plaza/${plazaId}/discussions`,200,0)}
 async function init(){
