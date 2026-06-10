@@ -134,6 +134,11 @@ body {
 .branch-step{font-size:9px;color:var(--dim);font-family:monospace;margin-left:8px;}
 .inject-event-types{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
 .inject-btn{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:5px;padding:6px 8px;font-size:10px;color:#f87171;cursor:pointer;text-align:center;}
+.inject-history-list{font-size:10px;color:var(--muted)}
+.inject-history-list .inject-item{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);display:flex;justify-content:space-between;align-items:center}
+.room-heat-up{box-shadow:inset 0 0 12px rgba(52,211,153,.15);transition:box-shadow .4s}
+.room-heat-down{box-shadow:inset 0 0 12px rgba(248,113,113,.15);transition:box-shadow .4s}
+.room-heat-peak{box-shadow:inset 0 0 20px rgba(251,191,36,.3);transition:box-shadow .4s}
 /* 时间轴 */
 .trial-timeline{position:relative;height:60px;overflow-x:auto;overflow-y:hidden;background:rgba(0,0,0,.3);border-radius:8px;margin-top:10px;padding:8px 12px;display:flex;align-items:center;gap:2px;}
 .tl-dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0;position:relative;cursor:pointer;transition:transform .15s;}
@@ -786,6 +791,7 @@ body {
             <div class="dp-actions" id="dt-action-buttons"></div>
             <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
             <div class="dp-section" id="inject-event-panel" style="display:none"><label class="dp-label">⚡ 注入事件</label><div class="inject-event-types"><button class="inject-btn" onclick="doInjectEvent('network_delay')">🌐 网络延迟</button><button class="inject-btn" onclick="doInjectEvent('agent_leave')">👤 Agent离队</button><button class="inject-btn" onclick="doInjectEvent('task_change')">📝 任务变更</button><button class="inject-btn" onclick="doInjectEvent('skill_degraded')">⬇️ 技能退化</button><button class="inject-btn" onclick="doInjectEvent('model_hallucination')">🧠 模型幻觉</button><button class="inject-btn" onclick="doInjectEvent('logic_deadlock')">🔒 逻辑死锁</button></div><input type="number" id="inject-at-step" class="dp-input-sm" placeholder="触发步数(留空=立即)" style="width:100%;margin-top:6px;"></div>
+            <div class="dp-section" style="max-height:120px;overflow-y:auto;margin-top:6px"><label class="dp-label">📋 注入历史</label><div id="inject-history-list" class="inject-history-list"></div></div>
           </div>
         
             <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
@@ -1101,6 +1107,7 @@ window.addEventListener('unhandledrejection', function(e) {
   'use strict';
   const SECS = '/api/v1/sandbox';
   var _sx = { sessionId:null, simRunning:false, esrc:null, history:[], steps:0, rewardPoints:[] };
+  window._sx = _sx;  // 暴露到全局，供导演台 P0 别名引用
   var _selectedTeamId = null;
   var _selectedTeamName = '';
   window._teamModalOpen = false;
@@ -3265,7 +3272,7 @@ window.addEventListener('unhandledrejection', function(e) {
 })();
 
 async function createTrial(){if(!transitionTrialStatus(window._DTS.trialStatus,'creating'))return;var tid = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) ? _selectedTeamId : window._DTS.directorConfig.team_id;if(!tid){showToast('请先在SECS面板选择团队','warn');transitionTrialStatus('creating','idle');return}document.getElementById('dp-status-badge').textContent='⏳ 创建中...';var ac=new AbortController();var to=setTimeout(function(){ac.abort()},15000);try{var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:tid,task_goal:{name:(document.getElementById('dp-task-name')||{}).value||'默认试炼'},mode:window._DTS.selectedMode,max_steps:parseInt((document.getElementById('dp-max-steps')||{}).value)||150}),signal:ac.signal});clearTimeout(to);var d=await resp.json();if(!resp.ok)throw new Error(d.detail||'HTTP '+resp.status);if(d.error)throw new Error(d.error);window._DTS.activeTrialId=d.trial_id;window._DTS.activeBranchId=d.branch_id;window._currentSessionId=d.session_id;transitionTrialStatus('creating','ready');document.getElementById('dp-status-badge').textContent='● 就绪';showBranchManager(d.trial_id)}catch(e){clearTimeout(to);transitionTrialStatus('creating','failed');document.getElementById('dp-status-badge').textContent='✗ 失败';if(e.name==='AbortError'){showToast('创建超时，请检查后端服务','error')}else{showToast('创建失败: '+(e.message||'未知错误'),'error')}}
-async function stepOnce(){if(!window._currentSessionId){await createTrial()}if(!window._currentSessionId)return;try{var r=await fetch('/api/v1/sandbox/sessions/'+window._currentSessionId+'/step',{method:'POST'});var d=await r.json();handleTrialEvent({type:'step',step_index:d.step_index||d.step_id,global_reward:d.global_reward})}catch(e){console.error('[DT] Step:',e)}}
+async function stepOnce(){if(!window._currentSessionId){await createTrial()}if(!window._currentSessionId)return;try{var r=await fetch('/api/v1/sandbox/sessions/'+window._currentSessionId+'/step',{method:'POST'});var d=await r.json();_sx.currentStep=d.step_index||d.step_id||_sx.currentStep;handleTrialEvent({type:'step',step_index:d.step_index||d.step_id,global_reward:d.global_reward})}catch(e){console.error('[DT] Step:',e)}}
 async function autoRun(){if(window._DTS.trialStatus!=='ready'&&window._DTS.trialStatus!=='paused')return;if(!window._currentSessionId){await createTrial()}if(!window._currentSessionId)return;transitionTrialStatus(window._DTS.trialStatus,'running');await window.sexyAutoRun()}
 async function pauseSim(){if(!window._currentSessionId)return;try{await fetch('/api/v1/sandbox/sessions/'+window._currentSessionId+'/pause',{method:'POST'});transitionTrialStatus('running','paused')}catch(e){}}
 async function terminate(){
@@ -3281,16 +3288,16 @@ async function terminate(){
   transitionTrialStatus(window._DTS.trialStatus, 'terminated');
 }
 async function forkBranch(){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/branches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fork_from_branch_id:window._DTS.activeBranchId})});var d=await r.json();handleTrialEvent({type:'branch_forked',data:d});showBranchManager(window._DTS.activeTrialId)}catch(e){}}
-function showInjectDropdown(){var p=document.getElementById('inject-event-panel');if(p)p.style.display=p.style.display==='none'?'':''}
-async function doInjectEvent(et){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/branches/'+window._DTS.activeBranchId+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:et,payload:{}})});handleTrialEvent({type:'chaos_injected',data:await r.json()})}catch(e){}}
+function showInjectDropdown(){var p=document.getElementById('inject-event-panel');if(p)p.style.display=(p.style.display==='none'?'':'none')}
+async function doInjectEvent(et){if(!window._DTS.activeTrialId||!window._DTS.activeBranchId){showToast('请先创建试炼再进行故障注入','warn');return}try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/branches/'+window._DTS.activeBranchId+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:et,payload:{}})});var d=await r.json();handleTrialEvent({type:'chaos_injected',data:d});var hist=document.getElementById('inject-history-list');if(hist){var now=new Date();var item=document.createElement('div');item.className='inject-item';item.innerHTML='<span style="color:var(--amber)">💥 '+et+'</span><span style="color:var(--dim);font-size:10px"> '+now.toLocaleTimeString()+'</span>';hist.insertBefore(item,hist.firstChild)}showToast('故障注入: '+et,'success')}catch(e){showToast('注入失败: '+(e.message||'服务异常'),'error')}}
 async function evaluateTrial(){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/evaluate',{method:'POST'});var d=await r.json();renderRadarChart(d);renderBarChart(d)}catch(e){}}
 async function extractSop(){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/extract-sop',{method:'POST'});renderSopList((await r.json()).sops)}catch(e){}}
-async function feedbackAgents(){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/feedback',{method:'POST'});var d=await r.json();alert('反哺完成: '+d.applied_sops+' SOP')}catch(e){}}
-function viewReport(){if(window._DTS.activeTrial&&window._DTS.activeTrial.evaluation){evaluateTrial()}}
+async function feedbackAgents(){if(!window._DTS.activeTrialId)return;try{var r=await fetch('/api/v1/twin-trials/'+window._DTS.activeTrialId+'/feedback',{method:'POST'});var d=await r.json();showToast('反哺完成: '+d.applied_sops+' SOP','success');if(typeof _logConsole==='function')_logConsole('[DT] 反哺: '+d.applied_sops+' SOP','info')}catch(e){showToast('反哺失败: '+(e.message||'服务异常'),'error')}}
+function viewReport(){evaluateTrial()}
 function resetForNew(){window._DTS.activeTrialId=null;window._DTS.activeTrial=null;window._DTS.activeBranchId=null;window._currentSessionId=null;window._DTS.currentStep=0;window._DTS.processedStepSet.clear();window._DTS.events=[];transitionTrialStatus(window._DTS.trialStatus,'idle')}
 function selectMode(m){window._DTS.selectedMode=m;document.querySelectorAll('.mode-card').forEach(function(c){c.classList.remove('mode-active')});var s=document.querySelector('.mode-card[data-mode="'+m+'"]');if(s)s.classList.add('mode-active')}
 function onDirectorTeamChange(tid){window._DTS.directorConfig.team_id=tid}
-async function showBranchManager(tid){var p=document.getElementById('branch-manager'),l=document.getElementById('branch-list');if(!p)return;p.style.display='';try{var d=(await fetch('/api/v1/twin-trials/'+tid+'/branches')).json();l.innerHTML='';(d.branches||[]).forEach(function(b){var it=document.createElement('div');it.className='branch-item'+(b.id===window._DTS.activeBranchId?' branch-active':'');it.innerHTML='<span class="branch-dot" style="background:'+b.color+'"></span><span class="branch-name">'+b.label+'</span>';it.onclick=function(){switchBranch(b.id)};l.appendChild(it)})}catch(e){l.innerHTML='<div style="color:var(--dim)">fail</div>'}}
+async function showBranchManager(tid){var p=document.getElementById('branch-manager'),l=document.getElementById('branch-list');if(!p)return;p.style.display='';try{var r=await fetch('/api/v1/twin-trials/'+tid+'/branches');var d=await r.json();l.innerHTML='';(d.branches||[]).forEach(function(b){var it=document.createElement('div');it.className='branch-item'+(b.id===window._DTS.activeBranchId?' branch-active':'');it.innerHTML='<span class="branch-dot" style="background:'+b.color+'"></span><span class="branch-name">'+b.label+'</span>';it.onclick=function(){switchBranch(b.id)};l.appendChild(it)})}catch(e){l.innerHTML='<div style="color:var(--dim)">fail</div>'}}
 function switchBranch(bid){window._DTS.activeBranchId=bid}
 window._addToTimeline=function(e){if(!e)return;var tl=document.querySelector('.trial-timeline');if(!tl)return;var c='tl-normal';if(e.type==='chaos_injected')c='tl-fault';else if(e.type.includes('branch'))c='tl-fork';else if(e.type==='sop_extracted')c='tl-sop';else if(e.global_reward!==undefined)c=(window._DTS.latestReward||0)<(e.global_reward||0)?'tl-reward-up':'tl-reward-down';else return;var dot=document.createElement('div');dot.className='tl-dot '+c;tl.appendChild(dot)}
 function renderRadarChart(ed){if(!ed)return;var c=document.getElementById('radar-chart-area');if(!c)return;var dims=[['目标完成度',ed.task_completion||0],['协作效率',ed.collaboration_efficiency||0],['韧性评分',ed.resilience||0],['成本控制',ed.cost_efficiency||0],['可萃取性',ed.extractability||0]];var cx=140,cy=120,r=90,s='<svg viewBox="0 0 280 240">';for(var lv=5;lv>=1;lv--){var pts=[];dims.forEach(function(d,i){var a=Math.PI*2*i/dims.length-Math.PI/2;pts.push((cx+r*lv/5*Math.cos(a))+','+(cy+r*lv/5*Math.sin(a)))});s+='<polygon points="'+pts.join('" ')+'" fill="none" stroke="rgba(255,255,255,.08)"/>'}dims.forEach(function(d,i){var a=Math.PI*2*i/dims.length-Math.PI/2;s+='<text x="'+(cx+(r+20)*Math.cos(a))+'" y="'+(cy+(r+20)*Math.sin(a))+'" fill="#888" font-size="9" text-anchor="middle">'+d[0]+'</text>'});c.innerHTML=s+'</svg>'}
@@ -3307,8 +3314,50 @@ window._DTS = {
   currentStep: 0,
   processedStepSet: new Set(),
   events: [],
-  latestReward: 0
+  latestReward: 0,
+  _abortCtrl: null
 };
+
+// ── P0: 单一数据源 — _sx 是唯一真实存储，_DTS / _currentSessionId 降级为别名 ──
+// _sx 在 SECS IIFE 内已初始化并通过 window._sx 暴露到全局
+// 此处扩展统一字段（所有读写统一到同一个 _sx 对象）
+_sx = window._sx || _sx;  // 确保引用 SECS 的 _sx
+_sx.trialId = _sx.trialId || null;
+_sx.branchId = _sx.branchId || null;
+_sx.currentStep = _sx.currentStep || 0;
+_sx.status = _sx.status || 'idle';
+_sx.roomAgentMap = _sx.roomAgentMap || {};
+_sx.events = _sx.events || [];
+_sx.processedStepSet = _sx.processedStepSet || new Set();
+
+// P0-01/02: window._currentSessionId / _DTS.activeTrialId / activeBranchId 改为别名
+Object.defineProperty(window, '_currentSessionId', {
+  get: function() { return _sx.sessionId || null; },
+  set: function(v) { _sx.sessionId = v; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(window._DTS, 'activeTrialId', {
+  get: function() { return _sx.trialId; },
+  set: function(v) { _sx.trialId = v; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(window._DTS, 'activeBranchId', {
+  get: function() { return _sx.branchId; },
+  set: function(v) { _sx.branchId = v; },
+  enumerable: true, configurable: true
+});
+// P0-03: currentStep 别名（只从后端写入，禁止前端自增）
+Object.defineProperty(window._DTS, 'currentStep', {
+  get: function() { return _sx.currentStep; },
+  set: function(v) { _sx.currentStep = v; },
+  enumerable: true, configurable: true
+});
+// P0-04: trialStatus 统一到 _sx.status（保留 _DTS.trialStatus 字段名但读写转发）
+Object.defineProperty(window._DTS, 'trialStatus', {
+  get: function() { return _sx.status || 'idle'; },
+  set: function(v) { _sx.status = v; },
+  enumerable: true, configurable: true
+});
 
 // ═══ 状态转换机 ═══
 function transitionTrialStatus(from, to) {
@@ -3342,8 +3391,42 @@ function handleTrialEvent(e) {
   else msg = e.type;
   if (msg && typeof _logConsole === 'function') _logConsole('[DT] '+msg,'info');
   // 更新 reward 追踪
-  if (e.global_reward !== undefined) window._DTS.latestReward = e.global_reward;
+  if (e.global_reward !== undefined) {
+    window._DTS.latestReward = e.global_reward;
+    _updateRewardHeat(e.global_reward);
+  }
 }
+
+// ── P3-04: Reward 热力反馈 ──
+var _lastReward = 0;
+function _updateRewardHeat(reward) {
+  var rooms = document.querySelectorAll('.room-cell,.env-room');
+  rooms.forEach(function(r){
+    r.classList.remove('room-heat-up','room-heat-down','room-heat-peak');
+  });
+  if (reward > _lastReward * 1.15) {
+    rooms.forEach(function(r){ r.classList.add('room-heat-up'); });
+  } else if (reward < _lastReward * 0.85) {
+    rooms.forEach(function(r){ r.classList.add('room-heat-down'); });
+  }
+  if (reward > 0.9) {
+    rooms.forEach(function(r){ r.classList.add('room-heat-peak'); });
+  }
+  _lastReward = reward;
+}
+
+// ── P0-05 / P3-03: roomAgentMap 从 S.positions 同步 ──
+function _syncRoomAgentMap() {
+  if (typeof S !== 'undefined' && S.positions) {
+    _sx.roomAgentMap = _sx.roomAgentMap || {};
+    for (var roomId in S.positions) {
+      if (S.positions.hasOwnProperty(roomId)) {
+        _sx.roomAgentMap[roomId] = S.positions[roomId];
+      }
+    }
+  }
+}
+setInterval(_syncRoomAgentMap, 2000);  // 每2秒同步一次
 
 var _BG={idle:'<button class="btn btn-primary" onclick="createTrial()" style="width:100%">🧪 创建试炼</button>',
 creating:'<button class="btn-disabled" disabled style="width:100%">⏳ 创建中...</button>',
