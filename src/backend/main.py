@@ -210,6 +210,8 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/cost",
     "/api/v1/agent-config/teams/",    # teams/{id}/agents 等子路径
     "/api/v1/sandbox/",               # 沙箱所有 API（sessions/sync/stats/world等）
+    "/api/v1/twin-trials/",           # 试炼 API — 与 sandbox 统一，本地调试豁免
+    "/api/v1/twin-trials",            # twin-trials 根路径也需要豁免
 )
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
