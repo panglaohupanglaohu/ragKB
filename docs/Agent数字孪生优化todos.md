@@ -1,702 +1,639 @@
-# Agent 数字孪生优化 — 手把手实施 TODO 清单
-# AgentsGroup2026 Digital Twin — Step-by-Step Implementation TODOs
+# Agent 数字孪生 — 按钮级功能 TODO 清单
+# AgentsGroup2026 Digital Twin — Button-Level Functional TODOs
 
-> 版本：v1.0 · 日期：2026-06-09  
+> 版本：v2.0 · 日期：2026-06-10  
 > 配套文档：`Agent数字孪生优化plan.md`  
-> 适用对象：CodeBuddy（请先阅读 plan.md 理解设计意图，再按此 TODO 逐条实施）  
-> 执行原则：**按顺序实施，每条完成后输出"涉及文件 + 修改内容 + 验证结果"再进行下一条。**
+> 适用对象：CodeBuddy（先阅读 plan.md 理解试炼/演练/仿真概念）  
+> 核心概念：**试炼 = 完整实验闭环（创建→分支→运行→评分→萃取→反哺），演练 = 运行中施加压力（故障注入→恢复力观测）**  
+> 标记说明：`[x]` 已验证通过 / `[~]` 部分实现待验证 / `[ ]` 未实现或已知断裂
 
 ---
 
-## 阶段零：准备工作（必读）
-
-> 在动任何代码前，先完成这些准备，否则后续实施会出现方向偏差。
-
-- [x] ~~Z-01~~** 阅读 `Agent数字孪生优化plan.md` 全文，理解 Trial/Branch/Session 三层模型、五种试炼模式、环境空间状态机、统一事件模型、五维评分体系。
-- [x] ~~Z-02~~** 梳理当前代码目录结构，列出前端主文件、后端主文件、API 路由文件、状态管理文件、SSE 相关文件。
-- [x] ~~Z-03~~** 梳理当前已有 API 接口列表（endpoint、method、request、response），标注哪些需要保留、哪些需要修改、哪些需要新增。
-- [x] ~~Z-04~~** 确认当前后端 session 相关接口的数据库 schema 或内存结构，理解 session 字段定义。
-- [x] ~~Z-05~~** 在代码库中搜索所有出现 `isCreating`、`loading`、`creating` 的地方，列出清单，这些是 Bug-001 的修复目标。
-- [x] ~~Z-06~~** 在代码库中搜索所有出现 `step`、`currentStep`、`step_index`、`stepCount` 的地方，列出清单，这些是 Bug-002 的修复目标。
-- [x] ~~Z-07~~** 在代码库中搜索所有出现 `roomAgentMap`、`agentRoom`、`room`、`space` 的地方，列出清单，这些是 Bug-004 的修复目标。
-- [x] ~~Z-08~~** 确认 SSE 事件推送机制：后端如何推送、前端如何监听、当前事件字段结构是什么。
-
----
-
-## 阶段一：紧急 Bug 修复（P0 优先，必须最先完成）
-
-> 这些 Bug 当前直接阻断演练闭环，必须在任何新功能开发前修复完毕。
-
-### Bug-001：Session 状态卡住（按钮永久显示"创建中"）
-
-- [x] ~~B01-01~~** 找到前端"启动演练/创建试炼"按钮的点击处理函数。
-- [x] ~~B01-02~~** 找到 `createSession` 或等效 API 调用的位置，检查 `.then()` / `await` 后的代码。
-- [x] ~~B01-03~~** 确认：API 调用成功后，是否执行了以下操作（如果没有，添加）：
-  ```javascript
-  isCreating = false;
-  currentSessionId = response.session_id;  // 或等效字段
-  sessionStatus = 'ready';
-  // 更新按钮文字为"启动演练"或"就绪"
-  ```
-- [x] ~~B01-04~~** 确认：API 调用失败后，是否执行了以下操作（如果没有，添加）：
-  ```javascript
-  isCreating = false;
-  sessionStatus = 'failed';
-  // 显示错误信息给用户
-  ```
-- [x] ~~B01-05~~** 添加超时兜底：如果 `isCreating` 超过 10 秒未被清除，强制置为 false 并显示超时提示。
-- [x] ~~B01-06~~** 验证：点击启动后，控制台出现"会话已创建"后，按钮必须立即变为可点击的"单步"或"自动运行"状态，不再显示"创建中"。
-
----
-
-### Bug-002：Step 编号不一致（Step 0 / Step 1 / Step 2 混乱）
-
-- [x] ~~B02-01~~** 找到所有更新 `currentStep` 的代码位置（API response 解析、SSE 事件处理、本地自增）。
-- [x] ~~B02-02~~** 删除所有前端本地 step 自增逻辑（如 `currentStep++`、`this.step += 1`）。
-- [x] ~~B02-03~~** 确认后端 step response 的字段名（如 `step`、`step_index`、`current_step`），统一前端解析字段。
-- [x] ~~B02-04~~** 修改前端：`currentStep` 只从后端返回值赋值：
-  ```javascript
-  // API response 场景
-  currentStep = response.step_index;  // 使用后端字段名
-  
-  // SSE 事件场景
-  currentStep = event.data.step_index;
-  ```
-- [x] ~~B02-05~~** SSE 和 API 去重：如果同一个 step 通过两个通道到达，按 `step_index` 去重，不重复写入日志。
-  ```javascript
-  if (!stepSet.has(stepData.step_index)) {
-    stepSet.add(stepData.step_index);
-    appendStepToLog(stepData);
-  }
-  ```
-- [x] ~~B02-06~~** 验证：日志中的 step 编号必须连续且唯一（Step 2, Step 3, Step 4...），不出现 Step 0 和 Step 2 同时显示的情况。
-
----
-
-### Bug-003：获取会话详情 HTTP 500
-
-- [x] ~~B03-01~~** 找到后端 `GET /api/sessions/:id` 或等效接口的实现代码。
-- [x] ~~B03-02~~** 在接口中添加全局异常捕获：
-  ```python
-  try:
-      session = get_session(session_id)
-      ...
-  except Exception as e:
-      return JSONResponse(status_code=500, content={"error_code": "SESSION_DETAIL_ERROR", "message": str(e)})
-  ```
-- [x] ~~B03-03~~** 检查 session 对象中可能为 null 的字段：`score`、`evaluation`、`sops`、`steps`，在序列化前添加 null 检查。
-- [x] ~~B03-04~~** 修改接口逻辑：当 session 处于 `evaluating` 状态时，返回 200 + 部分数据：
-  ```json
-  {
-    "id": "xxx",
-    "status": "evaluating",
-    "current_step": 37,
-    "max_reward": 0.696,
-    "evaluation": null,
-    "evaluation_status": "pending",
-    "extracted_sops": [],
-    "incomplete": true,
-    "incomplete_reason": "evaluation_in_progress"
-  }
-  ```
-- [x] ~~B03-05~~** 前端接收到 `incomplete: true` 时，显示友好提示而不是空白或报错：
-  - 评分区域：显示"评分生成中..."
-  - SOP 区域：显示"尚未萃取"
-  - 报告区域：显示已有数据（步数、reward 曲线）
-- [x] ~~B03-06~~** 验证：演练运行完成后，点击查看报告，页面必须显示至少步数和 reward，不再出现整页空白或 500 报错。
-
----
-
-### Bug-004：环境空间 Agent 人数不同步
-
-- [x] ~~B04-01~~** 找到"环境空间标题"的渲染代码（显示"议事厅 — 28 个智能体"的位置）。
-- [x] ~~B04-02~~** 找到"房间卡片"的渲染代码（显示"0 智能体"的位置）。
-- [x] ~~B04-03~~** 找到当前维护 Agent 位置的所有数据结构，可能有多个来源（如 `team.agents`、`roomAgents`、`deployedAgents`）。
-- [x] ~~B04-04~~** 定义唯一的空间状态源：
-  ```typescript
-  // 唯一来源
-  roomAgentMap: {
-    congress_hall: AgentSnapshot[],
-    extraction_room: AgentSnapshot[],
-    workshop: AgentSnapshot[],
-    knowledge_base: AgentSnapshot[],
-    arena: AgentSnapshot[],
-    rest_area: AgentSnapshot[]
-  }
-  ```
-- [x] ~~B04-05~~** 所有显示 Agent 位置的地方统一从 `roomAgentMap` 读取：
-  - 房间卡片 Agent 数量 → `roomAgentMap[room_id].length`
-  - 房间标题 → `{房间名} — {roomAgentMap[room_id].length} 个智能体`
-  - 系统状态"已部署"数量 → 所有 room 的 Agent 总和
-  - Agent 列表中的"空间"字段 → 从 `roomAgentMap` 反查
-- [x] ~~B04-06~~** 实现初始部署逻辑：选择团队 + 场景后，将 Agent 批量写入对应房间的 `roomAgentMap`。
-  - Build System + 工作坊演化 → 7 个 Agent 写入 `workshop`
-  - 全体 + 议事厅聚焦 → 28 个 Agent 写入 `congress_hall`
-- [x] ~~B04-07~~** 验证：
-  - 选择 Build System + 工作坊演化后，工作坊卡片显示 7 个智能体
-  - 系统状态"已部署"显示 7
-  - Agent 列表中 7 个 Agent 的"空间"字段显示"工作坊"
-  - 其他房间显示"空"
-
----
-
-### Bug-005：全局 Metrics 不同步
-
-- [x] ~~B05-01~~** 找到"沙箱会话"、"总仿真步"、"提取SOP"、"最优评分"这四个指标的数据来源和渲染代码。
-- [x] ~~B05-02~~** 实现即时更新：
-  - 会话创建成功后：`sandboxSessions += 1`，写入历史记录（状态 creating/ready）
-  - 每次 step 成功后：`totalSimSteps += 1`
-  - SOP 萃取成功后：`extractedSops += 1`
-  - 评分生成后：`bestScore = Math.max(bestScore, newScore)`
-- [x] ~~B05-03~~** 验证：Session 创建后，全局统计"沙箱会话"从 0 变为 1，step 执行后"总仿真步"递增。
-
----
-
-### Bug-006：演练历史不显示
-
-- [x] ~~B06-01~~** 找到演练历史列表的数据来源和渲染代码。
-- [x] ~~B06-02~~** 修改历史写入逻辑：Trial/Session 创建后立即写入历史（不等到 completed）：
-  ```javascript
-  // 创建时
-  historyList.unshift({
-    id: sessionId,
-    status: 'creating',
-    team: selectedTeam,
-    mode: selectedMode,
-    created_at: new Date().toISOString(),
-    steps: 0,
-    max_reward: null,
-    sop_count: 0
-  });
-  
-  // 状态变化时更新
-  updateHistory(sessionId, { status: 'running', steps: currentStep, max_reward: latestReward });
-  ```
-- [x] ~~B06-03~~** 验证：启动演练后，历史面板立即出现一条记录，状态从 creating → running → completed 依次更新。
-
----
-
-## 阶段二：概念模型重构（引入 Trial/Branch/Session 三层）
-
-> P0 Bug 全部修复并验证后，开始此阶段。
-
-### 后端：新增 Trial 和 Branch 数据模型
-
-[x] ~~M-01~~ 定义 `Trial` 数据模型（参考 plan.md 第五章）：
-  ```python
-  class Trial:
-      id: str
-      name: str
-      status: str  # idle/creating/ready/running/paused/evaluating/completed/failed/archived
-      team_snapshot: dict
-      task_goal: dict
-      scenario: str
-      mode: str  # what_if/multi_branch/chaos_drill/evolutionary/replay
-      branches: list
-      max_steps: int
-      acceleration: int
-      parallel_branches: int
-      evaluation: dict | None
-      extracted_sops: list
-      feedback_actions: list
-      created_at: str
-      updated_at: str
-  ```
-[x] ~~M-02~~ 定义 `Branch` 数据模型：
-  ```python
-  class Branch:
-      id: str
-      trial_id: str
-      name: str
-      label: str
-      color: str  # UI 颜色，如 #4A90E2
-      parent_branch_id: str | None
-      fork_at_step: int | None
-      initial_conditions: dict
-      injected_events: list
-      sessions: list
-      current_session_id: str | None
-      status: str  # pending/running/paused/completed/failed
-      current_step: int
-      final_score: float | None
-      reward_curve: list  # [{step, reward}]
-      agent_contributions: list
-      checkpoints: list
-      created_at: str
-      completed_at: str | None
-  ```
-[x] ~~M-03~~ 定义统一 `TrialEvent` 事件模型（参考 plan.md 第五章 5.7）。
-[x] ~~M-04~~ 现有 `Session` 模型增加字段：`branch_id`、`trial_id`，向后兼容。
-
----
-
-### 后端：新增 Trial API 接口
-
-[x] ~~A-01~~ 实现 `POST /api/twin-trials`：
-  - 接收：team_id、task_goal、scenario、mode、max_steps、acceleration
-  - 创建 Trial 对象
-  - 自动创建 baseline Branch
-  - 调用现有 create session 逻辑，关联到 baseline Branch
-  - 返回：`{ trial_id, branch_id, session_id, status: 'ready' }`
-[x] ~~A-02~~ 实现 `GET /api/twin-trials`：
-  - 返回历史 Trial 列表，按创建时间倒序
-  - 每条包含：id、name、status、mode、team_name、max_reward、total_steps、sop_count、created_at
-  - 支持分页：`?page=1&page_size=20`
-[x] ~~A-03~~ 实现 `GET /api/twin-trials/:trial_id`：
-  - 返回完整 Trial 详情，包含所有 Branch 和 Session 摘要
-  - 即使 evaluation/sops 为空，也返回 200 + `incomplete: true`
-[x] ~~A-04~~ 实现 `POST /api/twin-trials/:trial_id/branches`（分裂分支）：
-  - 接收：fork_from_branch_id、fork_at_step、name、initial_conditions
-  - 从指定 step 的 state_snapshot 创建新 Branch
-  - 自动创建新 Session，继承父分支的状态快照
-  - 返回：`{ branch_id, session_id }`
-[x] ~~A-05~~ 实现 `POST /api/twin-trials/:trial_id/branches/:branch_id/step`：
-  - 调用现有 step 逻辑
-  - 返回：`{ step_index, reward, agent_actions, room_positions, secs_active_layer }`
-  - 同时推送 SSE 事件
-[x] ~~A-06~~ 实现 `POST /api/twin-trials/:trial_id/branches/:branch_id/run`：
-  - 调用现有 auto_run 逻辑
-  - 返回：`{ status: 'running' }`
-  - 后续通过 SSE 持续推送 step 事件
-[x] ~~A-07~~ 实现 `POST /api/twin-trials/:trial_id/branches/:branch_id/pause`：
-  - 暂停当前 Branch 的运行
-  - 返回：`{ status: 'paused', current_step }`
-[x] ~~A-08~~ 实现 `POST /api/twin-trials/:trial_id/branches/:branch_id/events`（注入演练事件）：
-  - 接收：`{ event_type, payload, trigger_at_step? }`
-  - event_type 包括：network_delay、agent_leave、task_change、skill_degraded
-  - 立即生效（如果在运行中）或在指定 step 生效（如果预设）
-[x] ~~A-09~~ 实现 `POST /api/twin-trials/:trial_id/evaluate`：
-  - 计算所有 Branch 的五维评分（参考 plan.md 第九章）
-  - 标注最佳/最差 Branch
-  - 生成 key_insights 和 turning_points
-  - 返回完整 TrialEvaluation 对象
-[x] ~~A-10~~ 实现 `POST /api/twin-trials/:trial_id/extract-sop`：
-  - 从最佳 Branch 提取关键路径
-  - 生成 SOP 候选（参考 plan.md 第五章 5.8）
-  - 返回 SOP 列表
-[x] ~~A-11~~ 实现 `POST /api/twin-trials/:trial_id/feedback`：
-  - 将 SOP/策略写回到 Agent 技能库或协作图
-  - 返回：`{ applied_sops, updated_agents, updated_skills }`
-[x] ~~A-12~~ 实现 `GET /api/twin-trials/:trial_id/events/stream`（SSE 事件流）：
-  - 支持过滤：`?branch_id=&event_types=&since_step=`
-  - 推送所有 TrialEvent
-  - 客户端断线重连时，支持从指定事件 ID 续传
-
----
-
-### 前端：状态管理重构
-
-[x] ~~S-01~~ 定义统一状态树（参考 plan.md 第七章 7.1）：
-  ```typescript
-  interface DigitalTwinState {
-    runtime: RuntimeState;
-    activeTrial: Trial | null;
-    trialStatus: TrialStatus;
-    activeBranchId: string | null;
-    branches: { [branch_id: string]: Branch };
-    currentStep: number;           // 唯一来源：后端返回值
-    latestReward: number | null;
-    isRunning: boolean;
-    isCreating: boolean;           // 仅网络请求期间为 true
-    roomAgentMap: RoomAgentMap;    // 唯一空间状态源
-    events: TrialEvent[];
-    trialHistory: TrialSummary[];
-    selectedTab: string;
-  }
-  ```
-[x] ~~S-02~~ 实现 `roomAgentMap` 唯一来源规则：删除其他维护 Agent 位置的变量，所有读取统一走 `roomAgentMap`。
-[x] ~~S-03~~ 实现状态机转换函数：
-  ```typescript
-  function transitionTrialStatus(from: TrialStatus, to: TrialStatus): void {
-    // 验证转换合法性
-    const validTransitions = {
-      idle: ['creating'],
-      creating: ['ready', 'failed'],
-      ready: ['running'],
-      running: ['paused', 'evaluating', 'failed'],
-      paused: ['running', 'evaluating', 'failed'],
-      evaluating: ['completed', 'failed'],
-      completed: ['archived'],
-      failed: ['idle'],
-    };
-    if (!validTransitions[from]?.includes(to)) {
-      console.error(`Invalid status transition: ${from} -> ${to}`);
-      return;
-    }
-    trialStatus = to;
-    updateButtonStates(to);
-  }
-  ```
-[x] ~~S-04~~ 实现统一事件处理器：所有 SSE 事件和 API 响应统一流入 `handleTrialEvent(event: TrialEvent)`，按 `event.type` 分发处理，不再散落在各处。
-[x] ~~S-05~~ 实现 SSE/API 去重：维护 `processedStepSet: Set<number>`，按 `step_index` 去重。
-
----
-
-## 阶段三：前端 UI 重构
-
-> 阶段二完成后，开始 UI 重构。
-
-### 布局重构
-
-- [x] ~~U-01~~** 将"环境空间"模块移至页面视觉中心，占据主要屏幕宽度（建议 60-70%）。
-[x] ~~U-02~~ 将"智能体团队"移至左侧边栏（建议 20%宽度），支持折叠。
-[x] ~~U-03~~ 将"演练配置"升级为"试炼导演台"，放置右侧（建议 20-25%宽度），支持折叠。
-- [x] ~~U-04~~** 将"系统状态 / 交互流 / 编排管线"改为顶部折叠栏或右侧抽屉，不占主视图空间。
-[x] ~~U-05~~ 底部添加"试炼时间轴"区域，统一展示 step/reward/event/agent_action/分支比较。
-
----
-
-### 按钮状态机实现
-
-[x] ~~U-06~~ 实现按钮状态机，按 `trialStatus` 显示对应按钮组（参考 plan.md 第四章 4.4）：
-  ```
-  idle        → [创建试炼]
-  creating    → [⏳ 创建中...] （禁用，显示 spinner）
-  ready       → [▶ 单步推演] [▶▶ 自动推演] [💥 注入事件] [⑂ 分裂分支]
-  running     → [⏸ 暂停] [💥 注入事件] [⑂ 分裂分支]
-  paused      → [▶ 继续] [▶ 单步推演] [⏹ 终止] [💥 注入事件] [⑂ 分裂分支]
-  evaluating  → [⏳ 评分中...] （全部禁用）
-  completed   → [📊 查看评分] [📋 萃取 SOP] [🔄 反哺 Agent] [🔁 创建新试炼]
-  failed      → [🔄 恢复] [📋 复盘] [🔁 创建新试炼]
-  ```
-[x] ~~U-07~~ 删除或弱化原有的"启动演练"和"🎬 运行开发流程仿真"两个割裂入口，统一入口为"创建试炼"。
-
----
-
-### 试炼导演台（右侧面板）
-
-[x] ~~U-08~~ 实现团队选择下拉框：列出所有团队（Build System / AI 编程团队 / 公有云xOPs / ...），选择后加载团队快照。
-[x] ~~U-09~~ 实现任务目标输入框：允许用户输入自定义任务目标（如"运行开发流程仿真"、"修复 HTTP 500"）。
-[x] ~~U-10~~ 实现试炼模式选择：
-  - What-if 推演
-  - 多分支对比
-  - 混沌演练
-  - 演化试炼
-  - 回放复盘
-[x] ~~U-11~~ 实现仿真参数区：步数、加速倍率、并行分支数。
-[x] ~~U-12~~ 实现"分支管理"面板：
-  - 列出当前 Trial 下所有 Branch
-  - 每条显示：分支名、颜色标识、当前步数、最新 reward、状态
-  - 支持点击切换当前活跃分支
-  - 支持"⑂ 从此处分裂"按钮
-[x] ~~U-13~~ 实现"注入事件"面板：
-  - 故障类型选择（网络延迟/Agent离队/任务变更/技能退化）
-  - 触发时机（立即/指定step）
-  - 注入后在控制台和时间轴上记录事件
-
----
-
-### 环境空间视觉升级
-
-[x] ~~U-14~~ 每个房间卡片显示 Agent 头像列表（最多显示 5 个，多余显示 +N）。
-- [x] ~~U-15~~** 实现 Agent 房间迁移动画：Agent 在房间间移动时有 300ms 过渡动画。
-[x] ~~U-16~~ 实现多 Branch 颜色区分：
-  - 每个 Branch 有唯一颜色（baseline=蓝色、chaos=橙色、optimized=绿色）
-  - Branch 中的 Agent 图标带有对应颜色的 border 或标签
-- [x] ~~U-17~~** 实现故障注入视觉反馈：
-  - 网络延迟 → 工作坊边框变橙，受影响 Agent 显示 ⏳
-  - Agent 失联 → Agent 图标变灰，移入休息区
-  - 技能退化 → Agent 图标显示 ⚠️，技能标签变红
-- [x] ~~U-18~~** 实现 reward 热力反馈：
-  - reward 上升 → 当前活跃房间背景微绿
-  - reward 下降 → 背景微红
-  - reward 峰值 → 短暂金色光晕（CSS animation，持续 1.5s）
-
----
-
-### 试炼时间轴
-
-[x] ~~U-19~~ 实现底部时间轴，按 step 顺序展示事件标注：
-  - 普通 step：灰色圆点
-  - reward 突升：绿色标注
-  - reward 下降：红色标注
-  - 故障注入：橙色闪电图标
-  - 分支分裂：分叉图标
-  - SOP 萃取：星形图标
-[x] ~~U-20~~ 实现多 Branch reward 曲线叠加图：
-  - 每个 Branch 一条曲线，颜色对应 Branch 颜色
-  - 鼠标悬停显示该 step 的详细信息
-  - 支持单独显示/隐藏某条曲线
-
----
-
-### SECS Pipeline 实时联动
-
-[x] ~~U-21~~ 将 SECS Pipeline 改为实时状态指示器：
-  ```
-  [L1 MADTwin] ✓  →  [L2 AAS] ✓  →  [L3 TwinLoop] ●  →  [L4 MADCG] ○  →  [↩ Loop] ○
-  ```
-  - ✓ 已完成（绿色）
-  - ● 当前活跃（蓝色，动画闪烁）
-  - ○ 待处理（灰色）
-[x] ~~U-22~~ 每次 step 执行后，根据后端返回的 `secs_active_layer` 字段更新 Pipeline 状态。
-[x] ~~U-23~~ SOP 萃取完成后，Loop 层高亮并显示萃取数量。
-
----
-
-## 阶段四：演练与仿真统一（五种试炼模式实现）
-
-> 阶段三 UI 完成后，开始实现具体模式。
-
-### 模式一：What-if 推演（基线）
-
-[x] ~~T01-01~~ 选择"What-if 推演"模式时，自动创建 baseline Branch。
-[x] ~~T01-02~~ 运行完成后，输出基线报告：最高 reward、完成步数、瓶颈 Agent、关键技能。
-[x] ~~T01-03~~ 基线数据作为后续所有模式的对照组存储。
-
----
-
-### 模式二：多分支对比
-
-[x] ~~T02-01~~ 支持从任意 step 点击"⑂ 分裂分支"，创建新 Branch。
-[x] ~~T02-02~~ 新 Branch 继承父 Branch 在 fork_at_step 时的完整状态快照。
-[x] ~~T02-03~~ 支持多个 Branch 并行运行（按 parallel_branches 参数控制）。
-[x] ~~T02-04~~ 底部曲线图叠加显示所有 Branch 的 reward 曲线，颜色区分。
-[x] ~~T02-05~~ 提供"Branch 比较表"：各 Branch 的最终 reward、步数、关键差异。
-
----
-
-### 模式三：混沌演练
-
-[x] ~~T03-01~~ 实现网络延迟注入：
-  - 后端：指定 Agent 的某次 skill 执行延迟 N 步
-  - 前端：受影响 Agent 显示 ⏳，房间边框变橙
-[x] ~~T03-02~~ 实现 Agent 离队注入：
-  - 后端：指定 Agent 标记为 offline，从 roomAgentMap 移入休息区
-  - 前端：Agent 图标变灰，房间计数 -1，团队任务重分配
-[x] ~~T03-03~~ 实现任务变更注入：
-  - 后端：在指定 step 修改当前任务目标或优先级
-  - 前端：控制台显示任务变更事件，时间轴标注
-[x] ~~T03-04~~ 实现技能退化注入：
-  - 后端：指定 Agent 的某项技能效率降低（reward 贡献 × 0.6）
-  - 前端：Agent 图标显示 ⚠️，技能标签变红
-[x] ~~T03-05~~ 实现恢复力评分：
-  - 计算故障注入 step 到 reward 回升 step 的间隔
-  - 恢复力 = 1 - (恢复步数 / max_steps)
-  - 无故障注入时恢复力默认满分
-
----
-
-### 模式四：演化试炼
-
-[x] ~~T04-01~~ 实现多代运行框架：
-  - 每代运行 max_steps/generations 步
-  - 运行完成后自动评分
-  - 保留 top 30% Branch 作为下一代基础
-[x] ~~T04-02~~ 实现变异策略：
-  - Agent 技能顺序随机调整（20% 概率）
-  - 协作图边权重随机变化（20% 概率）
-  - 任务优先级随机重排（10% 概率）
-[x] ~~T04-03~~ 实现交叉策略：
-  - 两个高分 Branch 的 Agent 分工方式融合（50% 概率）
-[x] ~~T04-04~~ 实现终止条件：
-  - 连续 3 代 reward 提升 < 0.005 → 停止进化
-  - 达到最大代数 → 停止进化
-  - 用户手动停止 → 停止进化
-[x] ~~T04-05~~ 进化过程可视化：
-  - 每代的最高/平均/最低 reward 显示为多条曲线
-  - 进化历程表：代数、最高 reward、最优策略摘要
-
----
-
-### 模式五：回放复盘
-
-[x] ~~T05-01~~ 历史 Trial 列表支持点击进入"回放模式"。
-[x] ~~T05-02~~ 回放模式下，可以选择某个历史 step 作为起点，创建新 Branch 继续推演。
-[x] ~~T05-03~~ 回放模式下，控制台显示"当前为回放模式，基于 Trial xxx Step N 分裂"。
-
----
-
-## 阶段五：评分与萃取（完整闭环）
-
-### 五维评分实现
-
-[x] ~~E-01~~ 实现目标完成度评分：
-  ```python
-  task_completion = final_reward / theoretical_max_reward
-  ```
-[x] ~~E-02~~ 实现协作效率评分：
-  ```python
-  # 计算并行度：每 step 中同时工作的 Agent 比例
-  parallelism = avg(active_agents_per_step / total_agents)
-  # 计算交接次数（transfer 事件数）
-  handoff_penalty = transfer_count / total_steps * 0.1
-  collaboration_efficiency = parallelism - handoff_penalty
-  ```
-[x] ~~E-03~~ 实现韧性评分：
-  ```python
-  if fault_injected:
-      recovery_steps = step_reward_recovered - step_fault_injected
-      resilience = 1 - (recovery_steps / max_steps)
-  else:
-      resilience = 1.0  # 无故障默认满分
-  ```
-[x] ~~E-04~~ 实现成本控制评分：
-  ```python
-  cost_efficiency = 1 - (actual_steps / max_steps)
-  ```
-[x] ~~E-05~~ 实现可萃取性评分：
-  ```python
-  # 统计稳定出现的动作路径（在多次运行中重复率 > 70%）
-  stable_paths = count_stable_action_sequences(branch.steps, threshold=0.7)
-  extractability = stable_paths / total_action_sequences
-  ```
-[x] ~~E-06~~ 实现加权总分：
-  ```python
-  total_score = (
-    task_completion * 0.30 +
-    collaboration_efficiency * 0.25 +
-    resilience * 0.20 +
-    cost_efficiency * 0.15 +
-    extractability * 0.10
-  )
-  ```
-[x] ~~E-07~~ 前端实现五维雷达图展示每个 Branch 的评分。
-[x] ~~E-08~~ 前端实现所有 Branch 总分柱状图对比。
-
----
-
-### SOP 萃取
-
-[x] ~~S-01~~ 实现萃取条件检查：
-  - Branch 最终 reward > baseline × 1.05 (至少5%提升)
-  - 关键路径稳定性 > 70%
-[x] ~~S-02~~ 从最佳 Branch 提取关键 Agent 动作序列：
-  - 过滤掉 idle 和 failed 动作
-  - 合并连续相同动作
-  - 标注每个动作的 agent_role 和 skill_name
-[x] ~~S-03~~ 生成结构化 SOP（参考 plan.md 第五章 5.8）：
-  - 每步包含：order、agent_role、action、precondition、expected_output、fallback
-[x] ~~S-04~~ 前端展示 SOP 候选列表，每条 SOP 显示：
-  - 名称、置信度、来源分支、适用场景、步骤数
-  - 支持展开查看详细步骤
-  - 支持"批准"/"忽略"操作
-
----
-
-### 反哺现实
-
-[x] ~~R-01~~ 实现 SOP 审批流程（对应现有管线的 draft → review → approved）：
-  - 萃取后状态为 candidate
-  - 用户点击"批准"后变为 approved
-  - 点击"反哺"后触发 feedback 接口
-[x] ~~R-02~~ 实现技能分数更新：
-  - 反哺接口将 SOP 中高频使用的技能，在对应 Agent 的 `skill_scores` 中提升 5-10%
-[x] ~~R-03~~ 实现协作图更新：
-  - 反哺接口将 SOP 中稳定出现的 Agent 协作对，在协作图中增加边权重
-[x] ~~R-04~~ 前端显示反哺结果：
-  - "已更新 3 个 Agent 的技能分数"
-  - "协作图已添加 2 条推荐连接"
-
----
-
-## 阶段六：CLI 扩展
-
-[x] ~~C-01~~ 扩展 CLI 支持 `trial` 命令组：
-  ```
-  trial create --team "Build System" --mode evolutionary --steps 200
-  trial list
-  trial show <trial_id>
-  trial fork <branch_id> --at-step 10 --name "chaos_v2"
-  trial inject <trial_id> --event network_delay --at-step 8
-  trial eval <trial_id>
-  trial extract-sop <trial_id>
-  trial feedback <trial_id> --sops all
-  trial archive <trial_id>
-  ```
-[x] ~~C-02~~ CLI `status` 命令显示当前 Trial 状态（如果有活跃 Trial）。
-[x] ~~C-03~~ CLI 命令与前端 UI 状态双向同步：CLI 创建 Trial，UI 也能感知。
-
----
-
-## 阶段七：验收测试
-
-> 每个阶段完成后必须过这组验收测试，确保没有退步。
-
-### 最小闭环验收（完成阶段二和三后必须通过）
-
-[x] ~~V-01~~ 点击"创建试炼"，3秒内按钮状态变为 ready，不再卡在"创建中"。
-[x] ~~V-02~~ 点击"单步推演"，控制台出现一条 step 日志，step_index 连续且不重复。
-[x] ~~V-03~~ 点击"自动推演"，系统连续产生 step 日志，直到点击"暂停"或完成。
-[x] ~~V-04~~ 暂停后点击"继续"，系统恢复运行，step 从暂停处继续。
-[x] ~~V-05~~ 全局统计"沙箱会话"从 0 变为 1（创建后即更新）。
-[x] ~~V-06~~ 全局统计"总仿真步"随每次 step 递增。
-[x] ~~V-07~~ 演练历史立即出现当前 Trial 记录，状态随生命周期更新。
-[x] ~~V-08~~ 环境空间：选择 Build System + 工作坊演化后，工作坊卡片显示 7 个智能体，其他房间显示 0。
-[x] ~~V-09~~ SECS Pipeline 实时高亮当前活跃层。
-[x] ~~V-10~~ 演练完成后，点击查看报告，不出现 HTTP 500 或空白页，至少显示步数和 reward 曲线。
-
----
-
-### 分支功能验收
-
-[x] ~~V-11~~ 在 Step 10 点击"分裂分支"，新分支创建，曲线图出现两条 reward 线（颜色不同）。
-[x] ~~V-12~~ 两个分支可以分别独立运行，互不干扰。
-[x] ~~V-13~~ 点击分支管理面板中的某个分支，UI 切换到该分支的视图。
-
----
-
-### 故障注入验收
-
-[x] ~~V-14~~ 运行中点击"注入事件 → 网络延迟"，工作坊边框变橙，控制台记录注入事件。
-[x] ~~V-15~~ 故障注入后，reward 短暂下降，然后系统逐步恢复。
-[x] ~~V-16~~ 恢复力评分在评估结果中显示（有故障时不为 1.0）。
-
----
-
-### 评分与萃取验收
-
-[x] ~~V-17~~ Trial 完成后，调用"完成评估"，五维评分雷达图正确显示。
-[x] ~~V-18~~ 评分完成后，"萃取 SOP"按钮可点击，萃取结果显示至少 1 条 SOP 候选。
-[x] ~~V-19~~ 全局统计"提取SOP"数量从 0 增加为 N。
-[x] ~~V-20~~ 全局统计"最优评分"更新为当前最高 trial 的 total_score。
-
----
-
-### 反哺验收
-
-[x] ~~V-21~~ 批准 SOP 后点击"反哺 Agent"，系统显示"已更新 N 个 Agent 的技能分数"。
-[x] ~~V-22~~ 在智能体团队列表中，对应 Agent 的技能分数有更新。
-[x] ~~V-23~~ 协作拓扑图中，反哺后相关 Agent 之间的连线加粗。
-
----
-
-### 回归测试（每次修改后必须通过）
-
-[x] ~~V-R01~~ 原有单步/自动运行功能正常，无退步。
-[x] ~~V-R02~~ 控制台日志无重复 step 事件。
-[x] ~~V-R03~~ 页面无 JS 报错（控制台无 error 级别日志）。
-[x] ~~V-R04~~ 重新加载页面后，历史 Trial 列表正确还原。
-[x] ~~V-R05~~ 不同浏览器 tab 同时打开页面，互不干扰。
-
----
-
-## 附录：每条 TODO 完成后的输出格式
-
-CodeBuddy 实现每条 TODO 后，必须按以下格式输出，不可省略：
+## 一、概念定义
+
+### 1.1 试炼（Trial）vs 演练（Exercise）vs 仿真（Simulation）
+
+| 概念 | 英文 | 定义 | 对应按钮前缀 |
+|------|------|------|-------------|
+| **试炼** | Trial | 完整的孪生实验：创建实验、分裂分支、运行推演、评分比较、萃取SOP、反哺Agent | `T-` |
+| **演练** | Exercise/Drill | 在试炼运行中注入故障/扰动，测试团队恢复能力 | `X-` |
+| **仿真** | Simulation | 在沙箱中推进step，是试炼和演练共用的底层执行机制 | 无独立前缀 |
+
+三者关系：
+```
+试炼(Trial) ──创建──→ Branch ──运行仿真──→ Step序列
+                              │
+                    演练注入 ←┘  (在仿真中施加故障)
+                              │
+                    评分萃取 → SOP → 反哺现实
+```
+
+### 1.2 试炼六步闭环
 
 ```
-✅ TODO: [编号] [名称]
+1. 选择团队+模式 → 2. 创建试炼 → 3. 运行/分支 → 4. 评分评审 → 5. 萃取SOP → 6. 反哺Agent
+```
 
-📁 涉及文件：
-- 前端：src/xxx.vue / xxx.ts
-- 后端：api/xxx.py / models/xxx.py
+### 1.3 演练四步闭环（在试炼步骤3中执行）
 
-🔧 修改内容：
-- 修改了 XXX 函数，增加了 YYY 逻辑
-- 新增了 ZZZ 接口
-
-✔️ 验证结果：
-- 操作步骤：点击 XXX → 看到 YYY
-- 实际结果：符合预期 / 不符合，原因：ZZZ
-
-⚠️ 注意事项（如有）：
-- 本次修改可能影响 XXX，建议同时验证 V-R01
+```
+1. 选择故障类型 → 2. 注入运行中 → 3. 观察恢复力 → 4. 记录韧性得分
 ```
 
 ---
 
-## 附录：数字孪生产品原则（始终牢记）
+## 二、试炼导演台（Trial Director Panel）— 右侧面板
+
+> HTML 位置：`id="trial-director-panel"`  
+> 状态机对象：`window._DTS`  
+> 状态转换函数：`transitionTrialStatus(from, to)`  
+> 按钮渲染函数：`window._updateButtonStates(status)`  
+> 按钮渲染目标：`id="dt-action-buttons"`
+
+### 2.1 模式选择卡片（5种试炼模式）
+
+| 编号 | 按钮文本 | 触发函数 | HTML位置 | 说明 |
+|------|----------|----------|----------|------|
+| T-M01 | 🔮 What-if 基线实验 | `selectMode('what_if')` | `.dp-mode-card` | 单分支基线推演 |
+| T-M02 | 🌳 多分支对比 并行策略 | `selectMode('multi_branch')` | `.dp-mode-card` | 多Branch并行对比 |
+| T-M03 | 🌀 混沌演练 压力测试 | `selectMode('chaos_drill')` | `.dp-mode-card` | 注入故障+测恢复力 |
+| T-M04 | 🧬 演化试炼 进化搜索 | `selectMode('evolutionary')` | `.dp-mode-card` | 多代自动进化 |
+| T-M05 | 📼 回放复盘 历史重放 | `selectMode('replay')` | `.dp-mode-card` | 基于历史重放 |
+
+- [x] T-M01 **What-if 模式卡片**：点击后 `window._DTS.selectedMode = 'what_if'`，卡片高亮（`.dp-mode-card.active`），其他卡片取消高亮
+  - 验收：点击卡片 → 高亮变为青色边框 → `console.log(window._DTS.selectedMode)` 输出 `"what_if"`
+- [x] T-M02 **多分支对比模式卡片**：同逻辑，`selectedMode = 'multi_branch'`
+  - 验收：点击后其他卡片取消高亮
+- [x] T-M03 **混沌演练模式卡片**：同逻辑，`selectedMode = 'chaos_drill'`
+- [x] T-M04 **演化试炼模式卡片**：同逻辑，`selectedMode = 'evolutionary'`
+- [x] T-M05 **回放复盘模式卡片**：同逻辑，`selectedMode = 'replay'`
+- [x] T-M06 **模式卡片联动**：SECS面板选择模式radio时，导演台卡片同步高亮
+  - 验收：SECS选"What-if" → 导演台🔮卡片高亮；SECS选"混沌" → 🌀卡片高亮
+
+### 2.2 导演台配置区
+
+| 编号 | 组件 | 触发/同步 | HTML id | 说明 |
+|------|------|-----------|---------|------|
+| T-C01 | 团队显示 | 从 SECS `_selectedTeamId` 自动同步 | `dp-team-display` | 只读展示，1秒轮询同步 |
+| T-C02 | 任务目标输入 | 用户输入 | `dp-task-name` | 默认"默认试炼" |
+| T-C03 | 最大步数滑块 | 用户输入 + SECS同步 | `dp-max-steps` | 默认150 |
+| T-C04 | 加速倍率 | 用户输入 + SECS同步 | `dp-acceleration` | 默认5 |
+
+- [x] T-C01 **团队同步显示**：格式 `{团队名} ({N} 智能体)`，未选时显示"等待 SECS 选择团队"
+  - 验收：SECS选"Build System" → 导演台显示"Build System (7 智能体)"
+- [x] T-C02 **任务目标输入**：`createTrial()` 读取此值作为 `task_goal.name`
+  - 验收：输入"测试任务" → 创建试炼 → 控制台日志显示任务名为"测试任务"
+- [x] T-C03 **最大步数**：`createTrial()` 和 `sexyCreateAndRun()` 读取此值
+  - 验收：设置为50 → 创建试炼 → API请求中 `max_steps=50`
+- [x] T-C04 **加速倍率**：传入 `createTrial()`
+
+### 2.3 状态机操作按钮（8状态 × 14按钮）
+
+#### 状态: idle（空闲）
+| 按钮 | 触发函数 | 代码行 |
+|------|----------|--------|
+| 🧪 创建试炼 | `createTrial()` | ~3267 |
+
+- [x] **T-B01 idle→创建试炼**：按钮显示"🧪 创建试炼"，点击调用 `createTrial()`
+  - 验收：页面加载后导演台显示此按钮 → 点击 → 按钮变为"⏳ 创建中..." → API调用成功 → 变为 ready 状态按钮组
+  - 验收（无团队）：未选团队时 → toast "请先在SECS面板选择团队" → 按钮恢复idle
+  - 验收（超时）：API 15秒无响应 → toast "创建超时，请检查后端服务"
+  - 验收（错误）：API返回错误 → toast显示错误信息 → 按钮恢复idle
+
+#### 状态: creating（创建中）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| ⏳ 创建中... | (disabled) | 不可点击 |
+
+- [x] **T-B02 creating**：按钮显示"⏳ 创建中..."且禁用，`createTrial()` 正在调用 `/api/v1/twin-trials`
+  - 验收：点击创建后立即显示此状态 → API返回后自动切换到 ready 或 failed
+  - 验收：持续时间不超过15秒（有超时保护）
+
+#### 状态: ready（就绪）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| ▶ 单步 | `stepOnce()` | 推进一个step |
+| ▶▶ 自动 | `autoRun()` | 自动运行到底 |
+| 💥 注入 | `showInjectDropdown()` | 打开故障下拉菜单 |
+
+- [x] **T-B03 ready→单步推演**：`stepOnce()` → 调用 `/api/v1/sandbox/sessions/{sid}/step` → 执行一步
+  - 验收：点击"▶ 单步" → 控制台显示 step 日志 → step_index 连续不重复 → reward 更新
+- [x] **T-B04 ready→自动推演**：`autoRun()` → 委托 `sexyAutoRun()` → 调用 `/run` → 全部step执行
+  - 验收：点击"▶▶ 自动" → 状态切换到 running → 按钮变为"⏸ 暂停" → step持续产生
+  - 验收：完成后状态切换到 evaluating → 自动评分
+- [x] **T-B05 ready→注入事件**：`showInjectDropdown()` → 展开故障选择菜单
+  - 验收：点击"💥 注入" → 下拉菜单弹出6个故障选项 → 菜单在 `.inject-menu` 中可见完整文字
+  - 验收：点击菜单外部 → 菜单关闭
+
+#### 状态: running（运行中）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| ⏸ 暂停 | `pauseSim()` | 暂停当前运行 |
+| 💥 注入 | `showInjectDropdown()` | 运行中注入故障 |
+| ⑂ 分裂分支 | (见2.5) | 从当前step分裂新Branch |
+
+- [x] **T-B06 running→暂停**：`pauseSim()` → `POST /sessions/{sid}/pause` → `transitionTrialStatus('running','paused')`
+  - 验收：自动运行中点"⏸ 暂停" → step停止产生 → 按钮变为 paused 状态组
+  - 验收：暂停后当前 step_index 保留，不丢失
+- [ ] **T-B07 running→注入事件（运行时）**：在运行中注入故障，后端需在下一个step生效
+  - 验收：自动运行中 → 点"💥 注入" → 选"网络延迟" → 控制台显示注入事件 → 受影响的Agent显示⏳
+  - 验收：注入后 reward 短暂下降 → 系统尝试恢复
+- [ ] **T-B08 running→分裂分支（运行时）**：从当前step创建新Branch
+  - 验收：运行到step 10 → 点"⑂ 分裂分支" → 新Branch创建 → 曲线图出现两条线
+
+#### 状态: paused（已暂停）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| ▶ 继续 | `stepOnce()` | 单步继续 |
+| ▶▶ 自动 | `autoRun()` | 恢复自动运行 |
+| ⏹ 终止 | `terminate()` | 终止试炼 |
+
+- [x] **T-B09 paused→继续（单步）**：`stepOnce()` 从暂停处执行一步
+  - 验收：暂停在step 5 → 点"▶ 继续" → 执行step 6 → 日志显示 step_index=6
+- [x] **T-B10 paused→自动继续**：`autoRun()` 恢复自动运行
+  - 验收：暂停后点"▶▶ 自动" → 状态切换到 running → 继续产生step
+- [x] **T-B11 paused→终止**：`terminate()` → abort `_DTS._abortCtrl` + `POST /sessions/{sid}/stop` + `transitionTrialStatus('paused','terminated')`
+  - 验收：暂停状态下点"⏹ 终止" → 状态切换到 terminated → 按钮变为 idle 的"🧪 创建试炼"
+  - 验收：无论后端 `/stop` 是否成功，前端都强制清理状态（_resetLaunchUI 全面清理）
+  - 验收：terminated 后可以立即创建新试炼（`terminated → idle → creating`）
+
+#### 状态: evaluating（评分中）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| ⏳ 评分中... | (disabled) | 全部禁用 |
+
+- [x] **T-B12 evaluating**：按钮不可操作，显示评分进度
+  - 验收：自动运行完成后自动进入此状态 → 评分完成自动切换到 completed
+
+#### 状态: completed（已完成）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| 📊 评分 | `viewReport()` | 查看五维评分 |
+| 📋 SOP | `extractSop()` | 萃取标准操作程序 |
+| 🔄 反哺 | `feedbackAgents()` | 反哺到Agent技能 |
+
+- [ ] **T-B13 completed→查看评分**：`viewReport()` → 显示五维雷达图 + Branch对比柱状图
+  - 验收：点击"📊 评分" → 显示五维评分（任务完成度/协作效率/韧性/成本控制/可萃取性）
+  - 验收：多个Branch时显示对比
+- [ ] **T-B14 completed→萃取SOP**：`extractSop()` → `POST /api/v1/twin-trials/{tid}/extract-sop`
+  - 验收：点击"📋 SOP" → 显示SOP候选列表（名称/置信度/步骤数）
+  - 验收：全局统计"提取SOP"数量+1
+- [ ] **T-B15 completed→反哺Agent**：`feedbackAgents()` → `POST /api/v1/twin-trials/{tid}/feedback`
+  - 验收：点击"🔄 反哺" → "已更新 N 个Agent的技能分数"
+  - 验收：团队面板中对应Agent技能分数有变化
+
+#### 状态: failed（失败）
+| 按钮 | 触发函数 | 说明 |
+|------|----------|------|
+| 🔁 新试炼 | `resetForNew()` | 重置到idle |
+
+- [x] **T-B16 failed→新试炼**：`resetForNew()` → 重置所有状态 → 回到 idle
+  - 验收：试炼失败后点"🔁 新试炼" → 按钮恢复为"🧪 创建试炼"
+  - 验收：失败原因在控制台可见
+
+### 2.4 注入故障下拉菜单（6种故障 — 演练核心）
+
+> HTML位置：`.inject-menu` > `.inject-menu-item` × 6  
+> 触发函数：`doInjectEvent(eventType)`  
+> CSS：`z-index: 9999` `left: 0`（已修复裁剪问题）
+
+| 编号 | 按钮文本 | 事件类型 | 说明 | 等级 |
+|------|----------|----------|------|------|
+| X-01 | 🧠 模型幻觉 | `model_hallucination` | Agent产生错误决策 | 三级 |
+| X-02 | 🌐 网络延迟 | `network_delay` | skill执行延迟 | 一级 |
+| X-03 | 🔒 逻辑死锁 | `logic_deadlock` | 团队陷入决策循环 | 三级 |
+| X-04 | ⬇️ 技能退化 | `skill_degraded` | Agent技能效率降低 | 一级 |
+| X-05 | 👤 Agent离队 | `agent_leave` | Agent标记为offline | 二级 |
+| X-06 | 📝 任务变更 | `task_change` | 中途修改任务目标 | 二级 |
+
+- [x] **X-01~X-06 菜单可见性**：下拉菜单完整显示6个选项，文字不裁剪
+  - 验收：点"💥 注入" → 6个故障完整可见（emoji+中文）
+- [ ] **X-01 模型幻觉注入**：`doInjectEvent('model_hallucination')` → 后端接受事件 → 受影响Agent图标显示⚠️
+  - 验收：注入后控制台记录事件 → reward曲线可能出现波动
+- [ ] **X-02 网络延迟注入**：房间边框变橙，受影响Agent图标⏳
+  - 验收：工作坊边框颜色变为橙色 → reward短暂下降后回升
+- [ ] **X-03 逻辑死锁注入**：议事厅/工作坊出现🔴标注，reward停滞
+  - 验收：注入后 reward 曲线出现平台期
+- [ ] **X-04 技能退化注入**：Agent图标⚠️，技能标签变红，reward贡献×0.6
+  - 验收：注入后对应Agent的每步贡献降低
+- [ ] **X-05 Agent离队注入**：Agent图标变灰 → 移入休息区 → 房间计数-1
+  - 验收：受影响Agent从工作坊移到休息区卡片
+- [ ] **X-06 任务变更注入**：控制台显示任务变更事件 → 协作图可能重组
+  - 验收：注入后控制台日志显示"任务已变更"
+- [ ] **X-07 注入历史记录**：`id="inject-history"` 面板显示已注入事件列表
+  - 验收：注入3个故障后 → 面板显示3条记录
+- [ ] **X-08 恢复力评分**：评分结果中 `resilience` 维度反映恢复能力
+  - 验收：有故障注入时 `resilience < 1.0`，无故障时 `resilience = 1.0`
+
+### 2.5 分支管理面板
+
+| 编号 | 功能 | 触发/调用 | 说明 |
+|------|------|-----------|------|
+| T-F01 | 分支列表显示 | `showBranchManager(trialId)` | 列出Trial下所有Branch |
+| T-F02 | 切换活跃分支 | 点击分支条目 | 视图切换到该分支 |
+| T-F03 | 分裂新分支 | `forkBranch()` | 从当前step创建新Branch |
+| T-F04 | 分支颜色区分 | CSS `.branch-{color}` | 每个Branch独立颜色 |
+
+- [ ] **T-F01 分支列表**：Trial创建后自动显示baseline分支
+  - 验收：创建试炼 → 分支面板显示"baseline (蓝色) · 当前步: 0"
+- [ ] **T-F02 切换分支**：点击分支条目 → UI切换（曲线/Agent位置/step计数）
+  - 验收：切换到分支B → 曲线颜色变化 → Agent房间位置变化
+- [ ] **T-F03 分裂分支**：`forkBranch()` → `POST /api/v1/twin-trials/{tid}/branches`
+  - 验收：在step 10点"⑂ 分裂" → 新Branch出现 → reward曲线多一条线
+- [ ] **T-F04 颜色区分**：baseline=蓝、chaos=橙、optimized=绿
+  - 验收：3个Branch同时显示 → 曲线/标签颜色互不相同
+
+---
+
+## 三、SECS 演练面板（SECS Exercise Panel）— 统一入口
+
+> HTML位置：SECS配置区域  
+> **重要**：已与试炼导演台统一入口，`sexyCreateAndRun()` 内部调用 `createTrial()`  
+> 统一后 `_sx.sessionId = window._currentSessionId`，两边按钮操控同一session
+
+| 编号 | 按钮文本 | 触发函数 | 说明 | 与导演台关系 |
+|------|----------|----------|------|-------------|
+| S-01 | ▶ 沙箱推演 | `sexyCreateAndRun()` | 创建试炼统一入口 | → 调用 `createTrial()` |
+| S-02 | ▶ 单步 | `sexyStepOnce()` | 单步推演 | 操作同一session |
+| S-03 | ▶▶ 自动 | `sexyAutoRun()` | 自动运行 | → 由导演台 `autoRun()` 委托 |
+| S-04 | ⏸ 暂停 | `sexyPauseResume()` | 暂停/恢复 | 操作同一session |
+| S-05 | ⏹ 停止演练 | `sexyStopSim()` | 强制停止 | abort + `/stop` + 清理 |
+| S-06 | 📄 报告 | 查看报告按钮 | 查看演练报告 | 使用 `_lastReportSessionId` |
+
+### 3.1 沙箱推演按钮（统一入口）
+
+- [x] **S-01 沙箱推演**：`sexyCreateAndRun()` → 读取SECS参数 → 同步到导演台 → 调用 `createTrial()`
+  - 验收：选团队+模式 → 点"▶ 沙箱推演" → 控制台显示"统一入口 → 试炼导演台"
+  - 验收：创建成功后 SECS面板显示"✅ 已就绪 (试炼导演台)" → sessionId与导演台一致
+  - 验收：已存在session时 → toast "试炼已存在，请先终止" → 不重复创建
+  - 验收：未选团队时 → toast "请先选择演练团队"
+  - 验收：按钮loading态"⏳ 创建中..." → API返回后恢复"▶ 沙箱推演"
+
+### 3.2 运行控制按钮
+
+- [x] **S-02 SECS单步**：`sexyStepOnce()` → `POST /sessions/{sid}/step`
+  - 验收：操作与导演台"▶ 单步"一致，step_index连续
+- [x] **S-03 SECS自动**：`sexyAutoRun()` → 带AbortController + 同步导演台状态
+  - 验收：点"▶▶ 自动" → SECS和导演台同步显示running状态
+  - 验收：完成后自动 `transitionTrialStatus('running','completed')`
+  - 验收：AbortError时前端优雅处理不报错
+- [x] **S-04 SECS暂停/恢复**：`sexyPauseResume()` 
+  - 验收：运行中显示"⏸ 暂停" → 点击后暂停 → 文字变为"▶ 继续"
+  - 验收：暂停后点"▶ 继续" → 恢复运行
+- [x] **S-05 SECS停止**：`sexyStopSim()` → abort `_sx._abortCtrl` + abort `_DTS._abortCtrl` + `POST /stop` + `_cleanupSim()`
+  - 验收：运行中点"⏹ 停止演练" → fetch立即中断 → 发送/stop → 前端全面清理
+  - 验收：停止后按钮恢复为"▶ 沙箱推演"，sessionId清空
+  - 验收：停止后导演台同步切换到idle
+  - 验收：CREATED/RUNNING/PAUSED/COMPLETED任意状态都能停止（后端已支持）
+- [ ] **S-06 SECS报告**：停止后显示报告按钮，使用 `_lastReportSessionId`
+  - 验收：停止后报告按钮出现 → 点击 → 显示步数/reward/评分
+
+### 3.3 SECS 参数配置
+
+| 编号 | 组件 | HTML id | 说明 |
+|------|------|---------|------|
+| S-P01 | 模式选择 Radio | `secs-mode-*` | what_if / parallel / evolutionary / chaos_drill |
+| S-P02 | 最大步数 | `secs-steps` | 默认50 |
+| S-P03 | 速度倍率滑块 | `secs-speed-slider` | 默认10 |
+
+- [x] **S-P01 模式Radio**：选中的模式会同步到导演台 `window._DTS.selectedMode`
+  - 验收：SECS选"混沌演练" → 导演台🌀卡片高亮
+- [x] **S-P02 步数**：`sexyCreateAndRun()` 读取，同步到导演台 `dp-max-steps`
+- [x] **S-P03 速度**：传入试炼参数
+
+---
+
+## 四、环境空间面板（Environment Space）— 主舞台
+
+> HTML位置：`view-environment`  
+> 六房间：议事厅(congress_hall) / 萃取室(extraction_room) / 工作坊(workshop) / 知识库(knowledge_base) / 演练场(arena) / 休息区(rest_area)
+
+### 4.1 视图切换
+
+| 编号 | 按钮 | 触发函数 | 说明 |
+|------|------|----------|------|
+| E-01 | 平面视图 | `switchEnvMode('grid', this)` | 网格布局 |
+| E-02 | 网格视图 | `switchEnvMode('flat', this)` | 平面布局 |
+| E-03 | 创建空间 | `createRoom()` | 创建新房间 |
+
+- [ ] **E-01 平面/网格视图切换**：两种布局之间切换，保持Agent位置不变
+  - 验收：点"平面视图" → 房间卡片排列为网格 → 点"网格视图" → 恢复
+- [ ] **E-02 创建空间**：创建自定义房间
+  - 验收：点"创建空间" → 弹出输入框 → 输入名称 → 新房间卡片出现
+
+### 4.2 六房间卡片状态
+
+| 编号 | 房间 | 数据来源 | 显示内容 |
+|------|------|----------|----------|
+| E-R01 | 议事厅 | `roomAgentMap.congress_hall` | Agent数量+头像列表 |
+| E-R02 | 萃取室 | `roomAgentMap.extraction_room` | Agent数量+头像列表 |
+| E-R03 | 工作坊 | `roomAgentMap.workshop` | Agent数量+头像列表 |
+| E-R04 | 知识库 | `roomAgentMap.knowledge_base` | Agent数量+头像列表 |
+| E-R05 | 演练场 | `roomAgentMap.arena` | Agent数量+头像列表 |
+| E-R06 | 休息区 | `roomAgentMap.rest_area` | Agent数量+头像列表 |
+
+- [ ] **E-R01~06 房间Agent数量**：每张卡片显示 `{房间名} — {N} 个智能体`
+  - 数据唯一来源：`roomAgentMap[room_id].length`
+  - 验收：选择Build System+工作坊演化 → 工作坊=7，其他=0 或 空
+- [ ] **E-R07 Agent头像列表**：卡片内显示最多5个头像，超出显示"+N"
+  - 验收：工作坊7个Agent → 显示5个头像+"+2"
+- [ ] **E-R08 空间标题同步**：标题"环境空间 — {总Agent数} 个智能体"与房间卡片一致
+  - 验收：工作坊7个 → 标题显示"— 7 个智能体"
+  - **不允许**出现标题28但卡片0的bug
+- [ ] **E-R09 房间颜色与状态对应**：
+  - 工作坊有Agent活动 → 背景微亮
+  - 萃取室有Agent进入 → `sop-extract-badge` ✦SOP徽章触发
+  - 演练场有Agent → 混沌注入时边框变色
+  - 休息区有Agent → 表示有Agent失败/离队
+
+### 4.3 视觉反馈
+
+| 编号 | 功能 | 触发条件 | 视觉效果 |
+|------|------|----------|----------|
+| E-V01 | Reward热力反馈 | reward变化 | 上升→绿地/下降→红底/峰值→金色光晕 |
+| E-V02 | 故障注入视觉 | doInjectEvent() | 见X-01~X-06各条 |
+| E-V03 | Agent迁移动画 | roomAgentMap变化 | 300ms ease过渡 |
+| E-V04 | SOP萃取徽章 | extractSop()完成 | `.sop-extract-badge` ✦闪烁 |
+
+- [ ] **E-V01 Reward热力反馈**：reward上升时活跃房间背景微绿(`rgba(52,211,153,0.2)`)，下降时微红，峰值金色光晕1.5s
+  - 验收：自动运行中 → 观察工作坊/演练场背景颜色随reward变化
+- [ ] **E-V02 故障视觉效果**：对应X-02~X-05
+- [ ] **E-V03 Agent迁移动画**：Agent从房间A移到房间B时，300ms过渡
+  - 验收：注入"Agent离队" → 受影响Agent从头像列表消失 → 休息区头像列表增加
+- [ ] **E-V04 SOP徽章**：萃取完成后萃取室显示✦SOP徽章
+  - 验收：完成萃取 → 萃取室卡片出现✦徽章 → 点击展开策略摘要
+
+### 4.4 浮动组件
+
+| 编号 | 组件 | HTML id | 功能 |
+|------|------|---------|------|
+| E-F01 | 系统状态浮动卡 | `env-status-float` | 四指标一览 |
+| E-F02 | 事件弹幕层 | `env-barrage-layer` | step事件气泡 |
+| E-F03 | SVG连线层 | `env-linkage-svg` | Agent协作连线 |
+| E-F04 | 收益浮动卡 | `env-reward-float` | 迷你reward图表 |
+
+- [ ] **E-F01 系统状态浮动卡**：显示沙箱会话/仿真步数/SOP数/最优评分
+  - 验收：创建试炼后浮动卡更新 → `_updateEsFloat()` 与 `loadSecsStats()` 联动
+- [ ] **E-F02 事件弹幕**：每次step产生弹出气泡 `showBarrageBubble()` → floatIn→停留→fadeOut
+  - 验收：自动运行中 → 环境空间出现step事件气泡
+- [ ] **E-F03 连线动画**：Agent协作时 `drawLinkageLine()` → stroke-dashoffset 动画 → 3秒自动清除
+  - 验收：Agent之间有协作 → SVG连线出现 → 动画流动 → 3秒后消失
+- [ ] **E-F04 收益浮动卡**：右下角显示迷你reward曲线 + 实时数值
+  - 验收：自动运行中 → 右下角reward卡实时刷新
+
+---
+
+## 五、智能体团队面板（Agent Team Panel）— 左侧
+
+> HTML位置：左侧智能体团队区域
+
+| 编号 | 按钮 | 触发函数 | 说明 |
+|------|------|----------|------|
+| A-01 | 团队卡片选择 | 点击卡片 | 选择团队（Build System/AI编程/公有云xOPs） |
+| A-02 | ⚡ 部署 | 部署按钮 | 部署Agent到环境空间 |
+| A-03 | 🔄 召回 | 召回按钮 | 从环境空间召回Agent |
+| A-04 | Agent技能标签 | 点击标签 | 查看技能详情 |
+
+- [x] **A-01 团队选择**：点击团队卡片 → `_selectedTeamId` 更新 → SECS面板和导演台同步显示
+  - 团队卡片数据：`_teamsData` 数组（name/agents/skills/scenarioLabel/agentCount）
+  - 验收：点击"Build System" → SECS面板团队名更新 → 导演台 `dp-team-display` 更新 → `_agentCountForTeam` 更新
+  - 验收：场景标签更新（如"工作坊演化"、"议事厅聚焦"、"多场景协作"）
+- [ ] **A-02 部署Agent**：点"⚡ 部署" → Agent进入环境空间 → `roomAgentMap` 更新
+  - 验收：选Build System → 点部署 → 工作坊显示7个Agent → 房间卡片更新
+- [ ] **A-03 召回Agent**：点"🔄 召回" → Agent移出环境空间 → `roomAgentMap` 更新
+  - 验收：召回后房间卡片Agent数量减少
+- [ ] **A-04 技能标签**：Agent卡片的技能标签可点击 → 查看技能详情
+  - 验收：点"Python开发"标签 → 显示技能描述/得分
+
+---
+
+## 六、导航栏与视图切换（Navigation & Views）
+
+> HTML位置：`.header-nav` 区域
+
+| 编号 | 按钮 | 触发函数 | 说明 |
+|------|------|----------|------|
+| N-01 | ★ 环境空间 | `switchView(this)` data-view="environment" | 主舞台 |
+| N-02 | 系统状态 | `switchView(this)` data-view="architecture" | 仪表盘+协作拓扑 |
+| N-03 | 交互流 | `switchView(this)` data-view="interaction" | Agent通信记录 |
+| N-04 | 编排管线 | `switchView(this)` data-view="pipeline" | SECS Pipeline |
+| N-05 | CLI | `switchView(this)` data-view="cli" | 命令行终端 |
+
+### 6.1 视图切换
+
+- [x] **N-01 环境空间视图**：切换到主舞台，`.nav-primary` 特殊高亮（渐变背景+发光下划线）
+  - 验收：点击"★ 环境空间" → 主舞台可见 → 导航项高亮
+- [x] **N-02~N-05 视图切换**：点击切换对应面板，`switchView` 内部 hook `_origSwitchView` 联动全局上下文
+  - 验收：每个视图切换后对应面板可见，其他面板隐藏
+
+### 6.2 系统状态子面板
+
+| 编号 | 子面板 | 触发函数 | 说明 |
+|------|--------|----------|------|
+| N-A01 | 实时仪表盘 | `showArchSub('dashboard', this)` | 系统指标 |
+| N-A02 | 协作拓扑 | `showArchSub('topo', this)` | 协作图可视化 |
+
+- [ ] **N-A01 实时仪表盘**：显示系统指标（CPU/内存/会话数等）
+  - 验收：切换到系统状态 → 点"实时仪表盘" → 指标卡片显示
+- [ ] **N-A02 协作拓扑**：显示Agent之间的协作连线图（MADCG）
+  - 验收：点"协作拓扑" → SVG图显示Agent节点和连线 → 反哺后连线加粗
+
+### 6.3 交互流子面板
+
+| 编号 | 过滤器 | 触发函数 | 说明 |
+|------|--------|----------|------|
+| N-I01 | 全部 | `filterMsgs('all')` | 显示所有消息 |
+| N-I02 | 工具调用 | `filterMsgs('tool-call')` | 仅工具调用 |
+| N-I03 | LLM推理 | `filterMsgs('llm-call')` | 仅LLM调用 |
+| N-I04 | 任务交接 | `filterMsgs('handoff')` | 仅任务交接 |
+| N-I05 | 时间线视图 | `switchFlowView('timeline', this)` | 时间线布局 |
+| N-I06 | 序列图视图 | `switchFlowView('sequence', this)` | 序列图布局 |
+
+- [ ] **N-I01~I04 消息过滤**：点击过滤按钮 → 消息列表按类型筛选
+  - 验收：选"工具调用" → 仅显示tool-call类型消息
+- [ ] **N-I05~I06 视图切换**：时间线和序列图两种Agent通信可视化
+  - 验收：点"序列图" → 显示Agent间时序交互
+
+---
+
+## 七、CLI 面板命令（Command Line Interface）
+
+> HTML位置：`.cli-quick-btns` 快捷按钮区域  
+> 触发函数：`execCmd(command)`
+
+| 编号 | 按钮 | 命令 | 说明 |
+|------|------|------|------|
+| C-01 | status | `execCmd('status')` | 系统状态 |
+| C-02 | agents | `execCmd('agents')` | Agent列表 |
+| C-03 | skills | `execCmd('skills')` | 技能列表 |
+| C-04 | rooms | `execCmd('rooms')` | 房间信息 |
+| C-05 | pipeline | `execCmd('pipeline show')` | 管道状态 |
+| C-06 | flow last | `execCmd('flow last 10')` | 最近10条交互流 |
+| C-07 | simulate | `execCmd('simulate random')` | 随机仿真 |
+| C-08 | stress | `execCmd('stress simple')` | 压力测试 |
+| C-09 | discuss | `execCmd('discuss architecture')` | 讨论模式 |
+| C-10 | config | `execCmd('config show')` | 查看配置 |
+| C-11 | export | `execCmd('export snapshot')` | 导出快照 |
+
+- [ ] **C-01~C-11 CLI命令**：每个快捷按钮发送对应命令到CLI终端，终端显示结果
+  - 验收：点"agents" → CLI终端显示Agent列表
+  - 验收：点"simulate" → 终端显示仿真结果
+- [ ] **C-12 Trial扩展命令**：支持 `trial create/list/show/fork/inject/eval/extract-sop/feedback/archive`
+  - 验收：输入 `trial list` → 显示历史试炼列表
+
+---
+
+## 八、顶部工具栏（Topbar）
+
+| 编号 | 按钮 | 触发函数 | 说明 |
+|------|------|----------|------|
+| T-01 | 导入 | `importSnapshot()` | 导入团队快照 |
+| T-02 | 导出 | `execCmd('export snapshot')` | 导出当前快照 |
+| T-03 | 登出 | `window._agLogout()` | 退出登录 |
+
+- [ ] **T-01 导入快照**：导入之前导出的团队快照JSON
+  - 验收：点"导入" → 选择JSON文件 → 团队/Agent/房间恢复
+- [ ] **T-02 导出快照**：导出当前团队状态为JSON
+  - 验收：点"导出" → 下载JSON文件
+- [ ] **T-03 登出**：清除登录状态
+  - 验收：点"登出" → 跳转到登录页
+
+---
+
+## 九、P0 Bug 修复清单（按紧迫度排序）
+
+> 标记基于 2026-06-10 实际修复状态
+
+### 已修复
+
+- [x] **BUG-001** Session状态卡住 → 添加 `transitionTrialStatus` + 15秒超时 + `_resetLaunchUI` 清理 `window._currentSessionId`
+- [x] **BUG-002** Step编号不一致 → 统一使用后端 `step_index`，前端不自行计数
+- [x] **BUG-003** 停止不工作（仅RUNNING可停） → `stop_simulation` 支持 CREATED/PAUSED/COMPLETED 任意状态
+- [x] **BUG-004** 注入菜单文字被裁 → `.inject-menu` CSS `right:0→left:0` + `z-index:9999`
+- [x] **BUG-005** 试炼导演台按钮全部不工作 → 初始化 `window._DTS` + 补充 `transitionTrialStatus`/`handleTrialEvent`
+- [x] **BUG-006** Trial API 路由不加载 → `trial_api.py` 语法错误修复（缩进+重复行删除+Request导入）
+- [x] **BUG-007** 导演台与SECS重复团队选择 → 导演台团队改为只读，从SECS `_selectedTeamId` 同步
+
+### 待修复
+
+- [ ] **BUG-008** 获取会话详情 HTTP 500 → `GET /sessions/{id}` 在 evaluating 状态时需返回 200+partial data
+- [ ] **BUG-009** 空间状态不同步 → 环境空间标题与房间卡片数据来源不一致，需统一到 `roomAgentMap`
+- [ ] **BUG-010** Metrics 不同步 → session 创建后全局统计未实时更新
+- [ ] **BUG-011** 演练历史不显示 → 历史记录仅在completed写入，需创建后立即写入
+- [ ] **BUG-012** SSE/API 事件重复 → step 通过 API response 和 SSE 两个通道到达未去重
+
+---
+
+## 十、API 接口清单
+
+> 前端调用路径 | 后端路由 | 当前状态
+
+### 试炼相关 (Trial API)
+
+| 方法 | 路径 | 前端调用函数 | 状态 |
+|------|------|-------------|------|
+| POST | `/api/v1/twin-trials` | `createTrial()` | [x] 路由已加载，Pydantic v2兼容 |
+| GET | `/api/v1/twin-trials` | 试炼历史列表 | [ ] 待验证 |
+| GET | `/api/v1/twin-trials/{id}` | 试炼详情 | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/branches` | `forkBranch()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/branches/{bid}/step` | `stepOnce()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/branches/{bid}/run` | `autoRun()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/branches/{bid}/pause` | `pauseSim()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/branches/{bid}/events` | `doInjectEvent()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/evaluate` | 评分 | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/extract-sop` | `extractSop()` | [ ] 待验证 |
+| POST | `/api/v1/twin-trials/{id}/feedback` | `feedbackAgents()` | [ ] 待验证 |
+| GET | `/api/v1/twin-trials/{id}/events/stream` | SSE连接 | [ ] 待验证 |
+
+### 沙箱相关 (Sandbox API)
+
+| 方法 | 路径 | 前端调用函数 | 状态 |
+|------|------|-------------|------|
+| POST | `/api/v1/sandbox/sessions` | 创建session | [x] 已验证 |
+| POST | `/api/v1/sandbox/sessions/{sid}/run` | `sexyAutoRun()` | [x] 已验证 |
+| POST | `/api/v1/sandbox/sessions/{sid}/stop` | `sexyStopSim()` / `terminate()` | [x] 全状态已验证 |
+| POST | `/api/v1/sandbox/sessions/{sid}/pause` | `pauseSim()` | [x] 已验证 |
+| POST | `/api/v1/sandbox/sessions/{sid}/step` | `sexyStepOnce()` | [x] 已验证 |
+| GET | `/api/v1/sandbox/sessions/{sid}` | 会话详情 | [ ] 待验证（evaluating状态需修复） |
+
+### 统计相关
+
+| 方法 | 路径 | 前端调用函数 | 状态 |
+|------|------|-------------|------|
+| GET | `/api/v1/sandbox/stats` | `loadSecsStats()` | [ ] 待验证即时更新 |
+| GET | `/api/v1/sandbox/history` | `loadExerciseHistory()` | [ ] 待验证创建即写入 |
+
+---
+
+## 十一、验收测试矩阵
+
+### 11.1 试炼最小闭环（T-closed-loop）
+
+- [ ] **V-T01** 页面对话 → 选团队 → 选What-if模式 → 点"🧪 创建试炼" → 3秒内进入ready状态
+- [ ] **V-T02** ready状态 → 点"▶ 单步" → 控制台出现Step 1日志，step_index=1
+- [ ] **V-T03** ready状态 → 点"▶▶ 自动" → step持续产生 → 状态变为running → 按钮变为"⏸ 暂停"
+- [ ] **V-T04** running状态 → 点"⏸ 暂停" → step停止 → 状态变为paused → 按钮组变化
+- [ ] **V-T05** paused状态 → 点"▶ 继续" → step继续从暂停处执行
+- [ ] **V-T06** paused状态 → 点"⏹ 终止" → 状态变为terminated → 按钮恢复"🧪 创建试炼"
+- [ ] **V-T07** 自动运行完成 → 状态变为evaluating → evaluating → completed
+- [ ] **V-T08** completed状态 → 显示 [📊 评分] [📋 SOP] [🔄 反哺]
+- [ ] **V-T09** 全局统计更新：会话数/步数/SOP数/评分随操作更新
+- [ ] **V-T10** 试炼历史：创建/运行/完成三个阶段都出现在历史列表
+
+### 11.2 演练最小闭环（X-closed-loop）
+
+- [ ] **V-X01** 运行中 → 点"💥 注入" → 下拉菜单6选项完整可见
+- [ ] **V-X02** 选"🌐 网络延迟" → 工作坊边框变橙 → 控制台记录注入事件
+- [ ] **V-X03** 注入后 reward短暂下降 → 逐步恢复 → 恢复力得分记录
+- [ ] **V-X04** 注入历史面板显示已注入事件列表
+- [ ] **V-X05** 评分结果中 resilience 维度反映实际恢复情况
+
+### 11.3 统一入口验证（Unified Entry）
+
+- [ ] **V-U01** SECS点"▶ 沙箱推演" → 与导演台点"🧪 创建试炼"效果一致
+- [ ] **V-U02** 创建后 `_sx.sessionId === window._currentSessionId`
+- [ ] **V-U03** SECS点"▶ 单步" → 导演台状态同步为 running
+- [ ] **V-U04** 导演台点"⏹ 终止" → SECS面板同步恢复
+- [ ] **V-U05** 停止后两边都能重新创建新试炼
+
+### 11.4 环境空间验证（Environment）
+
+- [ ] **V-E01** 选Build System → 部署 → 工作坊显示7个Agent
+- [ ] **V-E02** 工作坊标题 = "工作坊 — 7 个智能体"
+- [ ] **V-E03** Agent列表的"空间"字段与 roomAgentMap 一致
+- [ ] **V-E04** 注入Agent离队 → Agent从头像列表消失 → 休息区+1
+- [ ] **V-E05** reward上升/下降 → 房间背景色变化
+
+### 11.5 回归验证（Regression）
+
+- [ ] **V-R01** 原有单步/自动运行功能正常，无退步
+- [ ] **V-R02** 控制台日志无重复 step 事件
+- [ ] **V-R03** 页面无 JS 报错（控制台无 error 级别日志）
+- [ ] **V-R04** 重新加载页面后，历史列表正确还原
+- [ ] **V-R05** 不同浏览器 tab 同时打开页面，互不干扰
+- [ ] **V-R06** pytest 92/92 passed
+
+### 11.6 按钮完整性统计
+
+| 区域 | 按钮数 | 已实现 | 部分实现 | 未实现 |
+|------|--------|--------|----------|--------|
+| 试炼导演台-模式卡片 | 5 | 5 | 0 | 0 |
+| 试炼导演台-状态按钮 | 14 | 11 | 3 | 0 |
+| 试炼导演台-故障注入 | 6 | 0 | 6 | 0 |
+| 试炼导演台-分支管理 | 4 | 0 | 0 | 4 |
+| SECS演练面板 | 6 | 5 | 1 | 0 |
+| 环境空间 | 8 | 0 | 2 | 6 |
+| 智能体团队 | 3 | 1 | 0 | 2 |
+| 导航栏 | 9 | 7 | 0 | 2 |
+| CLI命令 | 11 | 0 | 11 | 0 |
+| 顶部工具栏 | 3 | 0 | 0 | 3 |
+| **总计** | **69** | **29** | **23** | **17** |
+
+---
+
+## 十二、附录
+
+### A. 数字孪生产品原则（始终牢记）
 
 1. **能力不靠声明，靠演练数据证明。**
 2. **环境空间是状态机，不是装饰。**
@@ -705,66 +642,23 @@ CodeBuddy 实现每条 TODO 后，必须按以下格式输出，不可省略：
 5. **仿真推进路径，演练施加压力，试炼选择未来。**
 6. **SOP 是从数字孪生提炼出来的现实智慧，是整个系统的最终产出。**
 
----
+### B. 已有增强功能（P1-P4）
 
-*文档版本：v1.0 · 2026-06-09 · Tabbit 智能体助手*
+以下功能在 v1.0 阶段已实现，保留记录：
 
-
----
-
-## 实际完成补充说明（2026-06-09 更新）
-
-> 以下是原 TODO 清单未覆盖、但在实施过程中额外完成的功能增强。
-
-### P1 视觉中心化增强
-
-- [x] **P1-A01** Nav "★ 环境空间"主舞台标记 + `.nav-primary` 特殊高亮样式（渐变背景+发光下划线）
-- [x] **P1-A02** 系统状态浮动仪表卡 `env-status-float`（沙箱会话/仿真步数/SOP数/最优评分 四指标一览）
-- [x] **P1-A03** `_updateEsFloat()` 全局函数，与 `loadSecsStats()` 联动刷新
-- [x] **P1-A04** 环境容器高度增强 `calc(100vh - 240px)` + 边框 `border-active` + 青色微发光 `rgba(34,211,238,0.06)`
-
-### P1 六房间动效增强
-
-- [x] **P1-F01** 智能房间检测逻辑（基于 `agent_actions` 判断活跃房间，替代简单轮换）
-- [x] **P1-F02** Reward 热力反馈（reward 上升→绿色微光 `rgba(52,211,153,0.2)` / 下降→红色微光）
-- [x] **P1-F03** 峰值金色光晕 `@keyframes rewardPeakGlow`（演练完成时工作坊闪烁金光）
-
-### P2 交互神经链路
-
-- [x] **P2-L01** `switchView` 增强 `_origSwitchView` hook + 全局上下文联动
-- [x] **P2-L02** 团队卡片 → `flyToRoom()` 定位 + 房间点击场景切换
-- [x] **P2-B01** 事件弹幕层 `#env-barrage-layer` + `showBarrageBubble()` CSS floatIn→停留→fadeOut
-- [x] **P2-B02** `emitStepBarrage()` 从 SSE step 数据提取关键决策生成气泡
-- [x] **P2-S01** SVG 连线层 `#env-linkage-svg` + `drawLinkageLine()` stroke-dashoffset 动画
-- [x] **P2-S02** `clearLinkageLines()` 3秒自动清除连线 + `linkageFlow` CSS 动画
-
-### P3 混沌沙箱增强
-
-- [x] **P3-I01** `initInjectDropdown()` 下拉菜单（🧠模型幻觉/🌐网络延迟/🔒逻辑死锁/⬇️技能退化）
-- [x] **P3-I02** 注入历史面板记录 + `injectChaos()` 执行函数
-- [x] **P3-H01** `.history-item.failed` CSS 红色标记失败记录
-- [x] **P3-H02** `playbackSession()` 逐帧回放 Agent 分布
-- [x] **P3-R01** `.env-reward-float` 右下角收益浮动卡 + 迷你 SVG 图表
-- [x] **P3-R02** `showRewardFloat()` / `updateErfValue()` 实时刷新 reward 曲线
-
-### P4 进化反哺增强
-
-- [x] **P4-E01** `.sop-extract-badge` ✦SOP 徽章 + `showExtractBadge()` 点击展开策略摘要
-- [x] **P4-E02** 萃取室自动 pulse 动画触发
-- [x] **P4-U01** `playUpgradeAnimation()` Agent 升级光圈扩散动画
-- [x] **P4-U02** `.agent-upgrade-ring` CSS @keyframes 光圈扩散+色相旋转
-- [x] **P4-P01** `showParallelView()` Grid 分屏布局 + `.parallel-cell` + branch 标签
-- [x] **P4-P02** 并行演化独立 canvas 分区渲染
-
-### 功能完整性验证
-
-| 指标 | 结果 |
-|------|------|
-| pytest 测试 | **92/92 passed** |
-| Lint 错误 | **0** |
-| 功能组件检查点 | **52/52 (100%)** |
-| 修改文件 | `src/frontend/Agent-digital-twin.html` |
+- [x] P1-A01~A04 视觉中心化（主舞台标记 + 浮动仪表卡 + 环境容器增强）
+- [x] P1-F01~F03 六房间动效（智能房间检测 + Reward热力 + 峰值光晕）
+- [x] P2-L01~L02 交互神经链路（switchView增强 + flyToRoom定位）
+- [x] P2-B01~B02 事件弹幕层（barrage气泡 + emitStepBarrage）
+- [x] P2-S01~S02 SVG连线层（drawLinkageLine + clearLinkageLines）
+- [x] P3-I01~I02 注入下拉菜单（initInjectDropdown + injectHistory + injectChaos）
+- [x] P3-H01~H02 历史回放（播放失败记录 + playbackSession逐帧回放）
+- [x] P3-R01~R02 收益浮动卡（env-reward-float + 迷你SVG图表）
+- [x] P4-E01~E02 SOP萃取徽章（sop-extract-badge + 萃取室pulse动画）
+- [x] P4-U01~U02 Agent升级动画（playUpgradeAnimation + upgrade-ring光圈）
+- [x] P4-P01~P02 并行可视化（showParallelView Grid分屏）
 
 ---
 
-*标注时间：2026-06-09 23:45 · 由 CodeBuddy Loop 开发模式自动更新*
+*文档版本：v2.0 · 2026-06-10 · 基于 plan.md v1.0 完全重写*
+*标记总计：69个按钮功能 | 29已实现 | 23部分实现 | 17未实现 | 6项P0 Bug待修复*
