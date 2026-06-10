@@ -476,10 +476,35 @@ async function processCmd(input){
     case'cam':return camCmd(args);
     case'fly':return camCmd(args);
     case'tour':flyTour();return'<span class="cmd">▶</span> 3D巡览启动 — 依次飞越 6 个空间';
+    case'trial':return await trialCmd(args);
     case'whoami':return'<span class="result">admin@AgentsGroup2026 (Digital Twin v3.0)</span>';
     default:return`<span class="err">未知命令: ${cmd}</span> — 输入 <span class="cmd">help</span> 查看帮助`;
   }
 }
+
+async function trialCmd(args){var sub=args[0]||'list',id=args[1]||'',API='/api/v1/twin-trials';
+  switch(sub){
+    case'list':try{var r=await _af(API);var d=await r.json();var t=d.trials||[];
+      if(!t.length)return'<span class="dim">暂无试炼</span>';
+      return'<span class="info">━━━ '+d.total+' 条试炼 ━━━</span><br>'+t.map(function(x){var e={READY:'●',RUNNING:'▶',COMPLETED:'✓',FAILED:'✗'};return'  <span class="cmd">'+(e[x.status]||'○')+' '+x.id.slice(0,8)+'</span> '+x.name+' <span class="dim">['+x.mode+']</span>';}).join('<br>')}catch(e){return'<span class="err">'+e.message+'</span>'}
+    case'show':if(!id)return'<span class="err">用法: trial show &lt;id&gt;</span>';
+      try{var r2=await _af(API+'/'+id);var td=await r2.json();
+        var ev=td.evaluation||{};
+        return'<span class="info">━━━ '+td.name+' ━━━</span><br>  状态: <span class="cmd">'+td.status+'</span> | 模式: '+td.mode+'<br>  步数: '+td.total_steps+' | SOP: '+td.sop_count+' | 评分: '+(td.best_score||'--')+'<br>  韧性: '+Math.round((ev.resilience||0)*100)+'% | 总分: '+Math.round((ev.total_score||0)*100)+'%';}catch(e){return'<span class="err">'+e.message+'</span>'}
+    case'eval':if(!id)return'<span class="err">用法: trial eval &lt;id&gt;</span>';
+      try{var r3=await _af(API+'/'+id+'/evaluate',{method:'POST'});var ed=await r3.json();
+        return'<span class="cmd">✓ 评分完成</span><br>  🎯'+Math.round((ed.task_completion||0)*100)+'% | 🤝'+Math.round((ed.collaboration_efficiency||0)*100)+'% | 🛡️'+Math.round((ed.resilience||0)*100)+'% | 💰'+Math.round((ed.cost_efficiency||0)*100)+'% | 📋'+Math.round((ed.extractability||0)*100)+'% | ⭐'+Math.round((ed.total_score||0)*100)+'%';}catch(e){return'<span class="err">'+e.message+'</span>'}
+    case'sop':if(!id)return'<span class="err">用法: trial sop &lt;id&gt;</span>';
+      try{var r4=await _af(API+'/'+id+'/extract-sop',{method:'POST'});var sd=await r4.json();var ss=sd.sops||[];
+        if(!ss.length)return'<span class="dim">未提取到SOP</span>';
+        return'<span class="cmd">✓ '+ss.length+' SOP</span><br>'+ss.map(function(s){return'  📋 '+s.name+' <span class="dim">'+Math.round(s.confidence*100)+'%</span>';}).join('<br>');}catch(e){return'<span class="err">'+e.message+'</span>'}
+    case'feedback':if(!id)return'<span class="err">用法: trial feedback &lt;id&gt;</span>';
+      try{var r5=await _af(API+'/'+id+'/feedback',{method:'POST'});var fd=await r5.json();
+        return'<span class="cmd">✓ 反哺完成</span><br>  SOP: '+fd.applied_sops+' | Agent: '+(fd.updated_agents||[]).length+' | 技能: '+(fd.updated_skills||[]).length;}catch(e){return'<span class="err">'+e.message+'</span>'}
+    case'events':if(!id)return'<span class="err">用法: trial events &lt;id&gt;</span>';
+      try{var r6=await _af(API+'/'+id);var td2=await r6.json();
+        return'<span class="info">━━━ 试炼 #'+id.slice(0,8)+' 事件 ━━━</span><br>  分支: '+(td2.branches||[]).length+' | 评分: '+(td2.best_score||'--')+'<br>  使用 <span class="cmd">trial show '+id+'</span> 查看详情';}catch(e){return'<span class="err">'+e.message+'</span>'}
+    default:return'<span class="err">未知: '+sub+' — trial list|show|eval|sop|feedback|events</span>'}}
 
 function helpText(){return`<span class="info">━━━ 可用命令 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1001,7 +1026,8 @@ function camCmd(args){
 }
 
 function exportCmd(type){
-  const data={version:'3.0',exported_at:new Date().toISOString(),agents:S.agents,rooms:S.rooms,positions:S.positions,messages:type==='snapshot'?S.messages:undefined,skills:type==='skills'?S.skills:undefined};
+  var trialInfo=window._DTS&&window._DTS.activeTrialId?{activeTrialId:window._DTS.activeTrialId,activeBranchId:window._DTS.activeBranchId,trialStatus:window._DTS.trialStatus,selectedMode:window._DTS.selectedMode}:null;
+  const data={version:'3.0',exported_at:new Date().toISOString(),agents:S.agents,teams:S.teams,selectedTeams:S.selectedTeams,rooms:S.rooms,positions:S.positions,messages:type==='snapshot'?S.messages:undefined,skills:type==='skills'?S.skills:undefined,trials:trialInfo};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`dt_${type||'snapshot'}_${Date.now()}.json`;a.click();URL.revokeObjectURL(url);
   return`<span class="cmd">✓</span> 已导出`}
