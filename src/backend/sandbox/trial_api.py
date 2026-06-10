@@ -23,12 +23,13 @@ from .models import (
     TrialEvaluation, TrialEventType, TrialMode, TrialStatus,
 )
 from .api import get_orchestrator
+from .trial_store import get_trial_store
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/twin-trials", tags=["twin-trials"])
 
-# ── 内存存储 (生产环境可替换为 Redis/DB) ──
+# ── 持久化存储 (由 TrialStore 管理，内存 dict 作为热缓存) ──
 
 _trials: Dict[str, Trial] = {}
 _branches: Dict[str, Branch] = {}
@@ -76,6 +77,41 @@ class FeedbackRequest(BaseModel):
 
 
 # ── Helper Functions ──
+
+
+async def _persist_trial(trial: Trial) -> None:
+    """持久化试炼数据到 TrialStore (P5-03)."""
+    try:
+        store = await get_trial_store()
+        await store.save_trial(trial.id, store._serialize_trial(trial))
+    except Exception as e:
+        logger.warning(f"TrialStore 持久化失败 (非致命): {e}")
+
+
+async def _persist_branch(branch: Branch) -> None:
+    """持久化分支数据到 TrialStore (P5-03)."""
+    try:
+        store = await get_trial_store()
+        await store.save_branch(branch.id, store._serialize_branch(branch))
+    except Exception as e:
+        logger.warning(f"TrialStore 持久化分支失败 (非致命): {e}")
+
+
+async def _persist_event(trial_id: str, event: TrialEvent) -> None:
+    """持久化事件到 TrialStore (P5-03)."""
+    try:
+        store = await get_trial_store()
+        await store.append_event(trial_id, {
+            "event_id": event.event_id,
+            "event_type": event.event_type.value,
+            "trial_id": event.trial_id,
+            "branch_id": event.branch_id,
+            "session_id": event.session_id,
+            "data": event.data,
+            "timestamp": event.timestamp,
+        })
+    except Exception as e:
+        logger.warning(f"TrialStore 持久化事件失败 (非致命): {e}")
 
 
 def _get_trial(trial_id: str) -> Trial:
@@ -282,6 +318,11 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
                      data={"label": "baseline", "session_id": session_id})
     _trial_events.setdefault(trial.id, []).append(evt)
 
+    # P5-03: 变更后立即持久化
+    await _persist_trial(trial)
+    await _persist_branch(baseline)
+    await _persist_event(trial.id, evt)
+
     logger.info(f"Trial created: {trial.id}, baseline={baseline.id}, session={session_id}")
 
     return {
@@ -401,7 +442,8 @@ async def fork_branch(trial_id: str, req: ForkBranchRequest) -> Dict[str, Any]:
     )
     _branches[new_branch.id] = new_branch
     trial.branches.append(new_branch.id)
-    trial.updated_at = Trial.__dataclass_fields__["updated_at"].default_factory()  # type: ignore
+    import datetime as _dt
+    trial.updated_at = _dt.datetime.now(_dt.timezone.utc).isoformat()  # P5-05: 去 hack 写法
 
     # 继承父分支的初始条件
     if parent.sessions:
@@ -427,6 +469,11 @@ async def fork_branch(trial_id: str, req: ForkBranchRequest) -> Dict[str, Any]:
     evt = TrialEvent(event_type=TrialEventType.BRANCH_FORKED, trial_id=trial_id,
                      branch_id=new_branch.id, data={"parent": parent.id, "fork_at": new_branch.fork_at_step})
     _trial_events.setdefault(trial_id, []).append(evt)
+
+    # P5-03: 持久化
+    await _persist_trial(trial)
+    await _persist_branch(new_branch)
+    await _persist_event(trial_id, evt)
 
     return {"branch_id": new_branch.id, "session_id": new_branch.current_session_id, "label": new_branch.label}
 
@@ -464,6 +511,11 @@ async def branch_step(trial_id: str, branch_id: str) -> Dict[str, Any]:
             trial.total_steps = max(trial.total_steps, branch.current_step)
             if reward is not None:
                 trial.best_score = max(trial.best_score or 0, float(reward))
+
+        # P5-03: 步进后持久化
+        await _persist_branch(branch)
+        if trial:
+            await _persist_trial(trial)
 
         return result
     except Exception as e:
@@ -568,32 +620,45 @@ async def evaluate_trial(trial_id: str, req: EvaluateRequest = EvaluateRequest()
     if trial.evaluation and not req.force_refresh:
         return trial.evaluation
 
+    # P5-04: try-finally 确保异常时不锁死 EVALUATING 状态
+    previous_status = trial.status
     trial.status = TrialStatus.EVALUATING
-    eval_result = _compute_evaluation(trial)
-    trial.evaluation = {
-        "eval_id": eval_result.eval_id,
-        "trial_id": eval_result.trial_id,
-        "evaluated_at": eval_result.evaluated_at,
-        "task_completion": round(eval_result.task_completion, 6),
-        "collaboration_efficiency": round(eval_result.collaboration_efficiency, 6),
-        "resilience": round(eval_result.resilience, 6),
-        "cost_efficiency": round(eval_result.cost_efficiency, 6),
-        "extractability": round(eval_result.extractability, 6),
-        "total_score": round(eval_result.total_score, 6),
-        "branch_scores": eval_result.branch_scores,
-        "best_branch_id": eval_result.best_branch_id,
-        "worst_branch_id": eval_result.worst_branch_id,
-        "key_insights": eval_result.key_insights,
-        "turning_points": eval_result.turning_points,
-    }
-    trial.best_score = eval_result.total_score
-    trial.status = TrialStatus.COMPLETED
+    eval_result = None
+    try:
+        eval_result = _compute_evaluation(trial)
+        trial.evaluation = {
+            "eval_id": eval_result.eval_id,
+            "trial_id": eval_result.trial_id,
+            "evaluated_at": eval_result.evaluated_at,
+            "task_completion": round(eval_result.task_completion, 6),
+            "collaboration_efficiency": round(eval_result.collaboration_efficiency, 6),
+            "resilience": round(eval_result.resilience, 6),
+            "cost_efficiency": round(eval_result.cost_efficiency, 6),
+            "extractability": round(eval_result.extractability, 6),
+            "total_score": round(eval_result.total_score, 6),
+            "branch_scores": eval_result.branch_scores,
+            "best_branch_id": eval_result.best_branch_id,
+            "worst_branch_id": eval_result.worst_branch_id,
+            "key_insights": eval_result.key_insights,
+            "turning_points": eval_result.turning_points,
+        }
+        trial.best_score = eval_result.total_score
+        trial.status = TrialStatus.COMPLETED
 
-    evt = TrialEvent(event_type=TrialEventType.EVALUATION_DONE, trial_id=trial_id,
-                     data={"total_score": eval_result.total_score})
-    _trial_events.setdefault(trial_id, []).append(evt)
+        evt = TrialEvent(event_type=TrialEventType.EVALUATION_DONE, trial_id=trial_id,
+                         data={"total_score": eval_result.total_score})
+        _trial_events.setdefault(trial_id, []).append(evt)
 
-    return trial.evaluation
+        # P5-03: 持久化
+        await _persist_trial(trial)
+        await _persist_event(trial_id, evt)
+
+        return trial.evaluation
+    except Exception as e:
+        # 异常时回退到之前状态，不锁死
+        trial.status = previous_status
+        logger.error(f"❌ 评估失败 trial={trial_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")
 
 
 # ════════════════════════════════════════════════════════════
@@ -674,6 +739,10 @@ async def extract_sop(trial_id: str, req: ExtractSopRequest = ExtractSopRequest(
                      data=sop_dict)
     _trial_events.setdefault(trial_id, []).append(evt)
 
+    # P5-03: 持久化
+    await _persist_trial(trial)
+    await _persist_event(trial_id, evt)
+
     return {"sops": [sop_dict], "meets_threshold": meets_threshold, "best_reward": round(best_reward, 4)}
 
 
@@ -717,17 +786,22 @@ async def feedback_to_agents(trial_id: str, req: FeedbackRequest = FeedbackReque
             for r2 in agent_roles[i+1:]:
                 collaboration_edges_added.append({"source": r1, "target": r2, "weight_boost": 0.1})
 
+    import datetime as _dt
     trial.feedback_actions.append({
         "applied_sops": applied_sops,
         "updated_agents": list(updated_agents),
         "updated_skills": list(updated_skills),
         "edges_added": len(collaboration_edges_added),
-        "timestamp": TrialEvent.__dataclass_fields__["timestamp"].default_factory(),  # type: ignore
+        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),  # P5-05: 去 hack 写法
     })
 
     evt = TrialEvent(event_type=TrialEventType.FEEDBACK_APPLIED, trial_id=trial_id,
                      data={"applied_sops": applied_sops, "agents": len(updated_agents)})
     _trial_events.setdefault(trial_id, []).append(evt)
+
+    # P5-03: 持久化
+    await _persist_trial(trial)
+    await _persist_event(trial_id, evt)
 
     return {
         "applied_sops": applied_sops,

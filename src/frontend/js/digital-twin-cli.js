@@ -475,6 +475,7 @@ async function processCmd(input){
     case'cam':return camCmd(args);
     case'fly':return camCmd(args);
     case'tour':flyTour();return'<span class="cmd">▶</span> 3D巡览启动 — 依次飞越 6 个空间';
+    case'trial':return await trialCmd(args);
     case'whoami':return'<span class="result">admin@AgentsGroup2026 (Digital Twin v3.0)</span>';
     default:return`<span class="err">未知命令: ${cmd}</span> — 输入 <span class="cmd">help</span> 查看帮助`;
   }
@@ -534,12 +535,9 @@ function helpText(){return`<span class="info">━━━ 可用命令 ━━━�
     <span class="cmd">cam rest</span>               飞到休息区
     <span class="cmd">cam overview</span>           鸟瞰全景
     <span class="cmd">tour</span>                  自动巡览全部空间
-    <span class="cmd">export &lt;type&gt;</span>          导出(snapshot|agents|skills)
-    <span class="cmd">config show</span>            查看配置
-    <span class="cmd">clear</span>                 清屏
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>`}
+    <span class="cmd">export &lt;type&gt;</span>          导出(snapshot|agents|skills)\n\n  <span class="layer-orch">🎬 试炼导演台</span>\n    <span class="cmd">trial list</span>             列出历史试炼\n    <span class="cmd">trial show &lt;id&gt;</span>        查看试炼详情\n    <span class="cmd">trial eval &lt;id&gt;</span>        触发试炼评分\n    <span class="cmd">trial sop &lt;id&gt;</span>         提取SOP\n    <span class="cmd">trial feedback &lt;id&gt;</span>   反哺到Agent\n    <span class="cmd">trial events &lt;id&gt;</span>     查看试炼事件流\n    <span class="cmd">config show</span>            查看配置\n    <span class="cmd">clear</span>                 清屏\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>`}
 
-function statusText(){
+async function trialCmd(args){\n  var sub=args[0]||'list';var id=args[1]||'';\n  switch(sub){\n    case'list':try{var r=await _af('/api/v1/twin-trials');var d=await r.json();var trials=d.trials||[];if(!trials.length)return'<span class=\"dim\">暂无试炼记录</span>';\n      return'<span class=\"info\">━━━ 试炼记录 ('+d.total+'条) ━━━</span>\\n'+trials.map(function(t){\n        var sIcon={READY:'●',RUNNING:'▶',COMPLETED:'✓',FAILED:'✗',PAUSED:'⏸'}[t.status]||'○';\n        return'  <span class=\"cmd\">'+sIcon+' '+t.id.slice(0,8)+'</span> '+t.name+' <span class=\"dim\">['+t.mode+'] '+t.branch_count+'分支</span>';\n      }).join('\\n')}catch(e){return'<span class=\"err\">获取试炼列表失败: '+e.message+'</span>'}\n    case'show':if(!id)return'<span class=\"err\">用法: trial show &lt;id&gt;</span>';\n      try{var r2=await _af('/api/v1/twin-trials/'+id);var td=await r2.json();\n        return'<span class=\"info\">━━━ '+td.name+' ━━━</span>\\n  状态: <span class=\"cmd\">'+td.status+'</span> | 模式: '+td.mode+' | 步数: '+td.total_steps+'\\n  分支: '+(td.branches||[]).length+' | SOP: '+td.sop_count+' | 评分: '+(td.best_score||'—')+'\\n'+((td.evaluation)?'  🛡️ 韧性: '+Math.round((td.evaluation.resilience||0)*100)+'% | 总分: '+Math.round((td.evaluation.total_score||0)*100)+'%':'');\n      }catch(e){return'<span class=\"err\">获取试炼失败: '+e.message+'</span>'}\n    case'eval':if(!id)return'<span class=\"err\">用法: trial eval &lt;id&gt;</span>';\n      try{var r3=await _af('/api/v1/twin-trials/'+id+'/evaluate',{method:'POST'});var ed=await r3.json();return'<span class=\"cmd\">✓ 评分完成</span>\\n  🎯 目标完成: '+Math.round((ed.task_completion||0)*100)+'%\\n  🤝 协作效率: '+Math.round((ed.collaboration_efficiency||0)*100)+'%\\n  🛡️ 韧性评分: '+Math.round((ed.resilience||0)*100)+'%\\n  💰 成本控制: '+Math.round((ed.cost_efficiency||0)*100)+'%\\n  📋 可萃取性: '+Math.round((ed.extractability||0)*100)+'%\\n  ⭐ 总分: '+Math.round((ed.total_score||0)*100)+'%';}catch(e){return'<span class=\"err\">评分失败: '+e.message+'</span>'}\n    case'sop':if(!id)return'<span class=\"err\">用法: trial sop &lt;id&gt;</span>';\n      try{var r4=await _af('/api/v1/twin-trials/'+id+'/extract-sop',{method:'POST'});var sd=await r4.json();var sops=sd.sops||[];\n        if(!sops.length)return'<span class=\"dim\">未提取到SOP候选</span>';\n        return'<span class=\"cmd\">✓ 提取 '+sops.length+' 条SOP</span>\\n'+sops.map(function(s){return'  📋 '+s.name+' <span class=\"dim\">置信度 '+Math.round(s.confidence*100)+'% | '+s.steps_count+'步</span>'}).join('\\n');}catch(e){return'<span class=\"err\">SOP提取失败: '+e.message+'</span>'}\n    case'feedback':if(!id)return'<span class=\"err\">用法: trial feedback &lt;id&gt;</span>';\n      try{var r5=await _af('/api/v1/twin-trials/'+id+'/feedback',{method:'POST'});var fd=await r5.json();return'<span class=\"cmd\">✓ 反哺完成</span>\\n  应用SOP: '+fd.applied_sops+' | 更新Agent: '+(fd.updated_agents||[]).length+' | 更新技能: '+(fd.updated_skills||[]).length;}catch(e){return'<span class=\"err\">反哺失败: '+e.message+'</span>'}\n    case'events':if(!id)return'<span class=\"err\">用法: trial events &lt;id&gt;</span>';\n      try{var r6=await _af('/api/v1/twin-trials/'+id);var td2=await r6.json();return'<span class=\"info\">━━━ 试炼 #'+id.slice(0,8)+' 事件 ━━━</span>\\n  分支: '+(td2.branches||[]).length+' | 评分: '+(td2.best_score||'—')+'\\n  使用 <span class=\"cmd\">trial show '+id+'</span> 查看详情';}catch(e){return'<span class=\"err\">获取事件失败: '+e.message+'</span>'}\n    default:return'<span class=\"err\">未知子命令: '+sub+' — trial list|show|eval|sop|feedback|events</span>'}\n}\n\nfunction statusText(){
   const p=Object.keys(S.positions).length;
   return`<span class="info">━━━ 系统状态 ━━━</span>
   <span class="layer-orch">编排层</span>  智能体: <span class="result">${S.agents.length}</span> (活跃 <span class="cmd">${S.agents.filter(a=>a.state==='active').length}</span>)
@@ -1000,10 +998,14 @@ function camCmd(args){
 }
 
 function exportCmd(type){
-  const data={version:'3.0',exported_at:new Date().toISOString(),agents:S.agents,rooms:S.rooms,positions:S.positions,messages:type==='snapshot'?S.messages:undefined,skills:type==='skills'?S.skills:undefined};
+  var trialData=null;
+  if(window._DTS&&window._DTS.activeTrialId){
+    trialData={activeTrialId:window._DTS.activeTrialId,activeBranchId:window._DTS.activeBranchId,trialStatus:window._DTS.trialStatus,selectedMode:window._DTS.selectedMode};
+  }
+  const data={version:'3.0',exported_at:new Date().toISOString(),agents:S.agents,rooms:S.rooms,positions:S.positions,teams:S.teams,selectedTeams:S.selectedTeams,messages:type==='snapshot'?S.messages:undefined,skills:type==='skills'?S.skills:undefined,trials:trialData};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`dt_${type||'snapshot'}_${Date.now()}.json`;a.click();URL.revokeObjectURL(url);
-  return`<span class="cmd">✓</span> 已导出`}
+  return`<span class="cmd">✓</span> 已导出 (含试炼状态)`}
 
 // ── Messages & Simulation ──
 function addMsg(from,to,type,content){
@@ -1059,8 +1061,18 @@ function handleImport(ev){
       if(data.rooms)S.rooms=data.rooms;
       if(data.positions)S.positions=data.positions;
       if(data.messages)S.messages=data.messages.slice(-100);
+      if(data.teams)S.teams=data.teams;
+      if(data.agents)S.agents=data.agents;
+      if(data.selectedTeams)S.selectedTeams=data.selectedTeams;
+      if(data.trials&&window._DTS){
+        // 导入试炼数据
+        if(data.trials.activeTrialId)window._DTS.activeTrialId=data.trials.activeTrialId;
+        if(data.trials.activeBranchId)window._DTS.activeBranchId=data.trials.activeBranchId;
+        if(data.trials.trialStatus)window._DTS.trialStatus=data.trials.trialStatus;
+      }
       persist();
-      renderAgentList();renderEnvironment();renderInteractions();renderArchitecture();
+      renderAgentList();renderEnvironment();renderInteractions();renderArchitecture();renderStats();
+      if(typeof _updateButtonStates==='function'&&window._DTS){_updateButtonStates(window._DTS.trialStatus)}
       toast('✓ 快照已导入');addActivity('快照导入');
     }catch(err){toast('导入失败: '+err.message)}
   };reader.readAsText(file);ev.target.value='';
