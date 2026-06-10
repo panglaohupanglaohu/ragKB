@@ -51,7 +51,7 @@ def create_cloud_ops_team() -> AgentTeam:
             "网络出口优化（CDN/VPC Endpoint）的标准化配置与持续优化，"
             "目标：存储成本降低 30% + 网络出口费用审计"
         ),
-        members=[],
+        agents={},
         visibility=Visibility.PUBLIC,
     )
 
@@ -105,7 +105,7 @@ def create_cloud_ops_team() -> AgentTeam:
             "target_cost_reduction_pct": 30.0,
         },
     )
-    team.members.append(cloud_finops)
+    team.agents[cloud_finops.agent_id] = cloud_finops
 
     # ── StorageOps Agent ───────────────────────────────────
     storage_ops = AgentProfile(
@@ -155,7 +155,7 @@ def create_cloud_ops_team() -> AgentTeam:
             ],
         },
     )
-    team.members.append(storage_ops)
+    team.agents[storage_ops.agent_id] = storage_ops
 
     # ── NetworkOps Agent ───────────────────────────────────
     network_ops = AgentProfile(
@@ -207,7 +207,7 @@ def create_cloud_ops_team() -> AgentTeam:
             "supported_vpc_services": ["s3", "dynamodb", "ecr", "ecs"],
         },
     )
-    team.members.append(network_ops)
+    team.agents[network_ops.agent_id] = network_ops
 
     # ── PlatformSRE Agent ──────────────────────────────────
     platform_sre = AgentProfile(
@@ -259,7 +259,7 @@ def create_cloud_ops_team() -> AgentTeam:
             "iac_tools": ["terraform", "cloudformation", "pulumi"],
         },
     )
-    team.members.append(platform_sre)
+    team.agents[platform_sre.agent_id] = platform_sre
 
     # ── CCOE Agent ─────────────────────────────────────────
     ccoe = AgentProfile(
@@ -306,7 +306,7 @@ def create_cloud_ops_team() -> AgentTeam:
             "frameworks": ["AWS Well-Architected", "FinOps", "Cloud Custodian"],
         },
     )
-    team.members.append(ccoe)
+    team.agents[ccoe.agent_id] = ccoe
 
     return team
 
@@ -320,7 +320,7 @@ def create_demo_cloud_ops_team() -> AgentTeam:
             "演示版云平台运维运营团队，用于展示存储生命周期策略和"
             "网络出口优化的基本工作流"
         ),
-        members=[],
+        agents={},
         visibility=Visibility.PUBLIC,
     )
 
@@ -353,5 +353,5 @@ def create_demo_cloud_ops_team() -> AgentTeam:
         template_type=AgentTemplateType.CUSTOM,
         visibility=Visibility.PUBLIC,
     )
-    team.members.append(core_agent)
+    team.agents[core_agent.agent_id] = core_agent
     return team

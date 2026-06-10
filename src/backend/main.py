@@ -432,7 +432,7 @@ async def startup():
                 _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
                 logger.info(
                     f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
-                    f"— {len(cloud_ops_obj.members)} agents"
+                    f"— {len(cloud_ops_obj.agents)} agents"
                 )
             except Exception as e:
                 logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
