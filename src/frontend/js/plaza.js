@@ -1190,7 +1190,7 @@ window.deletePlaza = async function(id, name) {
 function renderDiscList(ds) {
   $('disc-list').innerHTML = ds.map(d =>
     `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" onclick="selectDisc('${esc(d.id)}')">
-      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
+      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">重新讨论</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
       <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
     </div>`
   ).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
@@ -1925,6 +1925,17 @@ window.continueDeepDiscussion = async function(question) {
   } else {
     toast('创建失败');
   }
+};
+
+window.reopenDisc = async function(event, discId) {
+  event?.stopPropagation();
+  const id = discId || curDisc;
+  if (!curPlaza || !id) return;
+  try {
+    await api(`${API}/plaza/${curPlaza}/discussions/${id}/start`, { method: 'POST' });
+    toast('话题已重新开启');
+    loadDiscs();
+  } catch (e) { toast('重新开启失败: ' + (e.message || '服务异常')); }
 };
 
 window.extractFromDisc = async function(event, discId) {
