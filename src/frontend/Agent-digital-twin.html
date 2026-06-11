@@ -1792,8 +1792,9 @@ window.addEventListener('unhandledrejection', function(e) {
     var steps = parseInt(document.getElementById('secs-steps')?.value) || 150;
     var speed = parseInt(document.getElementById('secs-speed-slider')?.value) || 10;
 
-    // 同步到试炼导演台配置
+    // 同步到试炼导演台配置（createTrial 在 IIFE 外，需通过 _DTS 传参）
     window._DTS.selectedMode = mode;
+    window._DTS.directorConfig.team_id = _selectedTeamId;
     selectMode(mode);  // 更新导演台模式卡片高亮
     if (document.getElementById('dp-max-steps')) document.getElementById('dp-max-steps').value = steps;
     if (document.getElementById('dp-acceleration')) document.getElementById('dp-acceleration').value = speed;
