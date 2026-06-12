@@ -168,6 +168,47 @@ def test_generation_field_roundtrip(client):
     assert any(t["parent_trial_id"] == "parent-x" for t in listed)
 
 
+def test_routing_strategy_fork_comparison(client):
+    """全局 G3-2: 多策略分支可对照，evaluate 返回 routing_comparison / routing_benefit."""
+    created = client.post("/api/v1/twin-trials", json={
+        "team_id": "teamA",
+        "scenario_id": "cs_ticket_surge",
+        "task_goal": {"name": "routing-ab"},
+        "mode": "what_if",
+        "max_steps": 20,
+        "routing_strategy": "proficiency_first",
+    }).json()
+    trial_id = created["trial_id"]
+    base_bid = created["branch_id"]
+    assert created["routing_strategy"] == "proficiency_first"
+
+    forked = client.post(f"/api/v1/twin-trials/{trial_id}/branches", json={
+        "fork_from_branch_id": base_bid,
+        "name": "rr-branch",
+        "routing_strategy": "round_robin",
+    })
+    assert forked.status_code == 200
+    fork_bid = forked.json()["branch_id"]
+    assert forked.json()["routing_strategy"] == "round_robin"
+
+    # 各跑几步，确保 branch_scores 可生成
+    for _ in range(4):
+        assert client.post(f"/api/v1/twin-trials/{trial_id}/branches/{base_bid}/step").status_code == 200
+        assert client.post(f"/api/v1/twin-trials/{trial_id}/branches/{fork_bid}/step").status_code == 200
+
+    branches = client.get(f"/api/v1/twin-trials/{trial_id}/branches").json()["branches"]
+    by_id = {b["id"]: b for b in branches}
+    assert by_id[base_bid]["routing_strategy"] == "proficiency_first"
+    assert by_id[fork_bid]["routing_strategy"] == "round_robin"
+
+    ev = client.post(f"/api/v1/twin-trials/{trial_id}/evaluate").json()
+    assert "routing_comparison" in ev
+    cmp = ev["routing_comparison"]
+    assert cmp["baseline_branch_id"] == base_bid
+    assert any(e["branch_id"] == fork_bid and e["routing_strategy"] == "round_robin" for e in cmp["entries"])
+    assert "routing_benefit" in cmp
+
+
 # ── B-3: Evolution API ──────────────────────────────────────
 
 def test_proficiency_endpoint(client):

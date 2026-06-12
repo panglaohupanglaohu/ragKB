@@ -278,6 +278,61 @@ class ClassificationStore:
             history = [h for h in history if h.get("skill_id") == skill_id]
         return history
 
+    def seed_reserve_from_extraction(
+        self,
+        team_id: str,
+        skill: Dict[str, Any],
+        source: str = "extraction",
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """G1-2: 萃取完成后，默认写入储备池分类记录（幂等）.
+
+        说明:
+        - 仅在该技能尚无分类记录时写入，避免覆盖周期重算结果。
+        - 写入一条 history 事件，便于追踪来源。
+        """
+        sid = str(skill.get("skill_id") or skill.get("slug") or "").strip()
+        if not sid:
+            return {"created": False, "reason": "missing_skill_id"}
+
+        ts = (now or datetime.now(timezone.utc)).isoformat()
+        data = self.load(team_id)
+        if sid in data.get("skills", {}):
+            return {"created": False, "reason": "already_exists", "skill_id": sid}
+
+        record = {
+            "skill_id": sid,
+            "skill_name": str(skill.get("name") or sid),
+            "classification": Classification.RESERVE.value,
+            "raw_classification": Classification.RESERVE.value,
+            "reasons": ["萃取产物默认进入储备池，待验证与周期重算决定毕业"],
+            "score_card": {
+                "effectiveness": float(skill.get("effectiveness", 0) or 0),
+                "total_uses": 0,
+                "team_count": 1 if team_id else 0,
+                "categories_passed": 0,
+                "meets_rubric": False,
+                "gate_ok": False,
+            },
+            "streak": 0,
+            "grace": 0,
+            "evaluated_at": ts,
+            "seed_source": source,
+        }
+        data.setdefault("skills", {})[sid] = record
+        data.setdefault("history", []).append({
+            "type": "seed_reserve",
+            "from": "",
+            "to": Classification.RESERVE.value,
+            "skill_id": sid,
+            "skill_name": record["skill_name"],
+            "source": source,
+            "at": ts,
+        })
+        data["last_reclassified"] = ts
+        self.save(team_id, data)
+        return {"created": True, "skill_id": sid, "classification": Classification.RESERVE.value}
+
 
 # ── 单例 ──────────────────────────────────────────────────
 

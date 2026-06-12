@@ -59,6 +59,7 @@ def test_estimation_fallback_marks_quality():
 
 
 def test_collect_team_usage_async_reads_cost_aggregator():
+    pytest.importorskip("pydantic")  # cost_models 依赖 pydantic（离线沙箱无网络时跳过）
     import agents.cost_aggregator as cost_aggregator
     from agents.cost_models import PodCostItem
     from agents.sustainability import collect_team_usage_async, evaluate_team

@@ -672,6 +672,22 @@ Output ONLY valid JSON."""
         if not already_registered:
             await self._write_skill_to_tables(team_id, skill_def)
 
+        # G1-2: 萃取完成后默认写入三池分类为 reserve，后续由验证/周期重算决定毕业。
+        try:
+            from .skill_classifier import get_classification_store
+            get_classification_store().seed_reserve_from_extraction(
+                team_id=team_id,
+                skill={
+                    "skill_id": skill_def.skill_id or skill_def.slug,
+                    "slug": skill_def.slug,
+                    "name": skill_def.name,
+                    "effectiveness": skill_def.effectiveness,
+                },
+                source="skill_extract_approve",
+            )
+        except Exception as e:
+            logger.warning(f"Could not seed reserve classification for extracted skill: {e}")
+
         # Assign skill to agents based on skill_type
         try:
             from .api import _team_manager

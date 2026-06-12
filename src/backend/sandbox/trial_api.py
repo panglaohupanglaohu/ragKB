@@ -142,6 +142,72 @@ def _generate_color(index: int) -> str:
     return colors[index % len(colors)]
 
 
+def _branch_routing_strategy(branch: Branch) -> str:
+    """读取分支当前路由策略（优先 initial_conditions，其次 session 配置）."""
+    strategy = str((branch.initial_conditions or {}).get("routing_strategy", "")).strip()
+    if strategy:
+        return strategy
+    sid = branch.current_session_id or ((branch.sessions or [""])[0] if branch.sessions else "")
+    if not sid:
+        return ""
+    try:
+        sess = get_orchestrator().get_session(sid)
+        return str(getattr(sess, "routing_strategy", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _build_routing_comparison(trial: Trial, branch_scores: Dict[str, float]) -> Dict[str, Any]:
+    """全局 G3-2: 汇总多策略分支的评分对照，计算相对 baseline 的收益."""
+    if not trial.branches:
+        return {"entries": [], "baseline_branch_id": "", "routing_benefit": None}
+
+    baseline_id = ""
+    for bid in trial.branches:
+        b = _branches.get(bid)
+        if b and not b.parent_branch_id:
+            baseline_id = bid
+            break
+    if not baseline_id:
+        baseline_id = trial.branches[0]
+
+    baseline_score = branch_scores.get(baseline_id)
+    entries: List[Dict[str, Any]] = []
+    for bid in trial.branches:
+        b = _branches.get(bid)
+        if not b:
+            continue
+        score = branch_scores.get(bid)
+        delta = None
+        if isinstance(score, (int, float)) and isinstance(baseline_score, (int, float)):
+            delta = round(float(score) - float(baseline_score), 6)
+        entries.append({
+            "branch_id": bid,
+            "parent_branch_id": b.parent_branch_id,
+            "routing_strategy": _branch_routing_strategy(b) or "default",
+            "score": score,
+            "delta_vs_baseline": delta,
+        })
+
+    scored = [e for e in entries if isinstance(e.get("score"), (int, float))]
+    best = max(scored, key=lambda e: float(e["score"])) if scored else None
+    routing_benefit = None
+    if best and isinstance(baseline_score, (int, float)):
+        routing_benefit = {
+            "best_branch_id": best["branch_id"],
+            "best_strategy": best["routing_strategy"],
+            "improvement_vs_baseline": round(float(best["score"]) - float(baseline_score), 6),
+        }
+
+    return {
+        "baseline_branch_id": baseline_id,
+        "baseline_strategy": next((e["routing_strategy"] for e in entries if e["branch_id"] == baseline_id), "default"),
+        "baseline_score": baseline_score,
+        "entries": entries,
+        "routing_benefit": routing_benefit,
+    }
+
+
 def _drain_trial_usages(trial: Trial) -> int:
     """v4 C-2.4: 从所有分支 session 取出技能使用记录，落盘到 proficiency store."""
     drained = 0
@@ -372,6 +438,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         # 全局 G3-2: 路由策略下发到 session
         if req.routing_strategy:
             sec_session.routing_strategy = req.routing_strategy
+            baseline.initial_conditions["routing_strategy"] = req.routing_strategy
 
         # 关联 session 到 branch
         baseline.sessions = [session_id]
@@ -436,6 +503,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         "name": trial.name,
         "scenario_id": trial.scenario_id,
         "generation": trial.generation,
+        "routing_strategy": req.routing_strategy or "",
         "rooms": compiled["rooms"] if compiled else [],
     }
 
@@ -593,7 +661,12 @@ async def fork_branch(trial_id: str, req: ForkBranchRequest) -> Dict[str, Any]:
     await _persist_branch(new_branch)
     await _persist_event(trial_id, evt)
 
-    return {"branch_id": new_branch.id, "session_id": new_branch.current_session_id, "label": new_branch.label}
+    return {
+        "branch_id": new_branch.id,
+        "session_id": new_branch.current_session_id,
+        "label": new_branch.label,
+        "routing_strategy": req.routing_strategy or "",
+    }
 
 
 # ════════════════════════════════════════════════════════════
@@ -800,6 +873,7 @@ async def evaluate_trial(trial_id: str, req: EvaluateRequest = EvaluateRequest()
             "key_insights": eval_result.key_insights,
             "turning_points": eval_result.turning_points,
             "skill_breakdown": eval_result.skill_breakdown,
+            "routing_comparison": _build_routing_comparison(trial, eval_result.branch_scores),
         }
         trial.best_score = eval_result.total_score
         trial.status = TrialStatus.COMPLETED
@@ -1180,5 +1254,6 @@ async def list_trial_branches(trial_id: str) -> Dict[str, Any]:
                 "final_score": b.final_score, "reward_curve": b.reward_curve,
                 "session_count": len(b.sessions or []), "injected_events_count": len(b.injected_events),
                 "parent_branch_id": b.parent_branch_id, "fork_at_step": b.fork_at_step,
+                "routing_strategy": _branch_routing_strategy(b),
             })
     return {"branches": result}

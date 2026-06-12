@@ -53,18 +53,18 @@
 ## P1 — 链路联通（下一轮）
 
 - [x] **G3-1** `twin_loop` 决策策略化：session 级 `routing_strategy`（proficiency_first/affinity_first/round_robin/cost_aware），决策时按策略选择 skill 执行人　⟦twin_loop: session.routing_strategy 下发 twin + 四策略任务选择（proficiency_first/cost_aware/round_robin确定性打散）；test_routing_strategy 6 用例全绿⟧
-- [~] **G3-2** 路由对照试炼：trial 创建支持 `routing_strategy` 参数，多策略 fork 分支同场景对比，评分差异即路由收益　⟦CreateTrialRequest/ForkBranchRequest 增加 routing_strategy 并下发 session（分支级对照可用）；接口联测需本机⟧
+- [x] **G3-2** 路由对照试炼：trial 创建支持 `routing_strategy` 参数，多策略 fork 分支同场景对比，评分差异即路由收益　⟦trial_api 新增 routing_comparison/routing_benefit（baseline 对照 + 分支策略收益）；`GET /twin-trials/{id}/branches` 暴露 routing_strategy；新增 test_routing_strategy_fork_comparison，`pytest -q tests/test_v4_apis.py` 14 passed⟧
 - [~] **G3-3** 路由结果写回 `skill_router.submit_feedback`，affinity 随演练进化；路由建议进入 sustainability 建议引擎　⟦evaluate 后按 agent×skill 成功率写回 skill_router.submit_feedback(rating=1+4*成功率, ≥3样本)；sustainability 规则4已含路由建议；真实 router 联测待本机⟧
 - [~] **G1-1** plaza 共识事件钩子：plan finalized → 自动创建 extraction pipeline（source=`plaza:{discussion_id}`），settings 开关 `auto_extract_on_consensus`（默认 true）　⟦plaza_engine.run_discussion CLOSED 后挂 _auto_extract_on_consensus：自动建萃取管线(created_by=plaza:{id})，settings.auto_extract_on_consensus 可关(默认开)；真实讨论联测待本机⟧
-- [~] **G1-2** 萃取产物默认入储备池（classification=RESERVE）→ skill_verifier 验证 → G2 分类器周期重算决定毕业　⟦管线 tags 携带 classification:reserve；G2 分类器'新技能默认储备'规则承接；萃取完成时自动写分类记录未做⟧
-- [x] **G1-3** sustainability 周报自动生成议事广场议题（低效团队整改议题，附数据）　⟦nightly_global_loops 已自动生成；/api/v1/sustainability/weekly-plaza-topics 支持 dry-run/创建；dry-run TestClient 通过⟧
-- [x] **GP1-4** 三收口件接真实 cost_aggregator / teams 数据联测（替换估算路径）　⟦list_known_team_ids 汇总 TeamManager/trial/proficiency/CostAggregator；collect_team_usage_async 接 CostAggregator 团队成本；测试覆盖实测 cache 路径⟧
+- [x] **G1-2** 萃取产物默认入储备池（classification=RESERVE）→ skill_verifier 验证 → G2 分类器周期重算决定毕业　⟦管线 tags 携带 classification:reserve；skill_extractor.approve_item 自动调用 ClassificationStore.seed_reserve_from_extraction 写入初始储备记录（幂等）；新增 test_seed_reserve_from_extraction_idempotent 覆盖通过⟧
+- [x] **G1-3** sustainability 周报自动生成议事广场议题（低效团队整改议题，附数据）　⟦双通路完成：nightly_global_loops 自动建议题(settings.auto_plaza_sustainability_topics) + POST /api/v1/sustainability/weekly-plaza-topics(支持 dry_run，test_weekly_plaza_topics_endpoint_dry_run)⟧
+- [x] **GP1-4** 三收口件接真实 cost_aggregator / teams 数据联测（替换估算路径）　⟦collect_team_usage_async 接 cost_aggregator(cost_usd)+budget.UsageStore(近7天token)，data_sources 标注；test_collect_team_usage_async_reads_cost_aggregator 覆盖（需本机 pydantic）⟧
 
 ## P2 — 可视化与自动化（再下一轮）
 
-- [x] **GP2-1** system-evolution.html 接 `/api/v1/ratchet/metrics` 渲染系统演进史曲线（账本即演进史）　⟦ratchet-ledger-metrics 面板 + SVG 曲线；system-evolution 测试覆盖入口与渲染函数⟧
-- [x] **GP2-2** cost-dashboard.html 增加"效率视角"（score per 1k tokens 排名、sustainability 等级）　⟦efficiency-panel 接 /api/v1/sustainability/group；cost-dashboard 测试覆盖排名/等级/再分配建议⟧
-- [x] **GP2-3** agent-team-config / skill 页面三池视图（特有/通用/储备 tab + 毕业/降级动画）　⟦skills 页面新增三池 tab + reclassify 按钮 + changes 高亮；agent-team-config 测试覆盖端点接线⟧
+- [x] **GP2-1** system-evolution.html 接 `/api/v1/ratchet/metrics` 渲染系统演进史曲线（账本即演进史）　⟦system-evolution.js loadRatchetMetrics：/api/v1/ratchet/metrics → 演进史曲线(renderRatchetLedgerCurve)+指标卡片⟧
+- [x] **GP2-2** cost-dashboard.html 增加"效率视角"（score per 1k tokens 排名、sustainability 等级）　⟦cost-dashboard.js 效率视角：/api/v1/sustainability/group → token_efficiency 排名+等级渲染(renderEfficiencyView)⟧
+- [x] **GP2-3** agent-team-config / skill 页面三池视图（特有/通用/储备 tab + 毕业/降级动画）　⟦tools-skills.js 技能三池：特有/通用/储备 tab + 重新分类按钮接 /api/v1/skill-classification⟧
 - [x] **GP2-4** nightly 任务：每日 reclassify_team 全量重算 + sustainability 报告落盘（复用 launchd 机制）　⟦scripts/nightly_global_loops.py 已有全量重分类+可持续评估+报告落盘；新增 config/launchd/com.agentsgroup.nightly-global-loops.plist 模板，未自动加载到用户 launchd⟧
 - [~] **GP2-5** Agent-digital-twin.html 导演台显示当前场景棘轮 generation 与历史最佳（创建试炼时可见"要打破的纪录"）　⟦导演台 onScenarioChange 显示棘轮纪录（gen+历史最佳'要打破的纪录'）；UI 门待手测⟧
 

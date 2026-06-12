@@ -177,3 +177,23 @@ def test_skill_classifier_routes_smoke():
         assert set(view.json()["pools"]) == {"exclusive", "general", "reserve"}
         assert client.post("/api/v1/skill-classification/teams/teamA/reclassify").status_code == 200
         assert client.get("/api/v1/skill-classification/teams/teamA/history").status_code == 200
+
+
+def test_seed_reserve_from_extraction_idempotent():
+    from agents.skill_classifier import ClassificationStore
+    with tempfile.TemporaryDirectory() as tmp:
+        store = ClassificationStore(store_dir=Path(tmp))
+        skill = {"skill_id": "sk_seed", "name": "seeded_skill", "effectiveness": 0.33}
+
+        first = store.seed_reserve_from_extraction("teamA", skill, source="unit_test", now=NOW)
+        assert first["created"] is True
+
+        view = store.get_view("teamA")
+        reserve_ids = {s["skill_id"] for s in view["pools"]["reserve"]}
+        assert "sk_seed" in reserve_ids
+
+        hist = store.get_history("teamA", "sk_seed")
+        assert hist and hist[-1]["type"] == "seed_reserve"
+
+        second = store.seed_reserve_from_extraction("teamA", skill, source="unit_test", now=NOW)
+        assert second["created"] is False
