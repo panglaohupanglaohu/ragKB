@@ -104,6 +104,31 @@ def run(teams: list, dry_run: bool = False) -> dict:
         except Exception as e:
             report["sustainability"][team_id] = {"error": str(e)}
 
+    # G1-3: C/D 级团队自动生成议事广场整改议题（settings.auto_plaza_sustainability_topics 可关）
+    try:
+        settings_path = ROOT / "config" / "settings.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+        if settings.get("auto_plaza_sustainability_topics", True) and not dry_run:
+            from agents.sustainability import build_plaza_topics, collect_team_usage as _ctu, evaluate_group
+            group = evaluate_group([_ctu(t) for t in teams])
+            topics = build_plaza_topics(group)
+            if topics:
+                from agents.plaza_engine import get_plaza_engine
+                engine = get_plaza_engine()
+                plazas = engine.list_plazas()
+                if plazas:
+                    created = []
+                    for t in topics[:3]:  # 每晚最多 3 个议题，防骚扰
+                        disc = engine.create_discussion(plazas[0].id, t["topic"], t["description"])
+                        if disc:
+                            created.append(disc.id)
+                    report["plaza_topics"] = created
+                    logger.info(f"💬 G1-3: 创建 {len(created)} 个可持续整改议题")
+                else:
+                    report["plaza_topics"] = {"skipped": "无可用 plaza"}
+    except Exception as e:
+        report["plaza_topics"] = {"error": str(e)}
+
     if not dry_run:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")

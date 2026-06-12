@@ -191,6 +191,27 @@ def evaluate_group(usages: List[TeamUsage]) -> Dict[str, Any]:
     }
 
 
+def build_plaza_topics(group_result: Dict[str, Any]) -> List[Dict[str, str]]:
+    """G1-3: 从组评估结果生成议事广场整改议题（C/D 级团队）."""
+    topics: List[Dict[str, str]] = []
+    for team in group_result.get("teams", []):
+        if team.get("grade") not in ("C", "D"):
+            continue
+        recs = "；".join(r["detail"] for r in team.get("recommendations", [])[:3])
+        topics.append({
+            "topic": f"[可持续性整改] {team['team_id']} 团队 token 效率 {team['token_efficiency']:.3f}（{team['grade']} 级）",
+            "description": (
+                f"评估数据（data_quality={team.get('data_quality')}）：\n"
+                f"- token 效率: {team['token_efficiency']:.4f} score/1k tokens\n"
+                f"- 可持续评分: {team['sustainability_score']:.3f}（{team['grade']} 级）\n"
+                f"- 消耗: {team['tokens_consumed']:.0f} tokens / {team['trial_count']} 次试炼\n\n"
+                f"系统建议：{recs}\n\n"
+                f"请讨论：是否采纳上述配置调整？是否有更优方案？"
+            ),
+        })
+    return topics
+
+
 def collect_team_usage(team_id: str) -> TeamUsage:
     """G5-3 数据适配层: 优先真实来源，缺失则估算（标注 data_quality）."""
     usage = TeamUsage(team_id=team_id, data_quality="estimated")
@@ -209,16 +230,21 @@ def collect_team_usage(team_id: str) -> TeamUsage:
     except Exception as e:
         logger.debug(f"trial 数据不可用: {e}")
 
-    # 真实成本（消耗侧）
+    # 真实成本（消耗侧）— GP1-4: 对接 budget.UsageStore（sqlite token 记账），取近 7 天
     try:
-        from .cost_aggregator import get_cost_aggregator  # 若存在
-        agg = get_cost_aggregator()
-        team_cost = agg.get_team_tokens(team_id)  # 接口若不同则落入 except
-        if team_cost:
-            usage.tokens_consumed = float(team_cost)
+        from datetime import datetime, timedelta, timezone
+        from .budget.store import get_usage_store
+        store = get_usage_store()
+        total = 0
+        today = datetime.now(timezone.utc).date()
+        for d in range(7):
+            date_str = (today - timedelta(days=d)).isoformat()
+            total += int(store.get_team_daily_total(team_id, date_str) or 0)
+        if total > 0:
+            usage.tokens_consumed = float(total)
             usage.data_quality = "measured"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"budget UsageStore 不可用，回退估算: {e}")
 
     # skill 统计
     try:
