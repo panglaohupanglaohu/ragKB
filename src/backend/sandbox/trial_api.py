@@ -51,6 +51,8 @@ class CreateTrialRequest(BaseModel):
     scenario_id: str = ""
     generation: int = Field(default=0, ge=0)
     parent_trial_id: str = ""
+    # 全局 G3-2: 技能路由策略 ("" | proficiency_first | affinity_first | round_robin | cost_aware)
+    routing_strategy: str = ""
 
 
 class ForkBranchRequest(BaseModel):
@@ -58,6 +60,8 @@ class ForkBranchRequest(BaseModel):
     fork_at_step: Optional[int] = None
     name: str = ""
     initial_conditions: Dict[str, Any] = Field(default_factory=dict)
+    # 全局 G3-2: 分支级路由策略（多策略对照试炼）
+    routing_strategy: str = ""
 
 
 class InjectEventRequest(BaseModel):
@@ -365,6 +369,9 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
             trigger_description=req.scenario or req.task_goal.get("description", ""),
         )
         session_id = sec_session.session_id
+        # 全局 G3-2: 路由策略下发到 session
+        if req.routing_strategy:
+            sec_session.routing_strategy = req.routing_strategy
 
         # 关联 session 到 branch
         baseline.sessions = [session_id]
@@ -564,6 +571,10 @@ async def fork_branch(trial_id: str, req: ForkBranchRequest) -> Dict[str, Any]:
                 speed_factor=float(trial.acceleration),
                 trigger_description=f"Forked from {parent.label}@step{new_branch.fork_at_step}",
             )
+            # 全局 G3-2: 分支级路由策略（多策略对照）
+            if req.routing_strategy:
+                sec_session.routing_strategy = req.routing_strategy
+                new_branch.initial_conditions["routing_strategy"] = req.routing_strategy
             new_branch.sessions = [sec_session.session_id]
             new_branch.current_session_id = sec_session.session_id
             sec_session.branch_id = new_branch.id
@@ -809,6 +820,34 @@ async def evaluate_trial(trial_id: str, req: EvaluateRequest = EvaluateRequest()
             get_proficiency_store().update_from_trial(trial.team_id, trial.id, category)
         except Exception as e:
             logger.warning(f"熟练度缓存更新失败 (非致命): {e}")
+
+        # 全局 G3-3: 路由表现写回 skill_router（agent×skill 成功率 → affinity 评分）
+        try:
+            from agents.skill_router import get_skill_router
+            from .proficiency_store import get_proficiency_store
+            router_obj = get_skill_router()
+            usages = get_proficiency_store().load_usages(trial.id)
+            pair_stats: Dict[str, Dict[str, int]] = {}
+            for u in usages:
+                key = f"{u.get('agent_id','')}::{u.get('skill_name','')}"
+                st = pair_stats.setdefault(key, {"uses": 0, "succ": 0})
+                st["uses"] += 1
+                st["succ"] += 1 if u.get("outcome") == "success" else 0
+            fed_back = 0
+            for key, st in pair_stats.items():
+                if st["uses"] < 3:
+                    continue  # 样本太少不反馈
+                agent_id, skill_name = key.split("::", 1)
+                rating = max(1, min(5, round(1 + 4 * (st["succ"] / st["uses"]))))
+                r = router_obj.submit_feedback(
+                    trial.team_id, agent_id, skill_name, action="rate",
+                    rating=rating, reason=f"twin_trial:{trial_id} 成功率 {st['succ']}/{st['uses']}")
+                if r.get("status") == "ok":
+                    fed_back += 1
+            if fed_back:
+                logger.info(f"🔁 路由反馈写回 skill_router: {fed_back} 个 agent×skill 配对")
+        except Exception as e:
+            logger.debug(f"路由反馈写回跳过 (非致命): {e}")
 
         # 全局 G4-2: 尝试推进场景最佳分棘轮（系统级只进不退账本）
         try:

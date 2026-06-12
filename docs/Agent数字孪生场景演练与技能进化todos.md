@@ -170,21 +170,21 @@
 - [~] **D-1.1** 导演台顶部新增"业务场景"区：横向卡片列表（icon/名称/难度星级/历史最佳分/匹配度徽章），数据来自 B-1.1 + B-1.5；选中写 `_sx.scenarioId`。样式复用 `.mode-card` 体系。　⟦实现为下拉选择器（含难度星级/历史最佳分/匹配度/缺口提示），未做卡片式⟧
 - [~] **D-1.2** `createTrial` 携带 `scenario_id` 与 `generation`（默认 0；从代际视图"再战一代"入口进入时 = parent.generation+1 并带 parent_trial_id）。　⟦createTrial 携带 scenario_id/generation/parent_trial_id；UI 门待手测⟧
 - [~] **D-1.3** 环境空间渲染改造：`defaultRooms()` 仅作无场景 fallback；选中场景后房间列表/icon/容量由 `_sx.scenarioSpec.world.rooms` 渲染，房间卡片显示所属业务阶段序号；拖拽违规时 toast 显示 409 原因（对接 C-4.1）。　⟦applyScenarioRooms 渲染 env-grid 2D+同步 S.rooms（含阶段标记）；3D 视图与 409 toast 未接⟧
-- [ ] **D-1.4** "生成场景"入口：textarea 描述业务 → 调 B-1.4 → 预览草稿 spec（房间/任务/扰动摘要）→ 确认保存。失败态文案明确（LLM 生成失败/校验失败字段）。　⟦后端 /generate 已就绪，前端入口未做⟧
+- [~] **D-1.4** "生成场景"入口：textarea 描述业务 → 调 B-1.4 → 预览草稿 spec（房间/任务/扰动摘要）→ 确认保存。失败态文案明确（LLM 生成失败/校验失败字段）。　⟦后端 /generate 已就绪，前端入口未做⟧　⟦'✨ AI 生成场景'按钮：描述→/generate→草稿预览(confirm)→保存→自动选中；LLM 通路待真实联测⟧
 
 ### D-2 技能进化面板（M4 核心新视图）
 
 - [~] **D-2.1** 新导航项"技能进化"+ view-panel：上半部 per-skill 成功率柱状图（复用 `.bar-chart-container`，按 B-3.6 数据渲染；低于期望的 skill 红色 + ⚠）；点击 skill 展开 usage 失败样本列表（failure_reason + step 链接）。　⟦skill-stats 柱状图+弱skill红色⚠+期望对比已实现于导演台面板；失败样本展开未做⟧
 - [~] **D-2.2** "发起进化"按钮：选中弱 skill（或留空自动识别）→ POST B-3.1 → 渲染五节点进度流（识别→反思→变体→A/B→晋升，复用 `.secs-pipeline-indicator` 样式），SSE（B-3.5）驱动节点点亮。　⟦发起进化+五节点进度流（secs-pipeline 样式）已实现；用轮询替代 SSE（后端 SSE 已备）⟧
-- [ ] **D-2.3** A/B 结果卡：基线 vs 各候选的五维分对比（雷达图双叠加，扩展现有 `renderRadarChart` 支持两层 polygon）+ fitness 数值 + instructions diff（简单行级 diff，新增 `js/digital-twin/diff.js`，无需引库）。　⟦A/B 对比卡/雷达叠加/diff 未做⟧
+- [~] **D-2.3** A/B 结果卡：基线 vs 各候选的五维分对比（雷达图双叠加，扩展现有 `renderRadarChart` 支持两层 polygon）+ fitness 数值 + instructions diff（简单行级 diff，新增 `js/digital-twin/diff.js`，无需引库）。　⟦A/B 对比卡/雷达叠加/diff 未做⟧　⟦A/B 对比卡(基线+各候选 fitness 条形+🏆标记)+雷达双层叠加(基线虚线)+instructions 行级 diff(details 折叠)；UI 门待手测⟧
 - [~] **D-2.4** 晋升裁决 UI：gating 状态显示 approve/reject 按钮（复用 `.sop-btn` 样式），调 B-3.4；applied 后显示新版本号 + "回滚"按钮（调 skill_library rollback 既有接口）。　⟦approve/reject 按钮（sop-btn 样式）已接 B-3.4；回滚按钮未做⟧
-- [ ] **D-2.5** trial 完成后收到 `EVOLUTION_SUGGESTED` 事件时，导演台弹非阻塞提示条："本次试炼 X 项技能低于预期，去进化 →"。　⟦未做⟧
+- [~] **D-2.5** trial 完成后收到 `EVOLUTION_SUGGESTED` 事件时，导演台弹非阻塞提示条："本次试炼 X 项技能低于预期，去进化 →"。　⟦未做⟧　⟦evaluateTrial 后检查 skill_breakdown，弱 skill 显示琥珀色提示条+'去进化→'链接⟧
 
 ### D-3 代际对比（M4）
 
-- [ ] **D-3.1** 试炼时间轴（`.trial-timeline`）按 generation 分组着色，hover 显示 gen/score。　⟦未做⟧
-- [ ] **D-3.2** 代际成长曲线：同 scenario_id 下各代 total_score 折线（复用 erf-mini-chart 的 SVG 画法放大版），数据来自 B-2.5。　⟦未做⟧
-- [ ] **D-3.3** 雷达图代际叠加：gen N（虚线）vs gen N+1（实线）。　⟦未做（nextGeneration 再战一代入口已实现，代际字段全链路已通）⟧
+- [~] **D-3.1** 试炼时间轴（`.trial-timeline`）按 generation 分组着色，hover 显示 gen/score。　⟦未做⟧　⟦时间轴点附 data-gen 属性与 'genN · type' tooltip（包装 _addToTimeline）⟧
+- [~] **D-3.2** 代际成长曲线：同 scenario_id 下各代 total_score 折线（复用 erf-mini-chart 的 SVG 画法放大版），数据来自 B-2.5。　⟦未做⟧　⟦loadGenerationCurve：同场景各代最佳分 SVG 折线（evaluateTrial 后自动刷新）⟧
+- [~] **D-3.3** 雷达图代际叠加：gen N（虚线）vs gen N+1（实线）。　⟦未做（nextGeneration 再战一代入口已实现，代际字段全链路已通）⟧　⟦renderRadarChart 升级支持 overlay 双层（修复了原实现数据多边形缺失的bug）；代际叠加用上次评估，A/B 叠加用基线维度⟧
 
 ### D-4 拆文件（M4 收尾）
 

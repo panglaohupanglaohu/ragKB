@@ -1532,6 +1532,13 @@ AgentsGroup2026/
 
 测试：`test_skill_classifier.py`(12) + `test_ratchet_ledger.py`(9) + `test_sustainability.py`(10) 全绿，含"评分→棘轮→分类毕业→可持续建议"端到端 mock 串联用例；累计本日新增 58 个用例。
 
+### 2026-06-12（续）— 全局 P1 部分 + v4 前端收尾
+
+- **G3 技能路由试炼**：`twin_loop` 支持 session 级 `routing_strategy`（proficiency_first / affinity_first / round_robin / cost_aware），策略影响任务认领次序；trial 创建与分支 fork 均可携带策略做多分支对照；试炼评分后按 agent×skill 成功率自动写回 `skill_router.submit_feedback`（affinity 随演练进化）。`test_routing_strategy.py` 6 用例全绿，累计 64 用例
+- **G1 议事广场→萃取联动**：讨论闭幕（CLOSED）自动创建萃取管线（`created_by=plaza:{discussion_id}`，tags 含 `classification:reserve` 使产物默认入储备池），`settings.auto_extract_on_consensus` 可关
+- **GP2-4 nightly 脚本**：`scripts/nightly_global_loops.py` 每日全团队技能重分类 + 可持续评估 + cost 棘轮推进 + 报告落盘
+- **v4 前端收尾**：AI 生成场景入口（D-1.4）、A/B 对比卡+指令 diff+雷达双层叠加（D-2.3，并修复雷达图数据多边形缺失的存量 bug）、弱技能进化提示条（D-2.5）、代际成长曲线与时间轴代际标记（D-3）、导演台显示场景棘轮纪录（GP2-5）
+
 ### 2026-05-18
 
 #### 导航体系统一

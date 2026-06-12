@@ -363,6 +363,10 @@ class SandboxSession:
     branch_id: Optional[str] = None       # 所属 Branch ID
     trial_id: Optional[str] = None        # 所属 Trial ID
 
+    # ── 全局 G3-1: 技能路由策略 ──
+    # "" | proficiency_first | affinity_first | round_robin | cost_aware
+    routing_strategy: str = ""
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Trial / Branch / Event — 数字孪生试炼三层模型 (阶段二)

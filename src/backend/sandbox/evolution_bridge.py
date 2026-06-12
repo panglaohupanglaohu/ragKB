@@ -178,8 +178,9 @@ class EvolutionBridge:
             run.target_skills = weak[:1]
             target = run.target_skills[0]
 
-            # 取 skill 当前 instructions
+            # 取 skill 当前 instructions（快照供前端 diff 展示）
             instructions = self._get_skill_instructions(team_id, target["skill_name"])
+            target["instructions_snapshot"] = instructions[:4000]
 
             # Phase 2: reflect
             self._phase(run, EvolutionRunStatus.REFLECTING)
@@ -239,6 +240,7 @@ class EvolutionBridge:
                 "instructions": best.get("instructions", ""),
                 "fitness": best_fitness,
                 "baseline_fitness": baseline_fitness,
+                "baseline_dims": baseline_dims,
                 "improvement": round(best_fitness - baseline_fitness, 4),
             }
 

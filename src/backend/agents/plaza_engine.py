@@ -445,11 +445,54 @@ class PlazaEngine:
         # 持久化讨论结果
         self._store.save_plaza(plaza)
 
+        # 全局 G1-1: 共识达成 → 自动创建萃取管线（settings.auto_extract_on_consensus 可关）
+        try:
+            await self._auto_extract_on_consensus(disc)
+        except Exception as e:
+            logger.warning(f"自动萃取钩子失败 (非致命): {e}")
+
         logger.info(
             f"✅ 讨论完成: {disc.topic[:30]} — "
             f"{len(disc.messages)} 条消息, {disc.max_rounds} 轮"
         )
         return disc
+
+    async def _auto_extract_on_consensus(self, disc) -> None:
+        """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.
+
+        - settings.json 的 auto_extract_on_consensus=false 可关闭（默认开）
+        - 管线 created_by=plaza:{discussion_id}，tags 含 plaza_auto 与
+          classification:reserve（萃取出的技能由 G2 分类器默认归入储备池）
+        """
+        # 开关检查
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            settings_path = _Path(__file__).resolve().parents[3] / "config" / "settings.json"
+            settings = _json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+            if not settings.get("auto_extract_on_consensus", True):
+                return
+        except Exception:
+            pass  # settings 不可读时默认开启
+
+        from .extraction_store import get_extraction_store
+        store = get_extraction_store()
+        plan_text = ""
+        if disc.plan:
+            plan_text = str(disc.plan.get("content", ""))[:1500] if isinstance(disc.plan, dict) else str(disc.plan)[:1500]
+        description = (
+            f"[议事广场自动萃取] 议题: {disc.topic}\n\n"
+            f"共识摘要:\n{(disc.summary or '')[:1500]}\n\n"
+            f"执行计划:\n{plan_text}"
+        )
+        pipeline = await store.create_pipeline(
+            name=f"Plaza萃取: {disc.topic[:40]}",
+            description=description,
+            team_id=getattr(disc, "team_id", "") or "",
+            created_by=f"plaza:{disc.id}",
+            tags=["plaza_auto", "classification:reserve", f"plaza:{disc.plaza_id}"],
+        )
+        logger.info(f"🔗 G1-1: 共识自动萃取管线已创建 {pipeline.pipeline_id} ← discussion {disc.id[:8]}")
 
     async def _agent_speak(
         self, disc: Discussion, participant: Participant,

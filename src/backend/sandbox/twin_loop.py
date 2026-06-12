@@ -264,6 +264,10 @@ class TwinLoopEngine:
 
                 # Step 2: 生成孪生体（v4: 携带熟练度先验）
                 session.twins = self._spawn_twins(snapshot, session.session_id)
+                # 全局 G3-1: 路由策略下发到 twin（决策函数无 session 上下文，经 strategy_params 传递）
+                if session.routing_strategy:
+                    for _t in session.twins:
+                        _t.strategy_params["routing_strategy"] = session.routing_strategy
                 session.status = SandboxStatus.RUNNING
 
                 # Step 3: 仿真循环
@@ -844,6 +848,9 @@ class TwinLoopEngine:
             session.snapshots.append(snapshot.snapshot_id)
             if not session.twins:
                 session.twins = self._spawn_twins(snapshot, session_id)
+                if session.routing_strategy:
+                    for _t in session.twins:
+                        _t.strategy_params["routing_strategy"] = session.routing_strategy
             if not getattr(sim_state, 'pending_tasks', None) and not session.initial_snapshot.pending_tasks:
                 sim_state_pending = self._generate_default_tasks(session)
                 snapshot.pending_tasks = sim_state_pending
@@ -1048,12 +1055,29 @@ class TwinLoopEngine:
 
         if available_tasks:
             # 按 skill 匹配度排序：匹配越多越优先
+            # 全局 G3-1: 路由策略影响任务选择次序
+            routing = strat.get("routing_strategy", "")
+
             def _skill_match_score(task):
                 req_skills = task.get("required_skills", [])
                 if not req_skills:
-                    return 0
-                matched = len(set(req_skills) & set(twin.skills))
-                return matched / len(req_skills)
+                    return (0.0, 0.0)
+                matched = set(req_skills) & set(twin.skills)
+                match_ratio = len(matched) / len(req_skills)
+                prof = max(((twin.skill_proficiency or {}).get(s, 0.5) for s in matched), default=0.0)
+                if routing in ("proficiency_first", "affinity_first"):
+                    # 熟练度优先（affinity 数据缺失时回退熟练度）
+                    return (match_ratio, prof)
+                if routing == "cost_aware":
+                    # 单位耗时产出优先：高熟练度 + 短任务
+                    dur = max(int(task.get("base_duration_steps", 3) or 3), 1)
+                    return (match_ratio, prof / dur)
+                if routing == "round_robin":
+                    # 确定性打散：同 team 不同 agent 偏好不同任务（用稳定的 source_agent_id）
+                    import zlib
+                    spread = (zlib.crc32((str(task.get("id", "")) + twin.source_agent_id).encode()) % 97) / 97.0
+                    return (match_ratio, spread)
+                return (match_ratio, 0.0)
 
             available_tasks.sort(key=_skill_match_score, reverse=True)
             best_task = available_tasks[0]

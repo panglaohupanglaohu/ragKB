@@ -52,11 +52,11 @@
 
 ## P1 — 链路联通（下一轮）
 
-- [ ] **G3-1** `twin_loop` 决策策略化：session 级 `routing_strategy`（proficiency_first/affinity_first/round_robin/cost_aware），决策时按策略选择 skill 执行人
-- [ ] **G3-2** 路由对照试炼：trial 创建支持 `routing_strategy` 参数，多策略 fork 分支同场景对比，评分差异即路由收益
-- [ ] **G3-3** 路由结果写回 `skill_router.submit_feedback`，affinity 随演练进化；路由建议进入 sustainability 建议引擎
-- [ ] **G1-1** plaza 共识事件钩子：plan finalized → 自动创建 extraction pipeline（source=`plaza:{discussion_id}`），settings 开关 `auto_extract_on_consensus`（默认 true）
-- [ ] **G1-2** 萃取产物默认入储备池（classification=RESERVE）→ skill_verifier 验证 → G2 分类器周期重算决定毕业
+- [x] **G3-1** `twin_loop` 决策策略化：session 级 `routing_strategy`（proficiency_first/affinity_first/round_robin/cost_aware），决策时按策略选择 skill 执行人　⟦twin_loop: session.routing_strategy 下发 twin + 四策略任务选择（proficiency_first/cost_aware/round_robin确定性打散）；test_routing_strategy 6 用例全绿⟧
+- [~] **G3-2** 路由对照试炼：trial 创建支持 `routing_strategy` 参数，多策略 fork 分支同场景对比，评分差异即路由收益　⟦CreateTrialRequest/ForkBranchRequest 增加 routing_strategy 并下发 session（分支级对照可用）；接口联测需本机⟧
+- [~] **G3-3** 路由结果写回 `skill_router.submit_feedback`，affinity 随演练进化；路由建议进入 sustainability 建议引擎　⟦evaluate 后按 agent×skill 成功率写回 skill_router.submit_feedback(rating=1+4*成功率, ≥3样本)；sustainability 规则4已含路由建议；真实 router 联测待本机⟧
+- [~] **G1-1** plaza 共识事件钩子：plan finalized → 自动创建 extraction pipeline（source=`plaza:{discussion_id}`），settings 开关 `auto_extract_on_consensus`（默认 true）　⟦plaza_engine.run_discussion CLOSED 后挂 _auto_extract_on_consensus：自动建萃取管线(created_by=plaza:{id})，settings.auto_extract_on_consensus 可关(默认开)；真实讨论联测待本机⟧
+- [~] **G1-2** 萃取产物默认入储备池（classification=RESERVE）→ skill_verifier 验证 → G2 分类器周期重算决定毕业　⟦管线 tags 携带 classification:reserve；G2 分类器'新技能默认储备'规则承接；萃取完成时自动写分类记录未做⟧
 - [ ] **G1-3** sustainability 周报自动生成议事广场议题（低效团队整改议题，附数据）
 - [ ] **GP1-4** 三收口件接真实 cost_aggregator / teams 数据联测（替换估算路径）
 
@@ -65,8 +65,8 @@
 - [ ] **GP2-1** system-evolution.html 接 `/api/v1/ratchet/metrics` 渲染系统演进史曲线（账本即演进史）
 - [ ] **GP2-2** cost-dashboard.html 增加"效率视角"（score per 1k tokens 排名、sustainability 等级）
 - [ ] **GP2-3** agent-team-config / skill 页面三池视图（特有/通用/储备 tab + 毕业/降级动画）
-- [ ] **GP2-4** nightly 任务：每日 reclassify_team 全量重算 + sustainability 报告落盘（复用 launchd 机制）
-- [ ] **GP2-5** Agent-digital-twin.html 导演台显示当前场景棘轮 generation 与历史最佳（创建试炼时可见"要打破的纪录"）
+- [~] **GP2-4** nightly 任务：每日 reclassify_team 全量重算 + sustainability 报告落盘（复用 launchd 机制）　⟦scripts/nightly_global_loops.py：全团队重分类+可持续评估+cost棘轮+报告落盘 storage/nightly_reports/，dry-run 实跑通过；launchd plist 挂载待用户确认⟧
+- [~] **GP2-5** Agent-digital-twin.html 导演台显示当前场景棘轮 generation 与历史最佳（创建试炼时可见"要打破的纪录"）　⟦导演台 onScenarioChange 显示棘轮纪录（gen+历史最佳'要打破的纪录'）；UI 门待手测⟧
 
 ---
 
