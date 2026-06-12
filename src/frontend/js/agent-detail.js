@@ -8,6 +8,7 @@
 (function(){
 'use strict';
 const csrfFetch = window._agFetch || fetch;
+const EMPLOYEE_API = '/api/v1/agent-employee';
 async function listApi(path, limit = 200, offset = 0){
   if(window.api&&typeof window.api.list==='function'){
     const payload=await window.api.list(path,limit,offset);
@@ -51,6 +52,8 @@ function renderATab(d){
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px"><div class="card"><div class="section-title">📋 最近任务</div>${recentTasksHtml}</div><div class="card"><div class="section-title">📡 执行证据</div>${evidenceHtml}</div></div>
 <div class="section" style="margin-top:20px"><div class="section-title">📊 近期活动</div>${act.recent_logs&&act.recent_logs.length?act.recent_logs.slice(-8).reverse().map(l=>`<div class="focus-item" style="padding:10px 14px"><div class="title" style="font-size:13px"><span class="chip" style="font-size:10px">${escapeHtml(l.action)}</span> ${escapeHtml(l.detail||'')}</div><div class="meta">${l.timestamp?l.timestamp.replace('T',' ').slice(0,19):''}</div></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无活动记录 — 发送消息或启动 Agent 后将显示</p>'}</div>`;
     });
+  } else if(atab==='ag-employee'){
+    renderEmployeeView(d);
   } else if(atab==='ag-aware'){
     const tr=m.traits||[],bd=m.behavior_boundaries||[];
     c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${(d.skills||[]).length+tr.length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">Agent 当前正在关注的任务</p>${(d.skills||[]).map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${escapeHtml(s)}</div><div class="meta">skill · active</div></div>`).join('')}${tr.map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${escapeHtml(t)}</div><div class="meta">trait · personality</div></div>`).join('')}${bd.map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${escapeHtml(b)}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!(d.skills||[]).length&&!tr.length&&!bd.length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
@@ -221,6 +224,280 @@ document.addEventListener('click',e=>{if(e.target.classList.contains('modal-over
 async function delMemoryFile(fn){if(!confirm(`删除记忆文件 "${fn}"？`))return;await csrfFetch(`${A}/teams/${tid}/agents/${aid}/memory/${encodeURIComponent(fn)}`,{method:'DELETE'});toast(`${fn} 已删除`);loadAgent()}
 
 // ══════════════════════════════════
+//  DIGITAL EMPLOYEE PROFILE
+// ══════════════════════════════════
+let _employeeFileTab = 'soul';
+
+function employeeFileLabel(kind){
+  return {soul:'灵魂',focus:'聚焦',memory:'记忆',heartbeat:'心跳'}[kind] || kind;
+}
+
+function normalizeTeamAgents(team){
+  if(!team || !team.agents)return [];
+  return Array.isArray(team.agents) ? team.agents : Object.values(team.agents);
+}
+
+function normalizeTeamModels(team, current){
+  const raw = team && team.models ? (Array.isArray(team.models) ? team.models : Object.values(team.models)) : [];
+  const models = raw.map(m => m.model_id || m.id || m.name).filter(Boolean);
+  if(current && !models.includes(current))models.unshift(current);
+  return models;
+}
+
+function triggerSummary(t){
+  const c=t.config||{};
+  if(t.trigger_type==='cron')return c.expr || 'cron';
+  if(t.trigger_type==='once')return c.fire_at || 'once';
+  if(t.trigger_type==='interval')return `${c.every_minutes||'?'} 分钟`;
+  if(t.trigger_type==='poll')return `${c.url||'poll'} · ${c.every_minutes||'?'} 分钟`;
+  if(t.trigger_type==='on_message')return c.from_agent ? `from agent ${c.from_agent}` : `from user ${c.from_user||'*'}`;
+  if(t.trigger_type==='webhook')return `${c.rate_limit_per_min||5}/min`;
+  return '';
+}
+
+function renderEmployeeView(d){
+  const c=el('agent-content');
+  c.innerHTML='<div class="section"><div class="section-title">数字员工</div><p style="color:var(--dim);font-size:13px">加载数字员工档案...</p></div>';
+  Promise.all([
+    api(`${EMPLOYEE_API}/agents/${aid}/files/soul`),
+    api(`${EMPLOYEE_API}/agents/${aid}/files/focus`),
+    api(`${EMPLOYEE_API}/agents/${aid}/files/memory`),
+    api(`${EMPLOYEE_API}/agents/${aid}/files/heartbeat`),
+    api(`${EMPLOYEE_API}/agents/${aid}/focus-items`),
+    api(`${EMPLOYEE_API}/teams/${tid}/agents/${aid}/triggers`),
+    api(`${EMPLOYEE_API}/teams/${tid}/relationships?agent_id=${encodeURIComponent(aid)}`),
+    api(`${EMPLOYEE_API}/teams/${tid}/agents/${aid}/governance`),
+    api(`${A}/teams/${tid}`),
+  ]).then(([soul,focus,memory,heartbeat,focusData,triggers,relationships,governance,team])=>{
+    const files={soul:soul||{},focus:focus||{},memory:memory||{},heartbeat:heartbeat||{}};
+    const focusItems=(focusData&&focusData.items)||[];
+    const triggerItems=(triggers&&triggers.triggers)||[];
+    const relItems=(relationships&&relationships.relationships)||[];
+    const gateMode=(relationships&&relationships.gate_mode)||'soft';
+    const teamAgents=normalizeTeamAgents(team).filter(a => (a.agent_id||a.id)!==aid);
+    const models=normalizeTeamModels(team, governance&&governance.fallback_model_id);
+    const currentLevel=(governance&&governance.autonomy_level)||2;
+    const focusOptions=focusItems.length
+      ? focusItems.map(i=>`<option value="${escapeHtml(i.text)}">${i.done?'✓':'□'} ${escapeHtml(i.text)}</option>`).join('')
+      : '<option value="">先在聚焦文件中添加 checklist</option>';
+    const triggerList=triggerItems.length?triggerItems.map(t=>`
+      <div class="employee-row">
+        <div>
+          <div class="employee-row-title"><span class="chip">${escapeHtml(t.trigger_type)}</span> ${escapeHtml(t.focus_item||'事件触发')}</div>
+          <div class="employee-row-meta">${escapeHtml(triggerSummary(t))} · 下次 ${escapeHtml(t.next_fire_at||'—')} · 已触发 ${t.fire_count||0}</div>
+        </div>
+        <div class="employee-row-actions">
+          <button class="btn btn-sm" onclick="toggleEmployeeTrigger('${escapeHtml(t.trigger_id)}')">${t.enabled?'停用':'启用'}</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--pink)" onclick="deleteEmployeeTrigger('${escapeHtml(t.trigger_id)}')">删除</button>
+        </div>
+      </div>`).join(''):'<p class="employee-empty">暂无 Trigger</p>';
+    const relList=relItems.length?relItems.map(r=>`
+      <div class="employee-row">
+        <div>
+          <div class="employee-row-title"><span class="chip">${r.kind==='agent_human'?'人类':'Agent'}</span> ${escapeHtml(r.source_agent_id)} → ${escapeHtml(r.target_id)}</div>
+          <div class="employee-row-meta">${escapeHtml(r.rel_type)}${r.note?' · '+escapeHtml(r.note):''}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" style="color:var(--pink)" onclick="deleteEmployeeRelationship('${escapeHtml(r.rel_id)}')">删除</button>
+      </div>`).join(''):'<p class="employee-empty">暂无显式关系</p>';
+    const agentOptions=teamAgents.length
+      ? teamAgents.map(a=>`<option value="${escapeHtml(a.agent_id||a.id)}">${escapeHtml(a.name||a.agent_id||a.id)}</option>`).join('')
+      : '<option value="">无其他 Agent</option>';
+    const modelOptions=['<option value="">不设置降级模型</option>'].concat(
+      models.map(m=>`<option value="${escapeHtml(m)}" ${governance&&governance.fallback_model_id===m?'selected':''}>${escapeHtml(m)}</option>`)
+    ).join('');
+    c.innerHTML=`
+      <div class="employee-header">
+        <div>
+          <div class="section-title" style="margin:0">数字员工档案</div>
+          <p>四件套档案、Aware 唤醒、关系网络和治理参数集中管理</p>
+        </div>
+        <button class="btn btn-sm" onclick="previewEmployeeContext()">预览组织上下文</button>
+      </div>
+
+      <div class="section employee-section">
+        <div class="employee-section-head"><div class="section-title">四件套</div></div>
+        <div class="employee-file-tabs">
+          ${['soul','focus','memory','heartbeat'].map(k=>`<button class="employee-file-tab ${_employeeFileTab===k?'active':''}" data-kind="${k}" onclick="switchEmployeeFileTab('${k}')">${employeeFileLabel(k)}</button>`).join('')}
+        </div>
+        ${['soul','focus','heartbeat'].map(k=>`
+          <div class="employee-file-pane ${_employeeFileTab===k?'active':''}" id="employee-pane-${k}">
+            <textarea class="fi employee-textarea" id="employee-${k}-editor">${escapeHtml(files[k].content||'')}</textarea>
+            <div class="employee-actions">
+              <span>${files[k].updated_at?`更新于 ${escapeHtml(files[k].updated_at.slice(0,19))}`:'默认模板'}</span>
+              <button class="btn btn-pink btn-sm" onclick="saveEmployeeFile('${k}')">保存${employeeFileLabel(k)}</button>
+              ${k==='heartbeat'?'<button class="btn btn-sm" onclick="resetEmployeeHeartbeat()">重置心跳模板</button>':''}
+            </div>
+          </div>`).join('')}
+        <div class="employee-file-pane ${_employeeFileTab==='memory'?'active':''}" id="employee-pane-memory">
+          <div class="employee-memory">${escapeHtml(files.memory.content||'')}</div>
+          <textarea class="fi" id="employee-memory-entry" placeholder="追加一条经验、教训或发现"></textarea>
+          <div class="employee-actions">
+            <span>memory.md append-only</span>
+            <button class="btn btn-pink btn-sm" onclick="appendEmployeeMemory()">追加记忆</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="employee-two-col">
+        <div class="section employee-section">
+          <div class="employee-section-head"><div class="section-title">Aware Trigger</div><span>${triggerItems.length} 个</span></div>
+          <div class="employee-form-grid">
+            <label><span>类型</span><select class="fi" id="employee-trigger-type" onchange="updateEmployeeTriggerFields()"><option value="cron">cron</option><option value="once">once</option><option value="interval">interval</option><option value="poll">poll</option><option value="on_message">on_message</option><option value="webhook">webhook</option></select></label>
+            <label><span>绑定聚焦项</span><select class="fi" id="employee-trigger-focus">${focusOptions}</select></label>
+          </div>
+          <div id="employee-trigger-fields"></div>
+          <button class="btn btn-pink btn-sm" onclick="createEmployeeTrigger()">创建 Trigger</button>
+          <div class="employee-list">${triggerList}</div>
+        </div>
+
+        <div class="section employee-section">
+          <div class="employee-section-head"><div class="section-title">关系网络</div><span>${gateMode==='hard'?'硬门禁':'软门禁'}</span></div>
+          <div class="employee-form-grid">
+            <label><span>对象类型</span><select class="fi" id="employee-rel-kind" onchange="updateEmployeeRelationTarget()"><option value="agent_agent">Agent</option><option value="agent_human">Human</option></select></label>
+            <label id="employee-rel-agent-wrap"><span>目标 Agent</span><select class="fi" id="employee-rel-target-agent">${agentOptions}</select></label>
+            <label id="employee-rel-human-wrap" class="hidden"><span>Human ID</span><input class="fi" id="employee-rel-target-human" placeholder="user_xxx"></label>
+            <label><span>关系</span><select class="fi" id="employee-rel-type"><option value="collaborator">collaborator</option><option value="supervisor">supervisor</option><option value="subordinate">subordinate</option><option value="reviewer">reviewer</option></select></label>
+            <label><span>备注</span><input class="fi" id="employee-rel-note" placeholder="关系说明"></label>
+          </div>
+          <button class="btn btn-pink btn-sm" onclick="createEmployeeRelationship()">添加关系</button>
+          <div class="employee-list">${relList}</div>
+        </div>
+      </div>
+
+      <div class="section employee-section">
+        <div class="employee-section-head"><div class="section-title">治理参数</div><span>${(governance&&governance.budget_status&&governance.budget_status.used_today)||0} / ${(governance&&governance.token_budget)||0} tokens</span></div>
+        <input type="hidden" id="employee-autonomy-level" value="${currentLevel}">
+        <div class="employee-levels">
+          ${[1,2,3,4].map(l=>`<button class="employee-level ${currentLevel===l?'active':''}" onclick="setEmployeeAutonomy(${l})" title="${['只读建议','低危执行','高危需审批','全自主'][l-1]}">L${l}<span>${['建议','低危','审批','自主'][l-1]}</span></button>`).join('')}
+        </div>
+        <div class="employee-form-grid">
+          <label><span>日 token 预算</span><input class="fi" id="employee-token-budget" type="number" min="0" value="${(governance&&governance.token_budget)||0}"></label>
+          <label><span>降级模型</span><select class="fi" id="employee-fallback-model">${modelOptions}</select></label>
+        </div>
+        <button class="btn btn-pink btn-sm" onclick="saveEmployeeGovernance()">保存治理参数</button>
+      </div>`;
+    updateEmployeeTriggerFields();
+    updateEmployeeRelationTarget();
+  }).catch(e=>{
+    c.innerHTML=`<div class="section"><div class="section-title">数字员工</div><p style="color:var(--pink)">加载失败: ${escapeHtml(e.message||e)}</p></div>`;
+  });
+}
+
+function switchEmployeeFileTab(kind){
+  _employeeFileTab=kind;
+  document.querySelectorAll('.employee-file-tab').forEach(b=>b.classList.toggle('active',b.dataset.kind===kind));
+  document.querySelectorAll('.employee-file-pane').forEach(p=>p.classList.toggle('active',p.id===`employee-pane-${kind}`));
+}
+
+async function saveEmployeeFile(kind){
+  const editor=el(`employee-${kind}-editor`);
+  if(!editor)return;
+  const r=await api(`${EMPLOYEE_API}/agents/${aid}/files/${kind}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:editor.value})});
+  if(r){toast(`${employeeFileLabel(kind)}已保存`,'success');loadAgent()}else toast('保存失败','error');
+}
+
+async function appendEmployeeMemory(){
+  const input=el('employee-memory-entry');
+  const entry=input&&input.value.trim();
+  if(!entry){toast('请输入要追加的记忆','error');return}
+  const r=await api(`${EMPLOYEE_API}/agents/${aid}/files/memory/append`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entry,source:'agent-team-config'})});
+  if(r){toast('记忆已追加','success');_employeeFileTab='memory';loadAgent()}else toast('追加失败','error');
+}
+
+async function resetEmployeeHeartbeat(){
+  const r=await api(`${EMPLOYEE_API}/agents/${aid}/files/heartbeat/reset`,{method:'POST'});
+  if(r){toast('心跳模板已重置','success');_employeeFileTab='heartbeat';loadAgent()}else toast('重置失败','error');
+}
+
+function updateEmployeeTriggerFields(){
+  const type=el('employee-trigger-type')?.value||'cron';
+  const target=el('employee-trigger-fields');
+  if(!target)return;
+  const fields={
+    cron:'<div class="employee-form-grid"><label><span>cron 表达式</span><input class="fi" id="employee-trigger-expr" value="0 9 * * 1-5"></label><label><span>时区偏移(分钟)</span><input class="fi" id="employee-trigger-tz" type="number" value="480"></label></div>',
+    once:'<div class="employee-form-grid"><label><span>触发时间</span><input class="fi" id="employee-trigger-fire-at" type="datetime-local"></label></div>',
+    interval:'<div class="employee-form-grid"><label><span>间隔(分钟)</span><input class="fi" id="employee-trigger-every" type="number" min="1" value="240"></label></div>',
+    poll:'<div class="employee-form-grid"><label><span>URL</span><input class="fi" id="employee-trigger-url" placeholder="https://api.example.com/status"></label><label><span>间隔(分钟)</span><input class="fi" id="employee-trigger-every" type="number" min="1" value="30"></label><label><span>JSONPath</span><input class="fi" id="employee-trigger-jsonpath" placeholder="$.status"></label><label><span>期望值</span><input class="fi" id="employee-trigger-expect" placeholder="changed"></label></div>',
+    on_message:'<div class="employee-form-grid"><label><span>from_agent</span><input class="fi" id="employee-trigger-from-agent" placeholder="agent_id"></label><label><span>from_user</span><input class="fi" id="employee-trigger-from-user" placeholder="user_id"></label></div>',
+    webhook:'<div class="employee-form-grid"><label><span>secret_token</span><input class="fi" id="employee-trigger-secret" placeholder="留空由后端外部注入"></label><label><span>rate_limit/min</span><input class="fi" id="employee-trigger-rate" type="number" min="1" value="5"></label></div>',
+  };
+  target.innerHTML=fields[type]||'';
+}
+
+function employeeTriggerConfig(){
+  const type=el('employee-trigger-type')?.value||'cron';
+  if(type==='cron')return {expr:el('employee-trigger-expr')?.value||'',tz_offset_min:parseInt(el('employee-trigger-tz')?.value||'0',10)};
+  if(type==='once')return {fire_at:el('employee-trigger-fire-at')?.value||''};
+  if(type==='interval')return {every_minutes:parseInt(el('employee-trigger-every')?.value||'0',10)};
+  if(type==='poll')return {url:el('employee-trigger-url')?.value||'',jsonpath:el('employee-trigger-jsonpath')?.value||'',expect:el('employee-trigger-expect')?.value||'',every_minutes:parseInt(el('employee-trigger-every')?.value||'0',10)};
+  if(type==='on_message')return {from_agent:el('employee-trigger-from-agent')?.value||'',from_user:el('employee-trigger-from-user')?.value||''};
+  if(type==='webhook')return {secret_token:el('employee-trigger-secret')?.value||'',rate_limit_per_min:parseInt(el('employee-trigger-rate')?.value||'5',10)};
+  return {};
+}
+
+async function createEmployeeTrigger(){
+  const payload={trigger_type:el('employee-trigger-type').value,enabled:true,focus_item:el('employee-trigger-focus')?.value||'',config:employeeTriggerConfig()};
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/agents/${aid}/triggers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(r){toast('Trigger 已创建','success');loadAgent()}else toast('Trigger 创建失败','error');
+}
+
+async function toggleEmployeeTrigger(triggerId){
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/triggers/${triggerId}/toggle`,{method:'POST'});
+  if(r){toast(r.enabled?'Trigger 已启用':'Trigger 已停用','success');loadAgent()}else toast('操作失败','error');
+}
+
+async function deleteEmployeeTrigger(triggerId){
+  if(!confirm('删除这个 Trigger？'))return;
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/triggers/${triggerId}`,{method:'DELETE'});
+  if(r){toast('Trigger 已删除','success');loadAgent()}else toast('删除失败','error');
+}
+
+function updateEmployeeRelationTarget(){
+  const isHuman=el('employee-rel-kind')?.value==='agent_human';
+  el('employee-rel-agent-wrap')?.classList.toggle('hidden',isHuman);
+  el('employee-rel-human-wrap')?.classList.toggle('hidden',!isHuman);
+}
+
+async function createEmployeeRelationship(){
+  const kind=el('employee-rel-kind').value;
+  const targetId=kind==='agent_human' ? el('employee-rel-target-human').value.trim() : el('employee-rel-target-agent').value;
+  if(!targetId){toast('请选择或输入关系对象','error');return}
+  const payload={kind,source_agent_id:aid,target_id:targetId,rel_type:el('employee-rel-type').value,note:el('employee-rel-note').value.trim(),created_by:'human'};
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/relationships`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(r){toast('关系已添加','success');loadAgent()}else toast('关系添加失败','error');
+}
+
+async function deleteEmployeeRelationship(relId){
+  if(!confirm('删除这条关系？'))return;
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/relationships/${relId}`,{method:'DELETE'});
+  if(r){toast('关系已删除','success');loadAgent()}else toast('删除失败','error');
+}
+
+function setEmployeeAutonomy(level){
+  const input=el('employee-autonomy-level');
+  if(input)input.value=String(level);
+  document.querySelectorAll('.employee-level').forEach((b,i)=>b.classList.toggle('active',i+1===level));
+}
+
+async function saveEmployeeGovernance(){
+  const payload={
+    autonomy_level:parseInt(el('employee-autonomy-level')?.value||'2',10),
+    token_budget:parseInt(el('employee-token-budget')?.value||'0',10),
+    fallback_model_id:el('employee-fallback-model')?.value||'',
+  };
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/agents/${aid}/governance`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(r){toast('治理参数已保存','success');loadAgent()}else toast('治理参数保存失败','error');
+}
+
+async function previewEmployeeContext(){
+  const r=await api(`${EMPLOYEE_API}/teams/${tid}/agents/${aid}/context`);
+  if(!r){toast('组织上下文加载失败','error');return}
+  const body=`<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.7;max-height:60vh;overflow:auto">${escapeHtml(r.system_prefix||'')}</pre>`;
+  if(typeof showInfoModal==='function')showInfoModal('组织上下文预览',body);
+  else alert(r.system_prefix||'');
+}
+
+// ══════════════════════════════════
 //  AGENT TOOL / SKILL BIND
 // ══════════════════════════════════
 async function togAgentTool(toolId,bind){
@@ -303,5 +580,20 @@ window.openMemoryFile = openMemoryFile;
 window.saveMemoryFile = saveMemoryFile;
 window.closeMemEditor = closeMemEditor;
 window.delMemoryFile = delMemoryFile;
+window.renderEmployeeView = renderEmployeeView;
+window.switchEmployeeFileTab = switchEmployeeFileTab;
+window.saveEmployeeFile = saveEmployeeFile;
+window.appendEmployeeMemory = appendEmployeeMemory;
+window.resetEmployeeHeartbeat = resetEmployeeHeartbeat;
+window.updateEmployeeTriggerFields = updateEmployeeTriggerFields;
+window.createEmployeeTrigger = createEmployeeTrigger;
+window.toggleEmployeeTrigger = toggleEmployeeTrigger;
+window.deleteEmployeeTrigger = deleteEmployeeTrigger;
+window.updateEmployeeRelationTarget = updateEmployeeRelationTarget;
+window.createEmployeeRelationship = createEmployeeRelationship;
+window.deleteEmployeeRelationship = deleteEmployeeRelationship;
+window.setEmployeeAutonomy = setEmployeeAutonomy;
+window.saveEmployeeGovernance = saveEmployeeGovernance;
+window.previewEmployeeContext = previewEmployeeContext;
 
 })();

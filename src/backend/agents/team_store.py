@@ -201,6 +201,10 @@ class TeamStore:
             metadata=data.get("metadata", {}),
             created_at=data.get("created_at", ""),
             hermes_config=hermes_config,
+            # ED-1: 治理参数（旧数据缺字段给默认，向后兼容）
+            autonomy_level=int(data.get("autonomy_level", 2) or 2),
+            token_budget=int(data.get("token_budget", 0) or 0),
+            fallback_model_id=data.get("fallback_model_id", "") or "",
         )
         return agent
 

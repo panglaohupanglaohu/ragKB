@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -232,10 +232,32 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
 
 
 @router.post("/sync-from-dt")
-async def sync_from_digital_twin() -> Dict[str, Any]:
-    """从数字孪生同步当前场景到 SECS 世界状态."""
+async def sync_from_digital_twin(
+    scenario_id: str = Query(default=""),
+) -> Dict[str, Any]:
+    """从数字孪生同步当前场景到 SECS 世界状态。
+    
+    C-4.2: 可选 scenario_id — 当传入时携带场景房间配置，
+    世界状态同步时以场景房间为准。
+    """
     orch = get_orchestrator()
     result = _sync_dt_to_orchestrator(orch)
+    if scenario_id:
+        try:
+            from .scenario_store import get_scenario_store
+            store = get_scenario_store()
+            spec = store.get(scenario_id)
+            if spec and spec.get("world") and spec["world"].get("rooms"):
+                result["scenario_id"] = scenario_id
+                result["scenario_rooms"] = len(spec["world"]["rooms"])
+                # 场景房间覆写 world_state 的房间列表
+                orch.world_state.set_room_stages([
+                    {"room_id": r.get("room_id", r.get("id")), "stage": r.get("stage", 0)}
+                    for r in spec["world"]["rooms"]
+                ])
+                logger.info(f"sync-from-dt: scenario={scenario_id} rooms={len(spec['world']['rooms'])}")
+        except Exception as e:
+            logger.warning(f"sync-from-dt scenario load failed: {e}")
     return {"status": "synced", **result}
 
 

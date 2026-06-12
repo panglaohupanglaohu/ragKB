@@ -216,6 +216,7 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/skill-classification",   # 全局 P0: 技能三池分类
     "/api/v1/ratchet",                # 全局 P0: 正向棘轮账本
     "/api/v1/sustainability",         # 全局 P0: 可持续性评估
+    "/api/v1/agent-employee",         # AgentsGroupConfig: 数字员工档案
 )
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
@@ -636,6 +637,26 @@ async def startup():
         logger.info("✅ Sustainability API mounted (/api/v1/sustainability)")
     except Exception as e:
         _handle_startup_failure("sustainability_api", e, critical=False)
+
+    # 5.9 AgentsGroupConfig: 数字员工档案 API (四件套/Trigger/关系/治理)
+    try:
+        from agents.employee_routes import router as employee_router
+        app.include_router(employee_router)
+        logger.info("✅ Agent Employee API mounted (/api/v1/agent-employee)")
+        # TriggerDaemon: settings.trigger_daemon_enabled=true 时随服务启动（默认关）
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            _settings_p = _Path(__file__).resolve().parents[2] / "config" / "settings.json"
+            _settings = _json.loads(_settings_p.read_text(encoding="utf-8")) if _settings_p.exists() else {}
+            if _settings.get("trigger_daemon_enabled", False):
+                from agents.agent_triggers import get_trigger_daemon
+                get_trigger_daemon().start()
+                logger.info("⏰ TriggerDaemon started (15s tick)")
+        except Exception as de:
+            logger.warning(f"TriggerDaemon 启动跳过: {de}")
+    except Exception as e:
+        _handle_startup_failure("agent_employee_api", e, critical=False)
 
     # 6. Datacenter ratchet demo API
     try:

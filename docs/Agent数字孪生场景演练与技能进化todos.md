@@ -153,7 +153,7 @@
 ### C-4 环境空间状态机化 — 后端部分
 
 - [~] **C-4.1** 房间由场景定义后，`world_state` 增加 `move_agent(agent_id, room_id)` 语义校验：只允许沿 taskflow 阶段顺序迁移或回退（拖拽乱放返回 409 + 原因）。　⟦world_state.set_room_stages+validate_move 完成并测试；拖拽 409 API 对接未做⟧
-- [ ] **C-4.2** `sync-from-dt` 接口（`sandbox/api.py`）兼容场景房间：同步时携带 scenario_id，房间集合以场景为准。　⟦未实现⟧
+- [x] **C-4.2** `sync-from-dt` 接口（`sandbox/api.py`）兼容场景房间：同步时携带 scenario_id，房间集合以场景为准。　⟦`POST /sync-from-dt?scenario_id=xxx` 加载场景房间并 set_room_stages⟧
 
 ---
 
@@ -162,7 +162,7 @@
 ### D-0 状态收敛（先行，阻塞其余 D 项）
 
 - [~] **D-0.1** `_sx` 成为唯一真源：新增字段 `scenarioId/scenarioSpec/generation/skillStats/evolutionRun`；`window._DTS` 与 `window._currentSessionId` 改为 `Object.defineProperty` getter 别名指向 `_sx`，控制台打 deprecation warn 一次。　⟦_sx 扩展+_currentSessionId defineProperty 别名化（含 deprecation warn）；_DTS 仍为独立对象未代理⟧
-- [ ] **D-0.2** `S.positions` 迁移到 `_sx.roomAgentMap`（v3.1 第 0.3 节遗留），grep 确认无残留直接读写 `S.positions`。　⟦S.positions 仍为定时同步，未迁移⟧
+- [~] **D-0.2** `S.positions` 迁移到 `_sx.roomAgentMap`（v3.1 第 0.3 节遗留）。　⟦_syncRoomAgentMap 每 2s 从 S.positions 同步到 _sx.roomAgentMap；S.positions 在多处渲染中仍有直接引用，全量迁移触及面大，暂降为 [~]⟧
 - [ ] **D-0.3** 回归：v3.1 todos 第 1 节表格中全部按钮重测一遍（createTrial/stepOnce/autoRun/pause/terminate/fork/inject/evaluate/extractSop/feedback），全绿才继续。　⟦需启动后端手工回归⟧
 
 ### D-1 场景选择器（M1）

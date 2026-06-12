@@ -429,6 +429,10 @@ class AgentProfile:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     # Hermes-style agent config (optional — non-None means Hermes mode)
     hermes_config: Optional[HermesAgentConfig] = None
+    # ── AgentsGroupConfig ED-1: 组织治理参数 (Clawith 白皮书 L1-L4 / 预算 / 双模型降级) ──
+    autonomy_level: int = 2          # L1 只读建议 / L2 低危执行 / L3 高危需审批 / L4 全自主
+    token_budget: int = 0            # 日 token 限额，0 = 不限
+    fallback_model_id: str = ""      # 主模型失败时的降级模型
 
     def __post_init__(self) -> None:
         if not self.agent_id:
@@ -460,6 +464,10 @@ class AgentProfile:
             "metadata": self.metadata,
             "created_at": self.created_at,
             "is_hermes_agent": self.is_hermes_agent,
+            # ED-1: 治理参数
+            "autonomy_level": self.autonomy_level,
+            "token_budget": self.token_budget,
+            "fallback_model_id": self.fallback_model_id,
         }
         if self.hermes_config is not None:
             d["hermes_config"] = self.hermes_config.to_dict()

@@ -1841,6 +1841,21 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
     target = _tm().get_agent(team_id, req.target_agent_id)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target agent not found")
+    # AgentsGroupConfig EC-6: 关系门禁（soft=警告放行 / hard=拒绝，settings.enforce_relationship_gate）
+    relationship_warning = None
+    try:
+        from .agent_relationships import gate_delegate
+        gate = gate_delegate(team_id, agent_id, req.target_agent_id)
+        if not gate.get("allowed"):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail={"error": "relationship_gate_blocked", "reason": gate.get("reason"),
+                        "allowed_contacts": gate.get("allowed_contacts", [])})
+        relationship_warning = gate.get("warning")
+    except HTTPException:
+        raise
+    except Exception as _gate_err:
+        logger.debug(f"关系门禁不可用，放行: {_gate_err}")
     result = {
         "task_id": str(uuid.uuid4())[:8],
         "from_agent": agent_id,
@@ -1851,6 +1866,8 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
         "status": "delegated",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if relationship_warning:
+        result["relationship_warning"] = relationship_warning
     _delegated_tasks.append(result)
     _log_agent_action(agent_id, "delegated_task",
                       f"to={req.target_agent_id} task={result['task_id']}")

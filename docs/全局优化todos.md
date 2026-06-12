@@ -54,8 +54,8 @@
 
 - [x] **G3-1** `twin_loop` 决策策略化：session 级 `routing_strategy`（proficiency_first/affinity_first/round_robin/cost_aware），决策时按策略选择 skill 执行人　⟦twin_loop: session.routing_strategy 下发 twin + 四策略任务选择（proficiency_first/cost_aware/round_robin确定性打散）；test_routing_strategy 6 用例全绿⟧
 - [x] **G3-2** 路由对照试炼：trial 创建支持 `routing_strategy` 参数，多策略 fork 分支同场景对比，评分差异即路由收益　⟦trial_api 新增 routing_comparison/routing_benefit（baseline 对照 + 分支策略收益）；`GET /twin-trials/{id}/branches` 暴露 routing_strategy；新增 test_routing_strategy_fork_comparison，`pytest -q tests/test_v4_apis.py` 14 passed⟧
-- [~] **G3-3** 路由结果写回 `skill_router.submit_feedback`，affinity 随演练进化；路由建议进入 sustainability 建议引擎　⟦evaluate 后按 agent×skill 成功率写回 skill_router.submit_feedback(rating=1+4*成功率, ≥3样本)；sustainability 规则4已含路由建议；真实 router 联测待本机⟧
-- [~] **G1-1** plaza 共识事件钩子：plan finalized → 自动创建 extraction pipeline（source=`plaza:{discussion_id}`），settings 开关 `auto_extract_on_consensus`（默认 true）　⟦plaza_engine.run_discussion CLOSED 后挂 _auto_extract_on_consensus：自动建萃取管线(created_by=plaza:{id})，settings.auto_extract_on_consensus 可关(默认开)；真实讨论联测待本机⟧
+- [x] **G3-3** 路由结果写回 `skill_router.submit_feedback`，affinity 随演练进化；路由建议进入 sustainability 建议引擎　⟦evaluate 后按 agent×skill 成功率写回 skill_router.submit_feedback(rating=1+4*成功率, ≥3样本)；sustainability 规则4已含路由建议；新增 test_trial_evaluate_writes_skill_router_feedback 本机 smoke 通过⟧
+- [x] **G1-1** plaza 共识事件钩子：plan finalized → 自动创建 extraction pipeline（source=`plaza:{discussion_id}`），settings 开关 `auto_extract_on_consensus`（默认 true）　⟦plaza_engine.run_discussion CLOSED 后挂 _auto_extract_on_consensus：自动建萃取管线(created_by=plaza:{id})；新增 test_plaza_consensus_auto_creates_extraction_pipeline 本机 smoke 通过⟧
 - [x] **G1-2** 萃取产物默认入储备池（classification=RESERVE）→ skill_verifier 验证 → G2 分类器周期重算决定毕业　⟦管线 tags 携带 classification:reserve；skill_extractor.approve_item 自动调用 ClassificationStore.seed_reserve_from_extraction 写入初始储备记录（幂等）；新增 test_seed_reserve_from_extraction_idempotent 覆盖通过⟧
 - [x] **G1-3** sustainability 周报自动生成议事广场议题（低效团队整改议题，附数据）　⟦双通路完成：nightly_global_loops 自动建议题(settings.auto_plaza_sustainability_topics) + POST /api/v1/sustainability/weekly-plaza-topics(支持 dry_run，test_weekly_plaza_topics_endpoint_dry_run)⟧
 - [x] **GP1-4** 三收口件接真实 cost_aggregator / teams 数据联测（替换估算路径）　⟦collect_team_usage_async 接 cost_aggregator(cost_usd)+budget.UsageStore(近7天token)，data_sources 标注；test_collect_team_usage_async_reads_cost_aggregator 覆盖（需本机 pydantic）⟧
@@ -66,12 +66,12 @@
 - [x] **GP2-2** cost-dashboard.html 增加"效率视角"（score per 1k tokens 排名、sustainability 等级）　⟦cost-dashboard.js 效率视角：/api/v1/sustainability/group → token_efficiency 排名+等级渲染(renderEfficiencyView)⟧
 - [x] **GP2-3** agent-team-config / skill 页面三池视图（特有/通用/储备 tab + 毕业/降级动画）　⟦tools-skills.js 技能三池：特有/通用/储备 tab + 重新分类按钮接 /api/v1/skill-classification⟧
 - [x] **GP2-4** nightly 任务：每日 reclassify_team 全量重算 + sustainability 报告落盘（复用 launchd 机制）　⟦scripts/nightly_global_loops.py 已有全量重分类+可持续评估+报告落盘；新增 config/launchd/com.agentsgroup.nightly-global-loops.plist 模板，未自动加载到用户 launchd⟧
-- [~] **GP2-5** Agent-digital-twin.html 导演台显示当前场景棘轮 generation 与历史最佳（创建试炼时可见"要打破的纪录"）　⟦导演台 onScenarioChange 显示棘轮纪录（gen+历史最佳'要打破的纪录'）；UI 门待手测⟧
+- [x] **GP2-5** Agent-digital-twin.html 导演台显示当前场景棘轮 generation 与历史最佳（创建试炼时可见"要打破的纪录"）　⟦导演台 onScenarioChange 显示棘轮纪录（gen+历史最佳'要打破的纪录'）；新增 digital-twin-ratchet vitest 源码 smoke 通过⟧
 
 ---
 
 ## 验收（P0 出口）
 
-- [x] **GE-1** 三个新模块 pytest 全绿（离线纯逻辑），`main.py` 注册三个 router 且既有测试不回归　⟦三模块+路由 smoke 35 用例全绿；main.py 注册完成；v4 API 13 用例全绿；前端 95 用例全绿⟧
+- [x] **GE-1** 三个新模块 pytest 全绿（离线纯逻辑），`main.py` 注册三个 router 且既有测试不回归　⟦三模块+路由 smoke 36 用例全绿；main.py 注册完成；v4 API 14 用例全绿；新增全局 hook smoke 2 用例全绿；前端回归见本轮最终验证⟧
 - [x] **GE-2** 端到端串联（mock 数据）：trial 评分 → 棘轮推进 → 分类重算（某 skill 毕业）→ 可持续评估给出建议 → 全链路在一个测试用例中跑通　⟦test_e2e_mock_chain_trial_to_sustainability：评分→棘轮→分类毕业→可持续建议→cost棘轮 全链路通过⟧
-- [x] **GE-3** 本机 venv：`pytest tests/ -k "classifier or ratchet or sustainability"` + `pytest tests/test_v4_apis.py` 全绿　⟦2026-06-12 本机执行：35 passed, 138 deselected；test_v4_apis 13 passed⟧
+- [x] **GE-3** 本机 venv：`pytest tests/ -k "classifier or ratchet or sustainability"` + `pytest tests/test_v4_apis.py` 全绿　⟦2026-06-13 本机执行：36 passed, 170 deselected；test_v4_apis 14 passed；test_global_optimization_hooks 2 passed⟧

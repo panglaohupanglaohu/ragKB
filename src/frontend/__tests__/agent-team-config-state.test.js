@@ -27,4 +27,14 @@ describe('agent-team-config state namespace', () => {
     expect(source).toContain('window.reclassifySkillPools = reclassifySkillPools');
     expect(source).toContain('特有 / 通用 / 储备');
   });
+
+  it('wires the digital employee detail panel', () => {
+    const source = read('src/frontend/js/agent-detail.js');
+    const html = read('src/frontend/agent-team-config.html');
+    expect(html).toContain('data-at="ag-employee"');
+    expect(source).toContain("const EMPLOYEE_API = '/api/v1/agent-employee';");
+    expect(source).toContain('function renderEmployeeView(d)');
+    expect(source).toContain('window.saveEmployeeGovernance = saveEmployeeGovernance');
+    expect(source).toContain('previewEmployeeContext');
+  });
 });
