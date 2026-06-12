@@ -17,4 +17,14 @@ describe('agent-team-config state namespace', () => {
     expect(source).toContain('agRuntime.claudeEventSource');
     expect(source).toContain('agRuntime.agentPollTimer');
   });
+
+  it('wires the skill classification three-pool view', () => {
+    const source = read('src/frontend/js/tools-skills.js');
+    const html = read('src/frontend/agent-team-config.html');
+    expect(html).toContain('id="skills-cards"');
+    expect(source).toContain('/api/v1/skill-classification/teams/');
+    expect(source).toContain('function renderSkillClassificationPanel(view)');
+    expect(source).toContain('window.reclassifySkillPools = reclassifySkillPools');
+    expect(source).toContain('特有 / 通用 / 储备');
+  });
 });

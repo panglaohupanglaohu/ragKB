@@ -176,6 +176,9 @@ describe('system-evolution dashboard', () => {
     expect(source).toContain('function exposeEvolutionActions()');
     expect(source).toContain('Object.assign(window');
     expect(source).toContain('openItemDetail(deepLinkItemId)');
+    expect(html).toContain('id="ratchet-ledger-metrics"');
+    expect(source).toContain('/api/v1/ratchet/metrics');
+    expect(source).toContain('function renderRatchetLedgerCurve(metrics)');
     expect(source).toContain('构建完成证据');
     expect(source).toContain('function renderBuildCompleteForm(item)');
     expect(source).toContain('async function submitBuildComplete(itemId)');

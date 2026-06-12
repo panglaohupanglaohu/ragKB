@@ -23,6 +23,7 @@ const CACHE_TTL = {
   trail: 15000,
   trend: 30000,
   heritage: 30000,
+  ratchetMetrics: 30000,
   'evolve-skills': 15000,
   default: 30000,
 };
@@ -878,11 +879,77 @@ async function loadHeritage() {
     }
     // Build ratchet flow diagram too
     buildRatchetFlow();
+    await loadRatchetMetrics();
     cacheSet('panel-ratchet', true, CACHE_TTL.heritage);
   } catch (e) {
     renderError('heritage-list', e, '遗产账本加载失败', loadHeritage);
   }
   hideSkeleton('ratchet');
+}
+
+async function loadRatchetMetrics() {
+  const host = el('ratchet-ledger-metrics');
+  if (!host) return;
+  try {
+    const payload = await apiRequest('/api/v1/ratchet/metrics');
+    const metrics = collectionItems(payload?.metrics || payload);
+    const count = el('ratchet-ledger-count');
+    if (count) count.textContent = `${metrics.length} 项`;
+    if (!metrics.length) {
+      renderEmpty('ratchet-ledger-metrics', '暂无全局棘轮指标');
+      return;
+    }
+    host.innerHTML = renderRatchetLedgerCurve(metrics) +
+      '<div class="ratchet-ledger-grid">' +
+      metrics.slice(0, 8).map(renderRatchetMetricCard).join('') +
+      '</div>';
+    cacheSet('ratchet-metrics', metrics, CACHE_TTL.ratchetMetrics);
+  } catch (e) {
+    renderError('ratchet-ledger-metrics', e, '全局棘轮指标加载失败', loadRatchetMetrics);
+  }
+}
+
+function renderRatchetMetricCard(metric) {
+  const key = metric.metric_key || '';
+  const value = Number(metric.value || 0);
+  const kind = key.split(':')[0] || 'metric';
+  return `<div class="ratchet-metric">
+    <div class="ratchet-metric__key">${escapeHtml(key)}</div>
+    <div class="ratchet-metric__value">${formatMetricValue(value)}</div>
+    <div class="ratchet-metric__meta">${escapeHtml(kind)} · gen ${metric.generation || 0} · ${timeAgo(metric.updated_at)}</div>
+  </div>`;
+}
+
+function formatMetricValue(value) {
+  if (!isFinite(value)) return '0';
+  if (Math.abs(value) >= 1000) return value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+}
+
+function renderRatchetLedgerCurve(metrics) {
+  const sorted = metrics.slice().sort((a, b) => String(a.updated_at || '').localeCompare(String(b.updated_at || '')));
+  const values = sorted.map(m => Number(m.value || 0));
+  const W = 720, H = 150, padL = 44, padR = 18, padT = 18, padB = 30;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const range = max - min || 1;
+  const xAt = i => padL + (sorted.length <= 1 ? innerW / 2 : (i / (sorted.length - 1)) * innerW);
+  const yAt = v => padT + innerH - ((v - min) / range) * innerH;
+  const d = sorted.map((m, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yAt(values[i]).toFixed(1)}`).join(' ');
+  const dots = sorted.map((m, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(values[i]).toFixed(1)}" r="3"><title>${escapeHtml(m.metric_key || '')}: ${formatMetricValue(values[i])}</title></circle>`).join('');
+  const first = sorted[0]?.metric_key || '';
+  const last = sorted[sorted.length - 1]?.metric_key || '';
+  return `<div class="ratchet-ledger-curve">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="全局棘轮指标曲线">
+      <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="var(--groove)" stroke-width="1"/>
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="var(--groove)" stroke-width="1"/>
+      <text x="${padL}" y="${H - 8}" text-anchor="start">${escapeHtml(first.slice(0, 22))}</text>
+      <text x="${padL + innerW}" y="${H - 8}" text-anchor="end">${escapeHtml(last.slice(0, 22))}</text>
+      <path d="${d}"/>
+      ${dots}
+    </svg>
+  </div>`;
 }
 
 // ── Actions ──
@@ -960,18 +1027,6 @@ const RatchetAnimator = {
 // Shared ratchet flow builder
 function buildRatchetFlow() {
   // The Ratchet panel flow is in HTML, just returns
-}
-
-function buildMiniRatchet() {
-  const steps = [
-    { id: 'ov-r-audit', label: '审查', sub: 'AUDIT' },
-    { id: 'ov-r-dispatch', label: '派发', sub: 'DISPATCH' },
-    { id: 'ov-r-verify', label: '验证', sub: 'VERIFY' },
-    { id: 'ov-r-close', label: '关闭', sub: 'CLOSE' }
-  ];
-  el('ov-ratchet').innerHTML = steps.map((s, i) =>
-    `<div class="ratchet-node"><div class="ratchet-dot" id="${s.id}">${s.label[0]}</div><div class="ratchet-label">${s.label}</div><div class="ratchet-sublabel">${s.sub}</div></div>${i < 3 ? '<div class="ratchet-connector" id="ov-rc-' + (i + 1) + '"></div>' : ''}`
-  ).join('');
 }
 
 // Ratchet Cycle Stepper (on ratchet page)
@@ -1780,7 +1835,7 @@ function _startSSE() {
     _sseSource.onerror = function() {
       _closeSSE();
       // Fallback to polling
-      if (!_ssePollTimer && _ssePollActive) {
+      if (!_ssePollTimer && _ssePollActive && typeof setInterval === 'function') {
         _ssePollTimer = setInterval(() => {
           const active = document.querySelector('.tab-panel.active');
           if (active && active.id === 'panel-overview') loadOverview();
@@ -1797,7 +1852,7 @@ function _closeSSE() {
 }
 
 function _fallbackPoll() {
-  if (!_ssePollTimer) {
+  if (!_ssePollTimer && typeof setInterval === 'function') {
     _ssePollActive = true;
     _ssePollTimer = setInterval(() => {
       const active = document.querySelector('.tab-panel.active');
@@ -1807,7 +1862,7 @@ function _fallbackPoll() {
 }
 
 function _stopPolling() {
-  if (_ssePollTimer) { clearInterval(_ssePollTimer); _ssePollTimer = null; }
+  if (_ssePollTimer && typeof clearInterval === 'function') { clearInterval(_ssePollTimer); _ssePollTimer = null; }
   _ssePollActive = false;
 }
 
@@ -1849,4 +1904,6 @@ else loadOverview();
 _startSSE();
 
 // Cleanup on page unload
-window.addEventListener('beforeunload', () => { _closeSSE(); _stopPolling(); });
+if (window.addEventListener) {
+  window.addEventListener('beforeunload', () => { _closeSSE(); _stopPolling(); });
+}

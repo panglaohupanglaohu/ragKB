@@ -159,6 +159,9 @@ describe('cost governance dashboard', () => {
           labels: { service: 'checkout', environment: 'production', team: 'cloud-ops' },
         }];
       }
+      if (url === '/api/v1/sustainability/group') {
+        return { teams: [{ team_id: 'cloud_ops', token_efficiency: 0.42, grade: 'B', tokens_consumed: 5000, data_quality: 'measured', recommendations: [] }], reallocations: [] };
+      }
       if (url === '/api/v1/agent-config/teams?limit=200&offset=0') {
         return { items: [{ team_id: 'cloud_ops', name: '公有云运维团队' }] };
       }
@@ -172,8 +175,27 @@ describe('cost governance dashboard', () => {
     expect(elements['summary-grid'].innerHTML).toContain('$42.50');
     expect(elements['trends-chart'].innerHTML).toContain('$42.50');
     expect(elements['pods-tbody'].innerHTML).toContain('checkout-7d9');
+    expect(elements['efficiency-panel'].innerHTML).toContain('cloud_ops');
+    expect(elements['efficiency-panel'].innerHTML).toContain('0.4200');
     expect(elements['governance-panel'].innerHTML).toContain('创建优化任务');
     expect(elements['governance-panel'].innerHTML).toContain('创建 Plaza 话题');
+  });
+
+  it('renders the token efficiency perspective from sustainability results', () => {
+    const { context, elements } = buildContext(vi.fn());
+
+    context.window.CostDashboard.renderEfficiencyView({
+      teams: [
+        { team_id: 'alpha', token_efficiency: 0.8, grade: 'A', tokens_consumed: 1000, data_quality: 'measured', recommendations: [] },
+        { team_id: 'omega', token_efficiency: 0.02, grade: 'D', tokens_consumed: 90000, data_quality: 'estimated', recommendations: [{ detail: '降低演练频率' }] },
+      ],
+      reallocations: [{ from_team: 'omega', to_team: 'alpha', tokens: 18000 }],
+    });
+
+    expect(elements['efficiency-panel'].innerHTML).toContain('alpha');
+    expect(elements['efficiency-panel'].innerHTML).toContain('omega');
+    expect(elements['efficiency-panel'].innerHTML).toContain('18,000');
+    expect(elements['efficiency-panel'].innerHTML).toContain('降低演练频率');
   });
 
   it('creates a real agent task from a cost anomaly target', async () => {

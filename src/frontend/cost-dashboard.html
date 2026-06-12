@@ -108,6 +108,20 @@
       </div>
     </section>
 
+    <!-- ============== Token Efficiency View ============== -->
+    <section class="panel panel--efficiency" style="margin-bottom:24px">
+      <header class="panel__head panel__head--row">
+        <div>
+          <h3>效率视角</h3>
+          <p class="panel__sub">按 score / 1k tokens 排名，联动 sustainability 等级</p>
+        </div>
+        <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEfficiencyView()">刷新效率</button>
+      </header>
+      <div id="efficiency-panel">
+        <div class="loading-state"><div class="spinner"></div></div>
+      </div>
+    </section>
+
     <!-- ============== Workbench: 2 charts + governance ============== -->
     <section class="workbench-grid">
       <div class="charts-grid">

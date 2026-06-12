@@ -8,12 +8,59 @@
 (function(){
 'use strict';
 let _tcToolId='';
+let _lastSkillClassification=null;
+let _lastSkillPoolChanges=[];
+let _skillPoolFilter='exclusive';
 function asItems(payload){return Array.isArray(payload)?payload:Array.isArray(payload&&payload.items)?payload.items:[]}
 async function listApi(path, limit, offset){
   if(window.api&&typeof window.api.list==='function'){
     return asItems(await window.api.list(path, limit||50, offset||0));
   }
   return asItems(await api(path));
+}
+
+function skillPoolLabel(pool){return {exclusive:'特有',general:'通用',reserve:'储备'}[pool]||pool}
+function normalizeSkillPools(view){
+  const source=(view&&view.pool_detail)||((view&&view.pools)||{});
+  const out={exclusive:[],general:[],reserve:[]};
+  Object.keys(out).forEach(function(pool){
+    out[pool]=Array.isArray(source[pool])?source[pool]:[];
+  });
+  return out;
+}
+function renderSkillClassificationPanel(view){
+  const pools=normalizeSkillPools(view);
+  const active=pools[_skillPoolFilter]?_skillPoolFilter:'exclusive';
+  const changes=_lastSkillPoolChanges||[];
+  const rows=pools[active]||[];
+  const tabs=['exclusive','general','reserve'].map(function(pool){
+    return '<button class="skill-pool-tab '+(pool===active?'active':'')+'" onclick="switchSkillPool(\''+pool+'\')">'+skillPoolLabel(pool)+' <b>'+pools[pool].length+'</b></button>';
+  }).join('');
+  const changeIds=new Set(changes.map(function(c){return c.skill_id;}));
+  const body=rows.length?rows.map(function(s){
+    const reason=(s.reasons||[]).slice(0,2).join('；')||'等待下一轮证据';
+    const changed=changeIds.has(s.skill_id)?' skill-pool-row--changed':'';
+    return '<div class="skill-pool-row'+changed+'"><div><b>'+escapeHtml(s.name||s.skill_id)+'</b><span>'+escapeHtml(reason)+'</span></div><a href="/system-evolution.html?panel=evolve-lab" class="btn btn-sm btn-ghost">进化</a></div>';
+  }).join(''):'<div class="skill-pool-empty">当前池暂无技能</div>';
+  const changeHtml=changes.length?'<div class="skill-pool-events">'+changes.slice(0,4).map(function(c){
+    return '<span>'+escapeHtml(c.skill_name||c.skill_id)+' '+(c.type==='graduate'?'毕业':'降级')+' '+escapeHtml(c.from||'')+' → '+escapeHtml(c.to||'')+'</span>';
+  }).join('')+'</div>':'';
+  return '<div class="skill-pool-panel" id="skill-classification-panel"><div class="skill-pool-head"><div><div class="skill-pool-title">技能三池</div><div class="skill-pool-sub">特有 / 通用 / 储备</div></div><button class="btn btn-sm" onclick="reclassifySkillPools()">重新分类</button></div><div class="skill-pool-tabs">'+tabs+'</div>'+changeHtml+'<div class="skill-pool-body">'+body+'</div></div>';
+}
+function switchSkillPool(pool){
+  _skillPoolFilter=pool;
+  const panel=el('skill-classification-panel');
+  if(panel)panel.outerHTML=renderSkillClassificationPanel(_lastSkillClassification);
+}
+async function reclassifySkillPools(){
+  const panel=el('skill-classification-panel');
+  if(panel)panel.classList.add('skill-pool-panel--loading');
+  const r=await api('/api/v1/skill-classification/teams/'+encodeURIComponent(tid)+'/reclassify',{method:'POST'}).catch(()=>null);
+  if(!r){toast('技能分类失败');if(panel)panel.classList.remove('skill-pool-panel--loading');return}
+  _lastSkillClassification={team_id:r.team_id,pools:r.pool_detail||{},last_reclassified:new Date().toISOString()};
+  _lastSkillPoolChanges=r.changes||[];
+  if(panel)panel.outerHTML=renderSkillClassificationPanel(_lastSkillClassification);
+  toast('技能三池已更新');
 }
 async function loadTools(){hideViewLoading('view-tools');
   const[all,team]=await Promise.all([listApi(`${A}/tools`,200,0),listApi(`${A}/teams/${tid}/tools`,200,0)]);
@@ -155,8 +202,15 @@ async function deleteSkill(skillId,skillName){
 
 // ── Skills (Clawith-style) ──
 async function loadSkills(){hideViewLoading('view-skills');
-  const teamSkills=await listApi(`${A}/teams/${tid}/skills`,200,0);const box=el('skills-cards');
+  const[teamSkills,classification]=await Promise.all([
+    listApi(`${A}/teams/${tid}/skills`,200,0),
+    api('/api/v1/skill-classification/teams/'+encodeURIComponent(tid)).catch(()=>null)
+  ]);
+  _lastSkillClassification=classification;
+  _lastSkillPoolChanges=[];
+  const box=el('skills-cards');
   let html='<div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-sm btn-pink" onclick="openGenerateSkillModal()">⚡ 生成技能</button><button class="btn btn-sm" onclick="importSkillFromFile()">📥 导入技能</button><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出全部</button></div>';
+  html+=renderSkillClassificationPanel(classification);
   if(!teamSkills.length){box.innerHTML=html+'<p style="color:var(--dim)">当前团队暂无技能</p>';return}
   const cats={};teamSkills.forEach(s=>{const c=(s.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(s)});
   Object.keys(cats).sort().forEach(cat=>{
@@ -302,6 +356,8 @@ function exportSkillsMD(){
 // Export to global scope for HTML onclick access (all functions referenced from generated HTML)
 window.loadTools = loadTools;
 window.loadSkills = loadSkills;
+window.switchSkillPool = switchSkillPool;
+window.reclassifySkillPools = reclassifySkillPools;
 window.togTool = togTool;
 window.testToolExec = testToolExec;
 window.openToolConfig = openToolConfig;

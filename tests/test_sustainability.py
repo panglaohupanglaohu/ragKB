@@ -3,6 +3,9 @@
 
 import os
 import sys
+import asyncio
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "backend"))
 
@@ -53,6 +56,33 @@ def test_estimation_fallback_marks_quality():
         trials=[{"trial_id": "t", "scenario_id": "s", "total_score": 0.5, "steps": 100}]))
     assert r["data_quality"] == "estimated"
     assert r["tokens_consumed"] == 100 * 800  # STEP_TOKEN_ESTIMATE
+
+
+def test_collect_team_usage_async_reads_cost_aggregator():
+    import agents.cost_aggregator as cost_aggregator
+    from agents.cost_models import PodCostItem
+    from agents.sustainability import collect_team_usage_async, evaluate_team
+
+    previous = cost_aggregator._aggregator
+    try:
+        agg = cost_aggregator.CostAggregator()
+        agg._cache.update([
+            PodCostItem(
+                pod="worker-1",
+                total_cost=12.5,
+                labels={"team": "team_cost", "service": "trial-worker"},
+            )
+        ], window_start="7d", window_end="now")
+        cost_aggregator._aggregator = agg
+
+        usage = asyncio.run(collect_team_usage_async("team_cost"))
+        result = evaluate_team(usage)
+
+        assert usage.cost_usd == 12.5
+        assert result["cost_usd"] == 12.5
+        assert result["data_sources"]["cost_aggregator"] == "measured"
+    finally:
+        cost_aggregator._aggregator = previous
 
 
 def test_recommendation_model_downgrade():
@@ -109,6 +139,38 @@ def test_group_ranking_and_reallocation():
     realloc = g["reallocations"][0]
     assert realloc["from_team"] == "omega" and realloc["to_team"] == "alpha"
     assert realloc["tokens"] == 20000  # 20% of 100k
+
+
+def test_weekly_plaza_topics_endpoint_dry_run(monkeypatch):
+    fastapi = pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from agents import sustainability_routes
+
+    async def fake_team_ids():
+        return ["omega"]
+
+    async def fake_usage(team_id):
+        return _usage(
+            team_id=team_id,
+            tokens_consumed=100000,
+            budget_tokens=100000,
+            previous_efficiency=1.0,
+            trials=[{"trial_id": "t", "scenario_id": "s", "total_score": 0.05, "tokens": 100000}],
+        )
+
+    monkeypatch.setattr(sustainability_routes, "list_known_team_ids", fake_team_ids)
+    monkeypatch.setattr(sustainability_routes, "collect_team_usage_async", fake_usage)
+
+    app = fastapi.FastAPI()
+    app.include_router(sustainability_routes.router)
+    client = TestClient(app)
+
+    r = client.post("/api/v1/sustainability/weekly-plaza-topics", json={"dry_run": True})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["dry_run"] is True
+    assert data["topics"]
+    assert "omega" in data["topics"][0]["topic"]
 
 
 def test_e2e_mock_chain_trial_to_sustainability():

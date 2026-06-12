@@ -1934,7 +1934,8 @@ window.reopenDisc = async function(event, discId) {
   try {
     await api(`${API}/plaza/${curPlaza}/discussions/${id}/start`, { method: 'POST' });
     toast('话题已重新开启');
-    loadDiscs();
+    await selectPlaza(curPlaza);
+    await selectDisc(id);
   } catch (e) { toast('重新开启失败: ' + (e.message || '服务异常')); }
 };
 

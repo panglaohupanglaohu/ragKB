@@ -259,6 +259,88 @@ body.cost-page {
   justify-content: space-between;
   transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
 }
+
+/* ─────────────────────── Efficiency View ─────────────────────── */
+.efficiency-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.36fr);
+  gap: 16px;
+}
+.efficiency-list {
+  display: grid;
+  gap: 8px;
+}
+.efficiency-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 120px 74px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--ob-bg-section);
+  border: 1px solid var(--ob-border-subtle);
+  border-radius: 8px;
+}
+.efficiency-rank {
+  color: var(--sumi-3);
+  font-family: var(--ob-font-mono);
+  font-size: 12px;
+}
+.efficiency-team {
+  min-width: 0;
+}
+.efficiency-team b {
+  display: block;
+  color: var(--sumi);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.efficiency-team span {
+  color: var(--sumi-3);
+  font-size: 11px;
+  font-family: var(--ob-font-mono);
+}
+.efficiency-score {
+  color: var(--koke);
+  font-family: var(--ob-font-mono);
+  font-weight: 700;
+  text-align: right;
+}
+.efficiency-grade {
+  justify-self: end;
+  min-width: 36px;
+  text-align: center;
+  border: 1px solid var(--ob-border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: var(--ob-font-mono);
+  font-weight: 700;
+}
+.efficiency-grade--A,
+.efficiency-grade--B { color: var(--koke); }
+.efficiency-grade--C { color: var(--kitsune); }
+.efficiency-grade--D { color: var(--shu); }
+.efficiency-side {
+  background: var(--ob-bg-section);
+  border: 1px solid var(--ob-border-subtle);
+  border-radius: 8px;
+  padding: 14px;
+}
+.efficiency-side h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.efficiency-side p {
+  margin: 0 0 8px;
+  color: var(--sumi-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 900px) {
+  .efficiency-grid { grid-template-columns: 1fr; }
+  .efficiency-row { grid-template-columns: 32px minmax(0, 1fr) 90px 54px; }
+}
 .kpi-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);

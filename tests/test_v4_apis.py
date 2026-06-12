@@ -131,6 +131,8 @@ def test_trial_lifecycle_with_skill_stats(client):
     assert r.status_code == 200
     ev = r.json()
     assert "skill_breakdown" in ev
+    assert "ratchet" in ev
+    assert {"advanced", "generation", "reason"} <= set(ev["ratchet"])
     assert 0 <= ev["total_score"] <= 1
 
     # SOP 萃取 + B-2.4 真实反哺

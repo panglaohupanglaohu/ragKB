@@ -158,3 +158,22 @@ def test_reclassify_team_pools_and_events():
         # 持久化重载
         store2 = ClassificationStore(store_dir=Path(tmp))
         assert len(store2.get_view("teamA")["pools"]["exclusive"]) == 1
+
+
+def test_skill_classifier_routes_smoke():
+    fastapi = __import__("pytest").importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from agents.skill_classifier import reset_classification_store
+    from agents.skill_classifier_routes import router
+
+    with tempfile.TemporaryDirectory() as tmp:
+        reset_classification_store(store_dir=Path(tmp))
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        view = client.get("/api/v1/skill-classification/teams/teamA")
+        assert view.status_code == 200
+        assert set(view.json()["pools"]) == {"exclusive", "general", "reserve"}
+        assert client.post("/api/v1/skill-classification/teams/teamA/reclassify").status_code == 200
+        assert client.get("/api/v1/skill-classification/teams/teamA/history").status_code == 200

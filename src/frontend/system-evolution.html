@@ -97,6 +97,16 @@ a{color:var(--koke);text-decoration:none}
 .heritage-item .h-title{font-weight:600;font-size:13px}
 .heritage-item .h-meta{font-size:11px;color:var(--muted);font-family:var(--font-mono)}
 .heritage-item .h-delta{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--koke);white-space:nowrap}
+.ratchet-ledger-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:12px}
+.ratchet-metric{background:var(--ishi);border:1px solid var(--groove);padding:12px 14px;min-height:92px}
+.ratchet-metric__key{font-family:var(--font-mono);font-size:11px;color:var(--koke);word-break:break-word;line-height:1.5}
+.ratchet-metric__value{font-family:var(--font-mono);font-size:20px;font-weight:700;margin-top:6px}
+.ratchet-metric__meta{font-size:11px;color:var(--dim);margin-top:4px}
+.ratchet-ledger-curve{background:var(--ishi);border:1px solid var(--groove);padding:12px 14px;overflow:hidden}
+.ratchet-ledger-curve svg{width:100%;height:120px;display:block}
+.ratchet-ledger-curve text{font-size:10px;fill:var(--dim);font-family:var(--font-mono)}
+.ratchet-ledger-curve path{fill:none;stroke:var(--koke);stroke-width:2}
+.ratchet-ledger-curve circle{fill:var(--shironeri);stroke:var(--koke);stroke-width:2}
 
 /* Zone badge */
 .zone-badge{padding:8px 14px;background:rgba(107,196,127,0.08);border:1px solid rgba(107,196,127,0.18);display:inline-flex;align-items:center;gap:8px;font-size:12px;margin:4px}
@@ -321,6 +331,14 @@ a{color:var(--koke);text-decoration:none}
             <button class="btn btn-primary btn-sm" onclick="runCycleOnRatchet()">▶ 运行完整周期</button>
             <button class="btn btn-sm" onclick="runAuditOnly()">🔍 仅审查</button>
           </div>
+        </div>
+        <!-- Global Ratchet Ledger Metrics -->
+        <div class="section" style="margin-top:24px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>全局棘轮指标</span>
+            <span id="ratchet-ledger-count" style="font-size:12px;font-family:var(--font-mono);color:var(--koke)"></span>
+          </div>
+          <div id="ratchet-ledger-metrics"></div>
         </div>
         <!-- Heritage Ledger -->
         <div class="section" style="margin-top:24px">

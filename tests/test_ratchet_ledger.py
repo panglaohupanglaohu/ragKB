@@ -137,3 +137,32 @@ def test_evolution_bridge_ratchet_gate_blocks_regression():
         assert result2["ok"], result2
 
         reset_ratchet_ledger()  # 还原单例，避免污染其他测试
+
+
+def test_ratchet_routes_smoke():
+    fastapi = __import__("pytest").importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from agents.ratchet_ledger import reset_ratchet_ledger
+    from agents.ratchet_routes import router
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger = reset_ratchet_ledger(ledger_file=Path(tmp) / "ledger.json")
+        ledger.advance("scenario_best:s1:teamA", 0.7)
+
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        metrics = client.get("/api/v1/ratchet/metrics")
+        assert metrics.status_code == 200
+        assert metrics.json()["total"] == 1
+        history = client.get("/api/v1/ratchet/metrics/scenario_best:s1:teamA/history")
+        assert history.status_code == 200
+        reset = client.post(
+            "/api/v1/ratchet/metrics/scenario_best:s1:teamA/force-reset",
+            json={"reason": "test reset"},
+        )
+        assert reset.status_code == 200
+        assert reset.json()["ok"] is True
+
+        reset_ratchet_ledger()

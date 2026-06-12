@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ class TeamUsage:
     skill_stats: List[Dict[str, Any]] = field(default_factory=list)
     # skill_stats: {skill_name, total_uses, success_rate}
     data_quality: str = "measured"
+    cost_usd: float = 0.0
+    data_sources: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TeamUsage":
@@ -56,6 +58,8 @@ class TeamUsage:
             previous_efficiency=d.get("previous_efficiency"),
             skill_stats=d.get("skill_stats", []),
             data_quality=d.get("data_quality", "measured"),
+            cost_usd=float(d.get("cost_usd", 0) or 0),
+            data_sources=d.get("data_sources", {}) or {},
         )
 
 
@@ -117,6 +121,8 @@ def evaluate_team(usage: TeamUsage) -> Dict[str, Any]:
         "total_score": round(total_score, 4),
         "trial_count": len(usage.trials),
         "data_quality": data_quality,
+        "cost_usd": round(float(usage.cost_usd or 0), 4),
+        "data_sources": dict(usage.data_sources or {}),
         "recommendations": recommendations,
     }
 
@@ -227,6 +233,8 @@ def collect_team_usage(team_id: str) -> TeamUsage:
                                  "scenario_id": getattr(t, "scenario_id", ""),
                                  "total_score": float(score),
                                  "steps": t.total_steps})
+        if usage.trials:
+            usage.data_sources["trials"] = "estimated"
     except Exception as e:
         logger.debug(f"trial 数据不可用: {e}")
 
@@ -243,6 +251,7 @@ def collect_team_usage(team_id: str) -> TeamUsage:
         if total > 0:
             usage.tokens_consumed = float(total)
             usage.data_quality = "measured"
+            usage.data_sources["usage_store"] = "measured"
     except Exception as e:
         logger.debug(f"budget UsageStore 不可用，回退估算: {e}")
 
@@ -253,7 +262,107 @@ def collect_team_usage(team_id: str) -> TeamUsage:
             usage.skill_stats.append({"skill_name": p.get("skill_name"),
                                       "total_uses": p.get("total_uses", 0),
                                       "success_rate": p.get("success_rate", 0.5)})
+        if usage.skill_stats:
+            usage.data_sources["proficiency_store"] = "measured"
     except Exception:
         pass
 
+    _enrich_team_profile(usage)
     return usage
+
+
+def _enrich_team_profile(usage: TeamUsage) -> None:
+    """从真实 TeamManager 补齐团队规模和默认模型层级（失败不影响评估）."""
+    try:
+        from .api import _team_manager
+        if not _team_manager:
+            return
+        team = _team_manager.get_team(usage.team_id)
+        if not team:
+            return
+        if not usage.agent_count:
+            usage.agent_count = len(getattr(team, "agents", {}) or {})
+        if usage.model_tier == "standard":
+            model_names = [
+                str(getattr(m, "name", "") or getattr(m, "model_id", "")).lower()
+                for m in (getattr(team, "models", {}) or {}).values()
+            ]
+            usage.model_tier = _infer_model_tier(model_names)
+        metadata = getattr(team, "metadata", {}) or {}
+        if not usage.budget_tokens and metadata.get("budget_tokens"):
+            usage.budget_tokens = float(metadata.get("budget_tokens") or 0)
+        usage.data_sources["team_manager"] = "measured"
+    except Exception as e:
+        logger.debug(f"team_manager 数据不可用: {e}")
+
+
+def _infer_model_tier(model_names: List[str]) -> str:
+    joined = " ".join(model_names)
+    if any(k in joined for k in ("opus", "gpt-4", "gpt4", "large", "premium")):
+        return "premium"
+    if any(k in joined for k in ("sonnet", "gpt-4o", "medium")):
+        return "standard"
+    if any(k in joined for k in ("mini", "haiku", "small", "lite")):
+        return "small"
+    return "standard"
+
+
+async def collect_team_usage_async(team_id: str) -> TeamUsage:
+    """异步适配层: 同步 token/trial 证据 + 真实 CostAggregator 团队成本."""
+    usage = collect_team_usage(team_id)
+    await _enrich_cost_aggregator(usage)
+    return usage
+
+
+async def _enrich_cost_aggregator(usage: TeamUsage) -> None:
+    try:
+        from .cost_aggregator import get_cost_aggregator
+        from .cost_models import CostQueryParams
+        summary = await get_cost_aggregator().get_summary(
+            CostQueryParams(aggregation="team", window="7d"))
+        for item in getattr(summary, "by_team", []) or []:
+            value = getattr(item, "value", "") or ""
+            if value != usage.team_id:
+                continue
+            usage.cost_usd = float(getattr(item, "total_cost", 0) or 0)
+            usage.data_sources["cost_aggregator"] = "measured"
+            break
+    except Exception as e:
+        logger.debug(f"cost_aggregator 数据不可用: {e}")
+
+
+async def list_known_team_ids() -> List[str]:
+    """从 TeamManager、trial、proficiency 与 CostAggregator 汇总已知团队."""
+    teams: Set[str] = set()
+    try:
+        from .api import _team_manager
+        if _team_manager:
+            teams.update(t.team_id for t in _team_manager.list_teams() if getattr(t, "team_id", ""))
+    except Exception as e:
+        logger.debug(f"team_manager 团队列表不可用: {e}")
+    try:
+        from sandbox.trial_api import _trials
+        teams.update(t.team_id for t in _trials.values() if getattr(t, "team_id", ""))
+    except Exception:
+        pass
+    try:
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[3]
+        prof_dir = root / "storage" / "skill_proficiency"
+        if prof_dir.exists():
+            teams.update(p.stem for p in prof_dir.glob("*.json"))
+    except Exception:
+        pass
+    try:
+        from .cost_aggregator import get_cost_aggregator
+        from .cost_models import CostQueryParams
+        summary = await get_cost_aggregator().get_summary(
+            CostQueryParams(aggregation="team", window="7d"))
+        teams.update(
+            getattr(item, "value", "")
+            for item in getattr(summary, "by_team", []) or []
+            if getattr(item, "value", "") and getattr(item, "value", "") != "(unknown)"
+        )
+    except Exception as e:
+        logger.debug(f"cost_aggregator 团队列表不可用: {e}")
+    return sorted(teams)

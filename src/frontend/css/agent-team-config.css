@@ -336,3 +336,103 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
 }
+
+/* Global skill classification pools */
+.skill-pool-panel {
+  border: 1px solid var(--line);
+  background: var(--panel2, #21272D);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.skill-pool-panel--loading {
+  opacity: 0.7;
+}
+.skill-pool-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.skill-pool-title {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 14px;
+}
+.skill-pool-sub {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.skill-pool-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.skill-pool-tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.skill-pool-tab.active {
+  color: var(--lime);
+  border-color: color-mix(in srgb, var(--lime) 45%, var(--line));
+  background: rgba(38, 162, 105, 0.08);
+}
+.skill-pool-body {
+  display: grid;
+  gap: 6px;
+}
+.skill-pool-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.02);
+  padding: 10px 12px;
+}
+.skill-pool-row b {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+.skill-pool-row span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.skill-pool-row--changed {
+  animation: skill-pool-flash 1.2s ease-out 1;
+}
+.skill-pool-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.skill-pool-events span {
+  border: 1px solid rgba(38, 162, 105, 0.25);
+  background: rgba(38, 162, 105, 0.08);
+  color: var(--lime);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.skill-pool-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 14px 4px;
+}
+@keyframes skill-pool-flash {
+  0% { border-color: var(--lime); background: rgba(38, 162, 105, 0.18); }
+  100% { border-color: var(--line); background: rgba(255,255,255,0.02); }
+}

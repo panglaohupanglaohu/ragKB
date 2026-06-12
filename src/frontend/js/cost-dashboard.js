@@ -9,12 +9,14 @@
   var COST_API = '/api/v1/cost';
   var GATE_API = '/api/v1/cost-gate';
   var AGENT_API = '/api/v1/agent-config';
+  var SUSTAINABILITY_API = '/api/v1/sustainability';
   var state = {
     teams: [],
     summary: null,
     breakdown: [],
     trends: [],
     pods: [],
+    sustainability: null,
     health: null,
     gateHealth: null,
     gateStats: null,
@@ -85,6 +87,7 @@
   function toast(message, opts) {
     var host = $('cost-toast-host');
     if (!host) return;
+    if (typeof host.appendChild !== 'function') return;
     opts = opts || {};
     var kind = opts.kind || 'success';
     var title = opts.title || (kind === 'error' ? '操作失败' : kind === 'warn' ? '请稍候' : '完成');
@@ -186,13 +189,8 @@
     if (!host) return;
     var summary = state.summary && state.summary.summary;
     if (!summary) {
-      host.innerHTML =
-        '<div class="kpi-hero__skeleton">' +
-        '<div class="kpi-card kpi-card--skeleton"></div>' +
-        '<div class="kpi-card kpi-card--skeleton"></div>' +
-        '<div class="kpi-card kpi-card--skeleton"></div>' +
-        '<div class="kpi-card kpi-card--skeleton"></div>' +
-        '</div>';
+      host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无成本摘要</div></div>';
+      setHtml('summary-grid', host.innerHTML);
       return;
     }
 
@@ -274,9 +272,12 @@
         sub: teamCount > 0 ? (teamCount + ' 个团队贡献成本') : '等待团队归因数据',
       }) +
       '</div>';
+    setHtml('summary-grid', host.innerHTML);
 
     // Trigger count-up on each numeric value
-    requestAnimationFrame(function () {
+    var raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : function (fn) { fn(); };
+    raf(function () {
+      if (!host.querySelectorAll) return;
       host.querySelectorAll('[data-countup]').forEach(function (el) {
         countUp(el, el.getAttribute('data-countup'), 700);
       });
@@ -513,7 +514,7 @@
     }
 
     var html = lineChartSvg(points, values, max, min, forecast);
-    container.innerHTML = html;
+    container.innerHTML = '<div class="chart-meta" style="display:none">' + esc(series.value || series.dimension || '') + '</div>' + html;
     attachLineChartTooltip(container, points, values, forecast);
   }
 
@@ -601,7 +602,7 @@
 
     var dots = points.map(function (p, i) {
       var cls = i === maxIdx ? ' lc-dot lc-dot--max' : ' lc-dot';
-      return '<circle class="' + cls.trim() + '" cx="' + xAt(i) + '" cy="' + yAt(values[i]) + '" r="3" data-i="' + i + '"/>';
+      return '<circle class="' + cls.trim() + '" cx="' + xAt(i) + '" cy="' + yAt(values[i]) + '" r="3" data-i="' + i + '"><title>' + esc(money(values[i])) + '</title></circle>';
     }).join('');
 
     // Forecast: dashed line + open ring dots
@@ -622,7 +623,8 @@
       for (var fi2 = 0; fi2 < fSteps; fi2++) {
         forecastMarkup +=
           '<circle class="lc-fc-dot" cx="' + xAt(n + fi2).toFixed(1) +
-          '" cy="' + yAt(forecast[fi2]).toFixed(1) + '" r="3" data-fc-i="' + fi2 + '"/>';
+          '" cy="' + yAt(forecast[fi2]).toFixed(1) + '" r="3" data-fc-i="' + fi2 + '"><title>' +
+          esc(money(forecast[fi2])) + '</title></circle>';
       }
     }
 
@@ -645,6 +647,7 @@
   }
 
   function attachLineChartTooltip(container, points, values, forecast) {
+    if (!container || typeof container.querySelector !== 'function') return;
     var svg = container.querySelector('svg.line-chart');
     if (!svg) return;
     var tip = document.createElement('div');
@@ -709,7 +712,7 @@
         '  <td class="num">' + money(pod.network_cost) + '</td>',
         '  <td class="num col-total"><span class="col-total-bar"><i style="width:' + barW.toFixed(1) + '%"></i></span>' + money(pod.total_cost) + '</td>',
         '  <td><div class="row-actions">',
-        '    <button class="icon-btn" title="创建优化任务" onclick="createOptimizationTask(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>',
+        '    <button class="icon-btn" title="创建任务" onclick="createOptimizationTask(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>',
         '    <button class="icon-btn" title="创建 Plaza 话题" onclick="createPlazaTopic(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>',
         '    <button class="icon-btn icon-btn--accent" title="生成标签补丁" onclick="generateLabelPatch(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>',
         '  </div></td>',
@@ -759,21 +762,78 @@
       '  </div>',
       '</div>',
 
-      '<div class="governance-row"><span>Gate 统计</span><strong>' + compactNumber(passed) + ' 通 · ' + compactNumber(warned) + ' 警 · ' + compactNumber(blocked) + ' 阻</strong></div>',
+      '<div class="governance-row"><span>Gate 统计</span><strong>通 ' + compactNumber(passed) + ' · 警 ' + compactNumber(warned) + ' · 阻断 ' + compactNumber(blocked) + '</strong></div>',
 
       '<div class="action-box">',
       '  <div class="action-box__title">⚡ 当前治理目标</div>',
       '  <div class="action-box__target">' + esc(topLabel) + '<span class="action-box__target-cost">' + esc(topCost) + '</span></div>',
       '  <label>指派团队<select id="cost-action-team">' + teamOptionsHtml() + '</select></label>',
       '  <div class="action-buttons">',
-      '    <button class="btn cost-btn cost-btn--accent cost-btn--sm" onclick="createOptimizationTask(\'breakdown\',0)">+ 优化任务</button>',
-      '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="createPlazaTopic(\'breakdown\',0)">议事厅</button>',
+      '    <button class="btn cost-btn cost-btn--accent cost-btn--sm" onclick="createOptimizationTask(\'breakdown\',0)">创建优化任务</button>',
+      '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="createPlazaTopic(\'breakdown\',0)">创建 Plaza 话题</button>',
       '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="generateLabelPatch(\'pod\',0)">标签补丁</button>',
       '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="runCostGateSelfCheck()">Gate 自检</button>',
       '  </div>',
       '  <div class="action-result" id="cost-action-result"></div>',
       '</div>',
     ].join('');
+  }
+
+  function renderEfficiencyView(payload) {
+    var host = $('efficiency-panel');
+    if (!host) return;
+    var teams = asItems(payload, 'teams').slice().sort(function (a, b) {
+      return Number(b.token_efficiency || 0) - Number(a.token_efficiency || 0);
+    });
+    if (!teams.length) {
+      host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无可持续性评估数据</div></div>';
+      return;
+    }
+    var rows = teams.map(function (team, index) {
+      var grade = team.grade || '-';
+      return [
+        '<div class="efficiency-row">',
+        '  <div class="efficiency-rank">#' + String(index + 1).padStart(2, '0') + '</div>',
+        '  <div class="efficiency-team"><b>' + esc(team.team_id || '-') + '</b><span>' + esc(team.data_quality || '-') + ' · ' + compactNumber(team.tokens_consumed || 0) + ' tokens</span></div>',
+        '  <div class="efficiency-score">' + Number(team.token_efficiency || 0).toFixed(4) + '</div>',
+        '  <div class="efficiency-grade efficiency-grade--' + esc(grade) + '">' + esc(grade) + '</div>',
+        '</div>',
+      ].join('');
+    }).join('');
+    var reallocations = asItems(payload, 'reallocations');
+    var recs = teams.filter(function (t) { return t.grade === 'C' || t.grade === 'D'; }).slice(0, 3);
+    host.innerHTML = [
+      '<div class="efficiency-grid">',
+      '  <div class="efficiency-list">' + rows + '</div>',
+      '  <aside class="efficiency-side">',
+      '    <h4>资源再分配</h4>',
+      reallocations.length
+        ? reallocations.slice(0, 3).map(function (r) {
+            return '<p><b>' + esc(r.from_team) + '</b> → <b>' + esc(r.to_team) + '</b> · ' + compactNumber(r.tokens) + ' tokens</p>';
+          }).join('')
+        : '<p>暂无再分配建议</p>',
+      '    <h4 style="margin-top:14px">待整改团队</h4>',
+      recs.length
+        ? recs.map(function (t) {
+            var first = (t.recommendations || [])[0] || {};
+            return '<p><b>' + esc(t.team_id) + '</b> · ' + esc(t.grade) + ' · ' + esc(first.detail || '等待建议') + '</p>';
+          }).join('')
+        : '<p>当前无 C/D 级团队</p>',
+      '  </aside>',
+      '</div>',
+    ].join('');
+  }
+
+  async function loadEfficiencyView() {
+    setHtml('efficiency-panel', '<div class="loading-state"><div class="spinner"></div></div>');
+    try {
+      state.sustainability = await requestJson(SUSTAINABILITY_API + '/group');
+      renderEfficiencyView(state.sustainability);
+      return state.sustainability;
+    } catch (e) {
+      setHtml('efficiency-panel', '<div class="empty-state"><div class="icon">!</div><div>效率数据加载失败</div></div>');
+      return null;
+    }
   }
 
   function teamOptionsHtml() {
@@ -812,6 +872,7 @@
     setHtml('breakdown-chart', '<div class="loading-state"><div class="spinner"></div></div>');
     setHtml('trends-chart', '<div class="loading-state"><div class="spinner"></div></div>');
     setHtml('governance-panel', '<div class="loading-state"><div class="spinner"></div></div>');
+    setHtml('efficiency-panel', '<div class="loading-state"><div class="spinner"></div></div>');
     var tbody = $('pods-tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="loading-state"><div class="spinner" style="margin:20px auto"></div></td></tr>';
     // KPI keeps previous values (don't blank)
@@ -864,6 +925,7 @@
         requestJson(COST_API + '/by-' + state.filters.aggregation + '?' + breakdownQuery),
         requestJson(COST_API + '/trends?' + trendQuery),
         requestJson(COST_API + '/pods?' + podQuery),
+        requestJson(SUSTAINABILITY_API + '/group'),
         state.teams.length ? Promise.resolve(null) : loadTeams(),
       ]);
 
@@ -874,6 +936,7 @@
       state.breakdown = asItems(responses[4], 'items');
       state.trends = normalizeTrends(responses[5]);
       state.pods = normalizePods(responses[6]);
+      state.sustainability = responses[7];
 
       if (!state.summary && !state.breakdown.length && !state.trends.length && !state.pods.length) {
         showAlert('成本接口暂时没有返回可用数据，请检查 OpenCost、登录状态或后端日志');
@@ -885,6 +948,7 @@
       renderBreakdown(state.breakdown);
       renderTrends(state.trends);
       renderPodsTable(state.pods);
+      renderEfficiencyView(state.sustainability);
       renderGovernance();
       setText('last-refresh', '最后更新: ' + new Date().toLocaleTimeString('zh-CN'));
     } catch (err) {
@@ -1144,6 +1208,7 @@
     window.createPlazaTopic = createPlazaTopic;
     window.runCostGateSelfCheck = runCostGateSelfCheck;
     window.generateLabelPatch = generateLabelPatch;
+    window.loadEfficiencyView = loadEfficiencyView;
 
     // Budget UI wiring
     initBudgetUI();
@@ -1174,6 +1239,8 @@
     renderPodsTable: renderPodsTable,
     renderSummary: renderKpiHero,
     renderBreakdown: renderBreakdown,
+    renderEfficiencyView: renderEfficiencyView,
+    loadEfficiencyView: loadEfficiencyView,
     renderGovernance: renderGovernance,
     refreshDashboard: refreshDashboard,
     resetFilters: resetFilters,
