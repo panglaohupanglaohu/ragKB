@@ -795,6 +795,8 @@ body {
           <div id="trial-director-panel" class="director-panel">
             <div class="dp-header"><span class="dp-title">🎬 试炼导演台</span><span class="dp-status-badge" id="dp-status-badge">● 就绪</span></div>
             <div class="dp-section"><label class="dp-label">团队</label><select id="dp-team-select" class="dp-select" onchange="onDirectorTeamChange(this.value)"><option value="">— 选择团队 —</option><option value="build-system">Build System</option><option value="ai-programming">AI 编程团队</option><option value="cloudops">公有云 xOPs</option></select></div>
+            <!-- v4 D-1.1: 业务场景选择器 -->
+            <div class="dp-section"><label class="dp-label">🌍 业务场景</label><select id="dp-scenario-select" class="dp-select" onchange="onScenarioChange(this.value)"><option value="">— 自由模式（无场景） —</option></select><div id="dp-scenario-info" style="font-size:9px;color:var(--dim);margin-top:4px;line-height:1.5"></div></div>
             <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
             <div class="dp-section"><label class="dp-label">试炼模式</label><div class="mode-grid" id="mode-selector"><div class="mode-card mode-active" data-mode="what_if" onclick="selectMode('what_if')"><span class="mode-icon">🔮</span><span class="mode-name">What-if</span><span class="mode-desc">基线实验</span></div><div class="mode-card" data-mode="multi_branch" onclick="selectMode('multi_branch')"><span class="mode-icon">🌳</span><span class="mode-name">多分支对比</span><span class="mode-desc">并行策略</span></div><div class="mode-card" data-mode="chaos_drill" onclick="selectMode('chaos_drill')"><span class="mode-icon">🌀</span><span class="mode-name">混沌演练</span><span class="mode-desc">压力测试</span></div><div class="mode-card" data-mode="evolutionary" onclick="selectMode('evolutionary')"><span class="mode-icon">🧬</span><span class="mode-name">演化试炼</span><span class="mode-desc">进化搜索</span></div><div class="mode-card" data-mode="replay" onclick="selectMode('replay')"><span class="mode-icon">📼</span><span class="mode-name">回放复盘</span><span class="mode-desc">历史重放</span></div></div></div>
             <div class="dp-section dp-row"><div class="dp-field"><label class="dp-label-sm">步数上限</label><input type="number" id="dp-max-steps" class="dp-input-sm" value="150" min="10" max="500"></div><div class="dp-field"><label class="dp-label-sm">加速倍率</label><input type="number" id="dp-acceleration" class="dp-input-sm" value="1" min="1" max="100"></div><div class="dp-field"><label class="dp-label-sm">并行分支</label><input type="number" id="dp-parallel" class="dp-input-sm" value="1" min="1" max="8"></div></div>
@@ -802,6 +804,23 @@ body {
             <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
             <div class="dp-section" id="inject-event-panel" style="display:none"><label class="dp-label">⚡ 注入事件</label><div class="inject-event-types"><button class="inject-btn" onclick="doInjectEvent('network_delay')">🌐 网络延迟</button><button class="inject-btn" onclick="doInjectEvent('agent_leave')">👤 Agent离队</button><button class="inject-btn" onclick="doInjectEvent('task_change')">📝 任务变更</button><button class="inject-btn" onclick="doInjectEvent('skill_degraded')">⬇️ 技能退化</button><button class="inject-btn" onclick="doInjectEvent('model_hallucination')">🧠 模型幻觉</button><button class="inject-btn" onclick="doInjectEvent('logic_deadlock')">🔒 逻辑死锁</button></div><input type="number" id="inject-at-step" class="dp-input-sm" placeholder="触发步数(留空=立即)" style="width:100%;margin-top:6px;"></div>
             <div class="dp-section" style="max-height:120px;overflow-y:auto;margin-top:6px"><label class="dp-label">📋 注入历史</label><div id="inject-history-list" class="inject-history-list"></div></div>
+            <!-- v4 D-2: 技能进化面板 -->
+            <div class="dp-section" id="skill-evolution-panel" style="margin-top:6px">
+              <label class="dp-label">🧬 技能进化</label>
+              <div id="skill-stats-area" style="font-size:10px;color:var(--dim)">试炼评分后显示 per-skill 统计</div>
+              <div class="secs-pipeline-indicator" id="evo-pipeline" style="display:none">
+                <span class="secs-node" data-phase="identifying">识别</span><span class="secs-node" data-phase="reflecting">反思</span><span class="secs-node" data-phase="mutating">变体</span><span class="secs-node" data-phase="ab_testing">A/B</span><span class="secs-node" data-phase="gating">晋升</span>
+              </div>
+              <div id="evo-result-area" style="font-size:10px;margin-top:6px"></div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button class="btn btn-accent" style="flex:1;font-size:10px" onclick="loadSkillStats()">📊 技能统计</button>
+                <button class="btn btn-primary" style="flex:1;font-size:10px" onclick="startEvolution()">🧬 发起进化</button>
+              </div>
+              <div id="evo-gate-actions" style="display:none;gap:6px;margin-top:6px">
+                <button class="sop-btn approve" onclick="approveEvolution()">✓ 批准写回</button>
+                <button class="sop-btn reject" onclick="rejectEvolution()">✗ 拒绝</button>
+              </div>
+            </div>
           </div>
         
             <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
@@ -3290,7 +3309,7 @@ window.addEventListener('unhandledrejection', function(e) {
 function _dtWarnOrLog(msg){try{if(typeof showToast==='function'){showToast(msg,'warn');return}}catch(e){}console.warn('[DT]',msg);if(typeof _logConsole==='function')try{_logConsole(msg,'warn')}catch(e){}}
 function _dtLogConsole(msg,level){console.log('[DT]',msg);if(typeof _logConsole==='function')try{_logConsole(msg,level||'info')}catch(e){}}
 
-async function createTrial(){if(!transitionTrialStatus(window._DTS.trialStatus,'creating'))return;var tid = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) ? _selectedTeamId : window._DTS.directorConfig.team_id;if(!tid){_dtWarnOrLog('请先在SECS面板选择团队');transitionTrialStatus('creating','idle');return}document.getElementById('dp-status-badge').textContent='⏳ 创建中...';var ac=new AbortController();var to=setTimeout(function(){ac.abort()},15000);console.log('[DT] createTrial POST /api/v1/twin-trials team='+tid+' mode='+window._DTS.selectedMode);try{var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:tid,task_goal:{name:(document.getElementById('dp-task-name')||{}).value||'默认试炼'},mode:window._DTS.selectedMode,max_steps:parseInt((document.getElementById('dp-max-steps')||{}).value)||150}),signal:ac.signal});clearTimeout(to);console.log('[DT] createTrial resp status='+resp.status);var d=await resp.json();if(!resp.ok)throw new Error(d.detail||'HTTP '+resp.status);if(d.error)throw new Error(d.error);window._DTS.activeTrialId=d.trial_id;window._DTS.activeBranchId=d.branch_id;window._currentSessionId=d.session_id;if(window._sx){window._sx.trialId=d.trial_id;window._sx.branchId=d.branch_id;window._sx.sessionId=d.session_id;}console.log('[DT] createTrial success trial='+d.trial_id+' session='+d.session_id);transitionTrialStatus('creating','ready');document.getElementById('dp-status-badge').textContent='● 就绪';showBranchManager(d.trial_id)}catch(e){clearTimeout(to);console.error('[DT] createTrial FAILED:', e.name, e.message);transitionTrialStatus('creating','failed');document.getElementById('dp-status-badge').textContent='✗ 失败';_dtWarnOrLog(e.name==='AbortError'?'创建超时(15s)，请检查后端服务':('创建失败: '+(e.message||'未知错误')));if(e.name==='AbortError'){_dtLogConsole('创建超时(15s) — 后端无响应或网络不通','warn')}else{_dtLogConsole('创建失败: '+(e.message||'未知错误'),'err')}}}
+async function createTrial(){if(!transitionTrialStatus(window._DTS.trialStatus,'creating'))return;var tid = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) ? _selectedTeamId : window._DTS.directorConfig.team_id;if(!tid){_dtWarnOrLog('请先在SECS面板选择团队');transitionTrialStatus('creating','idle');return}document.getElementById('dp-status-badge').textContent='⏳ 创建中...';var ac=new AbortController();var to=setTimeout(function(){ac.abort()},15000);console.log('[DT] createTrial POST /api/v1/twin-trials team='+tid+' mode='+window._DTS.selectedMode);try{var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:tid,task_goal:{name:(document.getElementById('dp-task-name')||{}).value||'默认试炼'},mode:window._DTS.selectedMode,max_steps:parseInt((document.getElementById('dp-max-steps')||{}).value)||150,scenario_id:(window._sx&&window._sx.scenarioId)||'',generation:(window._sx&&window._sx.generation)||0,parent_trial_id:(window._sx&&window._sx.parentTrialId)||''}),signal:ac.signal});clearTimeout(to);console.log('[DT] createTrial resp status='+resp.status);var d=await resp.json();if(!resp.ok)throw new Error(d.detail||'HTTP '+resp.status);if(d.error)throw new Error(d.error);window._DTS.activeTrialId=d.trial_id;window._DTS.activeBranchId=d.branch_id;window._currentSessionId=d.session_id;if(window._sx){window._sx.trialId=d.trial_id;window._sx.branchId=d.branch_id;window._sx.sessionId=d.session_id;window._sx.generation=d.generation||0;}if(d.rooms&&d.rooms.length&&typeof applyScenarioRooms==='function'){applyScenarioRooms(d.rooms);}console.log('[DT] createTrial success trial='+d.trial_id+' session='+d.session_id);transitionTrialStatus('creating','ready');document.getElementById('dp-status-badge').textContent='● 就绪';showBranchManager(d.trial_id)}catch(e){clearTimeout(to);console.error('[DT] createTrial FAILED:', e.name, e.message);transitionTrialStatus('creating','failed');document.getElementById('dp-status-badge').textContent='✗ 失败';_dtWarnOrLog(e.name==='AbortError'?'创建超时(15s)，请检查后端服务':('创建失败: '+(e.message||'未知错误')));if(e.name==='AbortError'){_dtLogConsole('创建超时(15s) — 后端无响应或网络不通','warn')}else{_dtLogConsole('创建失败: '+(e.message||'未知错误'),'err')}}}
 async function stepOnce(){if(!window._currentSessionId){await createTrial()}if(!window._currentSessionId)return;try{var r=await fetch('/api/v1/sandbox/sessions/'+window._currentSessionId+'/step',{method:'POST'});var d=await r.json();var sx=window._sx||{};sx.currentStep=d.step_index||d.step_id||sx.currentStep;handleTrialEvent({type:'step',step_index:d.step_index||d.step_id,global_reward:d.global_reward})}catch(e){console.error('[DT] Step:',e)}}
 async function autoRun(){if(window._DTS.trialStatus!=='ready'&&window._DTS.trialStatus!=='paused')return;if(!window._currentSessionId){await createTrial()}if(!window._currentSessionId)return;transitionTrialStatus(window._DTS.trialStatus,'running');await window.sexyAutoRun()}
 async function pauseSim(){if(!window._currentSessionId)return;try{await fetch('/api/v1/sandbox/sessions/'+window._currentSessionId+'/pause',{method:'POST'});transitionTrialStatus('running','paused')}catch(e){}}
@@ -3460,6 +3479,241 @@ window.addEventListener('DOMContentLoaded',function(){
   // 定期同步（SECS选择团队后）
   setInterval(syncTeam, 1000);
 })
+
+// ═══════════════════════════════════════════════════════════
+// v4: 场景化演练 × 技能进化 (D-0 状态收敛 / D-1 场景选择 / D-2 进化面板)
+// ═══════════════════════════════════════════════════════════
+
+// ── D-0.1: _sx 扩展为唯一真源 + _currentSessionId 降级为别名 ──
+(function(){
+  if (!window._sx) return;
+  var sx = window._sx;
+  sx.scenarioId = sx.scenarioId || '';
+  sx.scenarioSpec = sx.scenarioSpec || null;
+  sx.generation = sx.generation || 0;
+  sx.parentTrialId = sx.parentTrialId || '';
+  sx.skillStats = sx.skillStats || null;
+  sx.evolutionRunId = sx.evolutionRunId || null;
+  try {
+    var legacy = window._currentSessionId;
+    if (legacy !== undefined && legacy !== null) sx.sessionId = sx.sessionId || legacy;
+    delete window._currentSessionId;
+    var warned = false;
+    Object.defineProperty(window, '_currentSessionId', {
+      get: function(){
+        if (!warned) { console.warn('[DT][deprecated] _currentSessionId 已是 _sx.sessionId 的别名'); warned = true; }
+        return sx.sessionId;
+      },
+      set: function(v){ sx.sessionId = v; },
+      configurable: true
+    });
+  } catch(e) { console.warn('[DT] _currentSessionId 别名化失败(不影响功能):', e); }
+})();
+
+// ── D-1.1: 场景列表加载 ──
+async function loadScenarioList(){
+  var sel = document.getElementById('dp-scenario-select');
+  if (!sel) return;
+  try {
+    var r = await fetch('/api/v1/scenarios');
+    var d = await r.json();
+    (d.scenarios || []).forEach(function(s){
+      var opt = document.createElement('option');
+      opt.value = s.scenario_id;
+      var stars = '★'.repeat(s.difficulty || 1);
+      opt.textContent = s.name + ' ' + stars + (s.best_score != null ? (' · 最佳' + Math.round(s.best_score*100) + '%') : '');
+      sel.appendChild(opt);
+    });
+    window._scenarioIndex = {};
+    (d.scenarios || []).forEach(function(s){ window._scenarioIndex[s.scenario_id] = s; });
+  } catch(e) { console.warn('[DT] 场景列表加载失败:', e); }
+}
+
+// ── D-1.1/D-1.2: 场景选择 ──
+async function onScenarioChange(sid){
+  if (window._sx) window._sx.scenarioId = sid;
+  var info = document.getElementById('dp-scenario-info');
+  if (!sid) { if (info) info.innerHTML = ''; if (window._sx) window._sx.scenarioSpec = null; return; }
+  var meta = (window._scenarioIndex || {})[sid];
+  try {
+    var r = await fetch('/api/v1/scenarios/' + encodeURIComponent(sid));
+    var spec = await r.json();
+    if (window._sx) window._sx.scenarioSpec = spec;
+    // 推荐步数回填
+    var ms = document.getElementById('dp-max-steps');
+    if (ms && spec.recommended_max_steps) ms.value = spec.recommended_max_steps;
+    var html = (spec.description || '') +
+      '<br>🏠 ' + (spec.world.rooms||[]).length + ' 房间 · 📋 ' + (spec.taskflow||[]).length + ' 任务 · 🌀 ' + (spec.chaos_script||[]).length + ' 个混沌阶段';
+    // 角色匹配度
+    var tid = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) || (window._DTS && window._DTS.directorConfig.team_id) || '';
+    if (tid) {
+      try {
+        var mr = await fetch('/api/v1/scenarios/' + encodeURIComponent(sid) + '/match?team_id=' + encodeURIComponent(tid));
+        var m = await mr.json();
+        var pct = Math.round((m.match_rate||0)*100);
+        var color = pct >= 70 ? 'var(--green)' : (pct >= 40 ? 'var(--amber)' : 'var(--red)');
+        html += '<br><span style="color:'+color+'">匹配度 ' + pct + '%</span>';
+        if (m.missing_skills && m.missing_skills.length) html += ' · 缺: ' + m.missing_skills.slice(0,3).join(', ');
+      } catch(e2) {}
+    }
+    if (info) info.innerHTML = html;
+    if (typeof _dtLogConsole === 'function') _dtLogConsole('已选择业务场景: ' + (spec.name||sid), 'info');
+  } catch(e) { if (info) info.innerHTML = '<span style="color:var(--red)">场景详情加载失败</span>'; }
+}
+
+// ── D-1.3: 场景房间渲染（env-grid 2D 视图 + S.rooms 同步） ──
+function applyScenarioRooms(rooms){
+  if (!rooms || !rooms.length) return;
+  // 同步给既有 S.rooms（3D/其他视图消费）
+  try {
+    if (window.S) {
+      window.S.rooms = rooms.map(function(r){
+        return { id: r.room_id, name: r.name, icon: r.icon, capacity: r.capacity, stage: r.stage };
+      });
+    }
+  } catch(e) {}
+  var grid = document.getElementById('env-grid');
+  if (!grid) return;
+  grid.style.display = '';
+  grid.innerHTML = rooms.map(function(r){
+    return '<div class="env-room" data-room-id="' + r.room_id + '">' +
+      '<div class="room-icon">' + (r.icon||'🏠') + '</div>' +
+      '<div class="room-name">' + r.name + ' <span style="font-size:9px;color:var(--cyan)">阶段' + (r.stage!=null?r.stage:'-') + '</span></div>' +
+      '<div class="room-desc">业务阶段 ' + (r.stage!=null?r.stage:'-') + ' · 容量 ' + (r.capacity||6) + '</div>' +
+      '<div class="room-agents"></div>' +
+      '<div class="room-footer"><span>scenario room</span><span>0/' + (r.capacity||6) + '</span></div>' +
+      '<div class="drop-hint">放置 Agent 到此业务阶段</div></div>';
+  }).join('');
+  if (typeof _dtLogConsole === 'function') _dtLogConsole('环境空间已切换为场景房间 (' + rooms.length + ' 间)', 'success');
+}
+
+// ── D-2.1: 技能统计 ──
+async function loadSkillStats(){
+  var area = document.getElementById('skill-stats-area');
+  var tid = window._DTS && window._DTS.activeTrialId;
+  if (!tid) { if (area) area.innerHTML = '<span style="color:var(--amber)">请先创建并运行试炼</span>'; return; }
+  try {
+    var r = await fetch('/api/v1/twin-trials/' + encodeURIComponent(tid) + '/skill-stats');
+    var d = await r.json();
+    if (window._sx) window._sx.skillStats = d;
+    if (!d.skills || !d.skills.length) { area.innerHTML = '暂无技能使用记录（先步进/自动运行）'; return; }
+    var h = '';
+    d.skills.forEach(function(s){
+      var pct = Math.round(s.success_rate * 100);
+      var ok = s.meets_expectation;
+      var color = ok ? 'var(--green)' : 'var(--red)';
+      h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
+        '<span style="width:90px;font-size:9px;color:' + (ok?'var(--dim)':'var(--red)') + ';text-align:right;overflow:hidden;text-overflow:ellipsis">' + (ok?'':'⚠ ') + s.skill_name + '</span>' +
+        '<div style="flex:1;height:12px;background:rgba(255,255,255,.05);border-radius:2px"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px"></div></div>' +
+        '<span style="font-size:9px;color:var(--dim);width:60px">' + pct + '%/' + Math.round(s.expected_success_rate*100) + '% ×' + s.total_uses + '</span></div>';
+    });
+    if (d.weak_skills && d.weak_skills.length) {
+      h += '<div style="color:var(--amber);margin-top:4px">⚠ 低于期望: ' + d.weak_skills.join(', ') + ' — 可发起进化</div>';
+    }
+    area.innerHTML = h;
+  } catch(e) { area.innerHTML = '<span style="color:var(--red)">技能统计加载失败: ' + (e.message||'') + '</span>'; }
+}
+
+// ── D-2.2: 发起进化 + 轮询进度 ──
+var _evoPollTimer = null;
+async function startEvolution(){
+  var teamId = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) || (window._DTS && window._DTS.directorConfig.team_id) || '';
+  if (!teamId) { if (typeof _dtWarnOrLog === 'function') _dtWarnOrLog('请先选择团队'); return; }
+  var body = {
+    team_id: teamId,
+    scenario_id: (window._sx && window._sx.scenarioId) || '',
+    skill_ids: (window._sx && window._sx.skillStats && window._sx.skillStats.weak_skills) || [],
+    baseline_trial_id: (window._DTS && window._DTS.activeTrialId) || '',
+    auto_apply: false
+  };
+  try {
+    var r = await fetch('/api/v1/twin-evolution/runs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+    if (window._sx) window._sx.evolutionRunId = d.run_id;
+    document.getElementById('evo-pipeline').style.display = '';
+    document.getElementById('evo-result-area').innerHTML = '运行中: ' + d.run_id;
+    if (typeof _dtLogConsole === 'function') _dtLogConsole('🧬 进化运行启动: ' + d.run_id, 'info');
+    if (_evoPollTimer) clearInterval(_evoPollTimer);
+    _evoPollTimer = setInterval(pollEvolutionRun, 1500);
+  } catch(e) { if (typeof _dtWarnOrLog === 'function') _dtWarnOrLog('进化启动失败: ' + (e.message||'')); }
+}
+
+async function pollEvolutionRun(){
+  var rid = window._sx && window._sx.evolutionRunId;
+  if (!rid) { clearInterval(_evoPollTimer); return; }
+  try {
+    var r = await fetch('/api/v1/twin-evolution/runs/' + encodeURIComponent(rid));
+    var run = await r.json();
+    _renderEvoPipeline(run.status);
+    var area = document.getElementById('evo-result-area');
+    var gate = document.getElementById('evo-gate-actions');
+    if (run.status === 'gating' && run.winner) {
+      clearInterval(_evoPollTimer);
+      gate.style.display = 'flex';
+      area.innerHTML = '<span style="color:var(--green)">胜出: ' + run.winner.strategy +
+        ' · fitness ' + (run.winner.fitness||0).toFixed(3) + ' (基线 ' + (run.winner.baseline_fitness||0).toFixed(3) + ', +' +
+        Math.round((run.winner.improvement||0)*100) + 'pp)</span><br><span style="color:var(--dim)">技能: ' + run.winner.skill_name + ' — 等待人工裁决</span>';
+    } else if (run.status === 'applied') {
+      clearInterval(_evoPollTimer);
+      gate.style.display = 'none';
+      area.innerHTML = '<span style="color:var(--green)">✓ 已写回 ' + (run.winner ? run.winner.skill_name + ' v' + (run.winner.new_version||'?') : '') +
+        '</span> <button class="btn btn-accent" style="font-size:9px;padding:3px 8px" onclick="nextGeneration()">⏭ 再战一代</button>';
+      if (typeof _dtLogConsole === 'function') _dtLogConsole('🧬 进化完成并写回技能库', 'success');
+    } else if (run.status === 'rejected' || run.status === 'failed') {
+      clearInterval(_evoPollTimer);
+      gate.style.display = 'none';
+      area.innerHTML = '<span style="color:var(--red)">✗ ' + run.status + ': ' + (run.error||'') + '</span>';
+    } else {
+      area.innerHTML = '阶段: ' + run.status + (run.candidates && run.candidates.length ? ' · ' + run.candidates.length + ' 个变体' : '');
+    }
+  } catch(e) { console.warn('[DT] 进化轮询失败:', e); }
+}
+
+function _renderEvoPipeline(status){
+  var order = ['identifying','reflecting','mutating','ab_testing','gating'];
+  var idx = order.indexOf(status);
+  document.querySelectorAll('#evo-pipeline .secs-node').forEach(function(n){
+    var p = n.getAttribute('data-phase');
+    var pi = order.indexOf(p);
+    n.classList.remove('secs-active','secs-done');
+    if (status === 'applied' || pi < idx) n.classList.add('secs-done');
+    else if (pi === idx) n.classList.add('secs-active');
+  });
+}
+
+async function approveEvolution(){
+  var rid = window._sx && window._sx.evolutionRunId;
+  if (!rid) return;
+  try {
+    var r = await fetch('/api/v1/twin-evolution/runs/' + encodeURIComponent(rid) + '/approve', { method:'POST' });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+    _evoPollTimer = setInterval(pollEvolutionRun, 800);
+  } catch(e) { if (typeof _dtWarnOrLog === 'function') _dtWarnOrLog('批准失败: ' + (e.message||'')); }
+}
+
+async function rejectEvolution(){
+  var rid = window._sx && window._sx.evolutionRunId;
+  if (!rid) return;
+  try {
+    await fetch('/api/v1/twin-evolution/runs/' + encodeURIComponent(rid) + '/reject', { method:'POST' });
+    _evoPollTimer = setInterval(pollEvolutionRun, 800);
+  } catch(e) {}
+}
+
+// ── D-3: 代际续跑 — 带着进化后的技能再战一代 ──
+function nextGeneration(){
+  if (window._sx) {
+    window._sx.parentTrialId = (window._DTS && window._DTS.activeTrialId) || '';
+    window._sx.generation = (window._sx.generation || 0) + 1;
+  }
+  if (typeof resetForNew === 'function') resetForNew();
+  if (typeof _dtLogConsole === 'function') _dtLogConsole('⏭ 进入第 ' + window._sx.generation + ' 代试炼（继承进化后技能），点击"创建试炼"开始', 'info');
+  if (typeof _dtWarnOrLog === 'function') _dtWarnOrLog('第 ' + window._sx.generation + ' 代就绪，点击创建试炼');
+}
+
+window.addEventListener('DOMContentLoaded', loadScenarioList);
 
 </script>
 

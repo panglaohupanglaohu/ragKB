@@ -211,6 +211,11 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/agent-config/teams",     # teams / teams-tree / teams/{id} 全部豁免
     "/api/v1/sandbox/",               # 沙箱所有 API（sessions/sync/stats/world等）
     "/api/v1/twin-trials",            # 试炼 API 全部豁免
+    "/api/v1/scenarios",              # v4 场景库 API 豁免（前端数字孪生页调用）
+    "/api/v1/twin-evolution",         # v4 技能进化 API 豁免
+    "/api/v1/skill-classification",   # 全局 P0: 技能三池分类
+    "/api/v1/ratchet",                # 全局 P0: 正向棘轮账本
+    "/api/v1/sustainability",         # 全局 P0: 可持续性评估
 )
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
@@ -595,6 +600,42 @@ async def startup():
         logger.info("✅ Trial API mounted (/api/v1/twin-trials)")
     except Exception as e:
         _handle_startup_failure("trial_api", e, critical=False)
+
+    # 5.6 Scenario API — 业务场景库 (v4)
+    try:
+        from sandbox.scenario_api import router as scenario_router
+        app.include_router(scenario_router)
+        logger.info("✅ Scenario API mounted (/api/v1/scenarios)")
+    except Exception as e:
+        _handle_startup_failure("scenario_api", e, critical=False)
+
+    # 5.7 Twin Evolution API — 演练驱动技能进化 (v4)
+    try:
+        from sandbox.evolution_api import router as twin_evolution_router
+        app.include_router(twin_evolution_router)
+        logger.info("✅ Twin Evolution API mounted (/api/v1/twin-evolution)")
+    except Exception as e:
+        _handle_startup_failure("twin_evolution_api", e, critical=False)
+
+    # 5.8 全局优化 P0 三件套: 技能分类 / 棘轮账本 / 可持续性评估
+    try:
+        from agents.skill_classifier_routes import router as skill_cls_router
+        app.include_router(skill_cls_router)
+        logger.info("✅ Skill Classification API mounted (/api/v1/skill-classification)")
+    except Exception as e:
+        _handle_startup_failure("skill_classification_api", e, critical=False)
+    try:
+        from agents.ratchet_routes import router as ratchet_router
+        app.include_router(ratchet_router)
+        logger.info("✅ Ratchet Ledger API mounted (/api/v1/ratchet)")
+    except Exception as e:
+        _handle_startup_failure("ratchet_api", e, critical=False)
+    try:
+        from agents.sustainability_routes import router as sustainability_router
+        app.include_router(sustainability_router)
+        logger.info("✅ Sustainability API mounted (/api/v1/sustainability)")
+    except Exception as e:
+        _handle_startup_failure("sustainability_api", e, critical=False)
 
     # 6. Datacenter ratchet demo API
     try:

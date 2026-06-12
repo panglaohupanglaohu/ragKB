@@ -227,6 +227,8 @@ class AgentTwin:
     rewards_collected: float = 0.0
     messages_sent: int = 0
     messages_received: int = 0
+    # v4 A-2.3: 技能熟练度先验 (skill_name -> 成功率, 默认 0.5)
+    skill_proficiency: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -247,6 +249,8 @@ class SimulationStep:
     global_reward: float = 0.0
     # 混沌注入：当前步被禁用的 Agent
     disabled_agents: List[str] = field(default_factory=list)
+    # v4 A-2.4: 本步产生的技能使用记录 ID 引用
+    skill_usages: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -401,6 +405,13 @@ class TrialEventType(str, Enum):
     FEEDBACK_APPLIED = "feedback_applied"# 反哺完成
     AGENT_MOVE = "agent_move"            # Agent移动
     FAULT_RECOVERED = "fault_recovered"  # 故障恢复
+    # v4 A-3.2: 进化与技能事件
+    SKILL_USAGE = "skill_usage"              # 技能使用记录
+    EVOLUTION_STARTED = "evolution_started"  # 进化运行开始
+    EVOLUTION_PHASE = "evolution_phase"      # 进化阶段推进
+    EVOLUTION_APPLIED = "evolution_applied"  # 进化结果已写回
+    EVOLUTION_REJECTED = "evolution_rejected"# 进化结果被拒绝
+    EVOLUTION_SUGGESTED = "evolution_suggested"  # 建议进化（评分低于 rubric）
 
 
 class TrialMode(str, Enum):
@@ -425,7 +436,11 @@ class Trial:
     team_id: str = ""
     team_snapshot: Dict[str, Any] = field(default_factory=dict)
     task_goal: Dict[str, Any] = field(default_factory=dict)
-    scenario: str = ""          # 场景名
+    scenario: str = ""          # 场景名 (legacy 字符串字段，保留兼容)
+    # v4 A-2.6: 场景化 + 代际
+    scenario_id: str = ""       # 关联 ScenarioSpec
+    generation: int = 0         # 代际编号
+    parent_trial_id: str = ""   # 上一代试炼
     mode: TrialMode = TrialMode.WHAT_IF
     max_steps: int = 100
     acceleration: int = 1       # 加速倍率
@@ -517,6 +532,8 @@ class TrialEvaluation:
     worst_branch_id: Optional[str] = None
     key_insights: List[str] = field(default_factory=list)
     turning_points: List[Dict[str, Any]] = field(default_factory=list)
+    # v4 A-2.5: per-skill 归因 (结构对齐 evolution/fitness.SkillFitnessReport.to_dict())
+    skill_breakdown: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -532,3 +549,114 @@ class SOPCandidate:
 
     status: str = "candidate"  # candidate | approved | rejected | applied
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# v4: 技能使用归因 + 熟练度 + 进化运行 (场景化演练 × 技能进化)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@dataclass
+class SkillUsageRecord:
+    """技能使用记录 — 演练中每次 skill 使用的归因数据 (v4 A-2.1)."""
+    record_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
+    session_id: str = ""
+    branch_id: str = ""
+    trial_id: str = ""
+    step_index: int = 0
+    agent_id: str = ""
+    agent_role: str = ""
+    skill_name: str = ""
+    skill_id: Optional[str] = None
+    skill_version: Optional[int] = None
+    task_id: str = ""
+    outcome: str = "success"  # success | failure | partial
+    duration_steps: int = 1
+    reward_delta: float = 0.0
+    failure_reason: str = ""
+    context: Dict[str, Any] = field(default_factory=dict)
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "record_id": self.record_id, "session_id": self.session_id,
+            "branch_id": self.branch_id, "trial_id": self.trial_id,
+            "step_index": self.step_index, "agent_id": self.agent_id,
+            "agent_role": self.agent_role, "skill_name": self.skill_name,
+            "skill_id": self.skill_id, "skill_version": self.skill_version,
+            "task_id": self.task_id, "outcome": self.outcome,
+            "duration_steps": self.duration_steps,
+            "reward_delta": self.reward_delta,
+            "failure_reason": self.failure_reason,
+            "context": self.context, "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class SkillProficiency:
+    """技能熟练度聚合视图 (v4 A-2.2)."""
+    skill_name: str = ""
+    agent_id: str = ""
+    scenario_category: str = "general"
+    total_uses: int = 0
+    success_count: int = 0
+    success_rate: float = 0.5
+    avg_reward_delta: float = 0.0
+    trend: List[float] = field(default_factory=list)  # 最近若干 trial 的成功率序列
+    last_updated: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "skill_name": self.skill_name, "agent_id": self.agent_id,
+            "scenario_category": self.scenario_category,
+            "total_uses": self.total_uses, "success_count": self.success_count,
+            "success_rate": round(self.success_rate, 4),
+            "avg_reward_delta": round(self.avg_reward_delta, 4),
+            "trend": self.trend, "last_updated": self.last_updated,
+        }
+
+
+class EvolutionRunStatus(str, Enum):
+    """进化运行状态机 (v4 A-3.1)."""
+    IDENTIFYING = "identifying"
+    REFLECTING = "reflecting"
+    MUTATING = "mutating"
+    AB_TESTING = "ab_testing"
+    GATING = "gating"
+    APPLIED = "applied"
+    REJECTED = "rejected"
+    FAILED = "failed"
+
+
+@dataclass
+class EvolutionRun:
+    """进化运行 — 演练数据驱动的 skill 进化编排单元 (v4 A-3.1)."""
+    run_id: str = field(default_factory=lambda: f"evo_{str(uuid.uuid4())[:8]}")
+    team_id: str = ""
+    scenario_id: str = ""
+    target_skills: List[Dict[str, Any]] = field(default_factory=list)
+    status: EvolutionRunStatus = EvolutionRunStatus.IDENTIFYING
+    reflection: Dict[str, Any] = field(default_factory=dict)
+    candidates: List[Dict[str, Any]] = field(default_factory=list)
+    winner: Optional[Dict[str, Any]] = None
+    baseline_trial_id: str = ""
+    ab_trial_ids: List[str] = field(default_factory=list)
+    triggered_by: str = "manual"  # manual | auto_low_score | nightly
+    auto_apply: bool = False
+    error: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    completed_at: Optional[str] = None
+    cost_tokens: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "run_id": self.run_id, "team_id": self.team_id,
+            "scenario_id": self.scenario_id, "target_skills": self.target_skills,
+            "status": self.status.value if hasattr(self.status, "value") else str(self.status),
+            "reflection": self.reflection, "candidates": self.candidates,
+            "winner": self.winner, "baseline_trial_id": self.baseline_trial_id,
+            "ab_trial_ids": self.ab_trial_ids, "triggered_by": self.triggered_by,
+            "auto_apply": self.auto_apply, "error": self.error,
+            "created_at": self.created_at, "completed_at": self.completed_at,
+            "cost_tokens": self.cost_tokens,
+        }

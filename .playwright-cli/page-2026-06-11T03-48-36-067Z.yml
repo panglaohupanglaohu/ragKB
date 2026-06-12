@@ -1,0 +1,190 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: DT
+        - heading "智能体数字孪生" [level=1] [ref=e6]
+      - navigation "主导航" [ref=e7]:
+        - link "智能体团队" [ref=e8] [cursor=pointer]:
+          - /url: /agent-team-config.html
+        - link "议事广场" [ref=e9] [cursor=pointer]:
+          - /url: /plaza.html
+        - link "技能萃取/赋予" [ref=e10] [cursor=pointer]:
+          - /url: /skill-extract.html
+        - generic: 数字孪生
+        - link "系统演进" [ref=e11] [cursor=pointer]:
+          - /url: /system-evolution.html
+        - link "成本监控" [ref=e12] [cursor=pointer]:
+          - /url: /cost-dashboard.html
+      - generic [ref=e13]:
+        - generic [ref=e14]: 系统运行中
+        - button "导入" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - text: 导入
+        - button "导出" [ref=e20] [cursor=pointer]:
+          - img [ref=e21]
+          - text: 导出
+        - generic [ref=e24]:
+          - generic [ref=e25]: T
+          - generic [ref=e26]: testuser
+          - button "登出" [ref=e27] [cursor=pointer]
+    - generic [ref=e28]:
+      - generic [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - generic [ref=e32]: ★
+        - text: 环境空间
+      - generic [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+        - text: 系统状态
+      - generic [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+        - text: 交互流
+        - generic [ref=e42]: 0">
+      - generic [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+        - text: 编排管线
+      - generic [ref=e47] [cursor=pointer]:
+        - img [ref=e48]
+        - text: CLI
+  - generic [ref=e50]:
+    - generic [ref=e52]:
+      - heading "智能体团队" [level=3] [ref=e53]
+      - generic [ref=e54]: "0"
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - img [ref=e62]
+          - generic [ref=e64]: ★
+          - text: 环境空间
+        - generic [ref=e65]:
+          - button "平面视图" [ref=e66] [cursor=pointer]:
+            - img [ref=e67]
+            - text: 平面视图
+          - button "创建空间" [ref=e72] [cursor=pointer]:
+            - img [ref=e73]
+            - text: 创建空间
+      - generic [ref=e74]:
+        - img
+        - generic "点击展开完整系统状态" [ref=e76] [cursor=pointer]:
+          - generic [ref=e77]:
+            - generic [ref=e78]: ◈ 系统状态
+            - generic [ref=e79]: 展开 →
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - generic [ref=e82]: "0"
+              - generic [ref=e83]: 沙箱会话
+            - generic [ref=e84]:
+              - generic [ref=e85]: "0"
+              - generic [ref=e86]: 仿真步数
+            - generic [ref=e87]:
+              - generic [ref=e88]: "0"
+              - generic [ref=e89]: 提取SOP
+            - generic [ref=e90]:
+              - generic [ref=e91]: —
+              - generic [ref=e92]: 最优评分
+        - generic:
+          - generic:
+            - img
+            - text: 拖拽旋转 · 滚轮缩放 · 右键平移
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]: 沙箱会话
+          - generic [ref=e98]: "0"
+        - generic [ref=e99]:
+          - generic [ref=e100]: 总仿真步
+          - generic [ref=e101]: "0"
+        - generic [ref=e102]:
+          - generic [ref=e103]: 提取SOP
+          - generic [ref=e104]: "0"
+        - generic [ref=e105]:
+          - generic [ref=e106]: 最优评分
+          - generic [ref=e107]: —
+      - generic [ref=e108]:
+        - generic [ref=e109]: 运行时
+        - generic "点击重连" [ref=e111]: 连接中...
+        - button "刷新" [ref=e113] [cursor=pointer]
+        - button "自检" [ref=e114] [cursor=pointer]
+      - generic [ref=e115]:
+        - generic [ref=e116]: ◈ SECS 演练 Pipeline
+        - generic [ref=e117]:
+          - generic [ref=e119] [cursor=pointer]:
+            - generic [ref=e121]: L1
+            - generic [ref=e123]: 🌐MADTwin
+          - generic [ref=e126] [cursor=pointer]:
+            - generic [ref=e128]: L2
+            - generic [ref=e130]: 📋AAS
+          - generic [ref=e133] [cursor=pointer]:
+            - generic [ref=e135]: L3
+            - generic [ref=e137]: 🎮TwinLoop
+          - generic [ref=e140] [cursor=pointer]:
+            - generic [ref=e142]: L4
+            - generic [ref=e144]: 🎯MADCG
+          - generic [ref=e145]: ↩
+          - generic [ref=e147]: 🌀Loop
+      - generic [ref=e148]:
+        - generic [ref=e149]: 会话
+        - code [ref=e150]: —
+        - button "📋" [ref=e151] [cursor=pointer]
+        - generic [ref=e152]:
+          - generic [ref=e153]: 模式:—
+          - generic [ref=e154]: 步:0
+          - generic [ref=e155]: 分:—
+          - generic [ref=e156]: 空闲
+      - generic [ref=e157]:
+        - generic [ref=e158]: 🎯 演练配置
+        - generic [ref=e159]:
+          - button "👥 选择演练团队" [ref=e160] [cursor=pointer]
+          - button "🏟️ 选择演练场景" [ref=e161] [cursor=pointer]
+      - generic [ref=e162]:
+        - generic [ref=e163]: 仿真参数
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - radio "What-if" [checked] [ref=e166]
+            - text: What-if
+          - generic [ref=e167]:
+            - radio "并行" [ref=e168]
+            - text: 并行
+          - generic [ref=e169]:
+            - radio "演化" [ref=e170]
+            - text: 演化
+          - generic [ref=e171]:
+            - generic [ref=e172]: 步
+            - generic [ref=e173]: "150"
+        - slider [ref=e174]: "150"
+        - generic [ref=e175]:
+          - generic [ref=e176]: "加速: 3x"
+          - slider [ref=e177]: "3"
+        - generic [ref=e178]:
+          - button "💥 注入故障 ▾" [ref=e180] [cursor=pointer]
+          - button "🔄 任务变更" [disabled] [ref=e181]
+          - button "➕ 智能体加入" [disabled] [ref=e182]
+          - button "➖ 智能体离开" [disabled] [ref=e183]
+        - generic [ref=e185]: 💡 启动演练后可注入事件，记录将显示在此
+      - generic [ref=e186]:
+        - button "▶ 请先选择团队" [disabled] [ref=e187]
+        - button "🎬 房间任务流程仿真" [ref=e188] [cursor=pointer]
+      - generic [ref=e189]:
+        - generic [ref=e190]:
+          - generic [ref=e191]: 🖥️ 实时控制台
+          - button "清空" [ref=e192] [cursor=pointer]
+        - generic [ref=e193]: "11:48:36 ✓ 新功能模块已加载: 房间动效|弹幕|连线|故障菜单|收益浮卡|萃取|升级|分屏"
+      - generic [ref=e194]:
+        - generic [ref=e195]:
+          - button "📥 沙箱进料" [ref=e196] [cursor=pointer]
+          - button "📤 沙箱出料" [ref=e197] [cursor=pointer]
+        - generic [ref=e198]:
+          - generic [ref=e199]:
+            - button "任务" [ref=e200] [cursor=pointer]
+            - button "环境" [ref=e201] [cursor=pointer]
+            - button "种子技能" [ref=e202] [cursor=pointer]
+            - button "运行参数" [ref=e203] [cursor=pointer]
+          - generic [ref=e205]: 启动仿真后显示任务
+      - generic [ref=e206]:
+        - generic [ref=e207]:
+          - generic [ref=e208]: 📜 演练历史
+          - button "刷新" [ref=e209] [cursor=pointer]
+        - generic [ref=e211]: 暂无演练记录
+      - generic [ref=e212]:
+        - generic [ref=e213]: 🤝 协作图 [5v7]
+        - img [ref=e214]

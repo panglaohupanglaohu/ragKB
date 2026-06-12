@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rtk ls *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk wc *)",
+      "Bash(rtk read *)",
+      "Bash(rtk git *)",
+      "Bash(node --check /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/agent-team-config.js)",
+      "Bash(node --check /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/sandbox-twin.js)",
+      "Bash(python3 *)",
+      "Bash(node --check /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/api.js)",
+      "Bash(node --check /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/nav-sidebar.js)",
+      "Bash(node --check /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/system-evolution.js)",
+      "Bash(node --input-type=module -e \"import '/Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/plaza.js'\")",
+      "Bash(git checkout *)",
+      "Bash(rtk npx *)",
+      "Bash(rtk du *)",
+      "Bash(grep -v \"//\\\\|window\\\\.alert\\\\|console\\\\|\\\\.alert\\\\|alert\\(\\\\`\\\\$\\\\|showInfoModal\\\\|\\\\.js\\\\.map\\\\|eslint\\\\|new\\\\|fatal\\\\|dangerously\")",
+      "Bash(node -e ' *)",
+      "Bash(node *)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(rtk curl *)",
+      "Bash(curl -s http://localhost:5173/api/v1/agent-config/teams)",
+      "Bash(curl *)",
+      "Bash(rtk find *)",
+      "Bash(lsof -ti:8080)",
+      "Bash(xargs kill -9)",
+      "Bash(lsof -ti:5173)",
+      "Bash(/usr/bin/grep -n 'fetch\\(' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/skill-extract.js)",
+      "Bash(/usr/bin/grep -v 'function\\\\|_csrf\\\\|_ensureCsrf\\\\|_af_sk\\\\|api2\\\\|//')",
+      "Bash(/usr/bin/grep -n '_af\\\\|fetch\\(' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/sandbox-twin.js)",
+      "Bash(/usr/bin/grep -n 'fetchCsrfToken\\\\|csrf-token' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/js/api.js)",
+      "Bash(/usr/bin/grep -n 'Global error\\\\|window.onerror\\\\|unhandledrejection' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/digital-twin-cli.html)",
+      "Bash(/usr/bin/grep -n 'script' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/digital-twin-cli.html)",
+      "Bash(/usr/bin/grep -c '<script>' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/digital-twin-cli.html)",
+      "Bash(/usr/bin/grep -c '</script>' /Users/panglaohu/Downloads/AgentsGroup2026/src/frontend/digital-twin-cli.html)",
+      "Bash(/usr/bin/grep *)",
+      "Bash(grep -v '^--$')",
+      "Bash(npm run *)"
+    ]
+  }
+}

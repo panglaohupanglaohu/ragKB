@@ -20,7 +20,7 @@ DECISION_SYSTEM_PROMPT = """你是一个智能体仿真系统中的 Agent Twin�
 
 ## 你的身份
 - 角色: {role}
-- 技能: {skills}
+- 技能及历史成功率: {skills}
 - 当前状态: {state}
 - 当前任务: {current_task}
 
@@ -39,8 +39,9 @@ DECISION_SYSTEM_PROMPT = """你是一个智能体仿真系统中的 Agent Twin�
 
 ## 输出格式 (严格 JSON)
 {{
-  "action": "claim_task|work_on_task|offer_help|delegate|idle|communicate",
+  "action": "claim_task|work_on_task|execute_skill|offer_help|delegate|idle|communicate",
   "task": "task_id 或 null",
+  "skill_used": "执行任务所用技能名 或 null（优先选择高成功率且匹配任务需求的技能）",
   "next_state": "working|waiting|idle|communicating",
   "message": "要广播的消息或 null",
   "target": "目标智能体 ID 或 broadcast 或 null",
@@ -84,9 +85,15 @@ async def llm_decision(
         for t in world.pending_tasks[:5]  # 限制上下文长度
     ]
 
+    # v4 C-2.5: 技能附带熟练度，引导 LLM 优先使用高熟练度技能
+    prof = getattr(twin, "skill_proficiency", {}) or {}
+    skills_desc = ", ".join(
+        f"{s}(成功率{prof.get(s, 0.5):.0%})" for s in twin.skills
+    ) if twin.skills else "通用"
+
     system = DECISION_SYSTEM_PROMPT.format(
         role=twin.role,
-        skills=", ".join(twin.skills) if twin.skills else "通用",
+        skills=skills_desc,
         state=twin.state,
         current_task=twin.current_task or "无",
         pending_tasks="; ".join(pending_desc) if pending_desc else "无",
@@ -143,10 +150,11 @@ def _parse_decision(response: str) -> Optional[Dict[str, Any]]:
         # 验证必需字段
         if "action" not in data:
             return None
-        # 规范化
+        # 规范化 (v4 C-2.5: 保留 skill_used 供归因)
         return {
             "action": data.get("action", "idle"),
             "task": data.get("task"),
+            "skill_used": data.get("skill_used"),
             "next_state": data.get("next_state", "idle"),
             "message": data.get("message"),
             "target": data.get("target"),

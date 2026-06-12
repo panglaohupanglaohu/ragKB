@@ -106,6 +106,34 @@ class WorldStateManager:
         """更新全局指标."""
         self._global_metrics.update(metrics)
 
+    # ── v4 C-4.1: 房间状态机（场景化后房间即业务阶段） ──────────
+
+    def set_room_stages(self, room_stages: Dict[str, int]) -> None:
+        """设置房间阶段映射 {room_id: stage}，由场景编译产出."""
+        self._room_stages = dict(room_stages or {})
+
+    def validate_move(self, from_room: str, to_room: str) -> Dict[str, Any]:
+        """校验 Agent 房间迁移是否符合业务阶段顺序.
+
+        规则: 只允许迁移到相邻阶段（前进一步/回退一步）或同阶段房间。
+        未设置阶段映射时全部放行（兼容无场景模式）。
+        """
+        stages = getattr(self, "_room_stages", None)
+        if not stages:
+            return {"allowed": True, "reason": ""}
+        if to_room not in stages:
+            return {"allowed": False, "reason": f"目标房间 {to_room} 不在当前场景中"}
+        if not from_room or from_room not in stages:
+            return {"allowed": True, "reason": ""}  # 初次进入任意房间
+        delta = stages[to_room] - stages[from_room]
+        if abs(delta) <= 1:
+            return {"allowed": True, "reason": ""}
+        return {
+            "allowed": False,
+            "reason": f"违反业务阶段顺序: {from_room}(阶段{stages[from_room]}) → "
+                      f"{to_room}(阶段{stages[to_room]})，只能迁移到相邻阶段",
+        }
+
     # ── 快照生成 ────────────────────────────────────────────────
 
     def take_snapshot(self, incremental: bool = False) -> WorldStateSnapshot:

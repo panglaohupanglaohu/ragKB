@@ -203,6 +203,10 @@ class TrialStore:
             "team_id": trial.team_id,
             "task_goal": trial.task_goal,
             "scenario": trial.scenario,
+            # v4 A-2.6: 场景化 + 代际
+            "scenario_id": getattr(trial, "scenario_id", ""),
+            "generation": getattr(trial, "generation", 0),
+            "parent_trial_id": getattr(trial, "parent_trial_id", ""),
             "mode": trial.mode.value if hasattr(trial.mode, "value") else str(trial.mode),
             "max_steps": trial.max_steps,
             "acceleration": trial.acceleration,

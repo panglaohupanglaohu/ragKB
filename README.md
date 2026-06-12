@@ -1487,6 +1487,51 @@ AgentsGroup2026/
 
 ## 更新日志
 
+### 2026-06-12 — v4 数字孪生：场景化演练 × 技能进化闭环
+
+本次优化让 Agent 拥有与业务场景对应的数字孪生演练环境，并用演练数据驱动 skill 持续进化（配套文档：`docs/Agent数字孪生场景演练与技能进化plan.md` / `...todos.md`）。
+
+**L0 业务场景层（新增）**
+
+- `sandbox/scenario_models.py` + `sandbox/scenario_store.py` + `sandbox/scenario_compiler.py`：场景五要素模型（world 房间状态机 / taskflow 任务 DAG / roles 角色要求 / chaos_script 扰动剧本 / rubric 验收标准），含 schema 校验、环检测、团队匹配度计算与 LLM 场景生成
+- `config/scenarios/` 内置 5 个业务场景：客服工单高峰、数据管道故障恢复、营销活动投放、代码评审交付、容量事故演练
+- 新 API `/api/v1/scenarios`（列表/详情/上传/LLM生成/团队匹配度）
+
+**技能语义化（twin_loop 增强）**
+
+- `AgentTwin.skill_proficiency` 熟练度先验 + 结算公式（成功率 = 0.3+0.6×熟练度，失败奖励折损，session 内"练熟"效应）
+- 每次技能使用产生 `SkillUsageRecord` 归因记录（成功/失败/失败原因/奖励贡献），落盘 `storage/twin_trials/{trial}_skill_usage.jsonl`，聚合为 `storage/skill_proficiency/{team}.json`
+- 场景混沌剧本按 step 概率自动注入；`world_state.validate_move` 实现房间业务阶段状态机校验
+
+**真实反哺（去模拟化）**
+
+- `POST /twin-trials/{id}/feedback` 不再是模拟：对涉及 skill 真实执行 `skill_library.create_version_snapshot` + effectiveness/evidence_sessions 写回，支持版本回滚
+- `evaluate` 支持场景 rubric 权重覆写 + per-skill `skill_breakdown`；低于 rubric 阈值时发出 `EVOLUTION_SUGGESTED` 事件
+- 新增 `GET /twin-trials/{id}/skill-stats`；Trial 支持 `scenario_id/generation/parent_trial_id`（含存量迁移脚本 `scripts/migrate_trials_v4.py`）
+
+**演练驱动技能进化闭环（新增）**
+
+- `sandbox/evolution_bridge.py`：识别弱 skill → `evolution/mutator` 反思失败 → 生成 ≤4 个变体 → 沙箱 A/B 对照试炼 → 晋升判定（fitness 提升≥5% 且单维回退≤10%）→ `skill_library` 发布门禁 + 版本快照 + `skill_evolver.apply_evolution` 写回，支持人工 approve/reject 与 token 预算闸门
+- 新 API `/api/v1/twin-evolution`（runs CRUD / approve / reject / SSE 事件流 / 熟练度查询）
+
+**前端（Agent-digital-twin.html）**
+
+- 导演台新增业务场景选择器（难度/历史最佳分/团队匹配度/缺口提示），createTrial 携带场景与代际
+- 新增技能进化面板：per-skill 成功率柱状图、弱 skill 标记、发起进化 + 五节点进度流 + 人工裁决 + "再战一代"代际入口
+- `_currentSessionId` 降级为 `_sx.sessionId` 别名（单一数据源收敛第一步）；场景房间渲染进环境空间
+
+**测试**：新增 `tests/test_scenario_system.py`、`test_skill_proficiency.py`、`test_evolution_bridge.py`（27 个纯逻辑用例全绿，含 mock LLM 全闭环）与 `test_v4_apis.py`（FastAPI 集成，需本机 venv 运行）。
+
+### 2026-06-12 — 全局优化 P0：三个系统级收口件
+
+围绕系统总目标（议事广场→萃取→进化验证→分类→孪生演练→棘轮→可持续）补齐三个高缺口环节（配套文档：`docs/全局优化计划.md` / `docs/全局优化todos.md`）：
+
+- **技能三类分类器**（`agents/skill_classifier.py` + `/api/v1/skill-classification`）：按演练/使用证据把技能归入特有(exclusive)/通用(general)/储备(reserve)三池；分类是周期重算的函数（毕业需 2 连击达标、降级有 1 周期宽限），降级自动建议进入进化闭环
+- **全局正向棘轮账本**（`agents/ratchet_ledger.py` + `/api/v1/ratchet`）：系统级"只进不退"——场景最佳分、技能有效性、单位成本产出三类指标的推进记录与门禁；已接线 trial evaluate（评分尝试推进）与 evolution_bridge（技能进化退步则**阻断写回**）；支持留痕 force_reset 逃生门
+- **Token 可持续性评估器**（`agents/sustainability.py` + `/api/v1/sustainability`）：token_efficiency = 评分产出/千token，输出 A-D 等级与配置建议（模型降档/团队缩编/降演练频率/技能路由或进化），组评估含低效团队→高效团队的预算再分配建议；评估结果推进 cost_efficiency 棘轮（2% 容忍）
+
+测试：`test_skill_classifier.py`(12) + `test_ratchet_ledger.py`(9) + `test_sustainability.py`(10) 全绿，含"评分→棘轮→分类毕业→可持续建议"端到端 mock 串联用例；累计本日新增 58 个用例。
+
 ### 2026-05-18
 
 #### 导航体系统一

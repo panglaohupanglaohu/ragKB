@@ -29,6 +29,7 @@ from .models import (
     SandboxStatus,
     SimulationMode,
     SimulationStep,
+    SkillUsageRecord,
     StrategyStatus,
     WorldStateSnapshot,
 )
@@ -40,6 +41,17 @@ logger = logging.getLogger(__name__)
 
 # 默认决策函数类型
 DecisionFunc = Callable[[AgentTwin, WorldStateSnapshot, List[AgentTwin]], Dict[str, Any]]
+
+# ── v4 C-2.2: 熟练度结算调参常量 (集中放置便于调参) ──
+PROF_DEFAULT = 0.5            # 无记录时的默认熟练度
+PROF_SUCCESS_BASE = 0.3       # 成功概率 = clamp(BASE + SLOPE*prof, MIN, MAX)
+PROF_SUCCESS_SLOPE = 0.6
+PROF_SUCCESS_MIN = 0.2
+PROF_SUCCESS_MAX = 0.95
+PROF_FAIL_REWARD_FACTOR = 0.3  # 失败时奖励折损系数
+PROF_LEARN_STEP = 0.02         # session 内每次成功临时熟练度增量
+PROF_LEARN_CAP = 0.98
+PROF_DEGRADE_DELTA = 0.3       # skill_degraded 混沌事件的临时熟练度降幅
 
 
 class TwinLoopEngine:
@@ -72,6 +84,14 @@ class TwinLoopEngine:
         self._semaphore = asyncio.Semaphore(5)
         # 停止事件 — 每个 session 一个 asyncio.Event，用于中断仿真
         self._stop_events: Dict[str, asyncio.Event] = {}
+        # v4 C-2.3: 场景混沌时间表 (session_id -> [{from_step,to_step,event_type,probability_per_step,payload}])
+        self._chaos_timelines: Dict[str, List[Dict[str, Any]]] = {}
+        # v4 C-2.4: 技能使用记录缓冲 (session_id -> [SkillUsageRecord])
+        self._usage_buffers: Dict[str, List[SkillUsageRecord]] = {}
+        # v4 C-2.1: 团队熟练度先验 (session_id -> {agent_id: {skill: rate}})
+        self._proficiency_priors: Dict[str, Dict[str, Dict[str, float]]] = {}
+        # v4 C-3.4: A/B 候选 instructions 覆盖 (session_id -> {skill_name: instructions})
+        self._skill_overrides: Dict[str, Dict[str, str]] = {}
 
     # ── 会话管理 ────────────────────────────────────────────────
 
@@ -117,6 +137,104 @@ class TwinLoopEngine:
             for s in self._sessions.values()
         ]
 
+    # ── v4: 场景/熟练度/归因接入 ─────────────────────────────────
+
+    def set_chaos_timeline(self, session_id: str, timeline: List[Dict[str, Any]]) -> None:
+        """设置场景混沌时间表 (C-2.3)，由 scenario_compiler.build_chaos_timeline 产出."""
+        self._chaos_timelines[session_id] = list(timeline or [])
+
+    def set_proficiency_priors(self, session_id: str, priors: Dict[str, Dict[str, float]]) -> None:
+        """设置团队熟练度先验 (C-2.1). priors: {agent_id: {skill_name: success_rate}}."""
+        self._proficiency_priors[session_id] = priors or {}
+
+    def set_skill_overrides(self, session_id: str, overrides: Dict[str, str]) -> None:
+        """A/B 候选 instructions 覆盖 (C-3.4) — 只影响该 session 的 twin."""
+        self._skill_overrides[session_id] = overrides or {}
+
+    def drain_usage_records(self, session_id: str) -> List[SkillUsageRecord]:
+        """取出并清空该 session 的技能使用记录缓冲 (C-2.4)."""
+        return self._usage_buffers.pop(session_id, [])
+
+    def peek_usage_records(self, session_id: str) -> List[SkillUsageRecord]:
+        """只读查看缓冲（不清空）."""
+        return list(self._usage_buffers.get(session_id, []))
+
+    async def _apply_scheduled_chaos(self, session: SandboxSession, step_num: int) -> None:
+        """每步检查混沌时间表，按概率自动注入 (C-2.3)."""
+        timeline = self._chaos_timelines.get(session.session_id)
+        if not timeline:
+            return
+        for entry in timeline:
+            if entry["from_step"] <= step_num <= entry["to_step"]:
+                if random.random() < entry.get("probability_per_step", 0):
+                    try:
+                        result = await self.inject_chaos_event(
+                            session_id=session.session_id,
+                            event_type=entry.get("event_type", ""),
+                            target_agent=(entry.get("payload") or {}).get("target_agent"),
+                        )
+                        if result.get("injected"):
+                            logger.info(f"🎬 剧本混沌注入 @step{step_num}: {entry.get('event_type')}")
+                    except Exception as e:
+                        logger.warning(f"剧本混沌注入失败: {e}")
+
+    def _settle_skill_action(
+        self, twin: AgentTwin, action: Dict[str, Any], reward: float,
+        step_num: int, session_id: str, chaos: Dict[str, Any],
+    ) -> Tuple[float, Optional[SkillUsageRecord]]:
+        """v4 C-2.2/C-2.4: 熟练度结算 — 成功概率由熟练度决定，并产生使用归因记录.
+
+        Returns: (调整后 reward, SkillUsageRecord 或 None)
+        """
+        skill = action.get("skill_used")
+        if not skill:
+            return reward, None
+
+        prof = float((twin.skill_proficiency or {}).get(skill, PROF_DEFAULT))
+        # skill_degraded 混沌事件 → 临时熟练度降低
+        degraded = chaos.get("degraded_skills", {}).get(twin.source_agent_id)
+        if degraded and step_num < degraded.get("until", 0):
+            prof = max(0.05, prof - PROF_DEGRADE_DELTA)
+
+        success_p = max(PROF_SUCCESS_MIN, min(PROF_SUCCESS_MAX,
+                        PROF_SUCCESS_BASE + PROF_SUCCESS_SLOPE * prof))
+        success = random.random() < success_p
+
+        failure_reason = ""
+        if success:
+            # session 内"练熟"效应（不写回全局）
+            twin.skill_proficiency[skill] = min(PROF_LEARN_CAP, prof + PROF_LEARN_STEP)
+        else:
+            reward = round(reward * PROF_FAIL_REWARD_FACTOR, 4)
+            if degraded and step_num < degraded.get("until", 0):
+                failure_reason = f"skill_degraded: {skill} 被混沌事件削弱 (prof={prof:.2f})"
+            elif prof < 0.4:
+                failure_reason = f"low_proficiency: {skill} 熟练度不足 (prof={prof:.2f})"
+            else:
+                failure_reason = f"execution_miss: {skill} 执行未达标 (p={success_p:.2f})"
+
+        record = SkillUsageRecord(
+            session_id=session_id,
+            step_index=step_num,
+            agent_id=twin.source_agent_id,
+            agent_role=twin.role,
+            skill_name=skill,
+            task_id=str(action.get("task") or ""),
+            outcome="success" if success else "failure",
+            reward_delta=round(reward, 4),
+            failure_reason=failure_reason,
+            context={
+                "action": action.get("action", ""),
+                "tool_used": action.get("tool_used"),
+                "proficiency": round(prof, 4),
+                "success_p": round(success_p, 4),
+                "chaos_active": bool(chaos.get("disabled_agents") or chaos.get("degraded_skills")),
+            },
+        )
+        if session_id:
+            self._usage_buffers.setdefault(session_id, []).append(record)
+        return reward, record
+
     # ── 仿真执行 ────────────────────────────────────────────────
 
     async def run_simulation(self, session_id: str) -> SandboxSession:
@@ -144,8 +262,8 @@ class TwinLoopEngine:
                 session.initial_snapshot = snapshot
                 session.snapshots.append(snapshot.snapshot_id)
 
-                # Step 2: 生成孪生体
-                session.twins = self._spawn_twins(snapshot)
+                # Step 2: 生成孪生体（v4: 携带熟练度先验）
+                session.twins = self._spawn_twins(snapshot, session.session_id)
                 session.status = SandboxStatus.RUNNING
 
                 # Step 3: 仿真循环
@@ -186,6 +304,9 @@ class TwinLoopEngine:
             if stop_event.is_set():
                 logger.info(f"🛑 仿真被中断于步骤 {step_num} (顺序)")
                 break
+
+            # v4 C-2.3: 场景剧本混沌自动注入
+            await self._apply_scheduled_chaos(session, step_num)
 
             step = await self._execute_step(session, sim_state, step_num)
             session.steps.append(step)
@@ -419,6 +540,14 @@ class TwinLoopEngine:
             if chaos.get("mutated_tasks") or chaos.get("disabled_agents"):
                 chaos_penalty = 0.08
             reward = max(0, base_reward - chaos_penalty)
+
+            # v4 C-2.2/C-2.4: 熟练度结算 + 技能使用归因
+            reward, usage_record = self._settle_skill_action(
+                twin, action, reward, step_num, session_id, chaos)
+            if usage_record:
+                step.skill_usages.append(usage_record.record_id)
+                action["skill_outcome"] = usage_record.outcome
+
             step_rewards[twin.twin_id] = reward
             twin.rewards_collected += reward
             twin.actions_taken += 1
@@ -714,7 +843,7 @@ class TwinLoopEngine:
             session.initial_snapshot = snapshot
             session.snapshots.append(snapshot.snapshot_id)
             if not session.twins:
-                session.twins = self._spawn_twins(snapshot)
+                session.twins = self._spawn_twins(snapshot, session_id)
             if not getattr(sim_state, 'pending_tasks', None) and not session.initial_snapshot.pending_tasks:
                 sim_state_pending = self._generate_default_tasks(session)
                 snapshot.pending_tasks = sim_state_pending
@@ -731,6 +860,8 @@ class TwinLoopEngine:
 
         # 执行单步
         session.status = SandboxStatus.RUNNING
+        # v4 C-2.3: 场景剧本混沌自动注入
+        await self._apply_scheduled_chaos(session, step_num)
         step = await self._execute_step(session, sim_state, step_num)
         session.steps.append(step)
         session.total_steps_executed += 1
@@ -789,18 +920,22 @@ class TwinLoopEngine:
 
     # ── 辅助方法 ────────────────────────────────────────────────
 
-    def _spawn_twins(self, snapshot: WorldStateSnapshot) -> List[AgentTwin]:
-        """从世界快照生成孪生智能体."""
+    def _spawn_twins(self, snapshot: WorldStateSnapshot, session_id: str = "") -> List[AgentTwin]:
+        """从世界快照生成孪生智能体 (v4 C-2.1: 载入熟练度先验)."""
+        priors = self._proficiency_priors.get(session_id, {}) if session_id else {}
         twins = []
         for agent_id, state in snapshot.agent_states.items():
+            skills = state.get("skills", [])
+            agent_priors = priors.get(agent_id, {})
             twin = AgentTwin(
                 source_agent_id=agent_id,
                 role=state.get("role", "general"),
-                skills=state.get("skills", []),
+                skills=skills,
                 tools=state.get("tools", []),
                 state="idle",
                 current_task=state.get("current_task"),
                 strategy_params={},
+                skill_proficiency={s: float(agent_priors.get(s, PROF_DEFAULT)) for s in skills},
             )
             twins.append(twin)
         return twins
