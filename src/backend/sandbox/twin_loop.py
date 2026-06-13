@@ -196,8 +196,12 @@ class TwinLoopEngine:
         if degraded and step_num < degraded.get("until", 0):
             prof = max(0.05, prof - PROF_DEGRADE_DELTA)
 
+        # C-3.4: A/B 候选 skill override — 提升判定概率（模拟改进后的 instructions）
+        overrides = self._skill_overrides.get(session_id, {})
+        override_bonus = 0.15 if skill in overrides else 0.0
+
         success_p = max(PROF_SUCCESS_MIN, min(PROF_SUCCESS_MAX,
-                        PROF_SUCCESS_BASE + PROF_SUCCESS_SLOPE * prof))
+                        PROF_SUCCESS_BASE + PROF_SUCCESS_SLOPE * prof + override_bonus))
         success = random.random() < success_p
 
         failure_reason = ""

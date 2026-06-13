@@ -1173,13 +1173,31 @@ window.getRoomName=getRoomName;
 const ROOM_NAMES=new Proxy({},{get:(_,k)=>getRoomName(k)});
 window.ROOM_NAMES=ROOM_NAMES;
 
+let _envMode='3d';
+function toggleEnvMode(btn){
+  _envMode=_envMode==='grid'?'3d':'grid';
+  if(btn){
+    btn.innerHTML=_envMode==='grid'
+      ?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图'
+      :'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 3D 视图';
+  }
+  switchEnvMode(_envMode,btn);
+}
 function switchEnvMode(mode,btn){
-  document.querySelectorAll('#view-environment > .env-container > div:first-child .flow-btn').forEach(b=>b.classList.remove('active'));
+  const allBtns=document.querySelectorAll('#view-environment > .env-container > div:first-child .flow-btn');
+  allBtns.forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
-  document.getElementById('env-3d-container').style.display=mode==='grid'?'none':'block';
-  document.getElementById('room-tabs').style.display=mode==='grid'?'none':'flex';
-  document.getElementById('env-grid').style.display=mode==='grid'?'grid':'none';
-  if(mode==='grid')renderEnvironment();
+  if(mode==='grid'){
+    document.getElementById('env-3d-container').style.display='none';
+    document.getElementById('room-tabs').style.display='none';
+    document.getElementById('env-grid').style.display='grid';
+    renderEnvironment();
+  }else{
+    document.getElementById('env-3d-container').style.display='block';
+    document.getElementById('room-tabs').style.display='flex';
+    document.getElementById('env-grid').style.display='none';
+    if(window._dt3dBuildRoom)window._dt3dBuildRoom(_3dCurrentRoom);
+  }
 }
 
 function switchRoom(roomId,btn){

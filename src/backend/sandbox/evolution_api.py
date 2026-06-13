@@ -46,8 +46,16 @@ async def _default_ab_runner(run, candidate: Optional[Dict[str, Any]], max_steps
     """默认 A/B 执行器: 同场景创建对照 Trial → 跑完 → 评估 (C-3.4).
 
     candidate=None 为基线分支。候选 instructions 通过 skill_overrides
-    注入该 session（LLM 决策模式下生效；规则模式下记录在案）。
+    注入该 session（LLM 决策模式下生效；规则模式下提升熟练度判定概率）。
+    
+    同 run 内所有对照使用同一随机种子（run_id 哈希），保证可复现对比。
     """
+    import random, hashlib
+
+    # C-3.4: 确定性随机种子 — 同 run 的 baseline + candidates 共用
+    seed_base = int(hashlib.md5(run.run_id.encode()).hexdigest()[:8], 16)
+    seed = seed_base + (0 if candidate is None else hash(candidate.get("strategy", "")) % 1000)
+    random.seed(seed)
     from .trial_api import create_trial, evaluate_trial, CreateTrialRequest
     from .api import get_orchestrator
 

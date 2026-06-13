@@ -96,13 +96,15 @@ describe('frontendBigChange TODO smoke coverage', () => {
     const director = read('src/frontend/js/digital-twin/director.js');
     const secs = read('src/frontend/js/digital-twin/secs-core.js');
     const v4 = read('src/frontend/js/digital-twin/v4-scenario-evolution.js');
-    const all = `${html}\n${director}\n${secs}\n${v4}`;
+    const v4s = read('src/frontend/js/digital-twin/v4-scenarios.js');
+    const v4e = read('src/frontend/js/digital-twin/v4-evolution.js');
+    const all = `${html}\n${director}\n${secs}\n${v4}\n${v4s}\n${v4e}`;
 
     [
-      'id="dp-scenario-select"',
+      'id="dp-scenario-cards"',
       'id="dt-room-map-health"',
       'window._dtRoomMapHealth&&window._dtRoomMapHealth()',
-      'onchange="onScenarioChange(this.value)"',
+      'onScenarioChange',
       'onclick="createTrial()"',
       'onclick="stepOnce()"',
       'onclick="autoRun()"',

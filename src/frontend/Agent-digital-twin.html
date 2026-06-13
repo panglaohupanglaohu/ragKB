@@ -114,6 +114,14 @@ body {
 .mode-card{background:rgba(255,255,255,.03);border:1px solid transparent;border-radius:8px;padding:8px 6px;cursor:pointer;text-align:center;transition:all .2s;}
 .mode-card:hover{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.2);}
 .mode-card.mode-active{background:rgba(34,211,238,.1);border-color:var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.1);}
+/* scenario cards (v4 D-1.1) — reuse mode-card base, extend with match badge + stars */
+.scenario-card{position:relative}
+.scenario-card .sc-match{position:absolute;top:-4px;right:-4px;font-size:8px;padding:1px 5px;border-radius:6px;color:#000;font-weight:600}
+.scenario-card .sc-stars{font-size:8px;color:var(--amber);margin-top:2px;display:block}
+.scenario-card .sc-best{font-size:8px;color:var(--dim);margin-top:1px;display:block}
+.scenario-card.sc-active{background:rgba(34,211,238,.1);border-color:var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.1);}
+.scenario-card.sc-free{border-style:dashed;opacity:.7}
+.scenario-card.sc-free.sc-active{opacity:1}
 .mode-icon{font-size:16px;display:block;margin-bottom:2px;}
 .mode-name{font-size:10px;font-weight:600;color:var(--text);display:block;}
 .mode-desc{font-size:8px;color:var(--dim);display:block;margin-top:1px;}
@@ -772,7 +780,7 @@ body {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="flow-title" style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><span class="star">★</span> 环境空间</div>
           <div style="display:flex;gap:8px">
-            <button class="flow-btn" onclick="switchEnvMode('grid',this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图</button>
+            <button class="flow-btn" id="btn-env-mode" onclick="toggleEnvMode(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图</button>
             <button class="btn" onclick="createRoom()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 创建空间</button>
           </div>
         </div>
@@ -800,8 +808,8 @@ body {
           <div id="trial-director-panel" class="director-panel">
             <div class="dp-header"><span class="dp-title">🎬 试炼导演台</span><span class="dp-header-status"><button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button><span class="dp-status-badge" id="dp-status-badge">● 就绪</span></span></div>
             <div class="dp-section"><label class="dp-label">团队</label><select id="dp-team-select" class="dp-select" onchange="onDirectorTeamChange(this.value)"><option value="">— 选择团队 —</option><option value="build-system">Build System</option><option value="ai-programming">AI 编程团队</option><option value="cloudops">公有云 xOPs</option></select></div>
-            <!-- v4 D-1.1: 业务场景选择器 -->
-            <div class="dp-section"><label class="dp-label">🌍 业务场景</label><select id="dp-scenario-select" class="dp-select" onchange="onScenarioChange(this.value)"><option value="">— 自由模式（无场景） —</option></select><div id="dp-scenario-info" style="font-size:9px;color:var(--dim);margin-top:4px;line-height:1.5"></div><button class="btn btn-secondary" style="width:100%;margin-top:6px;font-size:10px" onclick="generateScenarioFromDesc()">✨ AI 生成场景</button></div>
+            <!-- v4 D-1.1: 业务场景卡片选择器 -->
+            <div class="dp-section"><label class="dp-label">🌍 业务场景</label><div id="dp-scenario-cards" class="mode-grid" style="max-height:140px;overflow-y:auto"></div><div id="dp-scenario-info" style="font-size:9px;color:var(--dim);margin-top:4px;line-height:1.5"></div><button class="btn btn-secondary" style="width:100%;margin-top:6px;font-size:10px" onclick="generateScenarioFromDesc()">✨ AI 生成场景</button></div>
             <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
             <div class="dp-section"><label class="dp-label">试炼模式</label><div class="mode-grid" id="mode-selector"><div class="mode-card mode-active" data-mode="what_if" onclick="selectMode('what_if')"><span class="mode-icon">🔮</span><span class="mode-name">What-if</span><span class="mode-desc">基线实验</span></div><div class="mode-card" data-mode="multi_branch" onclick="selectMode('multi_branch')"><span class="mode-icon">🌳</span><span class="mode-name">多分支对比</span><span class="mode-desc">并行策略</span></div><div class="mode-card" data-mode="chaos_drill" onclick="selectMode('chaos_drill')"><span class="mode-icon">🌀</span><span class="mode-name">混沌演练</span><span class="mode-desc">压力测试</span></div><div class="mode-card" data-mode="evolutionary" onclick="selectMode('evolutionary')"><span class="mode-icon">🧬</span><span class="mode-name">演化试炼</span><span class="mode-desc">进化搜索</span></div><div class="mode-card" data-mode="replay" onclick="selectMode('replay')"><span class="mode-icon">📼</span><span class="mode-name">回放复盘</span><span class="mode-desc">历史重放</span></div></div></div>
             <div class="dp-section dp-row"><div class="dp-field"><label class="dp-label-sm">步数上限</label><input type="number" id="dp-max-steps" class="dp-input-sm" value="150" min="10" max="500"></div><div class="dp-field"><label class="dp-label-sm">加速倍率</label><input type="number" id="dp-acceleration" class="dp-input-sm" value="1" min="1" max="100"></div><div class="dp-field"><label class="dp-label-sm">并行分支</label><input type="number" id="dp-parallel" class="dp-input-sm" value="1" min="1" max="8"></div></div>
@@ -1138,10 +1146,12 @@ window.addEventListener('unhandledrejection', function(e) {
 </script>
 
 <!-- ═══ SECS 演练 SSE + 统计 集成逻辑 ═══ -->
-<!-- F2 拆文件: 原 ~2700 行内联脚本拆出为三个模块，加载顺序与原内联顺序一致 -->
+<!-- F2/D-4.1 拆文件: 原 ~2700 行内联脚本拆出为五个模块 -->
 <script src="/js/digital-twin/secs-core.js"></script>
 <script src="/js/digital-twin/director.js"></script>
 <script src="/js/digital-twin/v4-scenario-evolution.js"></script>
+<script src="/js/digital-twin/v4-scenarios.js"></script>
+<script src="/js/digital-twin/v4-evolution.js"></script>
 
 </body>
 </html>

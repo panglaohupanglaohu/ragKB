@@ -32,6 +32,7 @@ export default defineConfig({
         systemEvolution: page('system-evolution.html'),
         skillExtract: page('skill-extract.html'),
         extractionPipeline: page('extraction-pipeline.html'),
+        agentDigitalTwin: page('Agent-digital-twin.html'),
         digitalTwinCli: page('digital-twin-cli.html'),
         sandboxTwin: page('sandbox-twin.html'),
         datacenterRatchetEvolution: page('datacenter-ratchet-evolution.html'),

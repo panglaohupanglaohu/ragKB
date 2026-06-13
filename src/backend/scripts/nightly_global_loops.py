@@ -129,6 +129,45 @@ def run(teams: list, dry_run: bool = False) -> dict:
     except Exception as e:
         report["plaza_topics"] = {"error": str(e)}
 
+    # C-3.7: 自动触发进化运行（settings.auto_evolution_nightly 可关，默认 false）
+    try:
+        if settings.get("auto_evolution_nightly", False) and not dry_run:
+            import asyncio
+            from sandbox.evolution_bridge import get_evolution_bridge
+            from sandbox.scenario_store import get_scenario_store
+            from sandbox.evolution_api import _trial_ids_for
+            evo_report = {"triggered": [], "skipped": [], "errors": []}
+            bridge = get_evolution_bridge()
+            sc_store = get_scenario_store()
+            scenarios = sc_store.list()
+            for team_id in teams:
+                for sc in scenarios:
+                    try:
+                        trial_ids = _trial_ids_for(team_id, sc.scenario_id)
+                        if len(trial_ids) < 2:
+                            evo_report["skipped"].append(f"{team_id}/{sc.scenario_id}: trial<2")
+                            continue
+                        weak = bridge.identify_weak_skills(team_id, sc.scenario_id, trial_ids)
+                        if weak:
+                            run_result = asyncio.run(bridge.start_run(
+                                team_id=team_id,
+                                scenario_id=sc.scenario_id,
+                                trial_ids=trial_ids,
+                                skill_names=[w["skill_name"] for w in weak[:3]],
+                                triggered_by="nightly",
+                            ))
+                            evo_report["triggered"].append({
+                                "team_id": team_id, "scenario_id": sc.scenario_id,
+                                "run_id": run_result.run_id,
+                                "weak_skills": [w["skill_name"] for w in weak[:3]],
+                            })
+                            logger.info(f"🌙 C-3.7: 自动触发进化 {team_id}/{sc.scenario_id} → {run_result.run_id}")
+                    except Exception as e:
+                        evo_report["errors"].append(f"{team_id}/{sc.scenario_id}: {e}")
+            report["evolution_auto"] = evo_report
+    except Exception as e:
+        report["evolution_auto"] = {"error": str(e)}
+
     if not dry_run:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")

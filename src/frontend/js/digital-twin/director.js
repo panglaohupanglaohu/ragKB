@@ -64,31 +64,57 @@ function renderRadarChart(ed, overlay){if(!ed)return;var c=document.getElementBy
 function renderBarChart(ed){if(!ed)return;var c=document.getElementById('bar-chart-area');if(!c)return;var rows=[['目标完成',ed.task_completion||0,'#22d3ee'],['协作效率',ed.collaboration_efficiency||0,'#34d399'],['韧性评分',ed.resilience||0,'#f59e0b'],['成本控制',ed.cost_efficiency||0,'#a78bfa'],['可萃取性',ed.extractability||0,'#f472b6']];var h='<div style="display:flex;flex-direction:column;gap:4px">';rows.forEach(function(r){h+='<div style="display:flex;align-items:center;gap:6px"><span style="width:60px;font-size:9px;color:#888;text-align:right">'+r[0]+'</span><div style="flex:1;height:14px;background:rgba(255,255,255,.05);border-radius:2px"><div style="height:100%;width:'+(r[1]*100)+'%;background:'+r[2]+';border-radius:2px;transition:width .6s ease-out"></div></div><span style="font-size:9px;color:var(--dim);width:35px;text-align:right">'+Math.round(r[1]*100)+'%</span></div>'});var insights=(ed.key_insights&&ed.key_insights.length)?ed.key_insights.join(' · '):'';h+='<div class="resilience-detail">🛡️ 韧性: '+Math.round((ed.resilience||0)*100)+'% | 总分: '+Math.round((ed.total_score||0)*100)+'%'+(insights?'<br>💡 '+insights:'')+'</div>';c.innerHTML=h+'</div>'}
 function renderSopList(ss){var c=document.getElementById('sop-list-area');if(!c)return;c.innerHTML=!ss||!ss.length?'<div style="color:#888;padding:10px">暂无SOP</div>':ss.map(function(s){return '<div style="padding:10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><b style="color:#fbbf24">'+s.name+'</b> <span style="color:#4ade80">'+Math.round(s.confidence*100)+'%</span></div>'}).join('')}
 // ═══ 试炼导演台状态对象初始化 ═══
-window._DTS = {
-  trialStatus: 'idle',
-  selectedMode: 'what_if',
-  directorConfig: { team_id: '' },
-  activeTrialId: null,
-  activeBranchId: null,
-  activeTrial: null,
-  currentStep: 0,
-  processedStepSet: new Set(),
-  events: [],
-  latestReward: 0,
-  _abortCtrl: null
-};
+// D-0.1: _DTS 代理到 _sx 单一数据源 — trialStatus/activeTrialId/activeBranchId/currentStep/events/processedStepSet 读写均走 _sx
+(function() {
+  'use strict';
+  var _sx = window._sx || {};
+  // 确保 _sx 字段就绪
+  _sx.trialId = _sx.trialId || null;
+  _sx.branchId = _sx.branchId || null;
+  _sx.currentStep = _sx.currentStep || 0;
+  _sx.status = _sx.status || 'idle';
+  _sx.roomAgentMap = _sx.roomAgentMap || {};
+  _sx.events = _sx.events || [];
+  _sx.processedStepSet = _sx.processedStepSet || new Set();
 
-// ── P0: 单一数据源 — _sx 是唯一真实存储（SECS IIFE 中通过 window._sx 暴露）──
-// 此处扩展 _sx 字段并在 createTrial/stepOnce 等关键函数显式同步到 _DTS
-if (window._sx) {
-  window._sx.trialId = window._sx.trialId || null;
-  window._sx.branchId = window._sx.branchId || null;
-  window._sx.currentStep = window._sx.currentStep || 0;
-  window._sx.status = window._sx.status || 'idle';
-  window._sx.roomAgentMap = window._sx.roomAgentMap || {};
-  window._sx.events = window._sx.events || [];
-  window._sx.processedStepSet = window._sx.processedStepSet || new Set();
-}
+  // 内部独立字段（不共享给 _sx，仅导演台使用）
+  var _independent = {
+    selectedMode: 'what_if',
+    directorConfig: { team_id: '' },
+    activeTrial: null,
+    latestReward: 0,
+    _abortCtrl: null
+  };
+
+  window._DTS = new Proxy({}, {
+    get: function(target, prop) {
+      if (prop === 'trialStatus') return _sx.status;
+      if (prop === 'activeTrialId') return _sx.trialId;
+      if (prop === 'activeBranchId') return _sx.branchId;
+      if (prop === 'currentStep') return _sx.currentStep;
+      if (prop === 'events') return _sx.events;
+      if (prop === 'processedStepSet') return _sx.processedStepSet;
+      if (prop in _independent) return _independent[prop];
+      return undefined;
+    },
+    set: function(target, prop, value) {
+      if (prop === 'trialStatus') { _sx.status = value; return true; }
+      if (prop === 'activeTrialId') { _sx.trialId = value; return true; }
+      if (prop === 'activeBranchId') { _sx.branchId = value; return true; }
+      if (prop === 'currentStep') { _sx.currentStep = value; return true; }
+      if (prop === 'events') { _sx.events = value; return true; }
+      if (prop === 'processedStepSet') { _sx.processedStepSet = value; return true; }
+      if (prop in _independent) { _independent[prop] = value; return true; }
+      console.warn('[DT] _DTS ignore write:', prop);
+      return true;
+    },
+    has: function(target, prop) {
+      return prop === 'trialStatus' || prop === 'activeTrialId' || prop === 'activeBranchId' ||
+             prop === 'currentStep' || prop === 'events' || prop === 'processedStepSet' ||
+             prop in _independent;
+    }
+  });
+})();
 
 // ═══ 状态转换机 ═══
 function transitionTrialStatus(from, to) {

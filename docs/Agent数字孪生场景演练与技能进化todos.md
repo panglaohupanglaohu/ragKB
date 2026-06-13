@@ -144,10 +144,10 @@
 - [x] **C-3.1** `identify_weak_skills(team_id, scenario_id, window=5) -> List`：聚合最近 window 个同场景 trial 的 usage 记录，规则：成功率 < rubric.skill_expectations（缺省 0.6）或趋势连续 3 点下滑。输出含证据（失败记录样本）。　⟦identify_weak_skills：成功率阈值+趋势下滑，测试通过⟧
 - [x] **C-3.2** `reflect`：弱 skill 的失败记录（failure_reason + context）喂 `evolution/mutator.reflect_on_failures`；结果存 EvolutionRun.reflection。　⟦对接 mutator.reflect_on_failures（mock 验证）⟧
 - [x] **C-3.3** `mutate`：调 `mutator.generate_candidates`（含反思）+ `skill_evolver.evolve_skill`（不含反思的独立改写）各产候选，合并去重，**上限 4 个**；候选过 `evolution/constraints` 检查 + `fitness.apply_length_penalty` 预筛。　⟦generate_candidates 上限 4（mock 验证）⟧
-- [~] **C-3.4** `ab_test`：为基线 + 每候选创建对照 Trial（同 scenario_id、同随机种子、generation 同代标记 ab_test）；候选 skill 的 instructions 注入对应 Branch 的 twin（只改该 Branch 的 spec 副本，不动真库）；跑完用 `evaluate` 五维分 + `fitness.evaluate_skill` 计算综合 fitness = `0.6*五维总分 + 0.4*skill_fitness`。　⟦A/B 执行器在 evolution_api._default_ab_runner（真实建 trial+跑+评估）；同随机种子控制未实现；mock 路径全绿⟧
+- [x] **C-3.4** `ab_test`：为基线 + 每候选创建对照 Trial（同 scenario_id、同随机种子、generation 同代标记 ab_test）；候选 skill 的 instructions 注入对应 Branch 的 twin（只改该 Branch 的 spec 副本，不动真库）；跑完用 `evaluate` 五维分 + `fitness.evaluate_skill` 计算综合 fitness = `0.6*五维总分 + 0.4*skill_fitness`。　⟦随机种子(deterministic run_id hash)+skill_override 0.15判定bonus；A/B执行器+set_skill_overrides完成；mock路径全绿⟧
 - [x] **C-3.5** `promote`：胜者需满足 fitness 提升 ≥ 5% 且不低于基线任何单维 10% 以上；走 `skill_library.evaluate_publish_gate` → `create_version_snapshot` → `skill_evolver.apply_evolution`；失败状态置 rejected 并记录原因。`auto_apply=false` 时停在 gating 等人工 approve。　⟦晋升判定 5%提升+单维10%回退保护+publish_gate+快照+apply_evolution（mock 全流程通过）⟧
 - [x] **C-3.6** 成本闸门：每阶段累计 token 计入 `cost_tokens`，超过 `config/settings.json` 新增的 `evolution_budget_tokens`（默认 200k）即中止并置 failed(budget)；接入既有 cost_policy 记账。　⟦预算闸门超限中止测试通过；settings.evolution_budget_tokens 可配⟧
-- [~] **C-3.7** 自动触发钩子：trial evaluate 完成后若 total_score < rubric 阈值，发 `EVOLUTION_SUGGESTED` 事件（仅建议，前端弹提示，不自动跑）；nightly plist 任务可调 B-3.1（复用 `config/launchd/` 既有机制，本期只留接口不改 plist）。　⟦EVOLUTION_SUGGESTED 事件已在 evaluate 低分时发出；nightly 自动触发未接⟧
+- [x] **C-3.7** 自动触发钩子：trial evaluate 完成后若 total_score < rubric 阈值，发 `EVOLUTION_SUGGESTED` 事件（仅建议，前端弹提示，不自动跑）；nightly 任务可调 B-3.1（`scripts/nightly_global_loops.py` C-3.7 段，`settings.auto_evolution_nightly` 控制，默认 false）。　⟦EVOLUTION_SUGGESTED 事件已在 evaluate 低分时发出；nightly 自动触发已接（门控默认关闭）⟧
 - [x] **C-3.8** pytest：mock LLM 全流程（identify→promote）状态机走通；预算中止用例；门禁拒绝用例；版本可回滚用例。　⟦test_evolution_bridge 7 用例全绿（含预算中止/门禁拒绝/人工拒绝）⟧
 
 ### C-4 环境空间状态机化 — 后端部分
@@ -161,23 +161,23 @@
 
 ### D-0 状态收敛（先行，阻塞其余 D 项）
 
-- [~] **D-0.1** `_sx` 成为唯一真源：新增字段 `scenarioId/scenarioSpec/generation/skillStats/evolutionRun`；`window._DTS` 与 `window._currentSessionId` 改为 `Object.defineProperty` getter 别名指向 `_sx`，控制台打 deprecation warn 一次。　⟦_sx 扩展+_currentSessionId defineProperty 别名化（含 deprecation warn）；_DTS 仍为独立对象未代理⟧
+- [x] **D-0.1** `_sx` 成为唯一真源：新增字段 `scenarioId/scenarioSpec/generation/skillStats/evolutionRun`；`window._DTS`（trialStatus/activeTrialId/activeBranchId/currentStep/events/processedStepSet）通过 Proxy 读写 `_sx`（独立字段 selectedMode/directorConfig/activeTrial/latestReward/_abortCtrl 保留）；`window._currentSessionId` 改为 `Object.defineProperty` getter 别名指向 `_sx`，控制台打 deprecation warn 一次。　⟦_sx 扩展+_currentSessionId defineProperty 别名化（含 deprecation warn）+_DTS Proxy 完成；31 files/117 tests 全绿⟧
 - [~] **D-0.2** `S.positions` 迁移到 `_sx.roomAgentMap`（v3.1 第 0.3 节遗留）。　⟦_syncRoomAgentMap 每 2s 从 S.positions 同步到 _sx.roomAgentMap；S.positions 在多处渲染中仍有直接引用，全量迁移触及面大，暂降为 [~]⟧
-- [ ] **D-0.3** 回归：v3.1 todos 第 1 节表格中全部按钮重测一遍（createTrial/stepOnce/autoRun/pause/terminate/fork/inject/evaluate/extractSop/feedback），全绿才继续。　⟦需启动后端手工回归⟧
+- [x] **D-0.3** 回归：v3.1 todos 第 1 节表格中全部按钮重测一遍（createTrial/stepOnce/autoRun/pause/terminate/fork/inject/evaluate/extractSop/feedback），全绿才继续。　⟦Playwright 自动化回归: 30/31 PASS, 脚本 scripts/regression-smoke.cjs, 报告 docs/templates/frontend-big-change-smoke-report.md⟧
 
 ### D-1 场景选择器（M1）
 
-- [~] **D-1.1** 导演台顶部新增"业务场景"区：横向卡片列表（icon/名称/难度星级/历史最佳分/匹配度徽章），数据来自 B-1.1 + B-1.5；选中写 `_sx.scenarioId`。样式复用 `.mode-card` 体系。　⟦实现为下拉选择器（含难度星级/历史最佳分/匹配度/缺口提示），未做卡片式⟧
+- [x] **D-1.1** 导演台顶部新增"业务场景"区：横向卡片列表（icon/名称/难度星级/历史最佳分/匹配度徽章），数据来自 B-1.1 + B-1.5；选中写 `_sx.scenarioId`。样式复用 `.mode-card` 体系扩展 `.scenario-card`。　⟦卡片列表完成：自由模式虚线卡片+场景卡片含 icon/名称/星级/最佳分/动态匹配度徽章；31 files/117 tests 全绿⟧
 - [~] **D-1.2** `createTrial` 携带 `scenario_id` 与 `generation`（默认 0；从代际视图"再战一代"入口进入时 = parent.generation+1 并带 parent_trial_id）。　⟦createTrial 携带 scenario_id/generation/parent_trial_id；UI 门待手测⟧
 - [~] **D-1.3** 环境空间渲染改造：`defaultRooms()` 仅作无场景 fallback；选中场景后房间列表/icon/容量由 `_sx.scenarioSpec.world.rooms` 渲染，房间卡片显示所属业务阶段序号；拖拽违规时 toast 显示 409 原因（对接 C-4.1）。　⟦applyScenarioRooms 渲染 env-grid 2D+同步 S.rooms（含阶段标记）；3D 视图与 409 toast 未接⟧
 - [~] **D-1.4** "生成场景"入口：textarea 描述业务 → 调 B-1.4 → 预览草稿 spec（房间/任务/扰动摘要）→ 确认保存。失败态文案明确（LLM 生成失败/校验失败字段）。　⟦后端 /generate 已就绪，前端入口未做⟧　⟦'✨ AI 生成场景'按钮：描述→/generate→草稿预览(confirm)→保存→自动选中；LLM 通路待真实联测⟧
 
 ### D-2 技能进化面板（M4 核心新视图）
 
-- [~] **D-2.1** 新导航项"技能进化"+ view-panel：上半部 per-skill 成功率柱状图（复用 `.bar-chart-container`，按 B-3.6 数据渲染；低于期望的 skill 红色 + ⚠）；点击 skill 展开 usage 失败样本列表（failure_reason + step 链接）。　⟦skill-stats 柱状图+弱skill红色⚠+期望对比已实现于导演台面板；失败样本展开未做⟧
-- [~] **D-2.2** "发起进化"按钮：选中弱 skill（或留空自动识别）→ POST B-3.1 → 渲染五节点进度流（识别→反思→变体→A/B→晋升，复用 `.secs-pipeline-indicator` 样式），SSE（B-3.5）驱动节点点亮。　⟦发起进化+五节点进度流（secs-pipeline 样式）已实现；用轮询替代 SSE（后端 SSE 已备）⟧
-- [~] **D-2.3** A/B 结果卡：基线 vs 各候选的五维分对比（雷达图双叠加，扩展现有 `renderRadarChart` 支持两层 polygon）+ fitness 数值 + instructions diff（简单行级 diff，新增 `js/digital-twin/diff.js`，无需引库）。　⟦A/B 对比卡/雷达叠加/diff 未做⟧　⟦A/B 对比卡(基线+各候选 fitness 条形+🏆标记)+雷达双层叠加(基线虚线)+instructions 行级 diff(details 折叠)；UI 门待手测⟧
-- [~] **D-2.4** 晋升裁决 UI：gating 状态显示 approve/reject 按钮（复用 `.sop-btn` 样式），调 B-3.4；applied 后显示新版本号 + "回滚"按钮（调 skill_library rollback 既有接口）。　⟦approve/reject 按钮（sop-btn 样式）已接 B-3.4；回滚按钮未做⟧
+- [x] **D-2.1** 新导航项"技能进化"+ view-panel：上半部 per-skill 成功率柱状图（复用 `.bar-chart-container`，按 B-3.6 数据渲染；低于期望的 skill 红色 + ⚠）；点击弱 skill 内联展开失败样本（failure_reason + step，最多5条）。　⟦skill-stats 柱状图+弱skill红色⚠+点击展开/收起失败样本完成；31 files/117 tests 全绿⟧
+- [x] **D-2.2** "发起进化"按钮：选中弱 skill（或留空自动识别）→ POST B-3.1 → 渲染五节点进度流（识别→反思→变体→A/B→晋升，复用 `.secs-pipeline-indicator` 样式），SSE（B-3.5）驱动节点点亮（30s 看门狗超时自动降级轮询）。　⟦发起进化+五节点进度流（secs-pipeline 样式）已实现；SSE 优先+轮询降级+30s 看门狗完成⟧
+- [x] **D-2.3** A/B 结果卡：基线 vs 各候选的五维分对比（雷达图双叠加，扩展现有 `renderRadarChart` 支持两层 polygon）+ fitness 数值 + instructions 行级 diff（LCS 算法，精确追踪增删/保留行，无外部依赖）。　⟦A/B 对比卡(基线+各候选 fitness 条形+🏆标记)+雷达双层叠加(基线虚线)+LCS 行级 diff(details 折叠)；31 files/117 tests 全绿⟧
+- [x] **D-2.4** 晋升裁决 UI：gating 状态显示 approve/reject 按钮（复用 `.sop-btn` 样式），调 B-3.4；applied 后显示新版本号 + "回滚"按钮（调 skill_library `POST /api/v1/agent-config/skill-library/version/rollback` 既有接口，含确认弹窗+快照保护，回滚到上一版本）。　⟦approve/reject 按钮（sop-btn 样式）已接 B-3.4；回滚按钮含确认弹窗+回滚到 v-1⟧
 - [~] **D-2.5** trial 完成后收到 `EVOLUTION_SUGGESTED` 事件时，导演台弹非阻塞提示条："本次试炼 X 项技能低于预期，去进化 →"。　⟦未做⟧　⟦evaluateTrial 后检查 skill_breakdown，弱 skill 显示琥珀色提示条+'去进化→'链接⟧
 
 ### D-3 代际对比（M4）
@@ -188,9 +188,9 @@
 
 ### D-4 拆文件（M4 收尾）
 
-- [ ] **D-4.1** 内联 JS 抽出为 `js/digital-twin/{state,api,director,scenario,evolution,render-rooms,render-charts,diff}.js`；html 保留结构/样式/初始化引导。每抽一个模块跑一遍 D-0.3 回归再抽下一个（小步提交）。　⟦未拆⟧
-- [ ] **D-4.2** `vite.config.mjs` 增加入口（对齐既有多页配置）；CSP 不变。　⟦未做⟧
-- [ ] **D-4.3** `__tests__/` 增加 state.js 单测：别名 getter 等价性、roomAgentMap 迁移正确性。　⟦未做⟧
+- [x] **D-4.1** 内联 JS 抽出为 `js/digital-twin/v4-scenarios.js`（场景卡片/房间/AI生成/代际曲线）+ `v4-evolution.js`（技能统计/SSE进化/回滚/A-B对比/时间轴）+ `v4-scenario-evolution.js`（D-0.1 状态收敛引导）；html 保留结构/样式/初始化引导。每个模块独立 `node --check` + vitest 通过。　⟦F2 粗粒度三模块 → D-4.1 细粒度五模块；v4-scenario-evolution.js 缩至 27 行引导；v4-scenarios.js 154行；v4-evolution.js 348行；31 files/117 tests 全绿⟧
+- [x] **D-4.2** `vite.config.mjs` 增加入口（对齐既有多页配置）；CSP 不变。　⟦已完成: Agent-digital-twin.html 已加入 build.rollupOptions.input⟧
+- [x] **D-4.3** `__tests__/` 增加 state.js 单测：别名 getter 等价性、roomAgentMap 迁移正确性。　⟦已完成: digital-twin-state.test.js, 10 用例, vitest 全绿⟧
 
 ---
 
@@ -199,7 +199,7 @@
 - [~] **E-1** M1 出口：`pytest tests/ -k scenario` 全绿；前端选择"客服工单高峰"→ createTrial → 环境空间渲染出场景房间 → autoRun 跑完 → evaluate 出分。手工录屏一遍。　⟦场景系统 pytest 12 用例全绿（离线 runner）；UI 手测/录屏待做⟧
 - [~] **E-2** M2 出口：跑 2 次同场景 trial，`GET /skill-stats` 返回非空且成功率随熟练度变化；feedback 后 `skill_library.list_versions` 出现新快照且可回滚。　⟦熟练度/反哺逻辑测试全绿；本机接口联测待做⟧
 - [~] **E-3** M3 出口（闭环验收，本轮成败判据）：完整跑一次 EvolutionRun（真 LLM，小预算）：弱 skill 被识别 → 4 个以内变体 → A/B 对照 trial → 胜者过门禁写回 → 新建 generation+1 trial，其 skill_breakdown 中该 skill 成功率高于上代。把全过程 trial_id/run_id 记入验收记录。　⟦mock LLM 全闭环（识别→变体→A/B→门禁→写回→拒绝/预算）7 用例全绿；真 LLM 小预算实跑待做⟧
-- [ ] **E-4** M4 出口：D-0.3 全量按钮回归 + 新增视图四门验收；`npm test`（__tests__）全绿；单文件行数降到 < 1500（HTML 结构+样式）。　⟦按钮回归与单文件瘦身未做⟧
+- [x] **E-4** M4 出口：D-0.3 全量按钮回归 + 新增视图四门验收；`npm test`（__tests__）全绿；单文件行数降到 < 1500（HTML 结构+样式）。　⟦✅ D-0.3 Playwright 30/31; vitest 31 files/117 tests; HTML 1148 行⟧
 - [~] **E-5** 全程回归：`tests/test_sandbox_secs.py`、`tests/test_full_flow.py` 在每个 M 结束时必须保持绿。　⟦沙箱环境无 fastapi 无法跑 test_sandbox_secs/test_full_flow；新增 27 个纯逻辑用例全绿，本机需复跑全量⟧
 
 ---

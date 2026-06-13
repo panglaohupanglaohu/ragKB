@@ -1,72 +1,45 @@
 # Frontend Big Change Smoke Report
+- 日期: 2026-06-13
+- 测试用户: regr_1781315262341
+- 浏览器: Chromium (headless)
+- 后端: http://127.0.0.1:8080
+- 结果: 30 PASS / 1 FAIL / 0 SKIP
 
-> CB-FE-05: F5 全按钮清单生成器
-> 每次人工验收时复制此模板填写，便于对比各次跑测结果。
-
-- **日期**：
-- **浏览器/版本**：
-- **后端 commit**：
-- **测试账号**：
-
----
-
-## 核心按钮清单
-
-| # | 步骤 | 预期 | 结果 | console 错误 |
-|---|------|------|------|-------------|
-| 1 | 选场景 | 下拉出现 5+ 场景，选中后显示匹配度 | `[ ]` | |
-| 2 | 创建试炼 | 3s 内 `● 就绪` | `[ ]` | |
-| 3 | 单步 | step 增加，3D 动画 | `[ ]` | |
-| 4 | 自动 | 连续运行不卡顿 | `[ ]` | |
-| 5 | 暂停 | 停止推进，按钮切换 | `[ ]` | |
-| 6 | 继续 | 恢复运行 | `[ ]` | |
-| 7 | 终止 | 状态回到待创建 | `[ ]` | |
-
-## 故障注入（6 类）
-
-| # | 事件类型 | 注入成功 | toast | 注入历史 |
-|---|----------|---------|-------|---------|
-| 8 | network_delay | `[ ]` | `[ ]` | `[ ]` |
-| 9 | agent_leave | `[ ]` | `[ ]` | `[ ]` |
-| 10 | task_change | `[ ]` | `[ ]` | `[ ]` |
-| 11 | skill_degraded | `[ ]` | `[ ]` | `[ ]` |
-| 12 | model_hallucination | `[ ]` | `[ ]` | `[ ]` |
-| 13 | logic_deadlock | `[ ]` | `[ ]` | `[ ]` |
-
-## 试炼后操作
-
-| # | 步骤 | 预期 | 结果 | console 错误 |
-|---|------|------|------|-------------|
-| 14 | 评分 | 五维雷达图 + 韧性详情 | `[ ]` | |
-| 15 | SOP | 候选列表 / "暂无SOP" | `[ ]` | |
-| 16 | 反哺 | toast 显示 applied | `[ ]` | |
-
-## 技能进化（v4）
-
-| # | 步骤 | 预期 | 结果 | console 错误 |
-|---|------|------|------|-------------|
-| 17 | 技能统计 | 柱状图显示 per-skill 成功率 | `[ ]` | |
-| 18 | 发起进化 | 五节点进度流前进 | `[ ]` | |
-| 19 | 裁决 | approve/reject 按钮可用 | `[ ]` | |
-| 20 | 再战一代 | generation+1 试炼创建 | `[ ]` | |
-| 21 | AI 生成场景 | 描述 → 草稿 → 保存 | `[ ]` | |
-
-## 环境空间
-
-| # | 步骤 | 预期 | 结果 |
-|---|------|------|------|
-| 22 | 拖拽 agent 到合法房间 | 移动成功，位置持久化 | `[ ]` |
-| 23 | 拖拽 agent 到非法房间 | 409 toast 回滚 | `[ ]` |
-| 24 | room-map-health 徽标 | 显示"单源 N" | `[ ]` |
+## 按钮回归清单
+- [x] 🟢 注册: user=regr_1781315262341
+- [x] 🔑 登录: undefined
+- [x] 📄 页面加载: title="智能体数字孪生 — AgentsGroup2026"
+- [x] 📏 HTML行数 <1500: lines=1148
+- [x] 🏗️ _DTS 初始化: undefined
+- [x] 🏗️ _sx 初始化: undefined
+- [x] 👥 获取团队列表: count=6, first="build_system"
+- [x] 👥 选择团队: team_id=build_system
+- [x] 🧪 创建试炼: status=ready, trialId=OK
+- [x] ▶ 单步推演: step=0
+- [x] ▶▶ 自动推演启动: run started
+- [x] ▶▶ 自动推演暂停: paused
+- [x] ⏸ pauseSim: undefined
+- [x] 🔀 分裂分支: 1 → 2 branches
+- [x] 💥 注入:network_delay: undefined
+- [x] 💥 注入:agent_leave: undefined
+- [x] 💥 注入:task_change: undefined
+- [x] 💥 注入:skill_degraded: undefined
+- [x] 💥 注入:model_hallucination: undefined
+- [x] 💥 注入:logic_deadlock: undefined
+- [x] 📊 评分 evaluateTrial: total_score=36%, resilience=100%
+- [x] 📋 SOP 提取: sops=1
+- [x] 🔄 反哺 feedback: undefined
+- [x] ⏹ 终止 terminate: status=idle
+- [x] 🏥 roomAgentMap 单源诊断: same_ref=true, positions=0
+- [x] 🔲 平面视图切换: undefined
+- [x] 🔲 3D视图切换回: undefined
+- [x] 🏗️ 系统状态视图: undefined
+- [x] 💻 CLI 视图: undefined
+- [x] 🔀 交互流视图: undefined
+- [!] 🚨 Console Errors: 1 errors
 
 ## Console Errors
+- Loading the stylesheet 'https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css' violates the following Content Security Policy directive: "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com". Note that 'style-src-elem' was not explicitly set, so 'style-src' is used as a fallback. The action has been blocked.
 
-```
-（粘贴 F12 控制台所有 error 级别输出）
-```
-
-## 总结
-
-- 通过：\_\_/24
-- 失败项：
-- 备注：
+## 后端版本
+- commit: unknown
