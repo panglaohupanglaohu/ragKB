@@ -1547,6 +1547,21 @@ def dt_put_state(req: Optional[DigitalTwinStateRequest] = Body(None)) -> Dict[st
 def dt_move_agent(req: DigitalTwinMoveRequest = Body(...)) -> Dict[str, Any]:
     if not req.agent_id or not req.room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
+    # F3-1 (v4 C-4.2): 场景房间阶段状态机校验 — 有 scenario 阶段映射时只允许相邻阶段迁移
+    try:
+        from sandbox.api import get_orchestrator
+        ws = get_orchestrator().world_state
+        if getattr(ws, "_room_stages", None):
+            from_room = _dt_state["positions"].get(req.agent_id, "")
+            verdict = ws.validate_move(from_room, req.room_id)
+            if not verdict.get("allowed", True):
+                raise HTTPException(status.HTTP_409_CONFLICT,
+                                    detail={"error": "stage_violation",
+                                            "reason": verdict.get("reason", "")})
+    except HTTPException:
+        raise
+    except Exception as _mv_err:  # orchestrator 未初始化等 → 放行（向后兼容）
+        logger.debug(f"房间阶段校验跳过: {_mv_err}")
     _dt_state["positions"][req.agent_id] = req.room_id
     return {"status": "moved", "agent_id": req.agent_id, "room_id": req.room_id}
 

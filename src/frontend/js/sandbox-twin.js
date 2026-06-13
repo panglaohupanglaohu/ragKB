@@ -45,6 +45,7 @@
   // 实时通信计数: edgeCounts['a->b'] = count
   let edgeCounts = {};
   let edgeConflicts = {}; // 'a->b' = true 表示冲突
+  let collabBackendMessageTotal = 0;
   // 后端权威 role 映射: { agentId: 'planner' | 'coordinator' | ... }
   let currentRoleMap = {};
   // ── Helpers ──
@@ -138,6 +139,25 @@ function clearCollabLayers() {
 }
 
 function renderCollabGraph(roles) {
+  // BUGFIX(协作图空白): 包防御层 — 渲染异常时不留空白，回退默认角色图并在 console 暴露根因
+  try {
+    _renderCollabGraphInner(roles);
+  } catch (err) {
+    console.error('[collab] 协作图渲染异常:', err, 'roles=', roles);
+    if (roles !== AGENT_ROLES) {
+      try { _renderCollabGraphInner(AGENT_ROLES); return; } catch (e2) {
+        console.error('[collab] 默认角色回退也失败:', e2);
+      }
+    }
+    var nodesEl = document.getElementById('collab-nodes');
+    if (nodesEl && !nodesEl.childNodes.length) {
+      nodesEl.innerHTML = '<text x="400" y="180" text-anchor="middle" fill="#E07070" font-size="13">协作图渲染失败: ' +
+        String(err && err.message || err).replace(/</g, '&lt;').slice(0, 80) + ' (见 console)</text>';
+    }
+  }
+}
+
+function _renderCollabGraphInner(roles) {
   var svg = document.getElementById('collab-graph');
   if (!svg) return;
   clearCollabLayers();
@@ -295,7 +315,32 @@ function renderCollabGraph(roles) {
 
 function initCollabGraph() {
   renderCollabGraph(AGENT_ROLES);
+  // BUGFIX(协作图空白): 自愈钩子 — 每 5s 检查节点层是否被意外清空（演练中
+  // rebuild 链路若中断会清空后未重画），为空则用当前角色映射重画
+  if (!window._collabSelfHealTimer) {
+    window._collabSelfHealTimer = setInterval(function () {
+      var nodesEl = document.getElementById('collab-nodes');
+      if (nodesEl && nodesEl.childNodes.length === 0) {
+        console.warn('[collab] 检测到协作图为空，自愈重画');
+        try {
+          if (Object.keys(currentRoleMap).length) {
+            rebuildCollabGraphFromRoles(currentRoleMap);
+          } else {
+            renderCollabGraph(AGENT_ROLES);
+          }
+        } catch (e) { console.error('[collab] 自愈失败:', e); }
+      }
+    }, 5000);
+  }
 }
+
+window._collabGraphHealth = function () {
+  return {
+    nodes: document.querySelectorAll('#collab-nodes .collab-node-outer').length,
+    edges: document.querySelectorAll('#collab-edges .collab-edge').length,
+    total_messages: Number(document.getElementById('collab-msg-total')?.textContent || 0)
+  };
+};
 
 function rebuildCollabGraphFromRoles(roleMap) {
   // roleMap: { agentId: 'planner' | 'coordinator' | ... }
@@ -425,6 +470,13 @@ function ingestAgentRoles(roleMap) {
     updateCollabMetrics();
   }
 
+  function consumeCollabStepMessages(data) {
+    var stepMessages = Number(data && data.messages_count);
+    if (!Number.isFinite(stepMessages) || stepMessages <= 0) return;
+    collabBackendMessageTotal += stepMessages;
+    updateCollabMetrics();
+  }
+
   function updateNodeCount(agentId) {
     var total = 0;
     for (var k in edgeCounts) {
@@ -464,8 +516,9 @@ function ingestAgentRoles(roleMap) {
   }
 
   function updateCollabMetrics() {
-    var total = 0; var conflicts = 0; var active = 0;
-    for (var k in edgeCounts) total += edgeCounts[k];
+    var edgeTotal = 0; var conflicts = 0; var active = 0;
+    for (var k in edgeCounts) edgeTotal += edgeCounts[k];
+    var total = Math.max(edgeTotal, collabBackendMessageTotal);
     for (var k2 in edgeConflicts) conflicts++;
     for (var k3 in edgeCounts) {
       if (edgeCounts[k3] > 0) active++;
@@ -480,6 +533,7 @@ function ingestAgentRoles(roleMap) {
 
   function resetCollabGraph() {
     edgeCounts = {}; edgeConflicts = {};
+    collabBackendMessageTotal = 0;
     document.querySelectorAll('.collab-edge').forEach(function (line) {
       line.classList.remove('active', 'conflict', 'heat');
       line.setAttribute('stroke-width', 1);
@@ -526,9 +580,24 @@ function ingestAgentRoles(roleMap) {
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || resp.statusText);
+      throw new Error(formatApiError(err, resp.statusText));
     }
     return resp.json();
+  }
+
+  function formatApiError(err, fallback) {
+    if (!err) return fallback || '请求失败';
+    if (typeof err === 'string') return err;
+    if (Array.isArray(err.detail)) {
+      return err.detail.map(function (item) {
+        if (!item || typeof item !== 'object') return String(item);
+        var loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+        return (loc ? loc + ': ' : '') + (item.msg || item.reason || item.error || JSON.stringify(item));
+      }).join('; ');
+    }
+    if (typeof err.detail === 'string') return err.detail;
+    if (err.detail && typeof err.detail === 'object') return err.detail.reason || err.detail.error || JSON.stringify(err.detail);
+    return err.reason || err.error || fallback || '请求失败';
   }
 
   // ── Load Stats ──
@@ -669,11 +738,33 @@ function toggleRuntimeDrawer() {
 
   // ── Create & Run ──
 
+  async function resolveExerciseTeamId() {
+    if (exerciseState.teamId) return exerciseState.teamId;
+    try {
+      var resp = await (window._agFetch || fetch)('/api/v1/agent-config/teams?limit=200&offset=0');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      var data = await resp.json();
+      var teams = Array.isArray(data) ? data : (data.teams || data.items || []);
+      var chosen = teams.find(function (team) {
+        return Number(team.agent_count || team.member_count || team.agents_count || 0) > 0;
+      }) || teams[0];
+      if (chosen) {
+        exerciseState.teamId = chosen.team_id || chosen.id || '';
+        exerciseState.teamName = chosen.name || chosen.team_name || exerciseState.teamId;
+        updateGuideTags();
+      }
+    } catch (e) {
+      console.warn('[sandbox] 自动选择团队失败:', e && e.message || e);
+    }
+    return exerciseState.teamId || 'build_system';
+  }
+
   async function createAndRun() {
     const mode = document.getElementById('sim-mode').value;
     const maxSteps = parseInt(document.getElementById('sim-steps').value, 10);
     const speed = parseFloat(document.getElementById('sim-speed').value, 10);
     const branches = parseInt(document.getElementById('sim-branches').value, 10);
+    const teamId = await resolveExerciseTeamId();
 
     setStatus('正在创建沙箱会话...');
     setSimulationRunning(true);
@@ -684,7 +775,7 @@ function toggleRuntimeDrawer() {
       const session = await apiFetch('/sessions', {
         method: 'POST',
         body: JSON.stringify({
-          team_id: 'default',
+          team_id: teamId,
           mode: mode,
           max_steps: maxSteps,
           speed_factor: speed,
@@ -705,6 +796,7 @@ function toggleRuntimeDrawer() {
       var taskContent = document.getElementById('input-content-task');
       if (taskContent) taskContent.innerHTML = '<div style="font-size:11px;color:var(--text2);line-height:1.6">'
         + '<div><strong style="color:var(--cyan)">session</strong> <code>' + esc(session.session_id) + '</code></div>'
+        + '<div><strong style="color:var(--cyan)">team</strong> ' + esc(teamId) + '</div>'
         + '<div><strong style="color:var(--cyan)">mode</strong> ' + esc(mode) + '</div>'
         + '<div><strong style="color:var(--cyan)">max_steps</strong> ' + maxSteps + '</div>'
         + '<div><strong style="color:var(--cyan)">branches</strong> ' + branches + '</div>'
@@ -852,6 +944,7 @@ async function loadSessionHistoryFromBackend() {
         updatePipelineFromStep(data);
         if (data.agent_roles) ingestAgentRoles(data.agent_roles);
 
+        consumeCollabStepMessages(data);
         // 数据驱动协作图：从 agent_actions 推断通信
         driveCollabFromStep(data);
         // 3D 场景同步
@@ -1827,7 +1920,9 @@ function renderSessionDetailHtml(d) {
   }
 
   // ── Init ──
-  window.addEventListener('load', function () {
+  function bootSandboxTwin() {
+    if (window._sandboxTwinBooted) return;
+    window._sandboxTwinBooted = true;
     setupTabs('input-tabs', 'input-content');
     setupTabs('output-tabs', 'output-content');
     bindPipelineNodes();
@@ -1841,5 +1936,12 @@ function renderSessionDetailHtml(d) {
     loadL1AgentGridFromStats();
     loadSessionHistoryFromBackend();
     showGuideBanner();
-  });
+  }
+  window._sandboxTwinBoot = bootSandboxTwin;
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', bootSandboxTwin);
+  } else {
+    setTimeout(bootSandboxTwin, 0);
+  }
+  window.addEventListener('load', bootSandboxTwin);
 })();

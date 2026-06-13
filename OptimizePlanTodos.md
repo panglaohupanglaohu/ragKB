@@ -279,6 +279,7 @@
 - 失败时有清楚错误态和 request_id。
 
 最新进展：
+- 2026-06-13 Codex 浏览器 smoke：通过真实登录/注册路径进入本地 5173，随机账号 `codex_smoke_*` 注册后可访问受保护页面；`cost-dashboard.html` 的 summary/trend/pods/governance/error 容器加载且无 console error；`skill-extract.html`、`system-evolution.html`、`plaza.html` 完成非破坏性页面加载 smoke；`Agent-digital-twin.html` 与 `sandbox-twin.html` 的前端大改项详见 `docs/frontendBigChangeTodos.md`。输入通道已恢复，但创建候选、提交证据、新建讨论等有副作用完整路径仍保留在上方 `[ ]`。
 - 系统演进页真实浏览器 smoke：通过登录/注册路径进入 `system-evolution.html`，点击"运行审查"生成 4 个演进项，点击首个演进项"详情"打开证据面板，面板展示发现问题、期望行为、Build Task、验证结论和 EvidenceRun 区域。
 - 修复系统演进页内联按钮契约：页面动作通过 `exposeEvolutionActions()` 显式挂载到 `window`，`item_id` 深链会自动打开详情。
 - 修复演进项完成语义：`/evolution/items/{item_id}/complete` 支持 `code_changes` 和 `artifact_dir`，缺少构建证据时返回 400；前端"完成"改为打开"构建完成证据"表单再提交。
@@ -449,9 +450,7 @@
 - [x] 后端保存 agent loop、tool execution、sandbox run 的结构化事件。（`GET /runtime/events` 端点 + ToolExecutor.get_history() + EvidenceRun）
 - 涉及文件：`api.py`, `main.py`, `api.js`, `evidence_store.py`, `tool_executor.py`
 
-- [ ] 统一 request_id。
-- [ ] 前端展示关联日志。
-- [ ] 后端保存 agent loop、tool execution、sandbox run 的结构化事件。
+- [x] 重复项核对完成：统一 request_id、前端关联日志、结构化事件已由 P2-03 上方三项覆盖；证据见 `main.py` request_id middleware、`api.js` request_id 错误展示、`GET /runtime/events`、`ToolExecutor.get_history()` 与 EvidenceRun。
 
 ## 下一步
 

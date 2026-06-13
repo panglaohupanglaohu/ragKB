@@ -22,6 +22,23 @@ async function init(){
 }
 async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
 async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
+async function syncAgentMove(agentId,roomId){
+  const r=await _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})});
+  let d={};try{d=await r.json()}catch{}
+  if(!r.ok){
+    const detail=d.detail||d||{};
+    const reason=typeof detail==='string'?detail:(detail.reason||detail.error||d.reason||d.error||`HTTP ${r.status}`);
+    const err=new Error(reason);err.status=r.status;err.payload=d;throw err;
+  }
+  return d;
+}
+function rollbackAgentMove(agentId,oldRoomId){
+  if(oldRoomId)S.positions[agentId]=oldRoomId;else delete S.positions[agentId];
+  persist();renderAgentList();renderEnvironment();
+}
+function moveFailureText(err){return err&&err.status===409?(err.message||'违反业务阶段顺序'):('移动失败: '+(err&&err.message||'服务异常'))}
+// CB-FE-03: 暴露最小测试钩子供 VM 测试拖拽 409 回滚
+window._dtMoveTestHooks = { syncAgentMove, rollbackAgentMove, moveFailureText };
 function loadLocal(){
   const storedRooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null');
   S.rooms=(storedRooms&&storedRooms.length)?storedRooms:defaultRooms();
@@ -424,7 +441,7 @@ async function execCmd(input){
   const out=document.getElementById('cli-output');
   out.innerHTML+=`\n<span class="prompt">❯ </span><span class="cmd">${esc(input)}</span>\n`;
   // Show loading for async commands
-  const asyncCmds=['discuss','extract','review','evolve','optimize','health','task','workflow','delegate','chat'];
+  const asyncCmds=['move','assign','discuss','extract','review','evolve','optimize','health','task','workflow','delegate','chat'];
   const cmd0=input.trim().split(/\s+/)[0];
   let loadEl=null;
   if(asyncCmds.includes(cmd0)){
@@ -452,9 +469,9 @@ async function processCmd(input){
     case'rooms':return roomsText();
     case'arch':return archText();
     case'clear':document.getElementById('cli-output').innerHTML='';return'';
-    case'move':return moveAgent(args[0],args.slice(1).join(' '));
+    case'move':return await moveAgent(args[0],args.slice(1).join(' '));
     case'interact':return interactAgents(args[0],args[1]);
-    case'assign':return moveAgent(args[0],args.slice(1).join(' '));
+    case'assign':return await moveAgent(args[0],args.slice(1).join(' '));
     case'pipeline':return pipelineCmd(args);
     case'flow':return flowCmd(args);
     case'export':return exportCmd(args[0]);
@@ -608,18 +625,24 @@ function archText(){return`<span class="info">━━━ 六层架构 ━━━</
   <span class="layer-tool">│</span>   ↕
   <span class="layer-ui">└─ L6 环境层 ────────── 虚拟空间 · 交互模拟</span>`}
 
-function moveAgent(name,room){
+async function moveAgent(name,room){
   if(!name||!room)return'<span class="err">用法: move <智能体> <空间></span>';
   const agent=S.agents.find(a=>a.name===name||a.agent_id===name);
   if(!agent)return`<span class="err">「${name}」未找到</span>`;
   const r=S.rooms.find(x=>x.name===room||x.id===room);
   if(!r)return`<span class="err">空间「${room}」未找到</span>`;
+  const oldRoomId=S.positions[agent.agent_id];
   const old=S.rooms.find(x=>x.id===S.positions[agent.agent_id]);
-  S.positions[agent.agent_id]=r.id;persist();renderAgentList();renderEnvironment();
-  addMsg('System',agent.name,'handoff',`移动到「${r.name}」`);
-  // Sync to backend
-  _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agent.agent_id,room_id:r.id})}).catch(()=>{});
-  return`<span class="cmd">✓</span> ${agent.name} ${old?'从「'+old.name+'」':''}→ <span class="result">「${r.name}」</span>`}
+  S.positions[agent.agent_id]=r.id;renderAgentList();renderEnvironment();
+  try{
+    await syncAgentMove(agent.agent_id,r.id);
+    persist();addMsg('System',agent.name,'handoff',`移动到「${r.name}」`);
+    return`<span class="cmd">✓</span> ${agent.name} ${old?'从「'+old.name+'」':''}→ <span class="result">「${r.name}」</span>`;
+  }catch(err){
+    rollbackAgentMove(agent.agent_id,oldRoomId);
+    return`<span class="err">${esc(moveFailureText(err))}</span>`;
+  }
+}
 
 function interactAgents(a1,a2){
   if(!a1||!a2)return'<span class="err">用法: interact <a1> <a2></span>';
@@ -997,11 +1020,16 @@ function autoMoveForTask(targetRoomId){
   if(!agent)return;
   const room=S.rooms.find(r=>r.id===targetRoomId);
   if(!room)return;
+  const oldRoomId=S.positions[agent.agent_id];
   S.positions[agent.agent_id]=targetRoomId;
-  persist();renderAgentList();renderEnvironment();
-  addMsg('System',agent.name,'handoff',`自动移动到「${room.name}」`);
-  addActivity(`▷ ${agent.name} → ${room.name} (自动编排)`);
-  _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agent.agent_id,room_id:targetRoomId})}).catch(()=>{});
+  renderAgentList();renderEnvironment();
+  syncAgentMove(agent.agent_id,targetRoomId).then(()=>{
+    persist();addMsg('System',agent.name,'handoff',`自动移动到「${room.name}」`);
+    addActivity(`▷ ${agent.name} → ${room.name} (自动编排)`);
+  }).catch(err=>{
+    rollbackAgentMove(agent.agent_id,oldRoomId);
+    toast(moveFailureText(err));
+  });
 }
 
 function camCmd(args){
@@ -1108,18 +1136,27 @@ let _dragAgentId=null;
 function onDragStart(ev,agentId){_dragAgentId=agentId;ev.target.closest('.agent-card').classList.add('dragging');ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',agentId)}
 function onDragOver(ev){ev.preventDefault();ev.dataTransfer.dropEffect='move';ev.currentTarget.classList.add('drag-over')}
 function onDragLeave(ev){ev.currentTarget.classList.remove('drag-over')}
-function onDrop(ev,roomId){
+async function onDrop(ev,roomId){
   ev.preventDefault();ev.currentTarget.classList.remove('drag-over');
   const agentId=ev.dataTransfer.getData('text/plain')||_dragAgentId;
   if(!agentId)return;
   const agent=S.agents.find(a=>a.agent_id===agentId);const room=S.rooms.find(r=>r.id===roomId);
   if(!agent||!room)return;
-  const old=S.rooms.find(r=>r.id===S.positions[agentId]);
-  S.positions[agentId]=roomId;persist();renderAgentList();renderEnvironment();
-  addMsg('System',agent.name,'handoff',`拖放移动到「${room.name}」`);addActivity(`${agent.name} → ${room.name}`);
-  _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})}).catch(()=>{});
-  toast(`✓ ${agent.name} → ${room.name}`);
-  document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null;
+  const oldRoomId=S.positions[agentId];
+  const old=S.rooms.find(r=>r.id===oldRoomId);
+  S.positions[agentId]=roomId;renderAgentList();renderEnvironment();
+  try{
+    await syncAgentMove(agentId,roomId);
+    persist();addMsg('System',agent.name,'handoff',`拖放移动到「${room.name}」`);addActivity(`${agent.name} → ${room.name}`);
+    toast(`✓ ${agent.name} → ${room.name}`);
+  }catch(err){
+    rollbackAgentMove(agentId,oldRoomId);
+    const back=old?`，已退回「${old.name}」`:'，已取消移动';
+    toast(moveFailureText(err)+back);
+    addActivity(`${agent.name} → ${room.name} 被拒绝`);
+  }finally{
+    document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null;
+  }
 }
 document.addEventListener('dragend',()=>{document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null})
 
