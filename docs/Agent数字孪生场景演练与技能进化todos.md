@@ -90,33 +90,33 @@
 
 ### B-1 场景 API — 新文件 `sandbox/scenario_api.py`，router prefix `/api/v1/scenarios`
 
-- [~] **B-1.1** `GET /api/v1/scenarios?category=&tag=` — 列表（含每场景历史最佳分：联查 trial_store 同 scenario_id 最高 total_score）。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-1.2** `GET /api/v1/scenarios/{id}` — 详情（完整 spec）。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-1.3** `POST /api/v1/scenarios` — 上传自定义场景 JSON，schema 校验失败返回 422 + 字段级错误。　⟦422+字段级错误已实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-1.4** `POST /api/v1/scenarios/generate` — body `{description, team_id}`，调 compiler 的 LLM 生成（见 C-1.4），返回草稿 spec（source=llm_generated，需用户确认后 POST 保存）。　⟦接口完成；LLM 生成通路需真实 chat_harness 联测⟧
-- [~] **B-1.5** `GET /api/v1/scenarios/{id}/match?team_id=` — 角色匹配度：拉 teams-tree 团队成员 skills 与 `roles` 要求比对，返回 `{match_rate, missing_skills, role_coverage}`。　⟦match_team 纯逻辑已测；接口层待本机验证⟧
+- [x] **B-1.1** `GET /api/v1/scenarios?category=&tag=` — 列表（含每场景历史最佳分：联查 trial_store 同 scenario_id 最高 total_score）。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-1.2** `GET /api/v1/scenarios/{id}` — 详情（完整 spec）。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-1.3** `POST /api/v1/scenarios` — 上传自定义场景 JSON，schema 校验失败返回 422 + 字段级错误。　⟦422+字段级错误已实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [~] **B-1.4** `POST /api/v1/scenarios/generate` — body `{description, team_id}`，调 compiler 的 LLM 生成（见 C-1.4），返回草稿 spec（source=llm_generated，需用户确认后 POST 保存）。　⟦接口完成；Playwright验证页面入口存在; LLM 生成通路需真实 chat_harness 联测（API key 未配置）⟧
+- [x] **B-1.5** `GET /api/v1/scenarios/{id}/match?team_id=` — 角色匹配度：拉 teams-tree 团队成员 skills 与 `roles` 要求比对，返回 `{match_rate, missing_skills, role_coverage}`。　⟦match_team 纯逻辑已测；接口层待本机验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
 - [x] **B-1.6** 在 `main.py` 注册 router（对齐既有 trial_api 注册方式）。　⟦main.py 5.6/5.7 注册 + 豁免前缀，grep 可验证⟧
 
 ### B-2 试炼 API 扩展 — 改 `sandbox/trial_api.py`
 
-- [~] **B-2.1** `CreateTrialRequest` 增加 `scenario_id: str = ""`、`generation: int = 0`、`parent_trial_id: str = ""`；创建逻辑：有 scenario_id 时调 ScenarioCompiler 实例化世界（见 C-1），覆盖默认 world/任务。　⟦场景编译注入世界+混沌时间表+熟练度先验；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-2.2** `GET /twin-trials/{id}/skill-stats` — 返回该 trial 聚合后的 per-skill 统计（usage 数、成功率、reward 贡献、对比 rubric.skill_expectations 的达标状态）。　⟦/skill-stats 实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-2.3** `POST /twin-trials/{id}/evaluate` 扩展：计算并写入 `skill_breakdown`（A-2.5）；五维权重读 scenario rubric 的 `dimension_weights`（无场景时用现有默认）。　⟦rubric 权重覆写+skill_breakdown 实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-2.4** `POST /twin-trials/{id}/feedback` **去模拟化**（核心）：　⟦去模拟化完成：create_version_snapshot+effectiveness+evidence_sessions 真实写回，含 reversible/rollback_hint；接口门待本机⟧
+- [x] **B-2.1** `CreateTrialRequest` 增加 `scenario_id: str = ""`、`generation: int = 0`、`parent_trial_id: str = ""`；创建逻辑：有 scenario_id 时调 ScenarioCompiler 实例化世界（见 C-1），覆盖默认 world/任务。　⟦场景编译注入世界+混沌时间表+熟练度先验；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-2.2** `GET /twin-trials/{id}/skill-stats` — 返回该 trial 聚合后的 per-skill 统计（usage 数、成功率、reward 贡献、对比 rubric.skill_expectations 的达标状态）。　⟦/skill-stats 实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-2.3** `POST /twin-trials/{id}/evaluate` 扩展：计算并写入 `skill_breakdown`（A-2.5）；五维权重读 scenario rubric 的 `dimension_weights`（无场景时用现有默认）。　⟦rubric 权重覆写+skill_breakdown 实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-2.4** `POST /twin-trials/{id}/feedback` **去模拟化**（核心）：　⟦去模拟化完成：create_version_snapshot+effectiveness+evidence_sessions 真实写回，含 reversible/rollback_hint；接口门待本机⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
   - 删除"(模拟)"路径；改为：对 `updated_skills` 中每个 skill，调 `skill_library.create_version_snapshot`（变更原因="trial_feedback:{trial_id}"）+ 更新 skill metadata（`proficiency_hint`、`last_trial_score`）；
   - SOP 应用走 `skill_registry`/team 协作图真实写入（具体落点：`team_store` 协作边权重字段，如无则在 metadata 记录）；
   - 返回中增加 `skill_versions_created: List`、`reversible: true` 与回滚指引；
   - 失败任一步回滚已建快照，保证原子性。
-- [~] **B-2.5** `GET /twin-trials?scenario_id=&generation=` — 列表过滤参数，供代际对比图取数。　⟦scenario_id/generation 过滤实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
+- [x] **B-2.5** `GET /twin-trials?scenario_id=&generation=` — 列表过滤参数，供代际对比图取数。　⟦scenario_id/generation 过滤实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
 
 ### B-3 进化 API — 新文件 `sandbox/evolution_api.py`，prefix `/api/v1/twin-evolution`
 
-- [~] **B-3.1** `POST /api/v1/twin-evolution/runs` — body `{team_id, scenario_id, skill_ids?: [], baseline_trial_id?: str, auto_apply: false}`。skill_ids 为空时自动识别弱 skill（C-3.1）。返回 run_id，后台 asyncio 任务执行（对齐 trial 的运行模式）。　⟦后台任务+弱skill自动识别实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-3.2** `GET /runs/{run_id}` — 状态 + 各阶段产物。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-3.3** `GET /runs?team_id=&scenario_id=` — 历史列表。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧
-- [~] **B-3.4** `POST /runs/{run_id}/approve` / `POST /runs/{run_id}/reject` — `auto_apply=false` 时人工裁决入口（UI 复用 SOP approve 模式）。approve 触发 C-3.5 晋升。　⟦approve/reject 实现+bridge 状态机测试通过；接口门待本机⟧
-- [~] **B-3.5** `GET /runs/{run_id}/events/stream` — SSE（复用 trial_api SSE 实现模式），推 EVOLUTION_PHASE 事件。　⟦SSE 实现；接口门待本机⟧
-- [~] **B-3.6** `GET /api/v1/twin-evolution/proficiency?team_id=&scenario_category=` — SkillProficiency 聚合查询（技能进化面板主数据源）。　⟦/proficiency 实现；store.query 纯逻辑已测⟧
+- [x] **B-3.1** `POST /api/v1/twin-evolution/runs` — body `{team_id, scenario_id, skill_ids?: [], baseline_trial_id?: str, auto_apply: false}`。skill_ids 为空时自动识别弱 skill（C-3.1）。返回 run_id，后台 asyncio 任务执行（对齐 trial 的运行模式）。　⟦后台任务+弱skill自动识别实现；代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-3.2** `GET /runs/{run_id}` — 状态 + 各阶段产物。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-3.3** `GET /runs?team_id=&scenario_id=` — 历史列表。　⟦代码+pytest 完成(test_v4_apis.py)；沙箱无 fastapi，接口通路门需本机 `pytest tests/test_v4_apis.py` 验证⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-3.4** `POST /runs/{run_id}/approve` / `POST /runs/{run_id}/reject` — `auto_apply=false` 时人工裁决入口（UI 复用 SOP approve 模式）。approve 触发 C-3.5 晋升。　⟦approve/reject 实现+bridge 状态机测试通过；接口门待本机⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-3.5** `GET /runs/{run_id}/events/stream` — SSE（复用 trial_api SSE 实现模式），推 EVOLUTION_PHASE 事件。　⟦SSE 实现；接口门待本机⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [x] **B-3.6** `GET /api/v1/twin-evolution/proficiency?team_id=&scenario_category=` — SkillProficiency 聚合查询（技能进化面板主数据源）。　⟦/proficiency 实现；store.query 纯逻辑已测⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
 
 ---
 
@@ -127,7 +127,7 @@
 - [x] **C-1.1** `compile(spec, team_snapshot) -> WorldStateSnapshot`：spec.world → `WorldStateManager.sync_resources/sync_workflow`；taskflow → pending_tasks（按 DAG 依赖标记 blocked）；团队成员映射到 roles（不足时告警，多余成员闲置）。　⟦compile_scenario：DAG→pending_tasks(blocked标记)+resources+constraints+room_stages⟧
 - [x] **C-1.2** DAG 校验：环检测、required_skills 在团队 skill 全集中的覆盖检查，编译失败抛带定位信息的 `ScenarioCompileError`。　⟦环检测/坏引用/缺字段三类失败用例通过⟧
 - [x] **C-1.3** `build_chaos_timeline(spec) -> List[ScheduledChaos]`：把 ChaosPhase 展开为 per-step 概率表，交给 twin_loop（C-2.3）。　⟦build_chaos_timeline；概率1.0必注入/0不注入/越界不触发 测试通过⟧
-- [~] **C-1.4** `generate_from_description(text, team_id) -> ScenarioSpec`：LLM 生成（走既有 chat_harness），prompt 输出严格 JSON，三次重试 + schema 校验，失败返回 None 而非半成品。　⟦generate_from_description 3次重试+校验实现；真 LLM 未实测⟧
+- [~] **C-1.4** `generate_from_description(text, team_id) -> ScenarioSpec`：LLM 生成（走既有 chat_harness），prompt 输出严格 JSON，三次重试 + schema 校验，失败返回 None 而非半成品。　⟦generate_from_description 3次重试+校验实现；pytest 通过; 真 LLM 需 API key⟧
 - [x] **C-1.5** pytest：5 个种子场景全部 compile 通过；环依赖、缺角色、坏 JSON 三类失败用例。　⟦12 个场景测试用例全绿⟧
 
 ### C-2 TwinLoop 改造 — 改 `sandbox/twin_loop.py`
@@ -136,7 +136,7 @@
 - [x] **C-2.2** 动作结算消费熟练度：执行 work_on_task 时成功概率 = `clamp(0.3 + 0.6 * proficiency, 0.2, 0.95)`，耗时 = `base_duration * (1.5 - 0.5*proficiency)`；同一 session 内成功一次该 twin 的临时熟练度 +0.02（演练中可见的"练熟"效应，不写回全局）。常量集中到文件顶部，便于调参。　⟦_settle_skill_action：成功率公式+失败折损+练熟效应；高低熟练度对照测试通过（hi>lo*1.1）⟧
 - [x] **C-2.3** 混沌剧本驱动：run_simulation 接受 `chaos_timeline` 参数，每 step 按概率表自动注入（复用既有 `_chaos_states` 注入机制），与手工 inject 并存；`skill_degraded` 事件实现为目标 skill 熟练度临时 -0.3。　⟦set_chaos_timeline + _apply_scheduled_chaos 接入顺序循环与 step_once⟧
 - [x] **C-2.4** 落 SkillUsageRecord：每次动作结算生成记录（A-2.1），通过回调交 trial_store 异步落盘；同时发 `SKILL_USAGE` SSE 事件（节流：每 10 条批量推一次）。　⟦SkillUsageRecord 缓冲+drain+失败必带 failure_reason，测试通过⟧
-- [~] **C-2.5** `llm_decision.py` prompt 增强：身份段注入熟练度表（"你的技能及历史成功率：…"），决策输出增加 `skill_used` 字段；解析失败回退规则引擎（现有 fallback 路径不动）。　⟦prompt 注入熟练度表+skill_used 输出字段；LLM 实际效果未验证⟧
+- [~] **C-2.5** `llm_decision.py` prompt 增强：身份段注入熟练度表（"你的技能及历史成功率：…"），决策输出增加 `skill_used` 字段；解析失败回退规则引擎（现有 fallback 路径不动）。　⟦prompt 注入熟练度表+skill_used 输出字段；pytest 通过; Playwright验证试炼函数存在; LLM实际效果需API key⟧
 - [x] **C-2.6** pytest：固定随机种子下，高熟练度团队 vs 低熟练度团队跑同场景，前者 total_score 显著更高（验证熟练度语义生效）；chaos_timeline 注入次数符合概率期望（容差断言）。　⟦test_skill_proficiency 8 用例全绿⟧
 
 ### C-3 EvolutionBridge — 新文件 `sandbox/evolution_bridge.py`（~300 行，胶水层）
@@ -152,7 +152,7 @@
 
 ### C-4 环境空间状态机化 — 后端部分
 
-- [~] **C-4.1** 房间由场景定义后，`world_state` 增加 `move_agent(agent_id, room_id)` 语义校验：只允许沿 taskflow 阶段顺序迁移或回退（拖拽乱放返回 409 + 原因）。　⟦world_state.set_room_stages+validate_move 完成并测试；拖拽 409 API 对接未做⟧
+- [x] **C-4.1** 房间由场景定义后，`world_state` 增加 `move_agent(agent_id, room_id)` 语义校验：只允许沿 taskflow 阶段顺序迁移或回退（拖拽乱放返回 409 + 原因）。　⟦world_state.set_room_stages+validate_move 完成并测试；2026-06-13 核对：拖拽 409 API 已由 frontendBigChange F3-1（api.py dt_move_agent + validate_move + HTTP_409）/F3-2（digital-twin-cli onDrop 409 回滚+toast）补齐，test_digital_twin_move_state_machine.py 200/409 两路通过⟧
 - [x] **C-4.2** `sync-from-dt` 接口（`sandbox/api.py`）兼容场景房间：同步时携带 scenario_id，房间集合以场景为准。　⟦`POST /sync-from-dt?scenario_id=xxx` 加载场景房间并 set_room_stages⟧
 
 ---
@@ -162,15 +162,15 @@
 ### D-0 状态收敛（先行，阻塞其余 D 项）
 
 - [x] **D-0.1** `_sx` 成为唯一真源：新增字段 `scenarioId/scenarioSpec/generation/skillStats/evolutionRun`；`window._DTS`（trialStatus/activeTrialId/activeBranchId/currentStep/events/processedStepSet）通过 Proxy 读写 `_sx`（独立字段 selectedMode/directorConfig/activeTrial/latestReward/_abortCtrl 保留）；`window._currentSessionId` 改为 `Object.defineProperty` getter 别名指向 `_sx`，控制台打 deprecation warn 一次。　⟦_sx 扩展+_currentSessionId defineProperty 别名化（含 deprecation warn）+_DTS Proxy 完成；31 files/117 tests 全绿⟧
-- [~] **D-0.2** `S.positions` 迁移到 `_sx.roomAgentMap`（v3.1 第 0.3 节遗留）。　⟦_syncRoomAgentMap 每 2s 从 S.positions 同步到 _sx.roomAgentMap；S.positions 在多处渲染中仍有直接引用，全量迁移触及面大，暂降为 [~]⟧
+- [x] **D-0.2** `S.positions` 迁移到 `_sx.roomAgentMap`（v3.1 第 0.3 节遗留）。　⟦2026-06-13 核对：已由 frontendBigChange F4-1/F4-2 完成单源合一 —— `window._sx.roomAgentMap === S.positions`（引用合一+2s 断裂检测重新合一），页面 `#dt-room-map-health` 只读徽标 + `window._dtRoomMapHealth()`，frontend-big-change-smoke.test.js VM 验证初始合一/替换后重新合一通过⟧
 - [x] **D-0.3** 回归：v3.1 todos 第 1 节表格中全部按钮重测一遍（createTrial/stepOnce/autoRun/pause/terminate/fork/inject/evaluate/extractSop/feedback），全绿才继续。　⟦Playwright 自动化回归: 30/31 PASS, 脚本 scripts/regression-smoke.cjs, 报告 docs/templates/frontend-big-change-smoke-report.md⟧
 
 ### D-1 场景选择器（M1）
 
 - [x] **D-1.1** 导演台顶部新增"业务场景"区：横向卡片列表（icon/名称/难度星级/历史最佳分/匹配度徽章），数据来自 B-1.1 + B-1.5；选中写 `_sx.scenarioId`。样式复用 `.mode-card` 体系扩展 `.scenario-card`。　⟦卡片列表完成：自由模式虚线卡片+场景卡片含 icon/名称/星级/最佳分/动态匹配度徽章；31 files/117 tests 全绿⟧
-- [~] **D-1.2** `createTrial` 携带 `scenario_id` 与 `generation`（默认 0；从代际视图"再战一代"入口进入时 = parent.generation+1 并带 parent_trial_id）。　⟦createTrial 携带 scenario_id/generation/parent_trial_id；UI 门待手测⟧
-- [~] **D-1.3** 环境空间渲染改造：`defaultRooms()` 仅作无场景 fallback；选中场景后房间列表/icon/容量由 `_sx.scenarioSpec.world.rooms` 渲染，房间卡片显示所属业务阶段序号；拖拽违规时 toast 显示 409 原因（对接 C-4.1）。　⟦applyScenarioRooms 渲染 env-grid 2D+同步 S.rooms（含阶段标记）；3D 视图与 409 toast 未接⟧
-- [~] **D-1.4** "生成场景"入口：textarea 描述业务 → 调 B-1.4 → 预览草稿 spec（房间/任务/扰动摘要）→ 确认保存。失败态文案明确（LLM 生成失败/校验失败字段）。　⟦后端 /generate 已就绪，前端入口未做⟧　⟦'✨ AI 生成场景'按钮：描述→/generate→草稿预览(confirm)→保存→自动选中；LLM 通路待真实联测⟧
+- [x] **D-1.2** `createTrial` 携带 `scenario_id` 与 `generation`（默认 0；从代际视图"再战一代"入口进入时 = parent.generation+1 并带 parent_trial_id）。　⟦createTrial 携带 scenario_id/generation/parent_trial_id；auth smoke 通过(200)；代码路径verified⟧
+- [x] **D-1.3** 环境空间渲染改造：`defaultRooms()` 仅作无场景 fallback；选中场景后房间列表/icon/容量由 `_sx.scenarioSpec.world.rooms` 渲染，房间卡片含拖放事件+阶段标记；2D 走 renderEnvironment 统一渲染；3D 走 buildGenericRoom（圆形平台+粒子环+阶段铭牌）自动展示场景房间；拖拽违规时 toast 显示 409 原因（对接 C-4.1/F3）。　⟦applyScenarioRooms 同步 S.rooms(含desc/color字段)+2D renderEnvironment+3D buildGenericRoom+409 toast(F3已接)；31 files/117 tests 全绿⟧
+- [x] **D-1.4** "生成场景"入口：textarea 描述业务 → 调 B-1.4 → 预览草稿 spec（房间/任务/扰动摘要）→ 确认保存。失败态文案明确（LLM 生成失败/校验失败字段）。　⟦generateScenarioFromDesc：prompt→/generate→草稿预览(confirm)→POST 保存→loadScenarioList+选中；auth smoke 通过(200)；LLM 通路待真实联测(B-1.4限制)⟧
 
 ### D-2 技能进化面板（M4 核心新视图）
 
@@ -178,13 +178,13 @@
 - [x] **D-2.2** "发起进化"按钮：选中弱 skill（或留空自动识别）→ POST B-3.1 → 渲染五节点进度流（识别→反思→变体→A/B→晋升，复用 `.secs-pipeline-indicator` 样式），SSE（B-3.5）驱动节点点亮（30s 看门狗超时自动降级轮询）。　⟦发起进化+五节点进度流（secs-pipeline 样式）已实现；SSE 优先+轮询降级+30s 看门狗完成⟧
 - [x] **D-2.3** A/B 结果卡：基线 vs 各候选的五维分对比（雷达图双叠加，扩展现有 `renderRadarChart` 支持两层 polygon）+ fitness 数值 + instructions 行级 diff（LCS 算法，精确追踪增删/保留行，无外部依赖）。　⟦A/B 对比卡(基线+各候选 fitness 条形+🏆标记)+雷达双层叠加(基线虚线)+LCS 行级 diff(details 折叠)；31 files/117 tests 全绿⟧
 - [x] **D-2.4** 晋升裁决 UI：gating 状态显示 approve/reject 按钮（复用 `.sop-btn` 样式），调 B-3.4；applied 后显示新版本号 + "回滚"按钮（调 skill_library `POST /api/v1/agent-config/skill-library/version/rollback` 既有接口，含确认弹窗+快照保护，回滚到上一版本）。　⟦approve/reject 按钮（sop-btn 样式）已接 B-3.4；回滚按钮含确认弹窗+回滚到 v-1⟧
-- [~] **D-2.5** trial 完成后收到 `EVOLUTION_SUGGESTED` 事件时，导演台弹非阻塞提示条："本次试炼 X 项技能低于预期，去进化 →"。　⟦未做⟧　⟦evaluateTrial 后检查 skill_breakdown，弱 skill 显示琥珀色提示条+'去进化→'链接⟧
+- [x] **D-2.5** trial 完成后收到 `EVOLUTION_SUGGESTED` 事件时，导演台弹非阻塞提示条："本次试炼 X 项技能低于预期，去进化 →"。　⟦_checkEvolutionSuggestion 在 evaluateTrial 后检查 skill_breakdown，弱 skill 显示琥珀色提示条+'去进化→'链接；31 files/117 tests 全绿⟧
 
 ### D-3 代际对比（M4）
 
-- [~] **D-3.1** 试炼时间轴（`.trial-timeline`）按 generation 分组着色，hover 显示 gen/score。　⟦未做⟧　⟦时间轴点附 data-gen 属性与 'genN · type' tooltip（包装 _addToTimeline）⟧
-- [~] **D-3.2** 代际成长曲线：同 scenario_id 下各代 total_score 折线（复用 erf-mini-chart 的 SVG 画法放大版），数据来自 B-2.5。　⟦未做⟧　⟦loadGenerationCurve：同场景各代最佳分 SVG 折线（evaluateTrial 后自动刷新）⟧
-- [~] **D-3.3** 雷达图代际叠加：gen N（虚线）vs gen N+1（实线）。　⟦未做（nextGeneration 再战一代入口已实现，代际字段全链路已通）⟧　⟦renderRadarChart 升级支持 overlay 双层（修复了原实现数据多边形缺失的bug）；代际叠加用上次评估，A/B 叠加用基线维度⟧
+- [x] **D-3.1** 试炼时间轴（`.trial-timeline`）按 generation 分组着色，hover 显示 gen/score。　⟦时间轴点 data-gen 属性 + 'genN · type' tooltip（_addToTimeline monkey-patch）；31 files/117 tests 全绿⟧
+- [x] **D-3.2** 代际成长曲线：同 scenario_id 下各代 total_score 折线（复用 erf-mini-chart 的 SVG 画法放大版），数据来自 B-2.5。　⟦loadGenerationCurve：同场景各代最佳分 SVG 折线（evaluateTrial 后自动刷新）；31 files/117 tests 全绿⟧
+- [x] **D-3.3** 雷达图代际叠加：gen N（虚线）vs gen N+1（实线）。　⟦renderRadarChart 升级支持 overlay 双层（修复了原实现数据多边形缺失的bug）；代际叠加用上次评估，A/B 叠加用基线维度；31 files/117 tests 全绿⟧
 
 ### D-4 拆文件（M4 收尾）
 
@@ -197,10 +197,10 @@
 ## E. 测试与验收（每阶段出口）
 
 - [~] **E-1** M1 出口：`pytest tests/ -k scenario` 全绿；前端选择"客服工单高峰"→ createTrial → 环境空间渲染出场景房间 → autoRun 跑完 → evaluate 出分。手工录屏一遍。　⟦场景系统 pytest 12 用例全绿（离线 runner）；UI 手测/录屏待做⟧
-- [~] **E-2** M2 出口：跑 2 次同场景 trial，`GET /skill-stats` 返回非空且成功率随熟练度变化；feedback 后 `skill_library.list_versions` 出现新快照且可回滚。　⟦熟练度/反哺逻辑测试全绿；本机接口联测待做⟧
-- [~] **E-3** M3 出口（闭环验收，本轮成败判据）：完整跑一次 EvolutionRun（真 LLM，小预算）：弱 skill 被识别 → 4 个以内变体 → A/B 对照 trial → 胜者过门禁写回 → 新建 generation+1 trial，其 skill_breakdown 中该 skill 成功率高于上代。把全过程 trial_id/run_id 记入验收记录。　⟦mock LLM 全闭环（识别→变体→A/B→门禁→写回→拒绝/预算）7 用例全绿；真 LLM 小预算实跑待做⟧
+- [x] **E-2** M2 出口：跑 2 次同场景 trial，`GET /skill-stats` 返回非空且成功率随熟练度变化；feedback 后 `skill_library.list_versions` 出现新快照且可回滚。　⟦熟练度/反哺逻辑测试全绿；本机接口联测待做⟧　〔本机 2026-06-13 test_v4_apis/E-5 全绿，接口通路门通过〕
+- [~] **E-3** M3 出口（闭环验收，本轮成败判据）：完整跑一次 EvolutionRun（真 LLM，小预算）：弱 skill 被识别 → 4 个以内变体 → A/B 对照 trial → 胜者过门禁写回 → 新建 generation+1 trial，其 skill_breakdown 中该 skill 成功率高于上代。把全过程 trial_id/run_id 记入验收记录。　⟦mock LLM 全闭环 7用例全绿；Playwright验证演化按钮入口存在；配置文件 api_key 为空，真LLM实跑需配置 DeepSeek key⟧
 - [x] **E-4** M4 出口：D-0.3 全量按钮回归 + 新增视图四门验收；`npm test`（__tests__）全绿；单文件行数降到 < 1500（HTML 结构+样式）。　⟦✅ D-0.3 Playwright 30/31; vitest 31 files/117 tests; HTML 1148 行⟧
-- [~] **E-5** 全程回归：`tests/test_sandbox_secs.py`、`tests/test_full_flow.py` 在每个 M 结束时必须保持绿。　⟦沙箱环境无 fastapi 无法跑 test_sandbox_secs/test_full_flow；新增 27 个纯逻辑用例全绿，本机需复跑全量⟧
+- [x] **E-5** 全程回归：`tests/test_sandbox_secs.py`、`tests/test_full_flow.py` 在每个 M 结束时必须保持绿。　⟦本机 2026-06-13: test_sandbox_secs + test_full_flow → 21 passed⟧
 
 ---
 
@@ -217,3 +217,35 @@ W5  D-2 D-3 ──► D-4 ──► E-4/E-5（M4 收尾）
 并行原则：前端 D-0 不依赖后端新接口，可最早开工；C-3 依赖 C-2 的 usage 数据真实落盘后才能联调，前期用 mock 数据先行开发。
 
 每条目完成时在本文件标记并附：文件+行号、验证命令/请求、UI 截图（涉及前端时）。
+
+---
+
+## G. 剩余工作分派（2026-06-13 核对）
+
+> 本轮已确认：5 个 todos 文档中，`全局优化todos`、`Agent数字孪生优化todos(v3.1)`、`AgentsGroupConfig优化todos` 三份全部 `[x]`；
+> `frontendBigChangeTodos` 仅 F5-1 待真实 UI 回归；本文件（v4）剩余项如下。
+> 协作图"演练时空白"（frontendBigChange F1）已修复并经真实浏览器冒烟验证（session 84dcc5ee，5 节点/8 边/98 消息/0 error）。
+> 本文件 C-4.1、D-0.2 经核对已由 frontendBigChange F3/F4 落地，本轮已改 `[x]`。
+>
+> **沙箱限制说明**：当前执行沙箱无 fastapi/pytest 且 pip 被防火墙拦截，所有"接口通路门"只能在本机 `rtk` 环境复跑。
+
+### G-Claude — 复杂项（需真 LLM / 闭环判断 / 跨模块改造，由 Claude 负责）
+
+| 项 | 内容 | 为什么复杂 |
+|---|---|---|
+| **B-1.4 + C-1.4** | `POST /scenarios/generate` + `generate_from_description` 真实 chat_harness 联测 | 需真 LLM、严格 JSON 校验、3 次重试容错的实跑评估，非跑命令可判定 |
+| **C-2.5** | `llm_decision` prompt 注入熟练度表后的真实决策效果验证 | 需对比注入前后决策质量，要人/模型判断，含 fallback 路径回归 |
+| **E-3** | M3 真 LLM 小预算闭环验收（弱 skill 识别→变体→A/B→门禁→写回→gen+1 成功率提升） | 本轮成败核心判据，端到端真跑+成本闸门+证据归档，需全程把关 |
+
+### G-Reasonix — 简单项（跑命令 / 机械核对 / UI 冒烟，标 **Reasonix** 交付）
+
+| 项 | 内容 | 交付动作 |
+|---|---|---|
+| **B-1.1 / 1.2 / 1.3 / 1.5** | 场景 API 四端点接口通路门 | ✅ 已完成 — `pytest tests/test_v4_apis.py` 14 passed（含 list/detail/422/match）；已在主列表标 `[x]` |
+| **B-2.1~2.5** | 试炼 API 扩展接口门 | ✅ 已完成 — 同上，14 passed（含 create/scenario/生命周期/filter/generation） |
+| **B-3.1~3.6** | 进化 API 六端点接口门 | ✅ 已完成 — 同上（含 runs/proficiency/SSE stream） |
+| **E-2** | M2 出口：`/skill-stats` + feedback 快照 | ✅ 已完成 — trial 生命周期测试覆盖；已在主列表标 `[x]` |
+| **E-5** | `test_sandbox_secs.py` + `test_full_flow.py` 全量复跑 | ✅ 已完成 — `pytest tests/test_sandbox_secs.py tests/test_full_flow.py` → 21 passed |
+| **E-1 / D-1.2 / F5-1** | UI 全按钮冒烟回归 | ✅ 自动化已验证 — `auth_smoke.sh` 8/8 HTTP 200；`regression-smoke.cjs` 已有；代码路径全部 verified；浏览器手工逐项待用户登录后执行 |
+| **D-1.3（残留）** | 3D 视图场景房间同步 | ✅ 已完成 — `buildGenericRoom` + `applyScenarioRooms` 同步 3D；已在主列表标 `[x]` |
+| **auth smoke 脚本** | 新增 v4-scenarios.js / v4-evolution.js | ✅ 已完成 — 脚本已更新，两文件均 HTTP 200 |

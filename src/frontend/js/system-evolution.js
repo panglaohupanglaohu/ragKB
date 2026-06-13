@@ -100,7 +100,13 @@ function renderError(containerId, error, context, retryFn) {
   const c = typeof containerId === 'string' ? el(containerId) : containerId;
   if (!c) return;
   const msg = formatError(error, context);
-  const retryBtn = retryFn ? `<button class="btn btn-sm" style="margin-top:8px" onclick="(${retryFn.toString()})()">🔄 重试</button>` : '';
+  // B-2: 事件委托替代 retryFn.toString() 内联 onclick
+  var retryId = 'retry-' + (containerId && containerId.id ? containerId.id : Math.random().toString(36).slice(2));
+  if (retryFn) window._retryMap = window._retryMap || {};
+  if (retryFn) window._retryMap[retryId] = retryFn;
+  const retryBtn = retryFn ? `<button class="btn btn-sm" style="margin-top:8px" data-retry="${retryId}">🔄 重试</button>` : '';
+  // B-3.2: role="alert" for error containers
+  if (typeof c.setAttribute === 'function') c.setAttribute('role', 'alert');
   c.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red)">
     <div style="font-size:13px;font-weight:600;margin-bottom:6px">${escapeHtml(msg)}</div>
     <div style="font-size:11px;color:var(--dim)">${context || ''}</div>
@@ -108,9 +114,21 @@ function renderError(containerId, error, context, retryFn) {
   </div>`;
 }
 
+// B-2: 全局事件委托 — 捕获 data-retry 按钮点击
+if (typeof document.addEventListener === 'function') {
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-retry]');
+    if (!btn) return;
+    var id = btn.getAttribute('data-retry');
+    var fn = window._retryMap && window._retryMap[id];
+    if (typeof fn === 'function') { try { fn(); } catch(ex) { console.warn('[retry]', ex); } }
+  });
+}
+
 function renderEmpty(containerId, message) {
   const c = typeof containerId === 'string' ? el(containerId) : containerId;
   if (!c) return;
+  if (typeof c.setAttribute === 'function') c.setAttribute('role', 'status');
   c.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--dim);font-size:13px">
     <div style="font-size:28px;margin-bottom:8px;opacity:0.4">📭</div>
     <div>${escapeHtml(message || '暂无数据')}</div>
@@ -259,6 +277,7 @@ function showSkeleton(name) {
     skel = document.createElement('div');
     skel.id = skelId;
     skel.className = 'skeleton-panel';
+    if (typeof skel.setAttribute === 'function') skel.setAttribute('aria-busy', 'true');
     skel.innerHTML = '<div class="skel-row"><div class="skel-block" style="width:60%;height:20px"></div></div><div class="skel-row"><div class="skel-block" style="width:100%;height:60px"></div></div><div class="skel-row"><div class="skel-block" style="width:45%;height:16px"></div><div class="skel-block" style="width:45%;height:16px"></div></div>';
     panel.insertBefore(skel, panel.firstChild);
   }
@@ -269,7 +288,7 @@ function showSkeleton(name) {
 
 function hideSkeleton(name) {
   const skel = el('skel-' + name);
-  if (skel) skel.style.display = 'none';
+  if (skel) { skel.style.display = 'none'; if (typeof skel.removeAttribute === 'function') skel.removeAttribute('aria-busy'); }
 }
 
 function switchPanel(name) {
@@ -287,29 +306,92 @@ function switchPanel(name) {
   const titles = { overview: '演进概览', ratchet: '达尔文棘轮', 'evolve-lab': '🧬 技能演化', 'rules-zones': '规则与区域', items: '演进条目', trail: '审计轨迹', trend: '趋势分析' };
   el('panel-title').textContent = titles[name] || name;
 
-  // Check cache first
-  const cacheKey = 'panel-' + name;
+  // C-1: stale-while-revalidate — 缓存命中先渲染，后台拉新
+  const cacheKey = 'panel:' + name;
   const cached = cacheGet(cacheKey);
-  if (cached && _panelLoaded[name]) {
-    // Panel already loaded with fresh data — skip re-fetch
+  const needsSkeleton = ['overview', 'ratchet', 'rules-zones', 'items', 'trail', 'trend'];
+
+  if (cached) {
+    // 立即渲染缓存数据（无骨架闪动）
+    _renderCachedPanel(name, cached);
+    // 后台刷新（TTL 内免重复请求）
+    if (!_panelLoaded[name]) {
+      _panelLoaded[name] = true;
+      _backgroundRefresh(name);
+    }
     return;
   }
 
-  // Show skeleton for panels that load data
-  const needsSkeleton = ['overview', 'ratchet', 'rules-zones', 'items', 'trail', 'trend'];
+  // 无缓存 → 显示骨架 + 正常加载
   if (needsSkeleton.includes(name)) showSkeleton(name);
+  _panelLoaded[name] = true;
+  _loadPanelData(name);
+}
 
-  const alwaysRefresh = ['overview'];
-  if (!_panelLoaded[name] || alwaysRefresh.includes(name)) {
-    _panelLoaded[name] = true;
-    if (name === 'overview') loadOverview();
-    else if (name === 'ratchet') loadHeritage();
-    else if (name === 'evolve-lab') loadEvolveLab();
-    else if (name === 'rules-zones') { loadRules(); loadZones(); }
-    else if (name === 'items') loadItems();
-    else if (name === 'trail') loadTrail();
-    else if (name === 'trend') loadTrend();
+// C-1.1: 用缓存数据立即渲染面板（跳过网络请求）
+function _renderCachedPanel(name, cached) {
+  if (name === 'overview' && cached.summary) {
+    renderOverviewFromData(cached.summary, cached.compliance, cached.items, cached.zones);
+  } else if (name === 'ratchet' && cached.heritage) {
+    renderHeritageFromData(cached.heritage, cached.ratchetMetrics);
+  } else if (name === 'items' && cached.items) {
+    renderItemsFromData(cached.items);
+  } else if (name === 'rules-zones' && cached.rules) {
+    renderRulesFromData(cached.rules);
+    if (cached.zones) renderZonesFromData(cached.zones);
+  } else if (name === 'trail' && cached.trail) {
+    renderTrailFromData(cached.trail);
+  } else if (name === 'trend' && cached.trend) {
+    renderTrendFromData(cached.trend);
+  } else {
+    // 缓存数据不完整 → 降级走正常加载
+    _loadPanelData(name);
+    return;
   }
+  hideSkeleton(name);
+}
+
+// C-1.1: 后台刷新 — 重新拉取数据，仅变化时才重渲染
+async function _backgroundRefresh(name) {
+  var key = 'panel:' + name;
+  var cached = cacheGet(key);
+  if (!cached) { _loadPanelData(name); return; }  // TTL 过期 → 全量刷新
+  // 后台静默拉取，比对后决定是否重渲染
+  try {
+    if (name === 'overview') {
+      var fresh = await _fetchOverviewBundle();
+      if (!_cacheEqual(cached, { summary: fresh.summary, compliance: fresh.compliance, items: fresh.items, zones: fresh.zones })) {
+        cacheSet(key, { summary: fresh.summary, compliance: fresh.compliance, items: fresh.items, zones: fresh.zones }, CACHE_TTL.overview);
+        _evolutionState.summary = fresh.summary;
+        _evolutionState.compliance = fresh.compliance;
+        renderOverviewFromData(fresh.summary, fresh.compliance, fresh.items, fresh.zones);
+      }
+    }
+    // 其他面板：简单过期检查，过期则重载
+  } catch(e) { /* 后台刷新失败静默忽略 */ }
+}
+
+// C-1.1: 轻量缓存比较 — JSON 序列化后比对
+function _cacheEqual(a, b) {
+  try { return JSON.stringify(a) === JSON.stringify(b); } catch(e) { return false; }
+}
+
+// C-1.1: 后台拉取 overview bundle
+async function _fetchOverviewBundle() {
+  var [summary, compliance, itemsPayload, zones] = await Promise.all([
+    apiRequest(EVP + '/summary'), apiRequest(EVP + '/compliance-rating'), apiList(EVP + '/items', 50, 0), apiRequest(EVP + '/zones/active')
+  ]);
+  return { summary, compliance, items: collectionItems(itemsPayload), zones };
+}
+
+function _loadPanelData(name) {
+  if (name === 'overview') loadOverview();
+  else if (name === 'ratchet') loadHeritage();
+  else if (name === 'evolve-lab') loadEvolveLab();
+  else if (name === 'rules-zones') { loadRules(); loadZones(); }
+  else if (name === 'items') loadItems();
+  else if (name === 'trail') loadTrail();
+  else if (name === 'trend') loadTrend();
 }
 
 // ── Overview ──
@@ -319,63 +401,63 @@ async function loadOverview() {
       apiRequest(`${EVP}/summary`), apiRequest(`${EVP}/compliance-rating`), apiList(`${EVP}/items`, 50, 0), apiRequest(`${EVP}/zones/active`)
     ]);
     const items = collectionItems(itemsPayload);
-
-    // Update state
     _evolutionState.summary = summary;
     _evolutionState.compliance = compliance;
     _evolutionState.zonesActive = zones;
-
-    // Compliance Rating
-    const rc = el('ov-rating');
-    if (compliance) {
-      const g = compliance.grade || '?', s = compliance.score ?? 0;
-      const gc = { A: 'var(--lime)', B: 'var(--koke)', C: 'var(--amber)', D: 'var(--kitsune)', E: 'var(--red)' }[g] || 'var(--muted)';
-      rc.innerHTML = `<div class="stat-card" style="grid-column:span 2"><div class="gauge-wrap">
-        <div class="gauge-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--groove)" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${s} ${100 - s}" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center"/></svg><div class="gauge-grade" style="color:${gc}">${g}</div></div>
-        <div><div class="label">DNV 合规评级</div><div class="value" style="font-size:20px;color:${gc}">${s}/100</div><div class="sub">${escapeHtml(compliance.description || '')}</div></div>
-      </div></div>
-      <div class="stat-card"><div class="label">升级层级</div><div class="value" style="font-size:16px">${escapeHtml(compliance.escalation_tier || 'normal')}</div><div class="sub">DNV SEEMP Part III</div></div>`;
-    } else {
-      renderEmpty(rc, '暂无合规评级数据');
-    }
-
-    // Stats
-    if (summary) {
-      const bs = summary.by_status || {}, bd = summary.by_domain || {};
-      const bsv = summary.by_severity || {}, bop = summary.by_operational_domain || {};
-      el('ov-stats').innerHTML = `
-        <div class="stat-card"><div class="label"><span class="seal">规</span> 审查规则</div><div class="value">${summary.audit_rules_count || 0}</div><div class="sub">验证函数 ${summary.verify_tests_registered || 0}</div></div>
-        <div class="stat-card"><div class="label"><span class="seal seal-shu">项</span> 演进项</div><div class="value">${summary.total_items || 0}</div><div class="sub">${Object.entries(bs).map(([k, v]) => stL(k) + ': ' + v).join(' · ') || '无'}</div></div>
-        <div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k, v]) => k + ' ' + v).join(' · ') || '-'}</div></div>
-        <div class="stat-card"><div class="label">⚠ 严重度</div><div class="value" style="font-size:13px">${Object.entries(bsv).map(([k, v]) => `<span style="color:${sevColor(k)}">${k}: ${v}</span>`).join(' · ') || '-'}</div></div>
-        <div class="stat-card"><div class="label">🏢 运营域</div><div class="value" style="font-size:11px;line-height:1.6">${Object.entries(bop).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join('<br>') || '-'}</div></div>`;
-      el('panel-badge').textContent = `${summary.total_items || 0} 项`;
-    }
-
-    // Mini ratchet
-    buildMiniRatchet();
-
-    // Recent items (top 10)
-    if (items && items.length) {
-      const recent = items.slice(0, 10);
-      el('ov-items').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>${recent.map(i => `<tr>
-        <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
-        <td><b>${escapeHtml(i.title)}</b></td>
-        <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
-        <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
-        <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
-        <td style="white-space:nowrap">${itemActions(i)}</td>
-      </tr>`).join('')}</tbody></table></div>
-      ${items.length > 10 ? `<button class="btn btn-sm" style="margin-top:8px" onclick="switchPanel('items')">查看全部 (${items.length})</button>` : ''}`;
-    } else {
-      renderEmpty('ov-items', '暂无演进条目 — 点击「运行审查」开始');
-    }
-
-    cacheSet('panel-overview', true, CACHE_TTL.overview);
+    // C-1: 缓存真实 payload
+    cacheSet('panel:overview', { summary, compliance, items, zones }, CACHE_TTL.overview);
+    renderOverviewFromData(summary, compliance, items, zones);
   } catch (e) {
     renderError('ov-rating', e, '概览面板加载失败', loadOverview);
   }
   hideSkeleton('overview');
+}
+
+function renderOverviewFromData(summary, compliance, items, zones) {
+  // Compliance Rating
+  const rc = el('ov-rating');
+  if (compliance) {
+    const g = compliance.grade || '?', s = compliance.score ?? 0;
+    const gc = { A: 'var(--lime)', B: 'var(--koke)', C: 'var(--amber)', D: 'var(--kitsune)', E: 'var(--red)' }[g] || 'var(--muted)';
+    rc.innerHTML = `<div class="stat-card" style="grid-column:span 2"><div class="gauge-wrap">
+      <div class="gauge-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="var(--groove)" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${s} ${100 - s}" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center"/></svg><div class="gauge-grade" style="color:${gc}">${g}</div></div>
+      <div><div class="label">演进合规评级</div><div class="value" style="font-size:20px;color:${gc}">${s}/100</div><div class="sub">${escapeHtml(compliance.description || '')}</div></div>
+    </div></div>
+    <div class="stat-card"><div class="label">升级层级</div><div class="value" style="font-size:16px">${escapeHtml(compliance.escalation_tier || 'normal')}</div><div class="sub">失败升级机制(纠正/复核/冻结)</div></div>`;
+  } else {
+    renderEmpty(rc, '暂无合规评级数据');
+  }
+
+  // Stats
+  if (summary) {
+    const bs = summary.by_status || {}, bd = summary.by_domain || {};
+    const bsv = summary.by_severity || {}, bop = summary.by_operational_domain || {};
+    el('ov-stats').innerHTML = `
+      <div class="stat-card"><div class="label"><span class="seal">规</span> 审查规则</div><div class="value">${summary.audit_rules_count || 0}</div><div class="sub">验证函数 ${summary.verify_tests_registered || 0}</div></div>
+      <div class="stat-card"><div class="label"><span class="seal seal-shu">项</span> 演进项</div><div class="value">${summary.total_items || 0}</div><div class="sub">${Object.entries(bs).map(([k, v]) => stL(k) + ': ' + v).join(' · ') || '无'}</div></div>
+      <div class="stat-card"><div class="label">📚 域分布</div><div class="value" style="font-size:13px">${Object.entries(bd).map(([k, v]) => k + ' ' + v).join(' · ') || '-'}</div></div>
+      <div class="stat-card"><div class="label">⚠ 严重度</div><div class="value" style="font-size:13px">${Object.entries(bsv).map(([k, v]) => `<span style="color:${sevColor(k)}">${k}: ${v}</span>`).join(' · ') || '-'}</div></div>
+      <div class="stat-card"><div class="label">🏢 运营域</div><div class="value" style="font-size:11px;line-height:1.6">${Object.entries(bop).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join('<br>') || '-'}</div></div>`;
+    el('panel-badge').textContent = `${summary.total_items || 0} 项`;
+  }
+
+  buildMiniRatchet();
+
+  // Recent items
+  if (items && items.length) {
+    const recent = items.slice(0, 10);
+    el('ov-items').innerHTML = `<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>${recent.map(i => `<tr>
+      <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(i.id?.slice(0, 8) || '')}</td>
+      <td><b>${escapeHtml(i.title)}</b></td>
+      <td><span class="chip" style="font-size:10px">${escapeHtml(i.audit_domain || '')}</span></td>
+      <td style="color:${sevColor(i.severity)}">${escapeHtml(i.severity || '')}</td>
+      <td><span style="color:${stColor(i.status)};font-weight:600;font-size:12px">${stL(i.status)}</span></td>
+      <td style="white-space:nowrap">${itemActions(i)}</td>
+    </tr>`).join('')}</tbody></table></div>
+    ${items.length > 10 ? `<button class="btn btn-sm" style="margin-top:8px" onclick="switchPanel('items')">查看全部 (${items.length})</button>` : ''}`;
+  } else {
+    renderEmpty('ov-items', '暂无演进条目');
+  }
 }
 
 function buildMiniRatchet() {
@@ -456,7 +538,7 @@ async function loadItems() {
     } else {
       renderEmpty('items-table', '暂无演进条目');
     }
-    cacheSet('panel-items', true, CACHE_TTL.items);
+    cacheSet('panel:items', itemsPayload, CACHE_TTL.items);
   } catch (e) {
     renderError('items-table', e, '条目列表加载失败', loadItems);
   }
@@ -554,23 +636,66 @@ async function verifyItem(itemId) {
   }
 }
 
-async function closeItem(itemId) {
-  const reason = prompt('关闭理由（必填，用于审计）') || '';
-  if (!reason.trim()) { toast('关闭失败：需要关闭理由'); return; }
-  const verifyConclusion = prompt('验证结论（必填，会写入演进记录）') || '';
-  if (!verifyConclusion.trim()) { toast('关闭失败：需要验证结论'); return; }
-  const r = await apiRequest(`${EVP}/items/${encodeURIComponent(itemId)}/close`, {
+// B-1: 关闭流程去 prompt 化 — 在 item-detail-panel 内渲染表单
+var _closeItemId = null;
+function showCloseForm(itemId) {
+  _closeItemId = itemId;
+  var panel = el('item-detail-panel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '<div class="section-title" style="justify-content:space-between">' +
+    '<span>关闭演进项</span>' +
+    '<button class="btn btn-sm" onclick="el(\'item-detail-panel\').style.display=\'none\'">取消</button></div>' +
+    '<div style="padding:8px 0">' +
+    '<label style="font-size:11px;color:var(--dim)">关闭理由（必填，用于审计）</label>' +
+    '<textarea id="close-reason" rows="3" style="width:100%;margin:4px 0 10px 0;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--sumi);border-radius:4px;padding:6px;font-size:12px" placeholder="描述关闭原因..."></textarea>' +
+    '<label style="font-size:11px;color:var(--dim)">验证结论（必填，会写入演进记录）</label>' +
+    '<textarea id="close-conclusion" rows="3" style="width:100%;margin:4px 0 10px 0;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--sumi);border-radius:4px;padding:6px;font-size:12px" placeholder="描述验证结论..."></textarea>' +
+    '<div id="close-validation-hint" style="font-size:11px;color:var(--red);display:none;margin-bottom:6px"></div>' +
+    '<button id="close-submit-btn" class="btn btn-accent" style="width:100%" disabled onclick="submitCloseForm()">提交关闭</button></div>';
+}
+
+function updateCloseValidation() {
+  var reason = (el('close-reason')?.value || '').trim();
+  var conclusion = (el('close-conclusion')?.value || '').trim();
+  var btn = el('close-submit-btn');
+  var hint = el('close-validation-hint');
+  var msgs = [];
+  if (!reason) msgs.push('请填写关闭理由');
+  if (!conclusion) msgs.push('请填写验证结论');
+  if (btn) btn.disabled = msgs.length > 0;
+  if (hint) { hint.style.display = msgs.length ? '' : 'none'; hint.textContent = msgs.join('；'); }
+}
+
+async function submitCloseForm() {
+  var reason = (el('close-reason')?.value || '').trim();
+  var conclusion = (el('close-conclusion')?.value || '').trim();
+  if (!reason || !conclusion) { updateCloseValidation(); return; }
+  var itemId = _closeItemId;
+  if (!itemId) { toast('关闭失败：未找到条目'); return; }
+  var r = await apiRequest(`${EVP}/items/${encodeURIComponent(itemId)}/close`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason, verify_conclusion: verifyConclusion }),
+    body: JSON.stringify({ reason, verify_conclusion: conclusion }),
   });
   if (r) {
     toast('已关闭并记录理由');
-    await openItemDetail(itemId);
+    el('item-detail-panel').style.display = 'none';
+    _closeItemId = null;
     refreshCurrent();
   } else {
     toast('关闭失败');
   }
+}
+
+async function closeItem(itemId) {
+  showCloseForm(itemId);
+  // B-1.2: 实时校验 — 监听 textarea 输入
+  setTimeout(function(){
+    var reasonEl = el('close-reason'), concEl = el('close-conclusion');
+    if (reasonEl) reasonEl.oninput = updateCloseValidation;
+    if (concEl) concEl.oninput = updateCloseValidation;
+  }, 50);
 }
 
 async function markProgress(itemId) {
@@ -623,7 +748,7 @@ async function loadRules() {
       domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; dSel.appendChild(o); });
     }
     renderRules();
-    cacheSet('panel-rules-zones', true, CACHE_TTL.rules);
+    cacheSet('panel:rules-zones', { rules: _allRules, zones: _allZones }, CACHE_TTL.rules);
   } catch (e) {
     renderError('rules-grid', e, '规则列表加载失败', loadRules);
   }
@@ -738,7 +863,7 @@ async function loadTrail(reset) {
     } else if (reset) {
       renderEmpty('trail-list', '暂无审计记录');
     }
-    cacheSet('panel-trail', true, CACHE_TTL.trail);
+    cacheSet('panel:trail', { trail: trailPayload }, CACHE_TTL.trail);
   } catch (e) {
     renderError('trail-list', e, '审计轨迹加载失败', () => loadTrail(true));
   }
@@ -847,7 +972,7 @@ async function loadTrend() {
         ${monitoring.last_check ? `<div class="stat-card"><div class="label">上次检查</div><div class="value" style="font-size:14px">${timeAgo(monitoring.last_check)}</div></div>` : ''}
         ${monitoring.interval_seconds ? `<div class="stat-card"><div class="label">检查间隔</div><div class="value" style="font-size:14px">${monitoring.interval_seconds}s</div></div>` : ''}`;
     }
-    cacheSet('panel-trend', true, CACHE_TTL.trend);
+    cacheSet('panel:trend', { trend: trendData }, CACHE_TTL.trend);
   } catch (e) {
     renderError(el('trend-data'), e, '趋势数据加载失败', loadTrend);
   }
@@ -880,7 +1005,7 @@ async function loadHeritage() {
     // Build ratchet flow diagram too
     buildRatchetFlow();
     await loadRatchetMetrics();
-    cacheSet('panel-ratchet', true, CACHE_TTL.heritage);
+    cacheSet('panel:ratchet', { heritage: heritagePayload, ratchetMetrics: _ratchetMetrics }, CACHE_TTL.heritage);
   } catch (e) {
     renderError('heritage-list', e, '遗产账本加载失败', loadHeritage);
   }
@@ -1094,18 +1219,27 @@ function refreshCurrent() {
   const active = document.querySelector('.tab-panel.active');
   if (!active) return;
   const id = active.id.replace('panel-', '');
-  cacheClear('panel-' + id);  // Clear cache for this panel
+  cacheClear('panel:' + id);  // C-1: 统一 key 规范 panel:name
   _panelLoaded[id] = false;
   switchPanel(id);
 }
 
 function refreshAll() {
   _allRules = []; _allItems = [];
-  _panelLoaded = {};  // Clear panel cache on manual refresh
+  _panelLoaded = {};
   _panelCache.clear();
   refreshCurrent();
   toast('已刷新');
 }
+
+// C-1: render-from-data — overview gets instant cache render; complex panels trigger reload
+function renderItemsFromData(data) { if (!data || !data.length) { renderEmpty('items-table', '暂无演进条目'); return; } var h = '<div class="tbl-wrapper"><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>域</th><th>严重度</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.forEach(function(i){ h += '<tr><td style="font-family:var(--font-mono);font-size:11px">'+escapeHtml(i.id?.slice(0,8)||'')+'</td><td><b>'+escapeHtml(i.title)+'</b></td><td><span class="chip" style="font-size:10px">'+escapeHtml(i.audit_domain||'')+'</span></td><td style="color:'+sevColor(i.severity)+'">'+escapeHtml(i.severity||'')+'</td><td><span style="color:'+stColor(i.status)+';font-weight:600;font-size:12px">'+stL(i.status)+'</span></td><td style="white-space:nowrap">'+itemActions(i)+'</td></tr>'; }); h += '</tbody></table></div>'; el('items-table').innerHTML = h; }
+function renderRulesFromData(data) { if (data && data.length) { _allRules = data; el('rules-grid').innerHTML = data.map(renderRuleCard).join(''); } else renderEmpty('rules-grid', '暂无规则'); }
+function renderZonesFromData(data) { if (data && data.length) { _allZones = data; el('zones-all').innerHTML = data.slice(0,20).map(function(z){return '<span class="chip" style="background:'+(z.active?'rgba(34,211,238,.12)':'rgba(255,255,255,.04)')+'">'+escapeHtml(z.domain||z.id)+'</span>';}).join(' '); } }
+// 复杂面板（trail/trend/heritage）：有分页/内部状态，SWR 命中后直接重新加载以保证一致性
+function renderHeritageFromData(heritage, metrics) { _loadPanelData('ratchet'); }
+function renderTrailFromData(data) { _loadPanelData('trail'); }
+function renderTrendFromData(data) { _loadPanelData('trend'); }
 
 // ═══════════════════════════════════════════════════════════════════
 // 🧬 技能演化实验室 (Interactive Stepper)
@@ -1136,9 +1270,13 @@ function _getEvolveState(skillId) {
 function _evState() { return _getEvolveState(el('ev-skill-select')?.value); }
 
 async function loadEvolveLab() {
-  await loadEvolveTeams();
-  await loadEvolveSkills();
-  loadEvolveHistory();
+  try {
+    await loadEvolveTeams();
+    await loadEvolveSkills();
+    loadEvolveHistory();
+  } catch (e) {
+    renderError('ev-skill-info', e, '技能演化实验室加载失败', loadEvolveLab);
+  }
 }
 
 async function loadEvolveTeams() {
@@ -1833,14 +1971,10 @@ function _startSSE() {
       } catch (_) {}
     };
     _sseSource.onerror = function() {
+      // SSE 连接失败/断开 → 关闭后降级为 30 秒轮询。
+      // 注意:不能依赖 _ssePollActive 作为前置条件,否则首次连接失败时永远进不来。
       _closeSSE();
-      // Fallback to polling
-      if (!_ssePollTimer && _ssePollActive && typeof setInterval === 'function') {
-        _ssePollTimer = setInterval(() => {
-          const active = document.querySelector('.tab-panel.active');
-          if (active && active.id === 'panel-overview') loadOverview();
-        }, 30000);
-      }
+      _fallbackPoll();
     };
   } catch (_) {
     _fallbackPoll();
@@ -1906,4 +2040,31 @@ _startSSE();
 // Cleanup on page unload
 if (window.addEventListener) {
   window.addEventListener('beforeunload', () => { _closeSSE(); _stopPolling(); });
+}
+
+// B-3.4: 侧栏键盘导航 — 左右方向键移动焦点 + 回车切换面板
+// B-3.4: 侧栏键盘导航 — 左右方向键移动焦点 + 回车切换面板
+if (typeof document.addEventListener === 'function') {
+  document.addEventListener('keydown', function(e){
+    var nav = document.querySelector('.sb-nav');
+    if (!nav) return;
+    var links = nav.querySelectorAll('a');
+    if (!links.length) return;
+    var focused = document.activeElement;
+    var idx = -1;
+    for (var i = 0; i < links.length; i++) { if (links[i] === focused) { idx = i; break; } }
+    if (idx === -1) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      var next = (idx + 1) % links.length;
+      links[next].focus();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      var prev = (idx - 1 + links.length) % links.length;
+      links[prev].focus();
+    } else if (e.key === 'Enter' && focused.tagName === 'A') {
+      e.preventDefault();
+      focused.click();
+    }
+  });
 }

@@ -764,6 +764,62 @@ async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = Q
     }
 
 
+@router.get("/evolution/stream")
+async def evolution_stream():
+    """SSE 实时事件流。
+
+    周期性推送演进汇总(stats_update)与审计轨迹增量(trail_update),
+    供前端 system-evolution.js 的 _startSSE() 消费;断线时前端降级为 30 秒轮询。
+    不修改演进引擎,仅做只读快照轮询 + 变化检测,单次快照异常不打断长连接。
+    """
+    if not _evolution_engine:
+        raise HTTPException(404, "Evolution engine not registered")
+
+    import asyncio
+    import json
+    from starlette.responses import StreamingResponse
+
+    engine = _evolution_engine
+
+    async def _event_gen():
+        # 命名事件,前端 onmessage 不处理,仅用于确认连接建立。
+        yield "event: ready\ndata: {}\n\n"
+        last_summary_sig = None
+        last_trail_len = -1
+        while True:
+            try:
+                summary = engine.get_evolution_summary()
+                sig = json.dumps(summary, sort_keys=True, default=str)
+                if sig != last_summary_sig:
+                    last_summary_sig = sig
+                    yield "data: " + json.dumps(
+                        {"type": "stats_update", "summary": summary}, default=str
+                    ) + "\n\n"
+                try:
+                    trail_len = len(engine.get_audit_trail())
+                except Exception:
+                    trail_len = last_trail_len
+                if last_trail_len != -1 and trail_len != last_trail_len:
+                    yield "data: " + json.dumps({"type": "trail_update"}) + "\n\n"
+                last_trail_len = trail_len
+            except Exception:
+                # 单次快照失败不应中断 SSE 长连接。
+                pass
+            # 心跳注释行,避免反向代理因空闲超时切断连接。
+            yield ": ping\n\n"
+            await asyncio.sleep(10)
+
+    return StreamingResponse(
+        _event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 演化优化 API (Phase 1-5: Qwen 反思式演化)
 # ═══════════════════════════════════════════════════════════════════════════════

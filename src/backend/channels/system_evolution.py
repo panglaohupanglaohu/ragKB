@@ -99,10 +99,10 @@ class AuditDomain(str, Enum):
     GENERAL = "general"
 
 
-# ── DNV-style A~E Compliance Rating (inspired by DNV CII) ──
+# ── A~E Compliance Rating ──────────────────────
 
 class ComplianceRating(str, Enum):
-    """DNV CII 风格 A~E 五级合规评级。"""
+    """A~E 五级合规评级。"""
     A = "A"  # Major superior — 全面优秀
     B = "B"  # Minor superior — 良好，少量待改进
     C = "C"  # Moderate       — 基本合规，需要关注
@@ -111,7 +111,7 @@ class ComplianceRating(str, Enum):
 
     @staticmethod
     def from_score(score: float) -> "ComplianceRating":
-        """0~100 分 → A~E 评级 (阈值逐年加严，参考 DNV CII reduction factor)。"""
+        """0~100 分 → A~E 评级（阈值逐年加严）。"""
         if score >= 85:
             return ComplianceRating.A
         if score >= 70:
@@ -135,19 +135,19 @@ class OperationalDomain(str, Enum):
     ADVANCED_OPS = "advanced_operations"       # 高级操作 (自主/DP)
 
 
-# ── ClassNK-style Dual-Layer Checklist ──────────────────────
+# ── Dual-Layer Checklist ──────────────────────────
 
 class ChecklistLevel(str, Enum):
-    """ClassNK 双层自查清单: 公司级 + 船级。"""
+    """双层自查清单: 团队级 + 技能级。"""
     COMPANY = "company"  # 公司管理体系 (ISM DOC)
     SHIP = "ship"        # 船舶管理体系 (ISM SMC)
     BOTH = "both"        # 两级均需检查
 
 
-# ── Failure Escalation Tiers (DNV SEEMP Part III) ───────────
+# ── Failure Escalation Tiers ─────────────────────
 
 class EscalationTier(str, Enum):
-    """失败升级层级 — 参考 DNV SEEMP Part III 纠正计划机制。"""
+    """失败升级层级 — 参考纠正计划机制。"""
     NORMAL = "normal"              # 正常处理
     CORRECTIVE_PLAN = "corrective" # 需要纠正行动计划 (连续2次失败)
     MANAGEMENT_REVIEW = "review"   # 需要管理层审查 (连续3次失败)
@@ -223,10 +223,10 @@ class EvolutionItem:
 
 @dataclass
 class ComplianceZone:
-    """地理围栏合规区域 — 进入特定水域时自动激活对应合规规则。"""
+    """智能体合规域 — 按域激活对应合规规则。"""
     id: str
     name: str
-    zone_type: str  # ECA / MARPOL_SPECIAL / SECA / PSSA / HIGH_RISK / CUSTOM
+    zone_type: str  # DATA_SECURITY / MODEL_SAFETY / COST_GOV / AUDIT / ACCESS_CTRL / PROMPT_INJECTION
     description: str = ""
     # 简化几何: 矩形包围盒 (适合船舶航线粗筛)
     lat_min: float = 0.0
@@ -345,7 +345,7 @@ def _check_escalation_mechanism(channel):
         return False, "失败追踪字典缺失"
     if not hasattr(channel, '_escalation_levels'):
         return False, "升级层级字典缺失"
-    return True, "DNV SEEMP Part III 升级机制就绪"
+    return True, "失败升级机制就绪"
 
 
 def _check_rating_calculation(channel):
@@ -782,10 +782,10 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         id="GEN-ZONE-003",
         domain=AuditDomain.GENERAL.value,
         title="合规区域配置完备",
-        description="至少配置 1 个合规区域 (ECA/MARPOL/PSSA 等)",
+        description="至少配置 1 个智能体合规域",
         target_channel="system_evolution",
         check_fn=_check_compliance_zones_loaded,
-        reference="MARPOL Annex VI, Wärtsilä Zone Mgmt",
+        reference="Agent Governance, Compliance Domain Mgmt",
         severity=Severity.HIGH.value,
         operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
         checklist_level=ChecklistLevel.SHIP.value,
@@ -821,10 +821,10 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         id="GEN-ESC-006",
         domain=AuditDomain.GENERAL.value,
         title="失败升级机制就绪",
-        description="DNV SEEMP Part III 风格的失败升级追踪正常",
+        description="失败升级追踪正常（纠正/复核/冻结）",
         target_channel="system_evolution",
         check_fn=_check_escalation_mechanism,
-        reference="DNV SEEMP Part III, CII",
+        reference="Escalation Mechanism, Agent Governance",
         severity=Severity.MEDIUM.value,
         operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
         checklist_level=ChecklistLevel.COMPANY.value,
@@ -834,10 +834,10 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         id="GEN-RATE-007",
         domain=AuditDomain.GENERAL.value,
         title="A~E 合规评级功能",
-        description="DNV CII 风格 A~E 五级评级计算正常运作",
+        description="A~E 五级演进合规评级计算正常运作",
         target_channel="system_evolution",
         check_fn=_check_rating_calculation,
-        reference="DNV CII Rating, IMO DCS",
+        reference="Agent Compliance Rating, A~E Framework",
         severity=Severity.MEDIUM.value,
         operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
         checklist_level=ChecklistLevel.COMPANY.value,
@@ -863,7 +863,7 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         description="自动化验证测试注册表须可用",
         target_channel="system_evolution",
         check_fn=_check_verify_registry,
-        reference="ISO 17025, ClassNK Rules",
+        reference="Agent Governance Standard",
         severity=Severity.LOW.value,
         operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
         checklist_level=ChecklistLevel.SHIP.value,
@@ -903,7 +903,7 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         description="趋势分析须有 ≥3 个历史数据点以建立可靠基线",
         target_channel="system_evolution",
         check_fn=_check_heritage_ledger_populated,
-        reference="ISO 50006, DNV CII Baseline",
+        reference="Agent Governance Baseline",
         severity=Severity.MEDIUM.value,
         operational_domain=OperationalDomain.DATA_DECISION.value,
         checklist_level=ChecklistLevel.SHIP.value,
@@ -916,141 +916,10 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
         description="至少 1 条规则须经历过升级流程以验证升级路径",
         target_channel="system_evolution",
         check_fn=_check_escalation_exercised,
-        reference="DNV SEEMP III, ISM Code §9",
+        reference="Escalation Standard, Agent Governance",
         severity=Severity.MEDIUM.value,
         operational_domain=OperationalDomain.COMPLIANCE_SAFETY.value,
         checklist_level=ChecklistLevel.COMPANY.value,
-        rating_weight=1.5,
-    ),
-    # ── Datacenter Energy First Principle ──
-    AuditRule(
-        id="DC-PUE-032",
-        domain=AuditDomain.DATACENTER.value,
-        title="PUE 实时监控与基线跟踪",
-        description="数据中心 PUE 须持续监控, 基线 PUE 与目标 PUE 差值驱动棘轮演进",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_pue_monitoring,
-        reference="ISO 50001, TIA-942, EN 50600",
-        severity=Severity.CRITICAL.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=3.0,
-    ),
-    AuditRule(
-        id="DC-RATCH-033",
-        domain=AuditDomain.DATACENTER.value,
-        title="Darwin Ratchet 棘轮锁定",
-        description="每轮演进的 ΔPUE 须通过 heritage ledger 不可逆锁定, 禁止 PUE 回退",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_ratchet_heritage,
-        reference="Zero Waste Compute, Darwin Heritage Ledger",
-        severity=Severity.CRITICAL.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=3.0,
-    ),
-    AuditRule(
-        id="DC-IOT-034",
-        domain=AuditDomain.DATACENTER.value,
-        title="IoT 三网融合传感器覆盖",
-        description="LoRa TH + MC-RFID + PLC 三网传感器覆盖所有机柜, 确保温湿度场完整",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_sensor_coverage,
-        reference="LoRa Alliance TS003, ISO 50001:2018",
-        severity=Severity.HIGH.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=2.0,
-    ),
-    AuditRule(
-        id="DC-HEAT-035",
-        domain=AuditDomain.DATACENTER.value,
-        title="热岛检测与过冷区识别",
-        description="温度场分析须实时识别 hot-island 和 over-cool 区域, 指导 CRAC 调节",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_thermal_hotspot,
-        reference="ASHRAE TC 9.9, TIA-942",
-        severity=Severity.HIGH.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=2.0,
-    ),
-    AuditRule(
-        id="DC-POL-036",
-        domain=AuditDomain.DATACENTER.value,
-        title="节支/开源双轨策略引擎",
-        description="save_outgo + open_source 双轨策略须可评估适应度并执行, 驱动 PUE 下降",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_policy_engine,
-        reference="Zero Waste Compute Policy Framework",
-        severity=Severity.HIGH.value,
-        operational_domain=OperationalDomain.FUEL_EMISSIONS.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=2.0,
-    ),
-    AuditRule(
-        id="DC-LOOP-037",
-        domain=AuditDomain.DATACENTER.value,
-        title="闭环控制: 感知→决策→执行→验证",
-        description="closed-loop tick 须完成完整四步循环, 确保每次调节有验证反馈",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_closed_loop,
-        reference="PDCA, ISO 50001 Energy Management",
-        severity=Severity.CRITICAL.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=2.5,
-    ),
-    AuditRule(
-        id="DC-ANOM-038",
-        domain=AuditDomain.DATACENTER.value,
-        title="能耗异常检测与分级告警",
-        description="Z-score 异常分析须覆盖所有传感器, 按 critical/high/medium/low 分级告警",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_anomaly_detection,
-        reference="ISO 50001, DCIM Best Practice",
-        severity=Severity.HIGH.value,
-        operational_domain=OperationalDomain.TECHNICAL_MGMT.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=1.5,
-    ),
-    AuditRule(
-        id="DC-MUSK-039",
-        domain=AuditDomain.DATACENTER.value,
-        title="第一性原理五步审计",
-        description="Musk 五步法: 质疑需求→删除冗余→简化优化→加速迭代→自动化",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_musk_audit,
-        reference="First Principles, Elon Musk 5-Step",
-        severity=Severity.MEDIUM.value,
-        operational_domain=OperationalDomain.DATA_DECISION.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=2.0,
-    ),
-    AuditRule(
-        id="DC-FCST-040",
-        domain=AuditDomain.DATACENTER.value,
-        title="PUE 24h 趋势预测",
-        description="基于历史数据预测未来 24h PUE 走势, 为策略决策提供前瞻支撑",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_pue_forecast,
-        reference="ISO 50006 Energy Baselines",
-        severity=Severity.MEDIUM.value,
-        operational_domain=OperationalDomain.DATA_DECISION.value,
-        checklist_level=ChecklistLevel.SHIP.value,
-        rating_weight=1.5,
-    ),
-    AuditRule(
-        id="DC-WHIF-041",
-        domain=AuditDomain.DATACENTER.value,
-        title="What-If 场景模拟与 ROI 评估",
-        description="改造方案须经 What-If 模拟评估 CAPEX/回收期/CO₂ 减排量后方可实施",
-        target_channel="marine_datacenter_energy",
-        check_fn=_check_dc_whatif_simulation,
-        reference="ISO 50001, DCIM Financial Modeling",
-        severity=Severity.MEDIUM.value,
-        operational_domain=OperationalDomain.FUEL_EMISSIONS.value,
-        checklist_level=ChecklistLevel.SHIP.value,
         rating_weight=1.5,
     ),
 ]
@@ -1060,65 +929,67 @@ BUILTIN_AUDIT_RULES: List[AuditRule] = [
 
 BUILTIN_COMPLIANCE_ZONES: List[ComplianceZone] = [
     ComplianceZone(
-        id="ZONE-ECA-NORTH",
-        name="北欧 ECA 排放控制区",
-        zone_type="ECA",
-        description="波罗的海/北海排放控制区，SOx ≤ 0.10%",
-        lat_min=50.0, lat_max=66.0,
-        lon_min=-5.0, lon_max=30.0,
-        activated_rule_ids=["DC-PUE-032", "DC-LOOP-037", "DC-ANOM-038"],
-        extra_requirements="需连续监控能效指标，SOx/NOx 限值加严",
+        id="ZONE-DATA-SEC",
+        name="数据安全与 PII 合规域",
+        zone_type="DATA_SECURITY",
+        description="智能体数据处理需满足 PII 脱敏、最小权限、访问留痕",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,  # H-1: 废弃地理坐标
+        activated_rule_ids=["GEN-AUDIT-042", "GEN-SKILL-040"],
+        extra_requirements="敏感数据脱敏 + 访问留痕",
         active=True,
     ),
     ComplianceZone(
-        id="ZONE-MARPOL-MED",
-        name="地中海 MARPOL 特殊区域",
-        zone_type="MARPOL_SPECIAL",
-        description="地中海防污染特殊区域",
-        lat_min=30.0, lat_max=46.0,
-        lon_min=-6.0, lon_max=36.0,
-        activated_rule_ids=["DC-PUE-032", "DC-POL-036"],
-        extra_requirements="垃圾排放零容忍，油污水处理加严",
+        id="ZONE-MODEL-SAFETY",
+        name="模型安全与内容审核域",
+        zone_type="MODEL_SAFETY",
+        description="LLM 输出需满足内容安全、无幻觉、不越权",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,
+        activated_rule_ids=["GEN-SKILL-041", "GEN-AUDIT-042"],
+        extra_requirements="输出审查 + 越权检测",
         active=True,
     ),
     ComplianceZone(
-        id="ZONE-PSSA-REEF",
-        name="大堡礁 PSSA 保护区",
-        zone_type="PSSA",
-        description="特别敏感海域 — 航速限制 + 双重审查",
-        lat_min=-25.0, lat_max=-10.0,
-        lon_min=142.0, lon_max=155.0,
-        activated_rule_ids=["DC-RATCH-033", "DC-HEAT-035", "DC-MUSK-039"],
-        extra_requirements="航速 ≤ 12kn，须实施鲸鱼避让措施",
+        id="ZONE-COST-GOV",
+        name="成本治理预算域",
+        zone_type="COST_GOV",
+        description="Token 预算、API 调用频率、模型降级策略须受控",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,
+        activated_rule_ids=["GEN-ROUTE-043", "GEN-SKILL-040"],
+        extra_requirements="预算告警 + 自动降级",
         active=True,
     ),
     ComplianceZone(
-        id="ZONE-HIGH-RISK-GOA",
-        name="亚丁湾高风险区",
-        zone_type="HIGH_RISK",
-        description="海盗高风险区域 — 加强安全监控",
-        lat_min=10.0, lat_max=20.0,
-        lon_min=42.0, lon_max=60.0,
-        activated_rule_ids=["DC-IOT-034", "DC-ANOM-038"],
-        extra_requirements="需启用 AIS 持续播发，加强瞭望",
+        id="ZONE-AUDIT",
+        name="审计可追溯域",
+        zone_type="AUDIT",
+        description="所有智能体决策须可追溯、证据链完整",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,
+        activated_rule_ids=["GEN-AUDIT-042", "GEN-CYCLE-044"],
+        extra_requirements="决策留痕 + 证据链不可篡改",
         active=True,
     ),
     ComplianceZone(
-        id="ZONE-DC-CAMPUS",
-        name="数据中心园区",
-        zone_type="CUSTOM",
-        description="数据中心本地合规区 — 全部规则激活",
-        lat_min=22.0, lat_max=23.0,
-        lon_min=113.0, lon_max=114.0,
-        activated_rule_ids=[
-            "DC-PUE-032", "DC-RATCH-033", "DC-IOT-034", "DC-HEAT-035",
-            "DC-POL-036", "DC-LOOP-037", "DC-ANOM-038", "DC-MUSK-039",
-            "DC-FCST-040", "DC-WHIF-041",
-        ],
-        extra_requirements="全面能效审查，PUE ≤ 1.4 目标",
+        id="ZONE-ACCESS",
+        name="权限与越权防护域",
+        zone_type="ACCESS_CTRL",
+        description="Agent 工具调用须经过权限校验，禁止越权操作",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,
+        activated_rule_ids=["GEN-SKILL-041", "GEN-ESCAL-045"],
+        extra_requirements="工具白名单 + 越权拦截",
+        active=True,
+    ),
+    ComplianceZone(
+        id="ZONE-PROMPT-INJ",
+        name="提示注入防护域",
+        zone_type="PROMPT_INJECTION",
+        description="防御提示注入攻击，保护系统提示词完整性",
+        lat_min=0, lat_max=0, lon_min=0, lon_max=0,
+        activated_rule_ids=["GEN-SKILL-041", "GEN-AUDIT-042"],
+        extra_requirements="注入检测 + 输入清洗",
         active=True,
     ),
 ]
+
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1161,7 +1032,7 @@ class SystemEvolutionChannel(MarineChannel):
         self.total_closed = 0
 
         # ── Phase 3: 新增状态 ────────────────────────────
-        # A~E 合规评级 (DNV CII 风格)
+        # A~E 合规评级 (A~E 风格)
         self._compliance_score: float = 100.0
         self._compliance_rating: str = ComplianceRating.A.value
         self._rating_history: List[Dict[str, Any]] = []
@@ -1898,7 +1769,7 @@ class SystemEvolutionChannel(MarineChannel):
         return list(reversed(self.audit_history))
 
     # ══════════════════════════════════════════════════════════
-    # Phase 3: A~E 合规评级系统 (DNV CII 风格)
+    # Phase 3: A~E 合规评级系统 (A~E 风格)
     # ══════════════════════════════════════════════════════════
 
     def calculate_compliance_rating(self, audit_details: Optional[List[Dict]] = None) -> Dict[str, Any]:
@@ -2051,11 +1922,11 @@ class SystemEvolutionChannel(MarineChannel):
         }
 
     # ══════════════════════════════════════════════════════════
-    # Phase 3: 双层自查清单 (ClassNK 风格)
+    # Phase 3: 双层自查清单 (双层风格)
     # ══════════════════════════════════════════════════════════
 
     def get_checklist(self, level: Optional[str] = None) -> Dict[str, Any]:
-        """获取按 ClassNK 双层模型组织的自查清单。"""
+        """获取按 双层模型组织的自查清单。"""
         company_rules = []
         ship_rules = []
 
@@ -2175,7 +2046,7 @@ class SystemEvolutionChannel(MarineChannel):
         return None
 
     # ══════════════════════════════════════════════════════════
-    # Phase 3: 失败升级机制 (DNV SEEMP Part III)
+    # Phase 3: 失败升级机制 (失败升级机制)
     # ══════════════════════════════════════════════════════════
 
     def _update_escalation(self, rule_id: str, passed: bool) -> Optional[str]:

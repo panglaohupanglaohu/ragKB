@@ -21,7 +21,7 @@
 </head>
 
 <body>
-<canvas id="three-canvas"></canvas>
+<canvas id="three-canvas" aria-label="技能萃取 3D 场景"></canvas>
 
 <div class="overlay">
   <!-- ── Topbar ──────────────────────────────────────────────── -->
@@ -269,7 +269,7 @@
 
 <!-- ── Detail Modal ────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modal-detail">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-header">
       <h2><span id="modal-icon">⚡</span> <span id="modal-title">技能详情</span></h2>
       <button class="close-btn" onclick="closeDetail()">✕</button>
@@ -612,33 +612,33 @@
       <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
         <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between;align-items:center">
           <span>✅ 快速确认</span>
-          <span class="gate-badge" id="gate-status-badge">🔒 未确认</span>
+          <span class="gate-badge" id="gate-status-badge-pipe">🔒 未确认</span>
         </div>
         <div style="padding:12px;font-size:11px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span id="gate-reviewer-count" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 复核</span>
-            <span id="gate-approval-count" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 同意</span>
+            <span id="gate-reviewer-count-pipe" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 复核</span>
+            <span id="gate-approval-count-pipe" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 同意</span>
           </div>
           <div class="gate-progress" style="margin-bottom:8px">
-            <div class="gate-progress-bar"><div class="gate-progress-fill" id="gate-progress-fill" style="width:0"></div></div>
+            <div class="gate-progress-bar"><div class="gate-progress-fill" id="gate-progress-fill-pipe" style="width:0"></div></div>
           </div>
-          <div id="reviewer-list" class="reviewer-list" style="margin-bottom:8px">
+          <div id="reviewer-list-pipe" class="reviewer-list" style="margin-bottom:8px">
             <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:4px">尚无确认记录</div>
           </div>
-          <button class="btn btn-sm" id="btn-show-review-form" onclick="toggleReviewForm()" style="width:100%;justify-content:center;border-style:dashed">+ 确认推进</button>
-          <div id="review-inline-form" style="display:none;margin-top:8px;padding:10px;border:1px solid oklch(1 0 0/.08);background:oklch(0.1 0.005 60/.5)">
+          <button class="btn btn-sm" id="btn-show-review-form-pipe" onclick="toggleReviewForm('pipe')" style="width:100%;justify-content:center;border-style:dashed">+ 确认推进</button>
+          <div id="review-inline-form-pipe" style="display:none;margin-top:8px;padding:10px;border:1px solid oklch(1 0 0/.08);background:oklch(0.1 0.005 60/.5)">
             <div style="display:flex;gap:6px;margin-bottom:6px">
-              <input id="review-name" placeholder="你的名字" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
-              <select id="review-identity" style="background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+              <input id="review-name-pipe" placeholder="你的名字" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+              <select id="review-identity-pipe" style="background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
                 <option value="peer">同事</option>
                 <option value="senior">上级</option>
                 <option value="lead">负责人</option>
               </select>
             </div>
-            <textarea id="review-comment" rows="2" placeholder="确认说明（可选）" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none;resize:vertical;margin-bottom:6px"></textarea>
+            <textarea id="review-comment-pipe" rows="2" placeholder="确认说明（可选）" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none;resize:vertical;margin-bottom:6px"></textarea>
             <div style="display:flex;gap:6px;justify-content:flex-end">
-              <button class="btn btn-sm" onclick="submitReviewAction('approve')" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 确认</button>
-              <button class="btn btn-sm" onclick="submitReviewAction('reject')" style="border-color:oklch(0.5 0.08 18/.3);color:oklch(0.65 0.08 18)">❌ 退回</button>
+              <button class="btn btn-sm" onclick="submitReviewAction('approve','pipe')" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 确认</button>
+              <button class="btn btn-sm" onclick="submitReviewAction('reject','pipe')" style="border-color:oklch(0.5 0.08 18/.3);color:oklch(0.65 0.08 18)">❌ 退回</button>
             </div>
           </div>
         </div>

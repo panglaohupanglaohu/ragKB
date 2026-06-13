@@ -4,12 +4,23 @@ import { buildExtractRouting } from './extract-routing.js';
 
 /* ═══════════ GLOBALS ═══════════ */
 const API = '/api/v1/agent-config';
+// E-3: TTS 日志收敛 — 默认静默
+const DEBUG_TTS = false;
+const tlog = (...a) => { if (DEBUG_TTS) console.log(...a); };
+const twarn = (...a) => { if (DEBUG_TTS) console.warn(...a); };
 let curPlaza = null, curDisc = null, curDiscData = null, evtSrc = null;
 let allTeams = [], allParticipants = [];
 let curVerificationState = null;
 let curConsensusState = null;
 let curEscalationState = null;
 let discussionSignalTimer = null;
+// SSE reconnect state
+let _sseRetryTimer = null, _sseRetryDelay = 1000, _sseClosedByUs = false;
+const SSE_MAX_DELAY = 10000;
+// Rendered-message dedup (guards against SSE history replay on reconnect)
+const _seenMsgKeys = new Set();
+function msgKey(m) { return m?.id || `${m?.round_number || 0}|${m?.agent_id || ''}|${String(m?.content ?? '').slice(0, 40)}`; }
+function markMsgSeen(m) { _seenMsgKeys.add(msgKey(m)); }
 const Q = new URLSearchParams(window.location.search);
 const deepLinkPlazaId = Q.get('plaza_id') || '';
 const deepLinkDiscussionId = Q.get('discussion_id') || '';
@@ -52,6 +63,34 @@ function openM(id) {
 }
 function closeM(id) { $(id)?.classList.remove('open') }
 window.openM = openM; window.closeM = closeM;
+
+// E-1: 通用确认弹层 — 替代 confirm() 阻塞调用
+function showConfirm(msg, onOk) {
+  var m = $('m-confirm');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'm-confirm';
+    m.className = 'modal';
+    m.setAttribute('role', 'dialog');
+    m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="modal-overlay" onclick="closeM(\'m-confirm\')"></div>' +
+      '<div class="modal-content" style="max-width:360px"><div class="modal-h">确认操作</div>' +
+      '<div id="confirm-msg" style="font-size:12px;padding:12px 0;color:var(--sumi-2)"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn" onclick="closeM(\'m-confirm\')">取消</button>' +
+      '<button id="confirm-ok-btn" class="btn btn-accent">确认</button></div></div>';
+    document.body.appendChild(m);
+    // E-4.2: Esc 关闭 + 焦点归还
+    m.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeM('m-confirm'); } });
+  }
+  $('confirm-msg').textContent = msg;
+  var okBtn = $('confirm-ok-btn');
+  var handler = function() { closeM('m-confirm'); onOk(); };
+  okBtn.onclick = handler;
+  openM('m-confirm');
+  setTimeout(function() { okBtn.focus(); }, 100);
+}
+window.showConfirm = showConfirm;
 async function api(url, opts) { return window.api.request ? window.api.request(url, opts) : null; }
 async function listApi(path, limit = 200, offset = 0) {
   if (window.api?.list) return asItems(await window.api.list(path, limit, offset));
@@ -78,6 +117,8 @@ function tColor(tid) { return teamColors[tid] || 0x7A7470; }
 
 /* ═══════════ THREE.JS — 安藤忠雄清水混凝土议事厅 ═══════════ */
 const canvas = $('three-canvas');
+// E-4.1: 屏幕阅读器可访问
+if (canvas) canvas.setAttribute('aria-label', '议事厅 3D 场景');
 const container = $('arena-container');
 const scene = new THREE.Scene();
 
@@ -339,12 +380,27 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   return group;
 }
 
+/* ── Dispose helpers: release GPU resources to avoid leak on re-render ── */
+function disposeObject3D(obj) {
+  obj.traverse(node => {
+    if (node.geometry) node.geometry.dispose();
+    const mats = Array.isArray(node.material) ? node.material : (node.material ? [node.material] : []);
+    mats.forEach(m => {
+      if (m.map) m.map.dispose();        // CanvasTexture（智能体名字 / 团队标签贴图）
+      m.dispose();
+    });
+  });
+}
+function disposeSceneAgents() {
+  sceneAgents.forEach(g => { scene.remove(g); disposeObject3D(g); });
+  sceneAgents.length = 0;
+  agentMeshes.clear();
+}
+
 /* ── Place agents ── */
 function renderArena3D(participants) {
   allParticipants = participants || [];
-  sceneAgents.forEach(g => scene.remove(g));
-  sceneAgents.length = 0;
-  agentMeshes.clear();
+  disposeSceneAgents();
   if (!allParticipants.length) return;
 
   const groups = {};
@@ -589,6 +645,7 @@ async function playSpeechItem(item, token) {
   highlightSpeaker(item.agentId, true);
   const b = document.createElement('div');
   b.className = 'speech-bubble speaking'; b.dataset.agent = item.agentId;
+  b.setAttribute('aria-hidden', 'true');  // E-4.3: 装饰性气泡，避免重复朗读
   b.style.setProperty('--bubble-color', entry.group.userData.labelColor || '#D7DEE4');
   b.innerHTML = `<div class="sb-name">${esc(item.name)}</div><div class="sb-text"></div>`;
   const bubbleState = { agentId: item.agentId, bubble: b, textNode: b.querySelector('.sb-text'), _measureDirty: true };
@@ -718,13 +775,13 @@ function ttsFallbackSpeak(text, speed, serial) {
 
 async function ttsSpeak(text, playbackToken, agentName) {
   if (ttsMuted || playbackToken !== speechPlaybackToken) {
-    console.warn('[TTS] Skipped: muted=', ttsMuted, 'tokenMatch=', playbackToken === speechPlaybackToken);
+    twarn('[TTS] Skipped: muted=', ttsMuted, 'tokenMatch=', playbackToken === speechPlaybackToken);
     return false;
   }
   const serial = ++ttsPlaybackSerial;
   stopCurrentTtsAudio();
   if (window.speechSynthesis) speechSynthesis.cancel();
-  console.log('[TTS] Fetching audio for:', agentName, text.slice(0, 30));
+  tlog('[TTS] Fetching audio for:', agentName, text.slice(0, 30));
 
   try {
     const resp = await (window._agFetch || fetch)('/api/v1/tts', {
@@ -734,9 +791,9 @@ async function ttsSpeak(text, playbackToken, agentName) {
     });
     if (!resp.ok) throw new Error(`TTS ${resp.status}`);
     const blob = await resp.blob();
-    console.log('[TTS] Got blob:', blob.size, 'bytes');
+    tlog('[TTS] Got blob:', blob.size, 'bytes');
     if (ttsMuted || playbackToken !== speechPlaybackToken || serial !== ttsPlaybackSerial) {
-      console.warn('[TTS] Cancelled after fetch: muted=', ttsMuted, 'tokenMatch=', playbackToken === speechPlaybackToken, 'serialMatch=', serial === ttsPlaybackSerial);
+      twarn('[TTS] Cancelled after fetch: muted=', ttsMuted, 'tokenMatch=', playbackToken === speechPlaybackToken, 'serialMatch=', serial === ttsPlaybackSerial);
       return false;
     }
 
@@ -755,7 +812,7 @@ async function ttsSpeak(text, playbackToken, agentName) {
 
       // Safety timeout: if onended never fires, resolve after estimated duration + buffer
       const safetyTimer = setTimeout(() => {
-        console.warn('[TTS] Safety timeout - forcing resolve');
+        twarn('[TTS] Safety timeout - forcing resolve');
         audio.pause(); audio.src = '';
         URL.revokeObjectURL(url);
         if (ttsAudio === audio) ttsAudio = null;
@@ -779,7 +836,7 @@ async function ttsSpeak(text, playbackToken, agentName) {
           clearTimeout(safetyTimer);
           const tightTimer = setTimeout(() => {
             if (!settled) {
-              console.warn('[TTS] Duration timeout - forcing resolve after', audio.duration, 's');
+              twarn('[TTS] Duration timeout - forcing resolve after', audio.duration, 's');
               audio.pause(); audio.src = '';
               URL.revokeObjectURL(url);
               if (ttsAudio === audio) ttsAudio = null;
@@ -804,16 +861,16 @@ async function ttsSpeak(text, playbackToken, agentName) {
         }
         try {
           await audio.play();
-          console.log('[TTS] Playing audio successfully');
+          tlog('[TTS] Playing audio successfully');
         } catch (err) {
           // Retry once after short delay (autoplay policy may clear after gesture)
           if (err?.name === 'NotAllowedError') {
-            console.warn('[TTS] Autoplay blocked, retrying in 200ms...');
+            twarn('[TTS] Autoplay blocked, retrying in 200ms...');
             await new Promise(r => setTimeout(r, 200));
             if (ttsMuted || playbackToken !== speechPlaybackToken || serial !== ttsPlaybackSerial) {
               abortPlayback(); return;
             }
-            try { await audio.play(); console.log('[TTS] Retry play succeeded'); return; } catch(e2) {}
+            try { await audio.play(); tlog('[TTS] Retry play succeeded'); return; } catch(e2) {}
           }
           console.error('[TTS] audio.play() failed:', err?.message || err);
           URL.revokeObjectURL(url);
@@ -887,8 +944,19 @@ function updateCameraLookAt() {
 
 /* ═══════════ ANIMATION ═══════════ */
 const clock = new THREE.Clock();
+// D-1: 隐藏标签页暂停渲染
+let _renderPaused = false;
+document.addEventListener('visibilitychange', () => { _renderPaused = document.hidden; });
+let _emptyFrameSkip = 0;
 function animate() {
   requestAnimationFrame(animate);
+  // D-1: 后台不渲染
+  if (_renderPaused) return;
+  // D-2: 空场景降帧（每4帧渲染一次）
+  if (!allParticipants.length && !bubbles.length) {
+    _emptyFrameSkip = (_emptyFrameSkip + 1) % 4;
+    if (_emptyFrameSkip !== 0) return;
+  }
   const t = clock.getElapsedTime();
   updateCameraLookAt();
   controls.update();
@@ -944,7 +1012,7 @@ async function loadPlazas() {
 
 window.selectPlaza = async function(id) {
   // Close any existing SSE connection
-  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  teardownSSE();
   curPlaza = id; curDisc = null; curDiscData = null;
   localStorage.setItem('plaza_curPlaza', id);
   localStorage.removeItem('plaza_curDisc');
@@ -1177,13 +1245,14 @@ window.doSaveEditPlaza = async function() {
 };
 
 window.deletePlaza = async function(id, name) {
-  if (!confirm(`确定删除广场「${name}」？所有讨论数据将一并删除。`)) return;
-  const r = await api(`${API}/plaza/${id}`, { method: 'DELETE' });
-  if (r) {
-    toast('广场已删除');
-    if (curPlaza === id) { curPlaza = null; curDisc = null; curDiscData = null; localStorage.removeItem('plaza_curPlaza'); localStorage.removeItem('plaza_curDisc'); renderArena3D([]); $('msg-log').innerHTML = ''; $('disc-list').innerHTML = '<div style="color:var(--dim);font-size:10px">先选择广场</div>'; }
-    await loadPlazas();
-  }
+  showConfirm(`确定删除广场「${name}」？所有讨论数据将一并删除。`, async () => {
+    const r = await api(`${API}/plaza/${id}`, { method: 'DELETE' });
+    if (r) {
+      toast('广场已删除');
+      if (curPlaza === id) { curPlaza = null; curDisc = null; curDiscData = null; localStorage.removeItem('plaza_curPlaza'); localStorage.removeItem('plaza_curDisc'); renderArena3D([]); $('msg-log').innerHTML = ''; $('disc-list').innerHTML = '<div style="color:var(--dim);font-size:10px">先选择广场</div>'; }
+      await loadPlazas();
+    }
+  });
 };
 
 /* ═══════════ DISCUSSIONS ═══════════ */
@@ -1200,34 +1269,29 @@ function statusTxt(s) { return { open: '待启动', in_progress: '进行中', su
 window.deleteDisc = async function(event, discId) {
   event?.stopPropagation();
   if (!curPlaza) return;
-  if (!confirm('删除这个讨论？')) return;
-  const deletingCurrent = curDisc === discId;
-  if (deletingCurrent && evtSrc) { evtSrc.close(); evtSrc = null; }
-  const result = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`, { method: 'DELETE' });
-  if (!result) { toast('删除失败'); return; }
-
-  if (deletingCurrent) {
-    curDisc = null;
-    curDiscData = null;
-    curVerificationState = null;
-    clearSpeechPlayback();
-    $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
-    $('plan-panel').style.display = 'none';
-    $('btn-start').disabled = true;
-    $('btn-start').textContent = '开始';
-    $('status-text').textContent = '';
-  }
-
-  const plaza = await api(`${API}/plaza/${curPlaza}`);
-  if (plaza) {
-    renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0));
-    renderArena3D(plaza.participants || []);
-  }
-  toast('讨论已删除');
+  showConfirm('删除这个讨论？', async () => {
+    const deletingCurrent = curDisc === discId;
+    if (deletingCurrent) teardownSSE();
+    const result = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`, { method: 'DELETE' });
+    if (!result) { toast('删除失败'); return; }
+    if (deletingCurrent) {
+      curDisc = null; curDiscData = null; curVerificationState = null;
+      clearSpeechPlayback();
+      $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
+      $('plan-panel').style.display = 'none'; $('btn-start').disabled = true; $('btn-start').textContent = '开始'; $('status-text').textContent = '';
+    }
+    const plaza = await api(`${API}/plaza/${curPlaza}`);
+    if (plaza) {
+      renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0));
+      renderArena3D(plaza.participants || []);
+    }
+    toast('讨论已删除');
+  });
 };
 
 window.selectDisc = async function(discId, opts) {
   curDisc = discId;
+  _msgRenderLimit = 50;  // E-6.1: 切讨论时重置分页
   localStorage.setItem('plaza_curDisc', discId);
   if (!opts?.keepSpeech) clearSpeechPlayback();
   const disc = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`);
@@ -1257,19 +1321,34 @@ window.selectDisc = async function(discId, opts) {
   if (disc.status === 'in_progress' || disc.plan?.content || disc.summary) connectSSE(discId);
 };
 
+// E-6.1: 消息分页 — 超长讨论只渲染近 N 条
+var _msgRenderLimit = 50;
 function renderMessages(msgs) {
   const log = $('msg-log');
-  if (!msgs.length) { log.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px">点击「开始」启动讨论</div>'; return; }
-  let h = '', lr = -1;
-  msgs.forEach(m => {
-    if (m.round_number !== lr && m.round_number > 0) { h += `<div class="round-sep">ROUND ${m.round_number}</div>`; lr = m.round_number; }
-    const isMod = m.niche_role === 'moderator';
-    const isUser = m.niche_role === 'human';
-    const cls = isMod ? 'mod' : (isUser ? 'user' : '');
-    const label = isMod ? ' · 议事长' : (isUser ? ' · 你' : '');
-    h += `<div class="msg-entry ${cls}"><div class="me-name">${esc(m.agent_name)}${label}</div><div class="me-text">${mdLite(m.content)}</div></div>`;
-  });
+  _seenMsgKeys.clear();
+  if (!msgs.length) { log.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px">点击「开始」启动讨论</div>'; _msgRenderLimit = 50; return; }
+  var h = '', lr = -1;
+  // 只渲染最近 _msgRenderLimit 条
+  var start = Math.max(0, msgs.length - _msgRenderLimit);
+  if (start > 0) {
+    h += '<div id="load-earlier-bar" style="text-align:center;padding:6px;margin-bottom:8px">' +
+      '<button class="btn btn-sm" onclick="expandMessages()" style="font-size:10px">📜 加载更早 (' + start + ' 条隐藏)</button></div>';
+  }
+  for (var i = start; i < msgs.length; i++) {
+    var m = msgs[i];
+    markMsgSeen(m);
+    if (m.round_number !== lr && m.round_number > 0) { h += '<div class="round-sep">ROUND ' + m.round_number + '</div>'; lr = m.round_number; }
+    var isMod = m.niche_role === 'moderator';
+    var isUser = m.niche_role === 'human';
+    var cls = isMod ? 'mod' : (isUser ? 'user' : '');
+    var label = isMod ? ' · 议事长' : (isUser ? ' · 你' : '');
+    h += '<div class="msg-entry ' + cls + '"><div class="me-name">' + esc(m.agent_name) + label + '</div><div class="me-text">' + mdLite(m.content) + '</div></div>';
+  }
   log.innerHTML = h; log.scrollTop = log.scrollHeight;
+}
+function expandMessages() {
+  _msgRenderLimit = Math.min(_msgRenderLimit + 100, 9999);
+  if (curDiscData && curDiscData.messages) renderMessages(curDiscData.messages);
 }
 
 function mdLite(s) {
@@ -2044,19 +2123,36 @@ window.refreshPlan = async function() {
 
 /* ═══════════ SSE ═══════════ */
 let _discEndTimer = null;
+function teardownSSE() {
+  _sseClosedByUs = true;
+  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
+  if (evtSrc) { try { evtSrc.close(); } catch (_) {} evtSrc = null; }
+}
 function connectSSE(discId) {
   if (_discEndTimer) { clearTimeout(_discEndTimer); _discEndTimer = null; }
-  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  teardownSSE();
   if (!curPlaza) return;
+  _sseClosedByUs = false;
   evtSrc = new EventSource(`${API}/plaza/${curPlaza}/discussions/${discId}/stream`);
-  let init = false;
+  evtSrc.onopen = () => { _sseRetryDelay = 1000; };
+  evtSrc.onerror = () => {
+    if (_sseClosedByUs) return;               // 主动关闭不重连
+    $('status-text').textContent = '连接中断，重连中…';
+    if (evtSrc) { try { evtSrc.close(); } catch (_) {} evtSrc = null; }
+    _sseRetryTimer = setTimeout(() => {
+      if (curDisc === discId && !_sseClosedByUs) connectSSE(discId);  // 仍在同一讨论才重连
+    }, _sseRetryDelay);
+    _sseRetryDelay = Math.min(_sseRetryDelay * 2, SSE_MAX_DELAY);   // 1s→2s→5s…上限 10s
+  };
   evtSrc.onmessage = (e) => {
     try {
       const d = JSON.parse(e.data);
       if (d.type === 'heartbeat') return;
-      if (d.type === 'status') { init = true; return; }
-      if (d.type === 'message' && init) {
+      if (d.type === 'status') return;
+      if (d.type === 'message') {
         const m = d.message, log = $('msg-log');
+        if (_seenMsgKeys.has(msgKey(m))) return;  // 重放/重连去重（兼顾断点补漏，不重复插入）
+        markMsgSeen(m);
         if (curDiscData) {
           const nextMessages = Array.isArray(curDiscData.messages) ? [...curDiscData.messages, m] : [m];
           curDiscData = {
@@ -2074,7 +2170,7 @@ function connectSSE(discId) {
         const cls = isMod ? 'mod' : (isUser ? 'user' : '');
         const label = isMod ? ' · 议事长' : (isUser ? ' · 你' : '');
         const modAction = isMod ? `<div style="margin-top:6px;text-align:right"><button class="plan-btn" onclick="refreshPlan()" style="font-size:11px;padding:2px 10px">↻ 修订执行计划</button></div>` : '';
-        log.insertAdjacentHTML('beforeend', `<div class="msg-entry ${cls}"><div class="me-name">${esc(m.agent_name)}${label}</div><div class="me-text">${esc(m.content)}</div>${modAction}</div>`);
+        log.insertAdjacentHTML('beforeend', `<div class="msg-entry ${cls}"><div class="me-name">${esc(m.agent_name)}${label}</div><div class="me-text">${mdLite(m.content)}</div>${modAction}</div>`);
         log.scrollTop = log.scrollHeight;
         $('status-text').textContent = `R${m.round_number} · ${m.agent_name}`;
         if (!isUser) showSpeechBubble(m.agent_id, m.agent_name, m.content);
@@ -2110,12 +2206,12 @@ function connectSSE(discId) {
         }
         scheduleDiscussionSignalRefresh(300);
       }
-      if (d.type === 'discussion_start') { clearSpeechPlayback(); $('btn-start').disabled = true; $('btn-start').textContent = '进行中'; $('msg-log').innerHTML = ''; }
+      if (d.type === 'discussion_start') { clearSpeechPlayback(); _seenMsgKeys.clear(); $('btn-start').disabled = true; $('btn-start').textContent = '进行中'; $('msg-log').innerHTML = ''; }
       if (d.type === 'round_start') $('status-text').textContent = `R${d.round}/${d.max_rounds}`;
       if (d.type === 'summarizing') { $('btn-start').textContent = '总结中'; $('status-text').textContent = '议事长总结中…'; }
       if (d.type === 'discussion_end') {
         $('btn-start').disabled = false; $('btn-start').textContent = '重新讨论'; $('status-text').textContent = 'DONE';
-        evtSrc.close(); evtSrc = null; toast('讨论结束');
+        teardownSSE(); toast('讨论结束');
         scheduleDiscussionSignalRefresh(200);
         const refreshDelay = Math.max(2600, Math.min(120000, 1500 + getQueuedSpeechDuration()));
         _discEndTimer = setTimeout(() => { _discEndTimer = null; selectDisc(discId, { keepSpeech: true }); }, refreshDelay);
@@ -2126,15 +2222,23 @@ function connectSSE(discId) {
 
 /* ═══════════ INIT ═══════════ */
 async function init() {
-  allTeams = await api(`${API}/teams`) || [];
-  await loadPlazas(); renderArena3D([]);
-  const savedPlaza = localStorage.getItem('plaza_curPlaza');
-  const savedDisc = localStorage.getItem('plaza_curDisc');
-  const initialPlaza = deepLinkPlazaId || savedPlaza;
-  const initialDisc = deepLinkDiscussionId || savedDisc;
-  if (initialPlaza) {
-    await selectPlaza(initialPlaza);
-    if (initialDisc) await selectDisc(initialDisc);
+  try {
+    allTeams = await api(`${API}/teams`) || [];
+    await loadPlazas(); renderArena3D([]);
+    const savedPlaza = localStorage.getItem('plaza_curPlaza');
+    const savedDisc = localStorage.getItem('plaza_curDisc');
+    const initialPlaza = deepLinkPlazaId || savedPlaza;
+    const initialDisc = deepLinkDiscussionId || savedDisc;
+    if (initialPlaza) {
+      await selectPlaza(initialPlaza);
+      if (initialDisc) await selectDisc(initialDisc);
+    }
+  } catch(e) {
+    console.error('[Plaza] init failed:', e);
+    toast('初始化失败，请刷新或检查后端服务');
   }
 }
 init();
+
+// 页面离开时关闭 SSE，避免悬挂连接与重连计时器
+window.addEventListener('beforeunload', () => { teardownSSE(); });

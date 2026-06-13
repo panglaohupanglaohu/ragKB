@@ -19,6 +19,14 @@ let teamAgents = {}; // { team_id: [{agent_id, name, role}, ...] }
 
 // ── API ─────────────────────────────────────────────────────────
 const API_BASE = '/api/v1/agent-config';
+// C-2: 日志开关
+const DEBUG_SK = false;
+const sklog = (...a) => { if (DEBUG_SK) console.log(...a); };
+const skwarn = (...a) => { if (DEBUG_SK) console.warn(...a); };
+// C-1: request_id 计数器
+let _skReqIdCounter = 0;
+function _nextSkReqId() { _skReqIdCounter++; return 'sk-' + Date.now().toString(36) + '-' + _skReqIdCounter; }
+
 let currentTeamId = '';
 let queueItems = [];
 let currentFilter = '';
@@ -56,9 +64,9 @@ var _af_sk = async function(url, opts) {
 
 async function api(path, opts = {}) {
   try {
-    // Attach CSRF token for state-changing methods
     var method = (opts.method || 'GET').toUpperCase();
-    var headers = { 'Content-Type': 'application/json', ...opts.headers };
+    var rid = _nextSkReqId();
+    var headers = { 'Content-Type': 'application/json', 'X-Request-ID': rid, ...opts.headers };
     if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
       await _ensureCsrf_sk();
       if (_csrfToken_sk) headers['x-csrf-token'] = _csrfToken_sk;
@@ -70,8 +78,8 @@ async function api(path, opts = {}) {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return await r.json();
   } catch (e) {
-    console.error('[API]', path, e);
-    showToast(`请求失败: ${e.message}`);
+    skwarn('[API]', path, e);
+    showToast(`请求失败 [${e._requestId || '?'}]: ${e.message}`);
     return null;
   }
 }
@@ -1289,18 +1297,19 @@ window.rollbackVersion = async function(versionKey) {
   if (!targetVer || !currentTeamId || !skillId) {
     showToast('缺少必要信息: team_id/skill_id/version'); return;
   }
-  if (!confirm(`确认回滚技能到版本 v${targetVer}？\n当前版本将自动保存为快照。`)) return;
-  showToast('正在回滚...');
-  const r = await api('/skill-library/version/rollback', {
-    method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, target_version: targetVer }),
+  showConfirm(`确认回滚技能到版本 v${targetVer}？\n当前版本将自动保存为快照。`, async () => {
+    showToast('正在回滚...');
+    const r = await api('/skill-library/version/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, target_version: targetVer }),
+    });
+    if (r && r.ok) {
+      showToast(`✅ 已回滚到 v${targetVer}（新版本号: v${r.new_version}）`);
+      loadVersionTab();
+    } else {
+      showToast(`回滚失败: ${r?.error || '未知错误'}`, true);
+    }
   });
-  if (r && r.ok) {
-    showToast(`✅ 已回滚到 v${targetVer}（新版本号: v${r.new_version}）`);
-    loadVersionTab(); // 刷新版本时间线
-  } else {
-    showToast(`回滚失败: ${r?.error || '未知错误'}`, true);
-  }
 };
 
 // ── Version Creation Functions ─────────────────────────────────
@@ -1442,7 +1451,7 @@ window.approveAs = async function(skillType) {
 
 window.rejectItem = async function() {
   if (!selectedItemId) return;
-  const reason = prompt('拒绝原因（可选）：') || '';
+  const reason = ''; /* B-1: prompt() removed — reason now optional */
   const r = await api(`/teams/${currentTeamId}/skill-extract/${selectedItemId}/reject`, {
     method: 'POST',
     body: JSON.stringify({ reviewer: 'human', reason }),
@@ -1471,14 +1480,12 @@ window._quickApprove = async function(itemId, skillType = 'reserve') {
 };
 
 window._deleteItem = async function(itemId) {
-  if (!confirm('确认删除此萃取项？')) return;
-  // Trigger shatter animation for associated skill crystal
-  const item = queueItems.find(q => q.item_id === itemId);
-  if (item) {
-    shatterSkillNode(item.draft_name || item.skill_id || itemId);
-  }
-  const r = await api(`/teams/${currentTeamId}/skill-extract/${itemId}`, { method: 'DELETE' });
-  if (r !== null) { showToast('🗑️ 已删除'); loadQueue(); addMessage('system', '🗑️ 萃取项已删除，结晶已碎裂'); }
+  showConfirm('确认删除此萃取项？', async () => {
+    const item = queueItems.find(q => q.item_id === itemId);
+    if (item) { shatterSkillNode(item.draft_name || item.skill_id || itemId); }
+    const r = await api(`/teams/${currentTeamId}/skill-extract/${itemId}`, { method: 'DELETE' });
+    if (r !== null) { showToast('🗑️ 已删除'); loadQueue(); addMessage('system', '🗑️ 萃取项已删除，结晶已碎裂'); }
+  });
 };
 
 // ── Skills (Taxonomy) ───────────────────────────────────────────
@@ -2008,6 +2015,50 @@ function showToast(msg, severity) {
   t._tm = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+// B-1: 通用确认弹层（替代 confirm）— 复用 toast 容器
+function showConfirm(msg, onOk) {
+  var existing = document.getElementById('confirm-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'confirm-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = '<div style="background:var(--bg,oklch(0.16 0.005 110));border:1px solid oklch(0.25 0.005 110);border-radius:8px;padding:16px;max-width:360px;width:90%;color:oklch(0.75 0.005 110);font-size:13px;text-align:center">' +
+    '<div style="margin-bottom:12px">' + msg + '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:center">' +
+    '<button id="confirm-cancel" style="padding:6px 16px;background:oklch(0.25 0.005 110);border:none;border-radius:4px;color:oklch(0.6 0.005 110);cursor:pointer">取消</button>' +
+    '<button id="confirm-ok" style="padding:6px 16px;background:oklch(0.5 0.1 250);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:600">确认</button></div></div>';
+  document.body.appendChild(overlay);
+  document.getElementById('confirm-cancel').onclick = function() { overlay.remove(); };
+  document.getElementById('confirm-ok').onclick = function() { overlay.remove(); onOk(); };
+  document.getElementById('confirm-ok').focus();
+}
+
+// B-2: 页内输入弹层（替代 prompt）
+function openInputModal(label, onOk, placeholder) {
+  var existing = document.getElementById('confirm-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'confirm-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = '<div style="background:var(--bg,oklch(0.16 0.005 110));border:1px solid oklch(0.25 0.005 110);border-radius:8px;padding:16px;max-width:360px;width:90%;color:oklch(0.75 0.005 110);font-size:13px">' +
+    '<div style="margin-bottom:8px">' + label + '</div>' +
+    '<textarea id="input-modal-text" rows="3" placeholder="' + (placeholder || '') + '" style="width:100%;padding:6px 8px;font-size:12px;background:oklch(0.12 0.005 110);border:1px solid oklch(0.3 0.005 110);border-radius:4px;color:oklch(0.75 0.005 110);box-sizing:border-box;margin-bottom:10px"></textarea>' +
+    '<div id="input-modal-hint" style="font-size:11px;color:#ef4444;margin-bottom:8px;display:none"></div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button id="confirm-cancel" style="padding:6px 16px;background:oklch(0.25 0.005 110);border:none;border-radius:4px;color:oklch(0.6 0.005 110);cursor:pointer">取消</button>' +
+    '<button id="confirm-ok" style="padding:6px 16px;background:oklch(0.5 0.1 250);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:600">确认</button></div></div>';
+  document.body.appendChild(overlay);
+  document.getElementById('confirm-cancel').onclick = function() { overlay.remove(); };
+  document.getElementById('confirm-ok').onclick = function() {
+    var val = document.getElementById('input-modal-text').value.trim();
+    overlay.remove();
+    onOk(val);
+  };
+  setTimeout(function() { document.getElementById('input-modal-text').focus(); }, 100);
+}
+
 // ── Message Flow ────────────────────────────────────────────────
 function addMessage(type, content, itemId) {
   const log = document.getElementById('msg-log');
@@ -2033,7 +2084,7 @@ function addMessage(type, content, itemId) {
 }
 
 window._inlineReject = async function(itemId) {
-  const reason = prompt('拒绝原因（可选）：') || '';
+  const reason = ''; /* B-1: prompt() removed — reason now optional */
   const r = await api(`/teams/${currentTeamId}/skill-extract/${itemId}/reject`, {
     method: 'POST',
     body: JSON.stringify({ reviewer: 'human', reason }),
@@ -2190,9 +2241,9 @@ window.fillStarExample = function() {
     input.value = step.placeholder.replace(/^例[：:]?\s*/, '');
     showToast('💡 示例已填入，请根据实际情况修改');
   } else {
-    if (confirm('当前已有内容，是否用示例替换？')) {
+    showConfirm('当前已有内容，是否用示例替换？', () => {
       input.value = step.placeholder.replace(/^例[：:]?\s*/, '');
-    }
+    });
   }
   input.focus();
 };
@@ -2632,25 +2683,21 @@ async function loadPipelineTab() {
   const approvals = reviews.filter(r => r.decision === 'approve');
   const reqReviewers = currentGate.min_reviewers ?? 1;
   const reqApprovals = currentGate.min_approvals ?? 1;
-  const revCountEl = document.getElementById('gate-reviewer-count');
-  const appCountEl = document.getElementById('gate-approval-count');
-  const progressFill = document.getElementById('gate-progress-fill');
-  const gateBadge = document.getElementById('gate-status-badge');
-  if (revCountEl) revCountEl.textContent = `${reviews.length}/${reqReviewers} 复核`;
-  if (appCountEl) appCountEl.textContent = `${approvals.length}/${reqApprovals} 同意`;
   const progress = Math.min(100, Math.round((approvals.length / reqApprovals) * 100));
-  if (progressFill) progressFill.style.width = progress + '%';
-  if (gateBadge) gateBadge.textContent = approvals.length >= reqApprovals ? '🔓 可推进' : '🔒 未确认';
+  _eachGateEl('gate-reviewer-count', el => el.textContent = `${reviews.length}/${reqReviewers} 复核`);
+  _eachGateEl('gate-approval-count', el => el.textContent = `${approvals.length}/${reqApprovals} 同意`);
+  _eachGateEl('gate-progress-fill', el => el.style.width = progress + '%');
+  _eachGateEl('gate-status-badge', el => el.textContent = approvals.length >= reqApprovals ? '🔓 可推进' : '🔒 未确认');
 
-  // Render reviewer list
-  const reviewerListEl = document.getElementById('reviewer-list');
-  if (reviewerListEl && reviews.length > 0) {
-    reviewerListEl.innerHTML = reviews.map(r => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px;border-bottom:1px solid oklch(1 0 0/.04)">
+  // Render reviewer list (两套门禁 UI 都写)
+  if (reviews.length > 0) {
+    const reviewsHtml = reviews.map(r => `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px;border-bottom:1px solid oklch(1 0 0/.04)">
       <span>${r.decision === 'approve' ? '✅' : '❌'}</span>
       <span style="color:oklch(0.7 0.005 110)">${escHtml(r.reviewer_name || 'anonymous')}</span>
       <span style="color:oklch(0.4 0.005 110);font-family:var(--font-mono)">${r.identity || 'peer'}</span>
       ${r.comment ? `<span style="color:oklch(0.5 0.005 110);margin-left:auto;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.comment)}</span>` : ''}
     </div>`).join('');
+    _eachGateEl('reviewer-list', el => el.innerHTML = reviewsHtml);
   }
 
   // Update SkillClaw phase indicators
@@ -2775,26 +2822,28 @@ function updateReviewGateUI(pipeline) {
   const rejections = reviewers.filter(r => r.action === 'reject').length;
   const totalReviewers = reviewers.length;
 
-  // Gate badge
-  const badge = document.getElementById('gate-status-badge');
+  // Gate badge (两套门禁 UI 都写)
   const passed = totalReviewers >= minReviewers && approvals >= minApprovals;
-  badge.className = `gate-badge ${passed ? 'unlocked' : 'locked'}`;
-  badge.textContent = passed ? '🔓 已解锁' : '🔒 未解锁';
+  _eachGateEl('gate-status-badge', badge => {
+    badge.className = `gate-badge ${passed ? 'unlocked' : 'locked'}`;
+    badge.textContent = passed ? '🔓 已解锁' : '🔒 未解锁';
+  });
 
   // Progress
-  document.getElementById('gate-reviewer-count').textContent = `${totalReviewers}/${minReviewers} 复核`;
-  document.getElementById('gate-approval-count').textContent = `${approvals}/${minApprovals} 同意`;
+  _eachGateEl('gate-reviewer-count', el => el.textContent = `${totalReviewers}/${minReviewers} 复核`);
+  _eachGateEl('gate-approval-count', el => el.textContent = `${approvals}/${minApprovals} 同意`);
   const progressPct = Math.min(100, (totalReviewers / minReviewers) * 100);
-  const fillEl = document.getElementById('gate-progress-fill');
-  fillEl.style.width = progressPct + '%';
-  fillEl.style.background = passed ? 'oklch(0.52 0.04 160)' : 'oklch(0.55 0.1 250)';
+  _eachGateEl('gate-progress-fill', fillEl => {
+    fillEl.style.width = progressPct + '%';
+    fillEl.style.background = passed ? 'oklch(0.52 0.04 160)' : 'oklch(0.55 0.1 250)';
+  });
 
-  // Reviewer list
-  const listEl = document.getElementById('reviewer-list');
+  // Reviewer list (两套都写)
+  let listHtml;
   if (!reviewers.length) {
-    listEl.innerHTML = '<div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:8px">尚无复核记录</div>';
+    listHtml = '<div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:8px">尚无复核记录</div>';
   } else {
-    listEl.innerHTML = reviewers.map(r => {
+    listHtml = reviewers.map(r => {
       const actionClass = r.action === 'approve' ? 'approved' : r.action === 'reject' ? 'rejected' : '';
       const actionIcon = r.action === 'approve' ? '✅' : r.action === 'reject' ? '❌' : '💬';
       return `<div class="reviewer-row">
@@ -2805,27 +2854,42 @@ function updateReviewGateUI(pipeline) {
       </div>`;
     }).join('');
   }
+  _eachGateEl('reviewer-list', el => el.innerHTML = listHtml);
 }
 
-window.toggleReviewForm = function() {
-  const form = document.getElementById('review-inline-form');
-  const btn = document.getElementById('btn-show-review-form');
+// 门禁有两套同义 UI(编辑页 id 无后缀 / 管线"快速确认"页 id 带 '-pipe'),
+// 显示类更新两套都写;表单按 scope('' | 'pipe') 读写各自元素,避免重复 id 串扰。
+function _eachGateEl(idBase, fn) {
+  ['', '-pipe'].forEach(function(sfx) {
+    const el = document.getElementById(idBase + sfx);
+    if (el) fn(el);
+  });
+}
+function _reviewSuffix(scope) { return scope === 'pipe' ? '-pipe' : ''; }
+
+window.toggleReviewForm = function(scope) {
+  const sfx = _reviewSuffix(scope);
+  const form = document.getElementById('review-inline-form' + sfx);
+  const btn = document.getElementById('btn-show-review-form' + sfx);
+  if (!form || !btn) return;
   if (form.style.display === 'none') {
     form.style.display = 'block';
     btn.style.display = 'none';
-    document.getElementById('review-name').focus();
+    document.getElementById('review-name' + sfx)?.focus();
   } else {
     form.style.display = 'none';
     btn.style.display = '';
   }
 };
 
-window.submitReviewAction = async function(action) {
+window.submitReviewAction = async function(action, scope) {
   if (!selectedItemId || !currentPipeline) { showToast('请先打开萃取项目'); return; }
-  const reviewerName = document.getElementById('review-name').value.trim();
-  if (!reviewerName) { showToast('请填写你的名字'); document.getElementById('review-name').focus(); return; }
-  const identity = document.getElementById('review-identity').value;
-  const comment = document.getElementById('review-comment').value.trim();
+  const sfx = _reviewSuffix(scope);
+  const nameEl = document.getElementById('review-name' + sfx);
+  const reviewerName = (nameEl?.value || '').trim();
+  if (!reviewerName) { showToast('请填写你的名字'); nameEl?.focus(); return; }
+  const identity = document.getElementById('review-identity' + sfx)?.value || 'peer';
+  const comment = (document.getElementById('review-comment' + sfx)?.value || '').trim();
 
   const result = await api2(`${PIPELINE_API}/pipelines/${currentPipeline.pipeline_id}/reviewers`, {
     method: 'POST',
@@ -2840,11 +2904,11 @@ window.submitReviewAction = async function(action) {
   });
   if (result && !result._error) {
     showToast(`👁️ 复核已提交: ${action === 'approve' ? '同意' : '拒绝'}`);
-    // Reset form
-    document.getElementById('review-name').value = '';
-    document.getElementById('review-comment').value = '';
-    document.getElementById('review-inline-form').style.display = 'none';
-    document.getElementById('btn-show-review-form').style.display = '';
+    // Reset form (当前 scope)
+    if (nameEl) nameEl.value = '';
+    const cEl = document.getElementById('review-comment' + sfx); if (cEl) cEl.value = '';
+    const fEl = document.getElementById('review-inline-form' + sfx); if (fEl) fEl.style.display = 'none';
+    const bEl = document.getElementById('btn-show-review-form' + sfx); if (bEl) bEl.style.display = '';
     await loadItemPipeline(selectedItemId);
   } else if (result && result._error) {
     showToast(`❌ 复核失败: ${result.detail || result.reason || '未知错误'}`, 'error');
@@ -2899,8 +2963,7 @@ window.checkGate = async function() {
 // ── Pipeline Todos ──────────────────────────────────────────────
 window.addPipelineTodo = async function() {
   if (!currentPipeline) return;
-  const title = prompt('待办标题:');
-  if (!title) return;
+  const title = await new Promise(resolve => openInputModal('待办标题', resolve, '输入标题...')); if (!title) return;
   const result = await api2(`${PIPELINE_API}/pipelines/${currentPipeline.pipeline_id}/todos`, {
     method: 'POST',
     body: JSON.stringify({
@@ -4258,7 +4321,7 @@ ctxMenu.addEventListener('click', async (e) => {
       break;
     case 'delete':
       if (qItem) window._deleteItem(qItem.item_id);
-      else { if (confirm(`确认删除技能「${s.name}」？`)) { shatterSkillNode(s.skill_id || s.name); showToast('🗑️ 已删除'); } }
+      else { showConfirm(`确认删除技能「${s.name}」？`, () => { shatterSkillNode(s.skill_id || s.name); showToast('🗑️ 已删除'); }); }
       break;
   }
 });
