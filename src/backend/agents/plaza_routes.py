@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -1183,6 +1183,7 @@ async def interject_to_moderator(
         content=req.message,
         round_number=disc.current_round,
     )
+    user_msg.seq = len(disc.messages)
     disc.messages.append(user_msg)
     await engine._broadcast(disc.id, {
         "type": "message",
@@ -1276,6 +1277,7 @@ async def interject_to_moderator(
         round_number=disc.current_round,
         reply_to=user_msg.id,
     )
+    mod_msg.seq = len(disc.messages)
     disc.messages.append(mod_msg)
     await engine._broadcast(disc.id, {
         "type": "message",
@@ -1311,10 +1313,11 @@ async def start_discussion(plaza_id: str, disc_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")
-async def stream_discussion(plaza_id: str, disc_id: str):
+async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     """Server-Sent Events 实时推送讨论消息.
 
     通过穹顶 Oculus 高速数据通道实时传输讨论流。
+    支持 Last-Event-ID 头：仅重放断点之后的消息，消除重连重放风暴。
     """
     engine = get_plaza_engine()
     disc = engine.get_discussion(plaza_id, disc_id)
@@ -1323,20 +1326,32 @@ async def stream_discussion(plaza_id: str, disc_id: str):
 
     q = engine.subscribe(disc_id)
 
+    # 断点续传：只重放 Last-Event-ID 之后的消息
+    last_event_id = request.headers.get("Last-Event-ID", "")
+    last_seq = -1
+    if last_event_id and last_event_id.isdigit():
+        last_seq = int(last_event_id)
+
     async def event_stream():
         try:
-            # 先推送已有消息（支持中途接入）
+            # 先推送已有消息（支持中途接入，跳过已收消息）
             for msg in disc.messages:
-                yield f"data: {json.dumps({'type': 'message', 'message': msg.to_dict()}, ensure_ascii=False)}\n\n"
+                if msg.seq >= 0 and msg.seq <= last_seq:
+                    continue  # 已收到，跳过
+                yield f"id: {msg.seq}\ndata: {json.dumps({'type': 'message', 'message': msg.to_dict()}, ensure_ascii=False)}\n\n"
 
-            # 推送当前状态
-            yield f"data: {json.dumps({'type': 'status', 'status': disc.status.value}, ensure_ascii=False)}\n\n"
+            # 推送当前状态（给跳过的 seq 使用虚拟 id）
+            status_seq = max(msg.seq + 1 for msg in disc.messages) if disc.messages else 0
+            yield f"id: {status_seq}\ndata: {json.dumps({'type': 'status', 'status': disc.status.value}, ensure_ascii=False)}\n\n"
 
             # 实时推送新消息
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=30.0)
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    msg = event.get("message")
+                    evt_seq = str(msg.seq) if msg and hasattr(msg, 'seq') and msg.seq >= 0 else ""
+                    id_line = f"id: {evt_seq}\n" if evt_seq else ""
+                    yield f"{id_line}data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     if event.get("type") == "discussion_end":
                         break
                 except asyncio.TimeoutError:

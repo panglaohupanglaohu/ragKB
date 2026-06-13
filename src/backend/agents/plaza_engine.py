@@ -429,6 +429,7 @@ class PlazaEngine:
             round_number=disc.max_rounds + 1,
             metadata={"summary_kind": "closing_brief"},
         )
+        closing_msg.seq = len(disc.messages)
         disc.messages.append(closing_msg)
         await self._broadcast(disc.id, {
             "type": "message",
@@ -521,6 +522,7 @@ class PlazaEngine:
             content=content,
             round_number=round_number,
         )
+        msg.seq = len(disc.messages)
         disc.messages.append(msg)
 
         await self._broadcast(disc.id, {
@@ -562,6 +564,7 @@ class PlazaEngine:
             reply_to=reply_to,
             metadata=metadata or {},
         )
+        msg.seq = len(disc.messages)
         disc.messages.append(msg)
         await self._broadcast(disc.id, {
             "type": "message",
@@ -973,6 +976,7 @@ class PlazaEngine:
                 niche_role="moderator", content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
                 round_number=0,
             )
+            msg.seq = len(disc.messages)
             disc.messages.append(msg)
             await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
 
@@ -987,6 +991,7 @@ class PlazaEngine:
                     niche_role=speaker.niche_role.value, content=content,
                     round_number=round_num,
                 )
+                msg.seq = len(disc.messages)
                 disc.messages.append(msg)
                 await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
                 await asyncio.sleep(0.1)

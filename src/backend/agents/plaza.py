@@ -55,6 +55,7 @@ class PlazaMessage:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     metadata: Dict[str, Any] = field(default_factory=dict)
+    seq: int = -1                     # 消息序号(0-based), 引擎追加时自动分配, 用于 SSE Last-Event-ID 重放去重
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -69,6 +70,7 @@ class PlazaMessage:
             "reply_to": self.reply_to,
             "created_at": self.created_at,
             "metadata": self.metadata,
+            "seq": self.seq,
         }
 
 

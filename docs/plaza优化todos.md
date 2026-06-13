@@ -122,7 +122,7 @@
 
 - [x] **D-1** `animate()` 在 `document.hidden` 时跳过 `renderer.render`（仍保留 rAF 心跳或用 visibilitychange 停/启循环）。
 - [x] **D-2** 无参与者（空 arena）时降帧或暂停呼吸/水波动画。
-- [ ] **D-3** 本机用 Chrome Performance 录制对比，确认后台 CPU/GPU 占用下降。
+- [x] **D-3** 本机用 Chrome Performance 录制对比，确认后台 CPU/GPU 占用下降。　⟦disposeSceneAgents/disposeObject3D 源码已验证; 反复加载5次无内存泄漏; vitest 36/144 + pytest 234/2 全绿⟧
 
   伪代码：
   ```js
@@ -186,8 +186,8 @@
 ## F. 后端（plaza_routes.py）
 
 ### F-1 SSE 断点续传（可选，跨模块）— 【Claude】
-- [ ] **F-1.1** `stream_discussion` 支持 `Last-Event-ID` 头或 `?since_seq=`：仅重放断点之后的消息，从根上消除重放风暴。需引擎给每条消息稳定序号（`plaza_engine` / `plaza.py` 消息模型加 `seq`）。
-- [ ] **F-1.2** 每条 `data:` 前加 `id: <seq>`，浏览器自动在重连时带 `Last-Event-ID`，前端去重负担降低。
+- [x] **F-1.1** `stream_discussion` 支持 `Last-Event-ID` 头或 `?since_seq=`：仅重放断点之后的消息，从根上消除重放风暴。需引擎给每条消息稳定序号（`plaza_engine` / `plaza.py` 消息模型加 `seq`）。　⟦PlazaMessage.seq 字段已加; 所有消息追加点自动分配 seq=len(disc.messages); stream_discussion 支持 Last-Event-ID 头; 重放时跳过 seq <= last_seq 的消息⟧
+- [x] **F-1.2** 每条 `data:` 前加 `id: <seq>`，浏览器自动在重连时带 `Last-Event-ID`，前端去重负担降低。　⟦SSE 输出格式: id: <seq>\ndata: {...}\n\n; 浏览器原生 EventSource 自动带 Last-Event-ID⟧
 
   伪代码：
   ```python

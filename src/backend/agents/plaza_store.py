@@ -203,7 +203,7 @@ class PlazaStore:
                 metadata=ddata.get("metadata", {}),
             )
             # 消息
-            for mdata in ddata.get("messages", []):
+            for i, mdata in enumerate(ddata.get("messages", [])):
                 disc.messages.append(PlazaMessage(
                     id=mdata.get("id", ""),
                     discussion_id=mdata.get("discussion_id", disc.id),
@@ -216,6 +216,7 @@ class PlazaStore:
                     reply_to=mdata.get("reply_to"),
                     created_at=mdata.get("created_at", ""),
                     metadata=mdata.get("metadata", {}),
+                    seq=mdata.get("seq", i),  # 已有seq或按列表位置分配
                 ))
             plaza.discussions[did] = disc
         return plaza
