@@ -81,13 +81,42 @@ function renderTeamSelector(){
 }
 function toggleTeam(tid,btn){
   const idx=S.selectedTeams.indexOf(tid);
+  const turningOn = idx < 0;
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
   renderTeamSelector();renderAgentList();
   // 同步刷新协作拓扑（如果当前可见）
   if(document.getElementById('arch-sub-topo').style.display!=='none')renderTopology();
   // 重建当前3D房间以刷新智能体
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
+  // 左→右 联动:把右侧 SECS「选择演练团队」同步为当前团队
+  // 注意:btn 为 null 时是由 sexySelectTeam 反向调用,跳过以免循环
+  if(btn && window.secsSyncTeamFromLeft){
+    const target = turningOn ? tid : (S.selectedTeams[0] || '');
+    if(target) window.secsSyncTeamFromLeft(target);
+  }
 }
+// L1: 统一数字孪生页"当前团队"(localStorage 'selected_team' / S.selectedTeams / 右SECS 三套)
+function dtGetCurrentTeam(){
+  return localStorage.getItem('selected_team') || (S.selectedTeams && S.selectedTeams[0]) || 'build_system';
+}
+function dtSetCurrentTeam(id){
+  if(!id) return;
+  localStorage.setItem('selected_team', id);
+  localStorage.setItem('ag_current_team', id);  // L2: 跨页面共享
+  if(window.S){ S.selectedTeams=[id]; if(typeof renderTeamSelector==='function')renderTeamSelector(); if(typeof renderAgentList==='function')renderAgentList(); }
+  if(window._dt3dBuildRoom && window._currentRoomId) window._dt3dBuildRoom(window._currentRoomId);
+  if(window.secsSyncTeamFromLeft) window.secsSyncTeamFromLeft(id);  // 右侧 SECS 同步
+}
+// L2: 跨页面 storage 事件广播 — 任一页改团队,其他页实时跟随
+window.addEventListener('storage', function(e) {
+  if (e.key === 'ag_current_team' && e.newValue && e.key !== e.oldValue) {
+    // 仅在另一页修改时触发(同页通过 dtSetCurrentTeam 已更新)
+    if (window.dtSetCurrentTeam && typeof dtGetCurrentTeam === 'function' && localStorage.getItem('ag_current_team') !== dtGetCurrentTeam()) {
+      dtSetCurrentTeam(e.newValue);
+    }
+  }
+});
+window.dtGetCurrentTeam = dtGetCurrentTeam; window.dtSetCurrentTeam = dtSetCurrentTeam;
 async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch{}}
 async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch{}}
 
@@ -397,7 +426,7 @@ function renderEnvironment(){
     return`<div class="env-room" data-room-id="${r.id}" onclick="showRoom('${r.id}')" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'${r.id}')"><div class="room-icon">${r.icon}</div><div class="room-name">${r.name}</div><div class="room-desc">${r.desc}</div><div class="room-agents">${ag.map((a,i)=>`<div class="ag-dot" style="background:${colors[i%6]}30;color:${colors[i%6]}" title="${a.name}">${(a.name||'?').charAt(0)}</div>`).join('')||'<span style="font-size:10px;color:var(--dim)">空</span>'}</div><div class="drop-hint">拖放智能体到此空间</div><div class="room-footer"><span>${ag.length} 智能体</span><span style="color:${r.color}">●</span></div></div>`;
   }).join('');
 }
-function showRoom(id){const r=S.rooms.find(x=>x.id===id);if(!r)return;const ag=S.agents.filter(a=>S.positions[a.agent_id]===id);toast(`${r.icon} ${r.name} — ${ag.length} 智能体: ${ag.map(a=>a.name).join(', ')||'(空)'}`)}
+function showRoom(id){const r=S.rooms.find(x=>x.id===id);if(!r)return;const ag=S.agents.filter(a=>S.positions[a.agent_id]===id);toast(`${r.icon} ${r.name} — ${ag.length} 智能体: ${ag.map(a=>a.name).join(', ')||'(空)'}`);if(window.secsSyncSceneFromRoom)window.secsSyncSceneFromRoom(id);}
 function createRoom(){const name=prompt('新空间名称:');if(!name)return;S.rooms.push({id:'r_'+Date.now().toString(36),name,icon:prompt('图标:','◇')||'◇',desc:prompt('描述:','')||'',color:'var(--muted)'});persist();renderEnvironment();renderRoomTabs();toast('空间已创建: '+name)}
 
 function renderStats(){
@@ -691,7 +720,7 @@ function simulateCmd(args){
 function configCmd(args){
   if(!args.length)return'<span class="info">config show | config set <key> <value></span>';
   if(args[0]==='show')return`<span class="info">━━━ 配置 ━━━</span>\n  team: <span class="result">${localStorage.getItem('selected_team')||'build_system'}</span>\n  rooms: <span class="result">${S.rooms.length}</span>\n  positions: <span class="result">${Object.keys(S.positions).length}</span>`;
-  if(args[0]==='set'&&args[1]==='team'&&args[2]){localStorage.setItem('selected_team',args[2]);return`<span class="cmd">✓</span> team → ${args[2]} (重新加载生效)`;}
+  if(args[0]==='set'&&args[1]==='team'&&args[2]){dtSetCurrentTeam(args[2]);return`<span class="cmd">✓</span> team → ${args[2]} (即时联动)`;}
   return'<span class="dim">可配置: config set team <id></span>';}
 async function discussCmd(args){
   if(!args.length)return'<span class="info">discuss <topic> — 创建广场讨论\n  discuss list — 列出已有讨论\n  discuss watch <disc_id> — 订阅SSE实时流\n  discuss start <disc_id> — 启动讨论\n  discuss stop — 断开SSE</span>';
@@ -1206,6 +1235,8 @@ function switchRoom(roomId,btn){
   if(window._dt3dBuildRoom)window._dt3dBuildRoom(roomId);
   // 切房间时刷新任务下拉菜单
   secsRefreshTaskDropdown();
+  // 环境空间→右侧 SECS「选择演练场景」联动(用户未手动选具体场景时跟随)
+  if(window.secsSyncSceneFromRoom)window.secsSyncSceneFromRoom(roomId);
 }
 
 function flyToRoom(roomId){

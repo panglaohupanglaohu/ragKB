@@ -154,6 +154,10 @@ async function loadTeams() {
     preferredTeamId = storedPreferredTeam;
     sessionStorage.removeItem('extract_team_id');
   }
+  // L2: 跨页面团队共享 — 从数字孪生/其他页继承团队
+  if (!preferredTeamId) {
+    try { preferredTeamId = localStorage.getItem('ag_current_team') || ''; } catch(e) {}
+  }
 
   // Render team chips — dynamic add/remove
   const container = document.getElementById('team-chips');
@@ -201,6 +205,10 @@ window.selectTeamChip = function(el, teamId) {
   document.querySelectorAll('.team-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   currentTeamId = teamId;
+  // L2: 跨页面团队共享 — 仅在用户显式点击时写入(初始加载不覆盖)
+  if (el.dataset.userSelected === '1') {
+    try { localStorage.setItem('ag_current_team', teamId); } catch(e) {}
+  }
   loadTeamAgents(teamId);
   connectSSE();
   loadQueue();
@@ -218,7 +226,7 @@ function renderTeamChips() {
   const chips = visible.map(tid => {
     const t = allTeams.find(x => x.team_id === tid);
     if (!t) return '';
-    return `<span class="team-chip" data-tid="${t.team_id}"><span onclick="selectTeamChip(this.parentElement,'${t.team_id}')">${t.name}</span><span class="chip-close" onclick="event.stopPropagation();window._removeTeamChip('${t.team_id}')">✕</span></span>`;
+    return `<span class="team-chip" data-tid="${t.team_id}"><span onclick="this.parentElement.dataset.userSelected='1';selectTeamChip(this.parentElement,'${t.team_id}')">${t.name}</span><span class="chip-close" onclick="event.stopPropagation();window._removeTeamChip('${t.team_id}')">✕</span></span>`;
   }).join('');
   const more = hidden > 0 ? `<span class="team-chips__more" onclick="window._toggleChipDropdown()">+${hidden}</span>` : '';
   // Add button + dropdown
@@ -4692,8 +4700,14 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       if (data.stage1_ms) setPipelineStepTiming('retrieve', data.stage1_ms);
       await new Promise(r => setTimeout(r, 300));
 
-      routerResults = data.results || [];
-      routerSelectedSkills.clear();
+      // S-6.2 多需求累加:新结果并入已有列表(按 skill_id/name 去重),保留已勾选,不覆盖
+      const incoming = data.results || [];
+      const existingKeys = new Set(routerResults.map(x => x.skill_id || x.name));
+      let added = 0;
+      incoming.forEach(r => {
+        const k = r.skill_id || r.name;
+        if (!existingKeys.has(k)) { routerResults.push(r); existingKeys.add(k); added++; }
+      });
       renderRouterResults(routerResults);
       visualizeRoutedSkills(routerResults);
 
@@ -4702,10 +4716,10 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const s1 = data.stage1_ms ? `S1:${data.stage1_ms}ms` : '';
       const s2 = data.stage2_ms ? `S2:${data.stage2_ms}ms` : '';
       const pool = data.pool_size ? `pool:${data.pool_size}` : '';
-      addRouterLog('route', `✅ 检索到 ${routerResults.length} 项匹配技能 (${data.duration_ms || '?'}ms ${s1} ${s2} ${pool})`);
-      if (routerResults.length > 0) {
-        const top = routerResults[0];
-        addRouterLog('route', `🏆 最佳匹配: <b>${top.name}</b> (分数: ${(top.score * 100).toFixed(1)}%)`);
+      addRouterLog('route', `✅ 本次新增 ${added} 项,累计 ${routerResults.length} 项 (${data.duration_ms || '?'}ms ${s1} ${s2} ${pool}) · 多需求可继续路由累加,「🧹 清空」重置`);
+      if (incoming.length > 0) {
+        const top = incoming[0];
+        addRouterLog('route', `🏆 本次最佳: <b>${top.name}</b> (分数: ${(top.score * 100).toFixed(1)}%)`);
       }
     } catch(e) {
       addRouterLog('sys', `❌ 路由失败: ${e.message}`);
@@ -4713,32 +4727,22 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     }
   };
 
-  // Runtime simulation — FULL end-to-end demo (route → select all → assign → animate)
-  window._executeRuntimeSim = async function() {
-    const queries = [
-      '需要快速分析数据异常并生成报告',
-      '客户沟通与情绪管理',
-      '代码审查和质量把控',
-      '跨团队项目协调'
-    ];
-    const q = queries[Math.floor(Math.random() * queries.length)];
-    document.getElementById('router-query-input').value = q;
-    addRouterLog('sys', `⚡ 运行时模拟: ${q}`);
-    await window._executeRoute();
-
-    // Auto-select top 3 results after a short delay for visual effect
-    await new Promise(r => setTimeout(r, 800));
-    const items = document.querySelectorAll('#rresults .rr-item');
-    const autoSelectCount = Math.min(3, items.length);
-    for (let i = 0; i < autoSelectCount; i++) {
-      items[i].click(); // triggers _toggleRouterResult
+  // S-5.1 / S-6: 赋予/注入 — 只注入用户在右侧「路由结果」中**显式勾选**的技能。
+  // 刻意不再盲目自动选 Top-K:松匹配的 Top-K 会把不相关技能(如 competitive_analysis)塞给 agent。
+  window._executeInjectSkills = async function() {
+    if (routerSelectedSkills.size === 0) {
+      if (!routerResults.length) {
+        addRouterLog('sys', '⚡ 请先点「🔍 路由」检索技能,再在右侧「路由结果」中勾选要注入的技能');
+      } else {
+        addRouterLog('sys', `⚡ 请先在右侧「路由结果」中勾选要注入的技能(已检索 ${routerResults.length} 项,点条目即可勾选)`);
+      }
+      showToast('请先勾选要注入的技能');
+      return;
     }
-    addRouterLog('sys', `🎯 自动选择 ${autoSelectCount} 项最佳匹配`);
-
-    // Auto-assign after another delay
-    await new Promise(r => setTimeout(r, 600));
-    window._executeAssign();
+    await window._executeAssign();
   };
+  // 向后兼容旧名(原"模拟"按钮);现等价于真实赋予/注入。
+  window._executeRuntimeSim = window._executeInjectSkills;
 
   // Render results
   function renderRouterResults(results) {
@@ -4748,6 +4752,16 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
 
     header.style.display = 'flex';
     stats.textContent = `${results.length} results`;
+    // S-6.2: 累加模式下提供「🧹 清空」入口(幂等,只插一次)
+    if (!document.getElementById('rr-clear-btn')) {
+      const clearBtn = document.createElement('button');
+      clearBtn.id = 'rr-clear-btn';
+      clearBtn.className = 'btn';
+      clearBtn.style.cssText = 'font-size:10px;padding:2px 8px;margin-left:8px';
+      clearBtn.textContent = '🧹 清空';
+      clearBtn.onclick = window._clearRouterResults;
+      header.appendChild(clearBtn);
+    }
 
     container.innerHTML = results.map((r, i) => {
       const rs = r.retrieval_score != null ? r.retrieval_score : r.score;
@@ -4761,7 +4775,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
         return `<span class="rr-tag" data-reason="${reason}">${t}</span>`;
       };
       return `
-      <div class="rr-item" data-idx="${i}" onclick="window._toggleRouterResult(this, ${i})">
+      <div class="rr-item${routerSelectedSkills.has(r.skill_id || r.name) ? ' sel' : ''}" data-idx="${i}" onclick="window._toggleRouterResult(this, ${i})">
         <span class="rr-check">✓</span>
         <span class="rr-icon">${r.icon || '⚡'}</span>
         <div class="rr-body">
@@ -4853,6 +4867,16 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       el.classList.add('sel');
     }
     updateAssignBar();
+  };
+
+  // S-6.2: 清空累加的路由结果与勾选
+  window._clearRouterResults = function() {
+    routerResults = [];
+    routerSelectedSkills.clear();
+    const c = document.getElementById('rresults'); if (c) c.innerHTML = '';
+    const stats = document.getElementById('rr-stats'); if (stats) stats.textContent = '0 results';
+    updateAssignBar();
+    addRouterLog('sys', '🧹 已清空路由结果与勾选,可重新输入多项需求累加路由');
   };
 
   function updateAssignBar() {
@@ -5002,6 +5026,15 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       updateAssignBar();
 
       addRouterLog('assign', `✅ 注入完成！${data.assigned_count || skillIds.length} 项技能已融入智能体`);
+
+      // S-5.3: 注入次数 +1;若后端抬升了熟练度先验,提示并打通到数字孪生闭环
+      const assignsEl = document.getElementById('dash-assigns');
+      if (assignsEl) assignsEl.textContent = (parseInt(assignsEl.textContent) || 0) + (data.assigned_count || skillIds.length);
+      if (data.proficiency_boosted && Object.keys(data.proficiency_boosted).length) {
+        const parts = Object.entries(data.proficiency_boosted).map(([sk, v]) => `${sk} →${Number(v).toFixed(2)}`);
+        addRouterLog('assign', `📈 熟练度已抬升: ${parts.join(' · ')}(下次数字孪生试炼即体现)`);
+        showToast(`📈 ${selectedAgentId} 熟练度抬升: ${parts.join(', ')}`);
+      }
 
       // Show inject_prompt in log
       if (data.inject_prompt) {
@@ -5257,6 +5290,19 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     requestAnimationFrame(fadeBack);
   }
 })();
+
+// ── L2 跨页面团队共享: 监听其他页的团队变更 ─────────────────
+window.addEventListener('storage', function(e) {
+  if (e.key === 'ag_current_team' && e.newValue && e.newValue !== currentTeamId) {
+    try {
+      var container = document.getElementById('team-chips');
+      if (container) {
+        var chip = container.querySelector('[data-tid="' + e.newValue + '"]');
+        if (chip) selectTeamChip(chip, e.newValue);
+      }
+    } catch(er) {}
+  }
+});
 
 // ── Init ────────────────────────────────────────────────────────
 initScene();
