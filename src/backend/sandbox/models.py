@@ -648,6 +648,7 @@ class EvolutionRun:
     triggered_by: str = "manual"  # manual | auto_low_score | nightly
     auto_apply: bool = False
     error: str = ""
+    error_detail: Dict[str, Any] = field(default_factory=dict)  # C-2.1: {reason, scanned_trials, usages}
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: Optional[str] = None
     cost_tokens: int = 0
@@ -661,6 +662,7 @@ class EvolutionRun:
             "winner": self.winner, "baseline_trial_id": self.baseline_trial_id,
             "ab_trial_ids": self.ab_trial_ids, "triggered_by": self.triggered_by,
             "auto_apply": self.auto_apply, "error": self.error,
+            "error_detail": self.error_detail,
             "created_at": self.created_at, "completed_at": self.completed_at,
             "cost_tokens": self.cost_tokens,
         }

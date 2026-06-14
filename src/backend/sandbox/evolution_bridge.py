@@ -171,6 +171,15 @@ class EvolutionBridge:
             if not weak:
                 run.status = EvolutionRunStatus.REJECTED
                 run.error = "no_weak_skills_identified"
+                # C-2.1: 返回结构化原因, 区分"无usage数据"vs"有数据但都达标"
+                _win = 5  # 默认窗口
+                _scanned = trial_ids[-_win:]
+                _usages_count = sum(len(self._prof_store.load_usages(t)) for t in _scanned)
+                run.error_detail = {
+                    "reason": "no_usage" if _usages_count == 0 else "all_meet",
+                    "scanned_trials": len(_scanned),
+                    "usages": _usages_count,
+                }
                 run.completed_at = self._now()
                 return run
             # 每轮只针对最弱的 1 个 skill（控制成本）

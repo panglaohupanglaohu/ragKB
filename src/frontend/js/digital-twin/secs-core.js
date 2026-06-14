@@ -454,6 +454,42 @@
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // 🔗 单向联动:左侧团队 / 环境空间房间 → SECS 演练配置
+  // (只更新 SECS UI,不回灌左侧/3D,避免与 sexySelectTeam 形成循环)
+  // ═══════════════════════════════════════════════════════════════
+  window.secsSyncTeamFromLeft = function(teamId) {
+    if (!teamId || teamId === _selectedTeamId) return;
+    _selectedTeamId = teamId;
+    var name = teamId, agentCount = 0;
+    var teams = (window.S && window.S.teams) || [];
+    var t = teams.find(function(x){ return x.id === teamId; });
+    if (t) { name = t.name || teamId; agentCount = (t.agents || []).length; }
+    _selectedTeamName = name;
+    var btn = document.getElementById('secs-team-btn');
+    if (btn) {
+      btn.textContent = '👥 ' + name + (agentCount ? (' (' + agentCount + ' 智能体)') : '');
+      btn.style.color = 'var(--cyan)';
+    }
+    try { loadSkillInjectOptions(teamId); } catch (e) {}
+    try { _updateLaunchButton(); } catch (e) {}
+  };
+  window.secsSyncSceneFromRoom = function(roomId) {
+    if (!roomId) return;
+    // 仅当用户尚未手动选过"具体场景"(非 room_ 前缀)时,跟随环境空间默认到该房间场景
+    if (_selectedSceneId && !('' + _selectedSceneId).startsWith('room_')) return;
+    _selectedSceneId = 'room_' + roomId;
+    var rooms = (window.S && window.S.rooms) || [];
+    var room = rooms.find(function(r){ return r.id === roomId; });
+    var rname = room ? room.name : roomId;
+    var btn = document.getElementById('secs-scene-btn');
+    if (btn) {
+      btn.textContent = '🏟️ ' + rname + ' 场景';
+      btn.style.color = 'var(--green)';
+    }
+    try { _updateLaunchButton(); } catch (e) {}
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   // 🏟️ 选择演练场景
   // ═══════════════════════════════════════════════════════════════
   window.sexyPickScene = async function() {
@@ -542,7 +578,7 @@
 
       // 渲染
       if (!sceneList.length) {
-        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dim)">暂无可用场景</div>';
+        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dim)">暂无可用场景<br><span style="font-size:11px">请先选团队 → 在场景卡片中选择具体演练场景</span></div>';
         return;
       }
 
@@ -699,6 +735,29 @@
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');
 
+    // A-1: 无场景空跑治理 — 未选具体场景时弹确认
+    if (!_selectedSceneId || ('' + _selectedSceneId).startsWith('room_')) {
+      window._trialIsBaselineOnly = false;
+      var sceneWarning = !_selectedSceneId
+        ? '未选择演练场景'
+        : '当前为房间默认场景（非具体演练场景）';
+      var confirmed = window.confirm(
+        sceneWarning + '：将使用默认兜底任务运行。\n\n' +
+        '⚠ 评分仅为「基线参考」，不反映真实能力。\n\n' +
+        '点「确定」仍运行 | 点「取消」去选场景'
+      );
+      if (!confirmed) {
+        btn.disabled = false;
+        btn.textContent = '▶ 沙箱推演';
+        document.getElementById('secs-sim-status').textContent = '已取消';
+        try { window.sexyPickScene(); } catch(e) {}
+        return;
+      }
+      window._trialIsBaselineOnly = true;
+    } else {
+      window._trialIsBaselineOnly = false;
+    }
+
     // 直接调用试炼导演台的 createTrial（统一入口）
     await createTrial();
 
@@ -823,10 +882,32 @@
       // ── 控制台：详细摘要 ──
       _logConsole('══ 仿真结果 ══', 'header');
       _logConsole('步数: ' + d.total_steps_executed + '/' + d.max_steps, 'info');
-      _logConsole('评分: ' + (d.evaluation?.global_score ? Number(d.evaluation.global_score).toFixed(3) : '—'), 'eval');
+      // A-2.1/D-1: 无场景=基线分,明确标注避免误导
+      var _noScene = !_selectedSceneId || String(_selectedSceneId).startsWith('room_');
+      var _scoreLabel = _noScene ? '基线分(无场景,仅参考)' : '综合评分';
+      _logConsole(_scoreLabel + ': ' + (d.evaluation?.global_score ? Number(d.evaluation.global_score).toFixed(3) : '—'), _noScene ? 'warn' : 'eval');
       _logConsole('Agent数: ' + (d.twins_count||0), 'info');
       if (d.evaluation) {
-        _logConsole('任务完成: ' + (d.evaluation.task_completion?.toFixed(3)||'—') + ' | 通信: ' + (d.evaluation.communication_efficiency?.toFixed(3)||'—') + ' | 资源: ' + (d.evaluation.resource_utilization?.toFixed(3)||'—'), 'eval');
+        // B-1: 五维评分展开(含权重)
+        var dims = [
+          ['任务完成', d.evaluation.task_completion, 0.30],
+          ['协作效率', d.evaluation.collaboration_efficiency, 0.25],
+          ['韧性',    d.evaluation.resilience, 0.20],
+          ['成本',    d.evaluation.cost_efficiency, 0.15],
+          ['可萃取',  d.evaluation.extractability, 0.10],
+        ];
+        dims.forEach(function(dim) {
+          var v = Number(dim[1]) || 0;
+          var bar = '';
+          var n = Math.round(v * 10);
+          for (var b = 0; b < n; b++) bar += '█';
+          for (var e = n; e < 10; e++) bar += '░';
+          _logConsole('  ' + dim[0] + ' ' + (v*100).toFixed(0) + '% ×' + dim[2] + ' ' + bar, v < 0.3 ? 'warn' : 'dim');
+        });
+        // D-1: 任务完成≈0 时点明
+        if (Number(d.evaluation.task_completion || 0) < 0.01) {
+          _logConsole('⚠ 任务完成≈0:评分主要来自基础维度(韧性/成本等)。' + (_noScene ? '请选「演练场景」后重跑以获得真实评分。' : ''), 'warn');
+        }
       }
       if (d.best_sop) _logConsole('SOP: ' + d.best_sop.name + ' avg_reward=' + d.best_sop.avg_reward?.toFixed(3), 'info');
       if (d.twins) {
@@ -837,6 +918,17 @@
       if (d.steps_summary) {
         var stepRewards = d.steps_summary.map(function(s){ return s.global_reward; });
         _logConsole('收益范围: ' + Math.min.apply(null,stepRewards).toFixed(4) + ' ~ ' + Math.max.apply(null,stepRewards).toFixed(4), 'reward');
+      }
+      // D-2: 累计奖励 + 进度
+      if (d.total_reward !== undefined && d.total_reward !== null) {
+        _logConsole('累计奖励: ' + Number(d.total_reward).toFixed(3) + ' | 总步数: ' + (d.total_steps_executed||0) + '/' + _sx.maxSteps, 'reward');
+      }
+      // D-2: 结论句
+      if (_noScene) {
+        _logConsole('结论: 无场景基线分,仅反映基础维度。请选演练场景后重跑以获得真实能力评估。', 'warn');
+      } else {
+        var scoreFinal = d.evaluation?.total_score || d.evaluation?.global_score;
+        _logConsole('结论: ' + (scoreFinal > 0.5 ? '✅ 表现良好' : scoreFinal > 0.3 ? '⚡ 有提升空间' : '⚠ 需改进') + ' (综合分 ' + (scoreFinal ? Number(scoreFinal).toFixed(3) : '—') + ')', scoreFinal > 0.5 ? 'eval' : 'warn');
       }
 
       // 更新步数和评分
