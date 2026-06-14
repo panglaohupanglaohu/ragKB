@@ -88,11 +88,26 @@
 
 ---
 
-## L4. (演进)选择上下文总线 `AGCtx` — 【Claude,较大重构,下一轮】
+## L4. (演进)选择上下文总线 `AGCtx` — 【Claude,重构,开工】
 
-- [ ] **L4.1** 引入 `window.AGCtx`(单一数据源 + 订阅 + localStorage 跨页持久化,见 plan §3)。
-- [ ] **L4.2** 各页选择项改为 `AGCtx.set(...)`;关心的面板 `AGCtx.on(...)` 订阅刷新。
-- [ ] **L4.3** 逐步替换 L1/L2 的点对点联动,统一治理,杜绝新增面板漏联动。
+> 设计:`src/frontend/js/ag-context.js` — 单一数据源(team/room/scenario/agent/discussion)+ `on()` 订阅广播 + `localStorage ag_ctx_<key>` 跨页持久化 + `storage` 事件跨页静默入站(去重防循环);team 双写兼容 L2 旧键 `ag_current_team`。纯浏览器脚本,各页 `<script src="/js/ag-context.js">` 引入。
+
+- [~] **L4.1** 引入 `window.AGCtx`(get/set/on + 持久化 + 跨页 storage 同步)。　⟦已落地 `src/frontend/js/ag-context.js`;新增 `__tests__/ag-context.test.js` 4/4 全绿(set/get+兼容键、去重不广播、订阅/退订、storage 静默入站)⟧
+- [~] **L4.2(首个适配)** 数字孪生页接入:HTML 引入 ag-context.js;`dtSetCurrentTeam` 上报 `AGCtx.set('team',id)` + 订阅 `AGCtx.on` 跨页跟随(`fromCtx` 防循环)。　⟦已落地 Agent-digital-twin.html + digital-twin-cli.js;node--check + 22 vitest 全绿⟧
+- [~] **L4.2(skill-extract 已接入)** skill-extract.html 引入 ag-context.js;`selectTeamChip` 用户点击时 `AGCtx.set('team',id)`(兼容双写 ag_current_team)。　⟦已落地;node--check + 8 vitest 全绿;浏览器跨页(数字孪生↔skill-extract)真验证留本机⟧
+- [~] **L4.2(滚动剩余·已接入)** agent-team-config / system-evolution / plaza 均引入 ag-context.js:
+  - agent-team-config:`team-select` onchange `AGCtx.set('team')` + 初始 `AGCtx.get` + **新增 `AGCtx.on` 实时跟随**(下拉同步并 loadView)。
+  - system-evolution:`ev-team-select` onchange `AGCtx.set` + 初始 `AGCtx.get` + **新增 `AGCtx.on` 实时跟随**(防重复订阅,同步并 loadEvolveSkills)。
+  - plaza:已引入 ag-context.js;但 plaza **无页面级"当前团队"选择器**(团队按广场维度选),故仅作基座引入,无团队上报/订阅。
+  ⟦node--check 全过;ag-context/system-evolution/team-unified/digital-twin-state 共 25 vitest 全绿;浏览器跨页实时跟随留本机⟧
+- [~] **L4.3** 逐步用 AGCtx 替换 L1/L2 的点对点 localStorage 联动,收敛为单一治理;新增面板只需订阅,杜绝再漏。　⟦AGCtx已兼容双写(ag_current_team镜像); L1/L2旧代码继续工作; 新增面板走AGCtx.on()即可; 全量vitest 38/156+pytest 234/2全绿⟧
+
+  伪代码(适配范式):
+  ```js
+  // 选择时:AGCtx.set('team', id)  // 自动持久化 + 跨页广播
+  // 关心方:AGCtx.on((k,v)=>{ if(k==='team') refreshForTeam(v); });
+  // 初始化:const t = AGCtx.get('team'); if(t) applyTeam(t);
+  ```
 
 ---
 

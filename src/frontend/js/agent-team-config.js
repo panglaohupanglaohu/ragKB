@@ -311,8 +311,12 @@ async function loadTeams(){
   if(!d||!d.length){s.innerHTML='<option>无团队</option>';return}
   s.innerHTML=d.map(t=>`<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join('');
   if(!tid)tid=d[0].team_id;s.value=tid;loadView();
+  // L4: AGCtx 初始化 — 从跨页共享恢复团队 (AGCtx 可用时)
+  try { var ctxTeam = (typeof AGCtx!=='undefined'&&AGCtx.get) ? AGCtx.get('team') : ''; if (ctxTeam && !tid) { tid = ctxTeam; s.value = tid; loadView(); } } catch(e) {}
 }
-el('team-select').onchange=e=>{tid=e.target.value;loadView()};
+el('team-select').onchange=e=>{tid=e.target.value;loadView();try{if(typeof AGCtx!=='undefined'&&AGCtx.set)AGCtx.set('team',tid)}catch(e){}};
+// L4: 实时跟随 — 其它页/标签页切团队时本页下拉同步并刷新
+try{ AGCtx.on(function(k,v){ if(k==='team'&&v&&v!==tid){ var s=el('team-select'); if(s&&[].some.call(s.options,function(o){return o.value===v})){ tid=v; s.value=v; loadView(); } } }); }catch(e){}
 
 // ── View switch ──
 function switchView(v,extra){

@@ -1645,7 +1645,7 @@ function renderPlanCard(planContent, revised = false) {
   const opts = allTeams.map(t => `<option value="${esc(t.team_id)}">${esc(t.name)}</option>`).join('');
   p.innerHTML = `<div class="plan-card"><h4>执行计划${revised ? ' <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">已修订</span>' : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
     <div class="assign-row"><span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">ASSIGN:</span>
-    <select id="assign-team">${opts}</select><button class="plan-btn" onclick="assignPlan()">派发</button></div>
+    <select id="assign-team" onchange="try{AGCtx.set('team',this.value)}catch(e){}">${opts}</select><button class="plan-btn" onclick="assignPlan()">派发</button></div>
     <div class="plan-actions">
       <button class="plan-btn primary" onclick="dispatchTasks()">智能拆解</button>
       <button class="plan-btn primary" onclick="dispatchAndExecute()">拆解并执行</button>

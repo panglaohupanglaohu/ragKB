@@ -1290,6 +1290,24 @@ async function loadEvolveTeams() {
     sel.appendChild(opt);
   });
   if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  // L4: AGCtx 跨页同步 (AGCtx 可用时接线, 否则 L1/L2 localStorage 仍工作)
+  var _agAvail = typeof AGCtx !== 'undefined' && AGCtx.set && AGCtx.on;
+  sel.onchange = function() { try { if (_agAvail) AGCtx.set('team', sel.value); } catch(e) {} };
+  try { var ctxTeam = _agAvail ? AGCtx.get('team') : ''; if (ctxTeam) { sel.value = ctxTeam; } } catch(e) {}
+  try {
+    if (_agAvail && !window._evTeamCtxSub) {
+      window._evTeamCtxSub = 1;
+      AGCtx.on(function(k, v) {
+        if (k === 'team' && v) {
+          var s = el('ev-team-select');
+          if (s && s.value !== v && [].some.call(s.options, function(o){ return o.value === v; })) {
+            s.value = v;
+            if (typeof loadEvolveSkills === 'function') loadEvolveSkills();
+          }
+        }
+      });
+    }
+  } catch(e) {}
 }
 
 async function loadEvolveSkills() {
