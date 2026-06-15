@@ -64,6 +64,24 @@ function openM(id) {
 function closeM(id) { $(id)?.classList.remove('open') }
 window.openM = openM; window.closeM = closeM;
 
+// P0: 防止文本选择/复制时误关闭模态框 — 全局检测选择状态
+;(function() {
+  var _closeSelGuard = function(e) {
+    if (window.getSelection && !window.getSelection().isCollapsed) return;
+    var overlay = e.target.closest ? e.target.closest('.modal-overlay') : null;
+    if (!overlay || e.target !== overlay) return;
+    // 检查事件源是否来自 input/textarea 内部(拖选后鼠标落在遮罩上)
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+      // 输入框内操作不关弹窗
+      e.preventDefault(); e.stopPropagation(); return;
+    }
+    var modal = overlay.closest('.modal') || overlay.parentElement;
+    if (modal && modal.id) { closeM(modal.id); } else { overlay.parentElement?.classList.remove('open'); }
+  };
+  document.addEventListener('click', _closeSelGuard, true);
+})();
+
 // E-1: 通用确认弹层 — 替代 confirm() 阻塞调用
 function showConfirm(msg, onOk) {
   var m = $('m-confirm');
