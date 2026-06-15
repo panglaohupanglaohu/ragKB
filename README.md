@@ -1040,6 +1040,59 @@ GET    /api/v1/sandbox/memory/{agent_id}     # 智能体记忆
 
 ---
 
+## 技能闭环演示：萃取 → 赋予 → 数字孪生提分
+
+本节展示一个**端到端闭环**：从 `skill-extract` 萃取出一个真能用的技能，赋予智能体后，在数字孪生场景试炼中**可量化地提升该智能体的能力**——这正是「技能萃取 → 能力进化」闭环的最小可复现证据。
+
+### 闭环链路
+
+```
+代码评审最佳实践（知识投入）
+   → skill-extract 管线：①日志采集(draft) → ②上下文补全(review) → 交叉复核门禁 → approve
+   → skill_library 写入 / 赋予「评审员」agent
+   → 该 agent 的 code_review 熟练度先验抬升（proficiency_store）
+   → 数字孪生场景 code_review_delivery 试炼（TwinLoop）
+   → 评审任务一次性通过率显著提升 → 缓解评审瓶颈、减少返工
+```
+
+### 设计的技能：结构化代码评审（`structured-code-review`）
+
+- 产物：`storage/skills/c0de7a11.json`
+- 内容：五层评审检查清单（正确性 / 接口契约 / 测试 / 可维护性 / 风险回滚），「阻塞项 vs 建议项」两档、阻塞项必附行号与修法、一次性给全，避免挤牙膏式多轮返工。
+- 目标技能名：`code_review`，对应场景 `code_review_delivery` 的瓶颈环节（评审 c4 → 返工 c5）。
+
+### 系统机理（为什么有效）
+
+数字孪生试炼引擎 `src/backend/sandbox/twin_loop.py` 中，任务成功概率：
+
+```
+success_p = clamp(0.3 + 0.6 × proficiency, 0.2, 0.95)
+```
+
+由智能体对任务 `required_skills` 的**熟练度**决定。授予「结构化代码评审」技能 = 把评审员的 `code_review` 熟练度先验从 0.45 提升到 0.85，从而提高评审任务的一次性通过率。
+
+### 复跑验证（离线，无需 LLM / 外网）
+
+```bash
+python3 scripts/skill_closed_loop_demo.py
+```
+
+脚本载入真实场景 `code_review_delivery`，用真实 `TwinLoopEngine` 跑 30 个固定种子，对比 baseline（`code_review=0.45`）与 treatment（`0.85`，其余技能两组完全一致以隔离净效果）。
+
+**实测结果（30 seeds，可复现）：**
+
+| 指标 | baseline (0.45) | treatment (0.85) |
+|---|---|---|
+| code_review 任务成功率 | 72.1% | **90.4%** |
+| 团队整体成功率 | 84.1% | 84.3% |
+| 平均总奖励 | 70.64 | 70.74 |
+
+→ **目标能力 code_review 成功率 +18.3 个百分点**。团队整体仅 +0.3pp 属预期（5 个 agent 中只调整了 1 个评审员、8 个任务里评审占 1 个），成效**精准集中在该技能所针对的评审瓶颈**——这是诚实而非注水的闭环证据。
+
+> 设计/实现/萃取过程详见 `docs/skill-extract优化plan.md` 与 `docs/skill-extract优化todos.md`。
+
+---
+
 ## 系统架构总览
 
 ```

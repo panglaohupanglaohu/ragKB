@@ -183,7 +183,7 @@
         <label>Top-K</label>
         <input type="number" id="router-topk" value="5" min="1" max="20"/>
         <button class="btn btn-router" onclick="window._executeRoute()">🔍 路由</button>
-        <button class="btn btn-runtime-sim" onclick="window._executeRuntimeSim()" title="模拟运行时路由">⚡ 模拟</button>
+        <button class="btn btn-runtime-sim" onclick="window._executeInjectSkills()" title="将选中技能注入所选智能体并抬升其熟练度(未选则路由→自动选Top-K→注入)">⚡ 赋予/注入</button>
       </div>
     </div>
     <!-- ── Skill Pool Dashboard ── -->
@@ -826,6 +826,7 @@ A：北极星指标：配置变更引发的事故数降至每季度≤1次；辅
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <script src="/js/api.js"></script>
+<script src="/js/ag-context.js"></script>
 <script src="/js/evidence-runs.js"></script>
 <script src="/js/skill-extract.js" type="module"></script>
 <script>

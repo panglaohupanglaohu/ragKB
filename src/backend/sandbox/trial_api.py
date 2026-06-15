@@ -867,6 +867,10 @@ async def evaluate_trial(trial_id: str, req: EvaluateRequest = EvaluateRequest()
             "cost_efficiency": round(eval_result.cost_efficiency, 6),
             "extractability": round(eval_result.extractability, 6),
             "total_score": round(eval_result.total_score, 6),
+            # A-2.2: 评分是否"有意义"(有场景且任务完成>0);否则为无场景基线分,前端据此标注,不改算法
+            "meaningful": bool(getattr(trial, "scenario_id", "")) and eval_result.task_completion > 0.01,
+            "note": ("" if (bool(getattr(trial, "scenario_id", "")) and eval_result.task_completion > 0.01)
+                     else "无场景或无任务奖励,本评分为基础维度基线,仅供参考"),
             "branch_scores": eval_result.branch_scores,
             "best_branch_id": eval_result.best_branch_id,
             "worst_branch_id": eval_result.worst_branch_id,

@@ -142,13 +142,19 @@ class ReviewService:
         domain: str = "general",
         severity: str = "medium",
         reviewer: str = "system",
+        submitter: str = "",
         **kwargs,
     ) -> ReviewEntry:
         """提交门禁评估结果到审核队列.
 
         如果 idempotency_key 已存在，返回已有条目 (幂等)。
+        如果 reviewer == submitter，抛出 ValueError (禁止自审)。
         """
         store = await self._get_store()
+
+        # 自审保护
+        if submitter and reviewer and submitter == reviewer:
+            raise ValueError(f"禁止自审: reviewer={reviewer} 不能审核自己提交的内容")
 
         async with self._lock:
             # 幂等检查
@@ -221,6 +227,10 @@ class ReviewService:
             current = await store.get(entry_id)
             if current is None:
                 raise ValueError(f"审核条目未找到: {entry_id}")
+
+            # 自审保护: 审核人不能审核自己提交的内容
+            if reviewer and current.reviewer and reviewer == current.reviewer:
+                raise ValueError(f"禁止自审: reviewer={reviewer} 不能审核自己提交的内容 (original reviewer={current.reviewer})")
 
             # 状态机验证
             new_status = self._transition_status(current.status, action)

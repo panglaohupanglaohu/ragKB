@@ -68,7 +68,7 @@
 
 ### C-1 前端:拒绝原因中文化 + 引导 — 【Claude】
 - [~] **C-1.1** v4-evolution.js 新增 `_evoErrCN(code)` 映射,两处 rejected/failed 渲染改用它:`no_weak_skills_identified`→「未发现弱技能:本团队最近无带技能使用的试炼数据。请先①选演练场景②运行试炼(产生 skill usage)→ 再发起进化。」并同步 `_dtLogConsole` warn。覆盖 budget/ratchet/gate 等常见 code。　⟦已落地 v4-evolution.js;node--check 通过⟧
-- [ ] **C-1.2(待本机)** 技能进化链路 UI 把「识别」节点标失败态 + 旁注扫描 trial/usage 数(依赖 C-2.1 后端返回结构化原因)。
+- [~] **C-1.2** `_evoErrCN(code, detail)` 升级:`no_weak_skills_identified` 时追加后端 `error_detail`「(扫描 N 个试炼、usage M 条 · 无数据/都达标)」;两处 rejected/failed 渲染统一传 `run.error_detail` 并同步 `_dtLogConsole`。　⟦已落地 v4-evolution.js;node--check 通过;5 vitest 绿。识别节点失败态(动画)留浏览器侧⟧
 
   伪代码:
   ```js

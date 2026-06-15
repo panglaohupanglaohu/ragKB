@@ -4,6 +4,29 @@
  * 加载顺序: secs-core.js → director.js → v4-scenarios.js → v4-evolution.js
  */
 
+// C-1: 进化拒绝/失败原因 → 中文可操作提示(不再甩英文 code)
+function _evoErrCN(code, detail) {
+  if (!code) return '未知原因';
+  var c = String(code);
+  var MAP = {
+    no_weak_skills_identified: '未发现弱技能:本团队最近无带技能使用的试炼数据。请先①选「演练场景」②创建并运行试炼(产生 skill usage)→ 再发起进化。',
+    no_candidates_generated: '未生成有效变体候选,可调整反思方向或稍后重试。',
+    apply_failed: '写回技能库失败,请检查技能库状态后重试。',
+  };
+  var base;
+  if (MAP[c]) base = MAP[c];
+  else if (c.indexOf('budget') === 0 || c.indexOf('budget_exceeded') >= 0) base = '预算已耗尽:请调高小预算或下一周期再试(' + c + ')。';
+  else if (c.indexOf('ratchet_blocked') === 0) base = '达尔文棘轮拦截:新版本未超过已锁定基线,不允许回退(' + c + ')。';
+  else if (c.indexOf('gate_error') === 0) base = '门禁评估出错(' + c + ')。';
+  else base = c;
+  // C-1.2: 附加后端结构化原因(扫描试炼数 / usage 条数 / 是无数据还是都达标)
+  if (c === 'no_weak_skills_identified' && detail) {
+    var why = detail.reason === 'all_meet' ? '有数据但都达标' : '无 usage 数据';
+    base += '(扫描 ' + (detail.scanned_trials || 0) + ' 个试炼、usage ' + (detail.usages || 0) + ' 条 · ' + why + ')';
+  }
+  return base;
+}
+
 // ═══ D-2.1: 技能统计 + 失败样本展开 ═══
 async function loadSkillStats(){
   var area = document.getElementById('skill-stats-area');
@@ -134,7 +157,8 @@ function _finalizeEvolutionResult(ev){
         if (typeof _dtLogConsole === 'function') _dtLogConsole('🧬 进化完成并写回技能库', 'success');
       } else if (run.status === 'rejected' || run.status === 'failed') {
         gate.style.display = 'none';
-        area.innerHTML = '<span style="color:var(--red)">✗ ' + run.status + ': ' + (run.error||'') + '</span>';
+        area.innerHTML = '<span style="color:var(--red)">✗ ' + run.status + ': ' + _evoErrCN(run.error, run.error_detail) + '</span>';
+        if (typeof _dtLogConsole === 'function') _dtLogConsole('进化未推进: ' + _evoErrCN(run.error, run.error_detail), 'warn');
       }
     })
     .catch(function(){});
@@ -167,7 +191,8 @@ async function pollEvolutionRun(){
     } else if (run.status === 'rejected' || run.status === 'failed') {
       clearInterval(_evoPollTimer);
       gate.style.display = 'none';
-      area.innerHTML = '<span style="color:var(--red)">✗ ' + run.status + ': ' + (run.error||'') + '</span>';
+      area.innerHTML = '<span style="color:var(--red)">✗ ' + run.status + ': ' + _evoErrCN(run.error, run.error_detail) + '</span>';
+      if (typeof _dtLogConsole === 'function') _dtLogConsole('进化未推进: ' + _evoErrCN(run.error, run.error_detail), 'warn');
     } else {
       area.innerHTML = '阶段: ' + run.status + (run.candidates && run.candidates.length ? ' · ' + run.candidates.length + ' 个变体' : '');
     }

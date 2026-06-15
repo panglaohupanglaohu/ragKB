@@ -179,8 +179,17 @@ function loadChatView(c){
   });
 }
 async function sendChatMsg(){const inp=el('chat-input');if(!inp)return;const msg=inp.value.trim();if(!msg)return;inp.value='';inp.disabled=true;
+  // 乐观渲染:立即把用户消息 + "正在思考…"占位插入对话区,避免应答前"像没发出去"
+  const cm=el('chat-msgs');
+  if(cm){
+    const ph=cm.querySelector('p');if(ph)ph.remove();
+    const now=new Date().toTimeString().slice(0,8);
+    cm.insertAdjacentHTML('beforeend',`<div style="display:flex;justify-content:flex-end"><div style="max-width:80%;padding:12px 16px;border-radius:12px 12px 4px 12px;background:var(--chat-user);border:1px solid var(--chat-user-border);font-size:13px;line-height:1.7;color:var(--chat-text)"><div style="font-size:11px;color:var(--pink);margin-bottom:4px">👤 你 · ${now}</div><div style="white-space:pre-wrap;color:var(--text)">${msg.replace(/</g,'&lt;')}</div></div></div>`);
+    cm.insertAdjacentHTML('beforeend',`<div id="chat-thinking" style="display:flex"><div style="max-width:80%;padding:12px 16px;border-radius:12px 12px 12px 4px;background:var(--chat-agent);border:1px solid var(--chat-agent-border);font-size:13px;color:var(--dim)"><div style="font-size:11px;color:var(--cyan);margin-bottom:4px">🤖 Agent</div><span class="dim">正在思考…</span></div></div>`);
+    cm.scrollTop=cm.scrollHeight;
+  }
   const r=await api(`${A}/teams/${tid}/agents/${aid}/sessions/${_chatSid}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'user',content:msg})}).catch(()=>null);
-  inp.disabled=false;if(r){loadAgent();if(r.task_id){toast(`📋 任务已创建: ${r.task_id}`)}}else{toast('发送失败');inp.value=msg}}
+  inp.disabled=false;if(r){loadAgent();if(r.task_id){toast(`📋 任务已创建: ${r.task_id}`)}}else{const t=el('chat-thinking');if(t)t.remove();toast('发送失败');inp.value=msg}}
 async function saveAgent(){const b={name:el('set-name').value.trim(),role:el('set-role').value.trim(),description:el('set-desc').value.trim(),system_prompt:el('set-prompt').value.trim(),model_id:el('set-model').value.trim()};const r=await api(`${A}/teams/${tid}/agents/${aid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(r){toast('已保存');loadSbAgents();loadAgent()}else toast('失败')}
 async function testAgentLLM(){
   const rc=document.getElementById('agent-test-result');

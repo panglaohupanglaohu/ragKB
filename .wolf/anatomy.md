@@ -337,6 +337,7 @@
 - `frontend_build.sh` (~157 tok)
 - `frontend_test.sh` (~150 tok)
 - `nightly_4h_optimize.sh` (~3507 tok)
+- `verify_v4_local.sh` — 本机一键复核 v4 接口通路门+全程回归，全绿回写 [~]→[x] (~700 tok)
 - `start_tts.sh` — Start GPT-SoVITS TTS API server (~266 tok)
 
 ## src/
@@ -723,3 +724,28 @@
 - `1ebf4f3a-24b_test_FAILED_20260611T094201.md` — Agent Handoff — test_FAILED (~121 tok)
 - `1ebf4f3a-24b_test_FAILED_20260611T094324.md` — Agent Handoff — test_FAILED (~121 tok)
 - `1f0da2f7-522_architecture_20260510T111515.md` — Agent Handoff — architecture (~135 tok)
+
+## 本轮改动(2026-06-13, system-evolution 实时更新修复)
+
+- `docs/system-evolution优化plan.md` — system-evolution 优化 plan(现状=已v2优化;头号缺陷=SSE实时更新整条死)(新增)
+- `docs/system-evolution优化todos.md` — system-evolution 事无巨细 todos(Claude/Reasonix 分派,含伪代码)(新增)
+- `src/backend/agent_team_api.py` — 新增 `GET /api/v1/agent-teams/evolution/stream`(SSE,只读快照推 stats_update/trail_update,不改引擎)
+- `src/frontend/js/system-evolution.js` — 修复 SSE 断线→30s 轮询降级死逻辑(onerror 直接 `_fallbackPoll()`)
+- `src/frontend/system-evolution.html` — 顶部主导航补「成本监控 → /cost-dashboard.html」
+
+## 本轮改动(2026-06-13, plaza 优化 plan+todos)
+
+- `docs/plaza优化plan.md` — plaza 前后端优化 plan(头号缺陷=SSE 客户端零容错+Three.js GPU 泄漏)(新增)
+- `docs/plaza优化todos.md` — plaza 事无巨细 todos(带伪代码,Claude/Reasonix 分派)(新增)
+- 注:plan/todos 产出后,按用户「把能做的都做了」落地 Claude 项:
+- `src/frontend/js/plaza.js` — SSE onerror+指数退避重连+teardownSSE 统一收口;_seenMsgKeys 去重(去 init 门控);disposeObject3D/disposeSceneAgents 释放 GPU;live 消息 esc→mdLite;beforeunload 清理。7 个 plaza vitest 全绿
+- 待本机/Reasonix:A-2.3/C-1.2 新增 vitest、B-1.3 内存回归、F-1 SSE 断点续传(引擎加 seq)、F-2 escalation 稳定 id(引擎改造)
+
+## 本轮改动(2026-06-13, skill-extract 优化 + 技能闭环)
+
+- `docs/skill-extract优化plan.md` — skill-extract 前后端优化 plan(头号 bug=HTML 重复 id;旗舰=技能闭环)(新增)
+- `docs/skill-extract优化todos.md` — 事无巨细 todos(带伪代码,Claude/Reasonix 标注,含萃取过程步骤)(新增)
+- `storage/skills/c0de7a11.json` — 「结构化代码评审」skill 产物(闭环演示用,target_skill=code_review)(新增)
+- `scripts/skill_closed_loop_demo.py` — 技能闭环离线验证脚本(真 TwinLoop+真场景,30 seeds,code_review 成功率 72.1%→90.4%)(新增)
+- `README.md` — 新增「技能闭环演示」章节(萃取链路+twin_loop 机理+复跑命令+实测数字)
+- 关键系统认知:twin_loop 任务成功率 success_p=clamp(0.3+0.6×proficiency,0.2,0.95);场景五维评分 task_completion 0.3/collaboration 0.25/resilience 0.2/cost 0.15/extractability 0.1;trial_api._compute_evaluation;离线引擎纯 sandbox.* 不需 fastapi/LLM,沙箱可跑

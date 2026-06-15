@@ -205,9 +205,10 @@ window.selectTeamChip = function(el, teamId) {
   document.querySelectorAll('.team-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   currentTeamId = teamId;
-  // L2: 跨页面团队共享 — 仅在用户显式点击时写入(初始加载不覆盖)
+  // L2/L4: 跨页面团队共享 — 仅在用户显式点击时上报(初始加载不覆盖)
   if (el.dataset.userSelected === '1') {
-    try { localStorage.setItem('ag_current_team', teamId); } catch(e) {}
+    if (window.AGCtx) window.AGCtx.set('team', teamId);  // L4 总线(内部双写 ag_current_team)
+    else { try { localStorage.setItem('ag_current_team', teamId); } catch(e) {} }
   }
   loadTeamAgents(teamId);
   connectSSE();

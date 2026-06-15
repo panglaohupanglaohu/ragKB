@@ -191,14 +191,17 @@ function buildRoom(roomId){
   if(!initialized)return;
   clearScene();currentRoom=roomId;window._currentRoomId=roomId;
 
+  var isKnown = false;
   switch(roomId){
-    case'council':buildCouncil();break;
-    case'extraction':buildExtraction();break;
-    case'workshop':buildWorkshop();break;
-    case'library':buildLibrary();break;
-    case'arena':buildArena();break;
-    case'rest':buildRest();break;
+    case'council':buildCouncil();isKnown=true;break;
+    case'extraction':buildExtraction();isKnown=true;break;
+    case'workshop':buildWorkshop();isKnown=true;break;
+    case'library':buildLibrary();isKnown=true;break;
+    case'arena':buildArena();isKnown=true;break;
+    case'rest':buildRest();isKnown=true;break;
   }
+  // D-1.3: 场景房间/自定义房间 → 通用圆形布局
+  if(!isKnown) buildGenericRoom(roomId);
 
   // ── 添加智能体 (来自选中团队) ──
   // 议事厅和工作坊自己处理智能体摆放，跳过通用逻辑
@@ -208,6 +211,12 @@ function buildRoom(roomId){
       roomName+' — '+(window.S?window.S.agents.filter(a=>window.S.selectedTeams&&window.S.selectedTeams.includes(a._teamId)).length:0)+' 个智能体';
     return;
   }
+  if(isKnown) addAgentsToScene();
+  document.getElementById('env-3d-info').textContent=
+    roomName+' — '+(agentMeshes.length)+' 个智能体';
+}
+
+function addAgentsToScene(){
   const S=window.S;if(!S)return;
   const colors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
   const visibleAgents=S.agents.filter(a=>S.selectedTeams&&S.selectedTeams.includes(a._teamId));
@@ -222,8 +231,59 @@ function buildRoom(roomId){
     fig.userData.agentId=ag.agent_id;
     scene.add(fig);agentMeshes.push(fig);
   });
-  document.getElementById('env-3d-info').textContent=
-    roomName+' — '+agents.length+' 个智能体';
+}
+
+// D-1.3: 场景房间通用3D视图 — 圆形平台 + 阶段标记 + 智能体环
+function buildGenericRoom(roomId){
+  var room = (window.S&&window.S.rooms||[]).find(function(r){return r.id===roomId;});
+  var roomName = room ? (room.icon||'🏠')+' '+room.name : roomId;
+  var stage = room ? (room.stage!=null ? '阶段 '+room.stage : '') : '';
+
+  // 深色圆形平台
+  var platGeo = new THREE.CylinderGeometry(6, 6.5, 0.3, 48);
+  var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,roughness:0.8,metalness:0.3}));
+  plat.position.y=-0.15;plat.receiveShadow=true;scene.add(plat);
+
+  // 外环
+  var ringGeo = new THREE.TorusGeometry(6, 0.08, 16, 80);
+  var ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.3}));
+  ring.rotation.x=Math.PI/2;ring.position.y=0.02;scene.add(ring);
+
+  // 中心支柱 + 铭牌
+  var poleGeo = new THREE.CylinderGeometry(0.2, 0.3, 4, 16);
+  var pole = new THREE.Mesh(poleGeo, new THREE.MeshStandardMaterial({color:0x334155,roughness:0.6,metalness:0.5}));
+  pole.position.y=2;pole.castShadow=true;scene.add(pole);
+  var capGeo = new THREE.SphereGeometry(0.6, 24, 24);
+  var cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.2,metalness:0.8}));
+  cap.position.y=4.3;scene.add(cap);
+
+  // 粒子环（旋转光晕）
+  var pts=[];for(var i=0;i<80;i++){var a=Math.PI*2*i/80;pts.push(new THREE.Vector3(5.5*Math.cos(a),2.5+Math.sin(i*0.3)*0.3,5.5*Math.sin(a)));}
+  var pGeo=new THREE.BufferGeometry().setFromPoints(pts);
+  var pLine=new THREE.Line(pGeo,new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:0.3}));
+  scene.add(pLine);
+
+  // 场景房间的智能体：按位置放置
+  var S=window.S;if(S){
+    var colors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
+    var inRoom = S.agents.filter(function(a){return S.positions&&S.positions[a.agent_id]===roomId;});
+    if(!inRoom.length) inRoom = S.agents.filter(function(a){return S.selectedTeams&&S.selectedTeams.includes(a._teamId);});
+    if(!inRoom.length) inRoom = S.agents;
+    inRoom.forEach(function(ag,i){
+      var angle=(Math.PI*2*i)/Math.max(inRoom.length,1)-Math.PI/2;
+      var r=2.5+Math.min(inRoom.length,10)*0.4;
+      var fig=createAgentFigure(ag.name||'Agent',colors[i%colors.length],i===0);
+      fig.position.set(r*Math.cos(angle),0.5,r*Math.sin(angle));
+      fig.userData.baseY=0.5;
+      fig.lookAt(0,1.2,0);
+      fig.userData.agentId=ag.agent_id;
+      scene.add(fig);agentMeshes.push(fig);
+    });
+  }
+
+  var info = roomName+' — '+(agentMeshes.length)+' 个智能体';
+  if(stage) info += ' · '+stage;
+  document.getElementById('env-3d-info').textContent=info;
 }
 
 

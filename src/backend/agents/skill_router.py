@@ -239,6 +239,14 @@ class SkillRouter:
         # Generate injection prompt
         inject_prompt = self._generate_inject_prompt(team_id, assigned)
 
+        # S-5.2: 赋予即抬升该 agent 目标技能的熟练度先验 → 打通到数字孪生 trial(闭环 UI 入口)。
+        # 全程容错:proficiency 抬升失败绝不影响赋予本身。
+        proficiency_boosted: Dict[str, float] = {}
+        try:
+            proficiency_boosted = self._boost_proficiency(team_id, agent_id, assigned)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SkillRouter: proficiency boost skipped: %s", e)
+
         logger.info(
             "SkillRouter: assigned %d skills to agent %s (team %s)",
             len(assigned), agent_id, team_id,
@@ -250,7 +258,61 @@ class SkillRouter:
             "already_has": already_has,
             "agent_skills_count": len(agent.skills),
             "inject_prompt": inject_prompt,
+            "proficiency_boosted": proficiency_boosted,
         }
+
+    # ── S-5.2: 赋予 → 熟练度先验抬升(接通数字孪生闭环) ──
+    _CATEGORY_TO_SKILL = {
+        "code_delivery": "code_review",
+        "research": "research",
+        "automation": "automation",
+        "domain_knowledge": "domain_knowledge",
+    }
+    _PROFICIENCY_FLOOR = 0.8  # 赋予后把目标技能先验抬到 ≥ 此值
+
+    def _resolve_target_skill(self, team_id: str, skill_id: str) -> Optional[str]:
+        """把被赋予的 skill 解析成数字孪生场景使用的「技能名」。
+
+        优先 snapshot.metadata.target_skill;否则按 category 映射;再否则用 slug/name 归一化。
+        """
+        skills = self._skill_library.browse(team_id=team_id) if self._skill_library else []
+        s = next((x for x in skills if x.get("skill_id") == skill_id), None)
+        if not s:
+            return None
+        meta = s.get("metadata") or {}
+        if meta.get("target_skill"):
+            return str(meta["target_skill"])
+        cat = (s.get("category") or "").lower()
+        if cat in self._CATEGORY_TO_SKILL:
+            return self._CATEGORY_TO_SKILL[cat]
+        slug = (s.get("slug") or s.get("name") or "").strip().lower().replace(" ", "_")
+        return slug or None
+
+    def _boost_proficiency(self, team_id: str, agent_id: str, assigned: List[str]) -> Dict[str, float]:
+        """为 agent 的目标技能写入/抬升熟练度先验(取 max(现值, FLOOR))。"""
+        if not assigned:
+            return {}
+        from sandbox.proficiency_store import get_proficiency_store
+        store = get_proficiency_store()
+        data = store.load_proficiency(team_id) or {}
+        boosted: Dict[str, float] = {}
+        for sid in assigned:
+            target = self._resolve_target_skill(team_id, sid)
+            if not target:
+                continue
+            key = f"{agent_id}::{target}"
+            cur = float((data.get(key) or {}).get("success_rate", 0.5))
+            newv = max(cur, self._PROFICIENCY_FLOOR)
+            data[key] = {
+                "skill_name": target,
+                "success_rate": newv,
+                "agent_id": agent_id,
+                "category": "assigned_skill",
+            }
+            boosted[target] = round(newv, 3)
+        if boosted:
+            store.save_proficiency(team_id, data)
+        return boosted
 
     def get_session(self, session_id: str) -> Optional[RoutingSession]:
         return self._sessions.get(session_id)

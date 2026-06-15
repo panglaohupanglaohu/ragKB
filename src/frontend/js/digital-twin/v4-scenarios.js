@@ -88,22 +88,16 @@ function applyScenarioRooms(rooms){
   try {
     if (window.S) {
       window.S.rooms = rooms.map(function(r){
-        return { id: r.room_id, name: r.name, icon: r.icon, capacity: r.capacity, stage: r.stage };
+        return { id: r.room_id, name: r.name, icon: r.icon||'🏠', desc: '业务阶段 '+(r.stage!=null?r.stage:'-')+' · 容量 '+(r.capacity||6), color: 'var(--cyan)', capacity: r.capacity, stage: r.stage };
       });
+      // D-1.3: 刷新 2D 房间网格（走 renderEnvironment 统一渲染，含拖放事件）
+      if (typeof renderEnvironment === 'function') renderEnvironment();
+      // D-1.3: 切换到第一个场景房间的 3D 视图
+      if (rooms[0] && typeof window._dt3dBuildRoom === 'function') {
+        setTimeout(function(){ window._dt3dBuildRoom(rooms[0].room_id); }, 200);
+      }
     }
   } catch(e) {}
-  var grid = document.getElementById('env-grid');
-  if (!grid) return;
-  grid.style.display = '';
-  grid.innerHTML = rooms.map(function(r){
-    return '<div class="env-room" data-room-id="' + r.room_id + '">' +
-      '<div class="room-icon">' + (r.icon||'🏠') + '</div>' +
-      '<div class="room-name">' + r.name + ' <span style="font-size:9px;color:var(--cyan)">阶段' + (r.stage!=null?r.stage:'-') + '</span></div>' +
-      '<div class="room-desc">业务阶段 ' + (r.stage!=null?r.stage:'-') + ' · 容量 ' + (r.capacity||6) + '</div>' +
-      '<div class="room-agents"></div>' +
-      '<div class="room-footer"><span>scenario room</span><span>0/' + (r.capacity||6) + '</span></div>' +
-      '<div class="drop-hint">放置 Agent 到此业务阶段</div></div>';
-  }).join('');
   if (typeof _dtLogConsole === 'function') _dtLogConsole('环境空间已切换为场景房间 (' + rooms.length + ' 间)', 'success');
 }
 

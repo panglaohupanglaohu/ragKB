@@ -3099,6 +3099,35 @@ async def submit_batch_tasks(
     return [t.to_dict() for t in tasks]
 
 
+# T1/T3: 只读"卡死"标注 — 不改任务状态,仅附加 elapsed_sec/stuck 供前端高亮提示
+_TASK_STUCK_SEC = 1800  # running 超过 30 分钟视为"可能卡死"
+
+def _ts_to_epoch(v) -> float:
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+def _annotate_stuck(item: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        if item.get("status") != "running":
+            return item
+        ts = _ts_to_epoch(item.get("started_at") or item.get("created_at"))
+        if ts:
+            elapsed = _time.time() - ts
+            item["elapsed_sec"] = round(elapsed, 1)
+            item["stuck"] = elapsed > _TASK_STUCK_SEC
+            item["stuck_threshold_sec"] = _TASK_STUCK_SEC
+    except Exception:
+        pass
+    return item
+
+
 @router.get("/teams/{team_id}/tasks", summary="List all tasks for a team")
 def list_team_tasks(
     team_id: str,
@@ -3106,7 +3135,7 @@ def list_team_tasks(
     offset: int = Query(default=0, ge=0),
 ) -> Any:
     _get_team_or_404(team_id)
-    items = [t.to_dict() for t in _te().get_team_tasks(team_id)]
+    items = [_annotate_stuck(t.to_dict()) for t in _te().get_team_tasks(team_id)]
     return _paginate_optional(items, limit=limit, offset=offset)
 
 
@@ -3119,7 +3148,7 @@ def get_task_detail(team_id: str, task_id: str) -> Dict[str, Any]:
     task = _te().get_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task.to_dict()
+    return _annotate_stuck(task.to_dict())
 
 
 @router.get(
@@ -3553,6 +3582,7 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
     if active_idx + 1 < len(wf):
         wf[active_idx + 1]["status"] = "active"
         next_step = wf[active_idx + 1]
+        next_step["started_at"] = _time.time()  # T1: 步骤激活打点,供超时/卡死判定
         # Auto-start Claude Code for EVERY step
         if next_step.get("agent_id"):
             import uuid as _uuid

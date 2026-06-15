@@ -99,14 +99,18 @@ function toggleTeam(tid,btn){
 function dtGetCurrentTeam(){
   return localStorage.getItem('selected_team') || (S.selectedTeams && S.selectedTeams[0]) || 'build_system';
 }
-function dtSetCurrentTeam(id){
+function dtSetCurrentTeam(id, fromCtx){
   if(!id) return;
   localStorage.setItem('selected_team', id);
   localStorage.setItem('ag_current_team', id);  // L2: 跨页面共享
   if(window.S){ S.selectedTeams=[id]; if(typeof renderTeamSelector==='function')renderTeamSelector(); if(typeof renderAgentList==='function')renderAgentList(); }
   if(window._dt3dBuildRoom && window._currentRoomId) window._dt3dBuildRoom(window._currentRoomId);
   if(window.secsSyncTeamFromLeft) window.secsSyncTeamFromLeft(id);  // 右侧 SECS 同步
+  // L4: 上报全局上下文总线(fromCtx=true 为总线回调,跳过以防回灌循环)
+  if(!fromCtx && window.AGCtx) window.AGCtx.set('team', id);
 }
+// L4: 订阅总线 — 其它页面切团队时本页跟随(AGCtx 已 dedup,这里再防 dtSetCurrentTeam 循环)
+if(window.AGCtx){ window.AGCtx.on(function(k,v){ if(k==='team' && v && v!==dtGetCurrentTeam()) dtSetCurrentTeam(v, true); }); }
 // L2: 跨页面 storage 事件广播 — 任一页改团队,其他页实时跟随
 window.addEventListener('storage', function(e) {
   if (e.key === 'ag_current_team' && e.newValue && e.key !== e.oldValue) {

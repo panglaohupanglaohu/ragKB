@@ -44,7 +44,7 @@ const agRuntime = window.AG.runtime;
 })();
 
 // Cache TTL constants (not mutable state, kept as module-level bindings)
-var TEAMS_LIST_CACHE_MS = 60000;
+var TEAMS_LIST_CACHE_MS = 0;  // 禁止缓存，确保卡片 data-tid 永远最新
 
 window.AG.getTeamId = function() { return window.AG.state.tid; };
 window.AG.setTeamId = function(v) { window.AG.state.tid = v; };
@@ -81,6 +81,16 @@ function closeModal(id){
   const m=document.getElementById(id);m.classList.remove('open');
   m.removeAttribute('aria-modal');
   if(m._focusTrap){m.removeEventListener('keydown',m._focusTrap);delete m._focusTrap}
+}
+// 批量删除专用确认弹层
+function showConfirm(msg, onOk) {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = '<div class="modal" role="dialog" aria-modal="true"><h3>⚠️ 确认操作</h3><div style="font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin-bottom:12px">' + msg + '</div><div class="modal-actions"><button class="btn" id="confirm-cancel">取消</button><button class="btn btn-danger" id="confirm-ok">确认删除</button></div></div>';
+  document.body.appendChild(overlay);
+  overlay.querySelector('#confirm-cancel').onclick = function() { overlay.remove(); };
+  overlay.querySelector('#confirm-ok').onclick = function() { overlay.remove(); onOk(); };
+  document.addEventListener('keydown', function escHandler(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); } });
 }
 
 // Connection status banner
@@ -393,7 +403,7 @@ async function loadOverview(){
     const taskSummary=curTm?.tasks||{};
     const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
     const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
-    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card ov-team-card" style="position:relative;cursor:pointer" data-tid="${t.team_id}" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><input type="checkbox" class="ov-team-cb" data-tid="${t.team_id}" onclick="event.stopPropagation();updateDelTeamBtn()" style="position:absolute;top:6px;right:6px;width:14px;height:14px;cursor:pointer;opacity:0.35" title="勾选以批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
+    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card ov-team-card" style="position:relative;cursor:pointer" data-tid="${t.team_id}" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><input type="checkbox" class="ov-team-cb" data-tid="${t.team_id}" data-name="${escapeHtml(t.name||t.team_id)}" onclick="event.stopPropagation();updateDelTeamBtn()" style="position:absolute;top:8px;right:8px;width:18px;height:18px;cursor:pointer;opacity:0.8;z-index:2;accent-color:var(--cyan)" title="勾选以批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
 
     // Team readiness indicator
     const teamAgents=curTm?.agents ? (Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents)) : [];
@@ -403,6 +413,9 @@ async function loadOverview(){
       : `<span style="color:var(--amber);font-size:11px">● 团队待命中</span>`;
 
     sc.innerHTML=qaHtml+`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
+
+    // 重建 DOM 后重置删除按钮（所有 checkbox 已重置为未勾选）
+    try { updateDelTeamBtn(); } catch(e) {}
 
     const curTmMeta=allTeams.find(t=>t&&t.team_id===tid);
     const teamTitle=(curTm&&curTm.name)||(curTmMeta&&curTmMeta.name)||tid;
@@ -527,33 +540,37 @@ function updateDelTeamBtn() {
   if (cnt) cnt.textContent = count;
 }
 async function deleteSelectedTeams() {
-  const cbs = document.querySelectorAll('.ov-team-cb:checked');
+  // 立即冻结快照：后续 DOM 变化（如自动刷新）不影响
+  var cbs = document.querySelectorAll('.ov-team-cb:checked');
   if (!cbs.length) { toast('请先勾选要删除的团队'); return; }
-  const ids = Array.from(cbs).map(cb => cb.dataset.tid);
-  const names = ids.join(', ');
-  if (!confirm(`⚠️ 确认删除 ${ids.length} 个团队？\n\n${names}\n\n此操作不可撤销！将删除团队下所有智能体、技能、任务。`)) return;
-  
-  let ok = 0, fail = 0, notFound = 0;
-  for (const tid of ids) {
+  var snapshot = [];  // [{id, name}]
+  cbs.forEach(function(cb) {
+    var tid = cb.dataset.tid;
+    if (!tid) return;
+    // 从同卡片内 .label 取名称（渲染时已存入 data-name 兜底）
+    var label = cb.parentElement.querySelector('.label');
+    var name = (cb.dataset.name || (label ? label.textContent.trim() : tid));
+    snapshot.push({ id: tid, name: name });
+  });
+  if (!snapshot.length) { toast('未读取到团队 id,请刷新后重试'); return; }
+  var ids = snapshot.map(function(x) { return x.id; });
+  var ids = snapshot.map(function(x) { return x.id; });
+  var namesText = snapshot.map(function(x) { return '• ' + x.name + '  [' + x.id + ']'; }).join('\n');
+  console.log('[deleteSelectedTeams] SNAPSHOT count=' + snapshot.length + ' snapshot=' + JSON.stringify(snapshot));
+  showConfirm('⚠️ 确认删除 ' + snapshot.length + ' 个团队？\n\n' + namesText + '\n\n此操作不可撤销！', async () => {
+    var ok = 0, fail = 0;
+    for (var i = 0; i < snapshot.length; i++) {
       try {
-        await _ensureCsrf();
-        const r = await (window._agFetch || fetch)(`${A}/teams/${tid}`, {
-          method: 'DELETE',
-          headers: { 'x-csrf-token': _csrfToken || '' }
-        });
-        if (r && r.ok) { ok++; }
-        else if (r && r.status === 404) { notFound++; }  // already deleted
-        else { fail++; }
-      } catch(e) { fail++; }
-  }
-  // Clear team list cache so refreshed list shows correct data
-  window.AG.state._teamsListCache = null;
-  window.AG.state._teamsListCacheAt = 0;
-  let msg = ok > 0 ? `✅ 已删除 ${ok} 个团队` : '';
-  if (notFound > 0) msg += (msg ? '，' : '') + `${notFound} 个团队已不存在（可能已被删除）`;
-  if (fail > 0) msg += (msg ? '，' : '') + `${fail} 个失败`;
-  toast(msg || '❌ 删除失败');
-  loadView();
+        var r = await api(A + '/teams/' + snapshot[i].id, { method: 'DELETE' });
+        if (r || (api._lastError && api._lastError.status === 404)) ok++;
+        else fail++;
+      } catch (e) { fail++; }
+    }
+    if (ids.indexOf(tid) !== -1) tid = '';
+    try { if (window.AG && window.AG.state) { window.AG.state._teamsListCache = null; window.AG.state._teamsListCacheAt = 0; } } catch (e) {}
+    toast(ok > 0 ? '✅ 已删除 ' + ok + ' 个' + (fail ? '，' + fail + ' 个失败' : '') : '❌ 删除失败');
+    try { await loadTeams(); } catch (e) { try { loadView(); } catch (_) {} }
+  });
 }
 
 // Export

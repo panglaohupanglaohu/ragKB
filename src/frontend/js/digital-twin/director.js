@@ -174,10 +174,12 @@ function _updateRewardHeat(reward) {
 
 // ── F4-1 (v4 D-0.2): 单一数据源 — _sx.roomAgentMap 与 S.positions 引用合一 ──
 // 同一对象，写任一侧即时一致；定时器仅做"引用断裂检测"（S.positions 被整体替换时重新合一）
+// 规范读入口: window._roomPositions() 始终返回合一的 positions 对象
+window._roomPositions = function(){ return window._sx && window._sx.roomAgentMap; };
 function _syncRoomAgentMap() {
   if (typeof S === 'undefined' || !S.positions || !window._sx) return;
   if (window._sx.roomAgentMap === S.positions) return;  // 已合一
-  // 首次合一: 把 _sx 侧既有键迁入 S.positions，然后共享引用
+  // 首次合一或断裂修复: 把 _sx 侧既有键迁入 S.positions，然后共享引用
   var old = window._sx.roomAgentMap;
   if (old && typeof old === 'object') {
     for (var k in old) {

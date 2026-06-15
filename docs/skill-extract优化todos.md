@@ -51,6 +51,86 @@
 ### S-4 写入 README — 【Claude ✓】
 - [x] **S-4.1** README 新增「技能闭环演示」章节:skill 内容、萃取链路、`twin_loop` 机理、复跑命令 `python3 scripts/skill_closed_loop_demo.py`、实测数字。
 
+### S-5 「模拟」按钮 → 「赋予/注入技能」+ 打通赋予到熟练度（闭环 UI 入口）
+
+> 截图所指:`赋予` 模式下「🔍 路由 / ⚡ 模拟」。现状:
+> - `⚡ 模拟`(`_executeRuntimeSim`)= 随机一句 query → 路由 → 自动选 3 项 → 调 `_executeAssign()` → 3D 动画,**只是演示**。
+> - `▷ 注入`(`_executeAssign`)→ `POST /skill-router/assign` → `skill_router.assign()` 只把技能 append 进 `agent.skills` + 生成 inject_prompt。
+> - **真实缺口(本轮挖出):`assign()` 完全不写 `proficiency_store`** → UI 上「注入」技能后,数字孪生 trial 读取的 `code_review` 熟练度先验**并不会上升** → 闭环在 UI 这一环断了。
+
+#### S-5.1 前端:把「⚡ 模拟」改成「⚡ 赋予/注入」真动作 — 【Claude(沙箱可做)】✓
+- [~] **S-5.1** 语义改造:`⚡ 模拟` 不再跑随机演示,而是对**当前路由结果选中项**执行真实赋予;无选中项时回退「路由→自动选 Top-K→赋予」一气呵成(保留动画)。按钮文案改「⚡ 赋予/注入」,`title="将选中技能注入所选智能体并抬升其熟练度"`。
+
+  伪代码:
+  ```js
+  // 修复前: window._executeRuntimeSim = 随机 query → 路由 → 自动选3 → _executeAssign()(纯演示)
+  // 修复后:
+  window._executeInjectSkills = async function() {
+    if (routerSelectedSkills.size === 0) {       // 没选 → 先路由再自动选 Top-K
+      if (!routerResults.length) await window._executeRoute();
+      [...document.querySelectorAll('#rresults .rr-item')].slice(0, topK).forEach(el => el.click());
+    }
+    await window._executeAssign();               // 真赋予(已带 inject_prompt + 3D 动画)
+  };
+  // HTML: <button class="btn btn-runtime-sim" onclick="window._executeInjectSkills()" title="...">⚡ 赋予/注入</button>
+  ```
+
+#### S-5.2 后端:assign 时同步抬升熟练度先验(接上闭环) — 【Claude(沙箱可 py_compile,真验证本机)】
+- [~] **S-5.2** ⟦已落地:`_resolve_target_skill`(优先 metadata.target_skill→category 映射→slug)+`_boost_proficiency`(max(现值,0.8));assign 返回 `proficiency_boosted`;全程 try/except 不影响赋予;py_compile 通过,真效果本机验⟧ `skill_router.assign()` 在把技能 append 进 `agent.skills` 后,调用 `proficiency_store` 为该 agent 的 **目标技能名**(取 skill 的 `metadata.target_skill` 或 category 映射,如 `structured-code-review → code_review`)写入/抬升先验(如 max(现值, 0.8)),使数字孪生 trial 立即反映。返回体加 `proficiency_boosted: {skill_name: new_value}` 供前端提示。
+
+  伪代码:
+  ```python
+  # src/backend/agents/skill_router.py  assign()
+  from sandbox.proficiency_store import get_proficiency_store
+  boosted = {}
+  store = get_proficiency_store()
+  data = store.load_proficiency(team_id) or {}
+  for sid in skill_ids:
+      skill = self._find_skill(sid)                      # 取 snapshot
+      target = (skill.metadata or {}).get("target_skill") or _category_to_skill(skill.category)
+      if not target: continue
+      key = f"{agent_id}::{target}"
+      cur = float(data.get(key, {}).get("success_rate", 0.5))
+      newv = max(cur, 0.8)                                # 赋予即把目标技能先验抬到 ≥0.8
+      data[key] = {"skill_name": target, "success_rate": newv, "agent_id": agent_id, "category": skill.category}
+      boosted[target] = newv
+  store.save_proficiency(team_id, data)
+  result["proficiency_boosted"] = boosted
+  ```
+
+#### S-5.3 前端反馈 + 仪表盘 — 【Claude(沙箱可做)】
+- [~] **S-5.3** ⟦已落地:注入成功后 dash-assigns+计数、`proficiency_boosted` 非空时日志+Toast「熟练度→0.80」;vitest 5/5⟧ `_executeAssign` 成功后,若 `data.proficiency_boosted` 非空,日志/Toast 提示「评审员 code_review 熟练度 →0.80」;`dash-assigns`(注入次数)+1。
+
+#### S-5.4 本机真后端交叉验证脚本 — 【Claude ✓ 已交付,本机跑】
+- [~] **S-5.4** `scripts/skill_closed_loop_live.py`:打真后端(8080)的试炼 REST API,用 `proficiency_store` 给评审员设 baseline 0.45 / treatment 0.85,各跑一次真试炼 `evaluate`,对比 `total_score` 与 `code_review` 成功率,与离线 `+18.3pp` 互相印证。已 py_compile 通过;**需本机** `rtk python3 scripts/skill_closed_loop_live.py --team <团队> --agent <评审员>`。
+- [ ] **S-5.5** 【Reasonix】S-5.2 落地后,改用「UI 点⚡赋予/注入 → proficiency 抬升 → 真试炼提分」端到端复跑,与 S-5.4 脚本结果一致。
+
+### S-6 赋予/注入改为「必须显式勾选」+ 多需求支持 — 【S-6.1 Claude ✓ / S-6.2 待做】
+
+> 背景(实测发现):赋予页左右两栏联动(共享 `routerResults`/`routerSelectedSkills`/`selectedAgentId`),但
+> ① 「赋予/注入」在未勾选时会盲目自动选 Top-K → 把"语义相似"的松匹配(如 competitive_analysis)塞给 agent;
+> ② 查询框是单值,无法表达"单元测试/代码评审/算法优化"等多项需求(只会互相覆盖)。
+> 另注:左「技能池仪表盘」(全库 43 技能按类别)与右「技能画像」(所选 agent 自身画像,`?`=无熟练度数据)是两份不同数据,易混淆。
+
+- [~] **S-6.1** 【Claude(沙箱可做)✓】去掉盲目 Top-K 自动注入:`_executeInjectSkills` 仅注入用户**显式勾选**的技能;未勾选时不再自动选,给明确提示(「请先在右侧路由结果中勾选」)+ Toast。　⟦已落地 skill-extract.js;vitest 5/5;无重复 id⟧
+
+  伪代码:
+  ```js
+  window._executeInjectSkills = async function() {
+    if (routerSelectedSkills.size === 0) {
+      addRouterLog('sys', routerResults.length
+        ? `⚡ 请先在右侧「路由结果」中勾选要注入的技能(已检索 ${routerResults.length} 项)`
+        : '⚡ 请先点「🔍 路由」检索,再勾选要注入的技能');
+      showToast('请先勾选要注入的技能');
+      return;                       // ← 不再 items[i].click() 盲选 Top-K
+    }
+    await window._executeAssign();  // 只注入显式勾选项
+  };
+  ```
+
+- [ ] **S-6.2** 【Reasonix/Claude】多需求支持(可选增强):查询框支持逐行多需求,或多次「路由」结果**累加去重**到右侧列表(而非覆盖),让一次会话能对"单元测试/代码评审/算法优化"分别检索后统一勾选注入。
+- [ ] **S-6.3** 【Reasonix】UI 文案澄清:在左「技能池仪表盘」与右「技能画像」加一句副标题,点明前者是全库分布、后者是该 agent 画像,避免混淆。
+
 ---
 
 ## A. P0 — HTML 重复 ID 致第二交叉复核 UI 错位

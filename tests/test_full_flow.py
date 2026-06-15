@@ -2,19 +2,29 @@
 """End-to-end test: extraction → approve → publish → dedup."""
 import json
 import time
+import random
 import urllib.request
 import urllib.error
+import http.cookiejar
 
 BASE = "http://localhost:8080/api/v1/agent-config"
+ROOT = "http://localhost:8080/api/v1"
 
-def api(method, path, data=None):
-    url = f"{BASE}{path}"
-    body = json.dumps(data).encode() if data else None
+# 认证：后端为 cookie+token 模式。启动时注册一次性用户 → ag-token cookie 入 jar
+# （GET 凭 cookie 通过）；写操作再带 X-CSRF-Token（POST/PUT/DELETE 需 CSRF）。
+# 套路对齐 scripts/frontend_big_change_auth_smoke.sh 的注册方式。
+_JAR = http.cookiejar.CookieJar()
+_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR))
+_CSRF = None
+
+def _raw(method, url, data=None, headers=None):
+    body = json.dumps(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, method=method)
-    if body:
-        req.add_header("Content-Type", "application/json")
+    req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with _OPENER.open(req, timeout=60) as resp:
             return json.loads(resp.read()), resp.status
     except urllib.error.HTTPError as e:
         body_text = e.read().decode() if e.fp else ""
@@ -25,10 +35,36 @@ def api(method, path, data=None):
     except Exception as e:
         return {"error": str(e)}, 0
 
+def bootstrap_auth():
+    """注册一次性用户拿到会话 cookie + CSRF token；返回 (username, code)。"""
+    global _CSRF
+    user = f"e2e_full_flow_{int(time.time())}_{random.randint(1000, 9999)}"
+    pw = "TestPass123!"
+    r, code = _raw("POST", f"{ROOT}/auth/register", {"username": user, "password": pw})
+    if code not in (200, 201):
+        # 注册关闭/用户已存在 → 退而登录
+        r, code = _raw("POST", f"{ROOT}/auth/login", {"username": user, "password": pw})
+    cr, _ = _raw("GET", f"{ROOT}/auth/csrf-token")
+    _CSRF = cr.get("csrf_token") if isinstance(cr, dict) else None
+    return user, code
+
+def api(method, path, data=None):
+    url = f"{BASE}{path}"
+    headers = {}
+    if method in ("POST", "PUT", "DELETE", "PATCH") and _CSRF:
+        headers["X-CSRF-Token"] = _CSRF
+    return _raw(method, url, data, headers)
+
 def main():
     print("=" * 60)
     print("FULL EXTRACTION FLOW TEST")
     print("=" * 60)
+
+    # Step -1: 认证引导（注册一次性用户 → cookie + CSRF）
+    print("\n[-1] Auth bootstrap...")
+    user, acode = bootstrap_auth()
+    assert acode in (200, 201), f"Auth bootstrap failed ({acode}) for {user}"
+    print(f"  ✅ Authenticated as {user} (csrf={'yes' if _CSRF else 'no'})")
 
     # Step 0: Health check
     print("\n[0] Health check...")

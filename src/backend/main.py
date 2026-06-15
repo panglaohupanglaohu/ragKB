@@ -1445,6 +1445,10 @@ if _frontend_dir.exists():
     async def agent_config_page():
         return FileResponse(str(_frontend_dir / "agent-team-config.html"))
 
+    @app.get("/favicon.ico")
+    async def favicon():
+        return Response(status_code=204)  # 静默，消除 404 噪音
+
     @app.get("/{page_name}.html")
     async def frontend_page(page_name: str):
         page = _frontend_dir / f"{page_name}.html"

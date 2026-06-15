@@ -511,25 +511,15 @@ class TestCrossReviewAuthorization:
             reviewer="alice_self_review",
         ))
 
-        # ⚠️ 当前系统允许自审 — 这是一个已知的安全边界问题
-        # 期望行为: 应抛出 ValueError 或返回 403
-        try:
-            updated = _run(review_service.perform_action(
+        # 自审保护: reviewer 不能审核自己提交的内容
+        with pytest.raises(ValueError, match="禁止自审"):
+            _run(review_service.perform_action(
                 entry_id=entry.id,
                 action=ReviewAction.APPROVE,
                 reviewer="alice_self_review",  # 同一个人!
                 comment="自己审核自己",
                 idempotency_key="self-review-001",
             ))
-            # 当前系统允许自审 — 记录此行为
-            # TODO: 实现越权检查后, 此断言应改为验证抛出异常
-            assert updated.status in (ReviewStatus.PENDING, ReviewStatus.APPROVED), (
-                f"Self-review should either be blocked (pending) or currently allowed (approved), "
-                f"got {updated.status}"
-            )
-        except ValueError:
-            # 如果系统已实现越权保护, 则通过
-            pass
 
     def test_multiple_reviewers_chained(self, review_service):
         """链式复核: A提交 → B请求修改 → C批准 → D关闭."""

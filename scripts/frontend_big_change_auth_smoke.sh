@@ -66,6 +66,8 @@ for path in \
   /js/digital-twin/secs-core.js \
   /js/digital-twin/director.js \
   /js/digital-twin/v4-scenario-evolution.js \
+  /js/digital-twin/v4-scenarios.js \
+  /js/digital-twin/v4-evolution.js \
   /js/digital-twin-cli.js \
   /js/sandbox-twin.js
 do

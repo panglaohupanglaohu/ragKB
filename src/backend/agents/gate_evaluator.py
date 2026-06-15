@@ -9,7 +9,7 @@
 评分算法:
   综合评分 = 加权平均(维度分数) − 否决项扣分
 
-维度权重 (对标 DNV CII 框架):
+维度权重 (A~E 合规框架):
   - compliance_score:  25%  (合规评分)
   - test_pass_rate:     20%  (测试通过率)
   - code_quality_score: 20%  (代码质量)

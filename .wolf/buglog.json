@@ -1,4 +1,40 @@
-{
-  "version": 1,
-  "bugs": []
-}
+[
+  {
+    "id": "bug-001",
+    "timestamp": "2026-06-13T05:18:00.922814",
+    "error_message": "E-5 test_full_flow.py 跑出 401 '认证已失效，请重新登录' (Backend not healthy)",
+    "file": "tests/test_full_flow.py",
+    "root_cause": "老 E2E 脚本(5月)裸用 urllib 不带认证；后端现强制 cookie+token，连 /health 都拦，POST 还需 CSRF",
+    "fix": "加 bootstrap_auth(): 注册一次性用户→ag-token cookie 入 jar(GET 凭 cookie)；取 /auth/csrf-token，写操作带 X-CSRF-Token。Bearer/CSRF 中间件确认 cookie+CSRF 组合可通",
+    "tags": [
+      "auth",
+      "csrf",
+      "e2e",
+      "E-5",
+      "401",
+      "test_full_flow"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-13T05:18:00.922814"
+  },
+  {
+    "id": "bug-002",
+    "timestamp": "2026-06-13T05:40:00.000000",
+    "error_message": "system-evolution 实时更新完全不生效:概览 KPI 永不自动刷新,只能手动刷新",
+    "file": "src/frontend/js/system-evolution.js + src/backend/agent_team_api.py",
+    "root_cause": "两处叠加:1) 后端从未注册 GET /api/v1/agent-teams/evolution/stream,前端 _startSSE 连它必然 404→onerror;2) onerror 的轮询降级条件 if(!_ssePollTimer && _ssePollActive) 中 _ssePollActive 初始 false,只有 _fallbackPoll() 会置 true,而 _fallbackPoll 仅在 EventSource 构造抛异常的 catch 调用,404 走 onerror 不抛异常→降级永不触发",
+    "fix": "前端:onerror 改为 _closeSSE(); _fallbackPoll();(_fallbackPoll 自带 !_ssePollTimer 去重)。后端:新增 GET /evolution/stream,StreamingResponse(text/event-stream),每10s只读 get_evolution_summary() 变化检测推 stats_update,审计轨迹长度变化推 trail_update,带 ping 心跳,不改引擎。node --check + py_compile + vitest(3 passed)通过;真实 SSE 长连接需本机 rtk 验证",
+    "tags": [
+      "sse",
+      "realtime",
+      "system-evolution",
+      "frontend",
+      "fallback-polling",
+      "missing-endpoint"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-13T05:40:00.000000"
+  }
+]

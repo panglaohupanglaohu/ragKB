@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 
 class GateLevel(str, Enum):
-    """门禁等级 — 对标 DNV CII A~E 五级评级."""
+    """门禁等级 — A~E 五级评级."""
     A = "A"  # Major superior — 全面优秀
     B = "B"  # Minor superior — 良好
     C = "C"  # Moderate — 基本合规
