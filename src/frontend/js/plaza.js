@@ -704,6 +704,8 @@ function clearSpeechPlayback() {
   speechPlaybackToken += 1;
   speechPlaybackActive = false;
   speechPaused = false;
+  _ttsErrorShown = false; // 重置 TTS 错误提示标记
+  window._ttsWarned = false; // 重置全站 TTS 警告标记
   updatePauseUI();
   if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
   if (window.speechSynthesis) speechSynthesis.cancel();
@@ -720,6 +722,7 @@ let ttsMuted = localStorage.getItem('plaza_ttsMuted') === 'true'; // default to 
 let speechPaused = false;
 let ttsAudio = null; // current playing Audio element
 let ttsPlaybackSerial = 0;
+let _ttsErrorShown = false; // 本轮讨论只展示一次 TTS 错误提示
 const ttsBtn = document.getElementById('tts-toggle');
 const ttsIconOn = document.getElementById('tts-icon-on');
 const ttsIconOff = document.getElementById('tts-icon-off');
@@ -765,25 +768,63 @@ function stopCurrentTtsAudio() {
   ttsAudio = null;
 }
 
+// Web Speech voice cache — loaded lazily with async fallback
+let _ttsCachedZhVoices = null;
+let _ttsVoicesLoaded = false;
+function _ttsEnsureVoices() {
+  if (!window.speechSynthesis) return [];
+  const voices = speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    _ttsVoicesLoaded = true;
+    _ttsCachedZhVoices = voices.filter(v => v.lang && v.lang.startsWith('zh'));
+    return _ttsCachedZhVoices;
+  }
+  // voices not loaded yet — try to trigger loading
+  if (!_ttsVoicesLoaded) {
+    speechSynthesis.getVoices(); // trigger side-effect in some browsers
+  }
+  return _ttsCachedZhVoices || [];
+}
+
+// Eager-load voices on first user gesture + voiceschanged event
+function _ttsInitVoices() {
+  if (!window.speechSynthesis) return;
+  const load = () => {
+    const voices = speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      _ttsCachedZhVoices = voices.filter(v => v.lang && v.lang.startsWith('zh'));
+      _ttsVoicesLoaded = true;
+    }
+  };
+  speechSynthesis.addEventListener('voiceschanged', load, { once: true });
+  load(); // may succeed synchronously
+}
+document.addEventListener('click', _ttsInitVoices, { once: true });
+document.addEventListener('touchstart', _ttsInitVoices, { once: true });
+
 function ttsFallbackSpeak(text, speed, serial) {
   if (ttsMuted || !window.speechSynthesis || serial !== ttsPlaybackSerial) return Promise.resolve(false);
+  const zhVoices = _ttsEnsureVoices();
   return new Promise(resolve => {
     const utt = new SpeechSynthesisUtterance(text);
     utt.lang = 'zh-CN';
     utt.rate = speed;
     utt.pitch = 0.82;
     utt.volume = 0.85;
-    const voices = speechSynthesis.getVoices();
-    const maleKeywords = ['reed', 'rocko', 'grandpa', 'eddy', 'yu-shu', 'wan-lung', 'kangkang', 'yunxi', 'yunjian', 'yunyang', 'male', 'xiaochen'];
-    const zhVoices = voices.filter(v => v.lang.startsWith('zh'));
-    const maleVoice = zhVoices.find(v => maleKeywords.some(k => v.name.toLowerCase().includes(k)));
     const finish = played => resolve(serial === ttsPlaybackSerial ? played : false);
-    if (!maleVoice) {
-      console.warn('Web Speech fallback skipped: no Chinese male voice available');
-      finish(false);
+    if (!zhVoices.length) {
+      // Last resort: try default voice with zh-CN lang (may sound wrong but better than nothing)
+      utt.onend = () => finish(true);
+      utt.onerror = () => finish(false);
+      speechSynthesis.speak(utt);
+      if (speechPaused) speechSynthesis.pause();
       return;
     }
-    utt.voice = maleVoice;
+    // Prefer male voice, but fallback to any Chinese voice
+    const maleKeywords = ['reed', 'rocko', 'grandpa', 'eddy', 'yu-shu', 'wan-lung', 'kangkang', 'yunxi', 'yunjian', 'yunyang', 'male', 'xiaochen', 'sin-ji'];
+    const maleVoice = zhVoices.find(v => maleKeywords.some(k => v.name.toLowerCase().includes(k)));
+    const voice = maleVoice || zhVoices[0];
+    utt.voice = voice;
     utt.onend = () => finish(true);
     utt.onerror = () => finish(false);
     speechSynthesis.speak(utt);
@@ -807,7 +848,10 @@ async function ttsSpeak(text, playbackToken, agentName) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, text_lang: 'zh', speed_factor: 1.0, agent_name: agentName || '' })
     });
-    if (!resp.ok) throw new Error(`TTS ${resp.status}`);
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`TTS ${resp.status}${errText ? ': ' + errText.slice(0, 80) : ''}`);
+    }
     const blob = await resp.blob();
     tlog('[TTS] Got blob:', blob.size, 'bytes');
     if (ttsMuted || playbackToken !== speechPlaybackToken || serial !== ttsPlaybackSerial) {
@@ -917,13 +961,16 @@ async function ttsSpeak(text, playbackToken, agentName) {
     return true;
   } catch (err) {
     console.warn('Edge-TTS playback failed, using Web Speech:', err?.message || err);
-    return ttsFallbackSpeak(text, 1.0, serial);
+    const fallbackOk = await ttsFallbackSpeak(text, 1.0, serial);
+    if (!fallbackOk && !ttsMuted) {
+      // Both Edge-TTS and Web Speech failed — show user-facing warning (once per session)
+      if (!window._ttsWarned) {
+        window._ttsWarned = true;
+        toast('语音播报不可用：请检查网络或浏览器语音设置');
+      }
+    }
+    return fallbackOk;
   }
-}
-
-// Preload voices (Chrome requires async load)
-if (window.speechSynthesis && speechSynthesis.onvoiceschanged !== undefined) {
-  speechSynthesis.onvoiceschanged = () => {};
 }
 
 /* ═══════════ CAMERA LOOK-AT (smooth pan to speaker from fixed seat) ═══════════ */

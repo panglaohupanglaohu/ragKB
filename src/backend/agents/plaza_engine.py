@@ -303,6 +303,7 @@ class PlazaEngine:
         if not self._chat_fn:
             # 无 LLM 时使用模拟回复
             await self._run_simulated(disc, moderator, speakers)
+            self._store.save_plaza(plaza)  # 持久化模拟讨论结果
             return disc
 
         # ── 开场: Moderator 引导话题 ──
@@ -997,6 +998,23 @@ class PlazaEngine:
                 await asyncio.sleep(0.1)
 
         disc.summary = f"关于「{disc.topic}」的讨论已完成。（模拟模式 — 配置 LLM API Key 后可获得真实 AI 讨论）"
+        # 模拟模式下也生成基本执行计划，确保前端能显示计划面板
+        sim_plan_content = (
+            f"## 技术概要\n"
+            f"本讨论在模拟模式下完成。讨论话题: {disc.topic}。"
+            f"如需真实 AI 讨论与可执行计划，请配置 LLM API Key 后重新启动讨论。\n\n"
+            f"## 加权结论 (P0→P1→P2)\n"
+            f"- [P0] 配置 LLM 提供商 | 项目负责人 | 讨论需要 LLM 才能生成真实结论\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"| 1 | 配置 LLM API Key | 项目负责人 | P0 | 无 | LLM 可正常调用 |\n"
+            f"| 2 | 重新启动讨论 | 议事长 | P0 | 任务1 | 获得真实 AI 讨论结果 |\n\n"
+            f"## 补充观察\n"
+            f"当前系统处于模拟模式，请前往「模型与连接」页面配置 LLM。"
+        )
+        disc.plan = self._build_plan_payload(disc, sim_plan_content, "模拟模式自动生成")
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
         disc.status = DiscussionStatus.CLOSED
         disc.ended_at = datetime.now(timezone.utc).isoformat()
         await self._broadcast(disc.id, {"type": "discussion_end", "summary": disc.summary})

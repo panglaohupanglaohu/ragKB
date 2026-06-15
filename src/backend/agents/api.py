@@ -205,6 +205,49 @@ def _load_model_pool(tm: TeamManager) -> None:
             team.add_model(model)
 
 
+def _reconcile_orphan_tasks() -> None:
+    """Mark stale running tasks as failed(orphaned) on startup.
+
+    After a process restart, tasks that were `running` but have no live monitor
+    thread or session are zombies. Also catches tasks exceeding _TASK_MAX_RUN_SEC.
+    """
+    try:
+        engine = _te()
+        all_tasks = engine.list_tasks()
+    except Exception:
+        return
+    now = _time.time()
+    for task in all_tasks:
+        if task.status.value != "running":
+            continue
+        started = _ts_to_epoch(getattr(task, "started_at", None) or getattr(task, "created_at", None))
+        has_monitor = task.task_id in _harness_threads
+        # Check if any session is alive
+        wf = (task.metadata or {}).get("workflow", [])
+        active = next((s for s in wf if s.get("status") == "active"), None)
+        sid = active.get("session_id") if active else None
+        alive = bool(sid and sid in _claude_sessions and _claude_sessions[sid].get("status") == "running")
+        collab = (task.metadata or {}).get("collaboration")
+        too_old = started and (now - started) > _TASK_MAX_RUN_SEC
+        if (not has_monitor and not alive and not collab) or too_old:
+            task.error = "orphaned"
+            try:
+                engine._store.save_task(task)
+            except Exception:
+                pass
+            import asyncio as _asyncio
+            try:
+                loop = _asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_finalize_task_terminal_state(task, force_status="failed", error="orphaned"))
+                else:
+                    _asyncio.run(_finalize_task_terminal_state(task, force_status="failed", error="orphaned"))
+            except Exception:
+                # Best-effort; at minimum mark failed in-memory
+                task.status = TaskStatus.FAILED
+            _harness_log.info(f"[Orphan] Task {task.task_id} marked orphaned (too_old={too_old})")
+
+
 def init_agent_config(team_manager: TeamManager) -> None:
     """Inject the TeamManager instance at startup."""
     global _team_manager, _tool_registry, _skill_registry
@@ -219,6 +262,8 @@ def init_agent_config(team_manager: TeamManager) -> None:
     _init_harness_from_teams(team_manager)
     # Initialize skill library chain (演化/验证/效果贯通)
     _init_skill_library_chain(team_manager, _skill_registry)
+    # T2.1: Reconcile orphan tasks from previous process
+    _reconcile_orphan_tasks()
 
 
 def _get_tool_registry() -> ToolRegistry:
@@ -2292,6 +2337,8 @@ class SubmitTaskRequest(BaseModel):
     priority: int = Field(default=2, ge=0, le=3)
     dependencies: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # 执行模式：linear=线性流水线(默认,原行为) / collaborative=智能体广场多轮协作
+    execution_mode: str = Field(default="linear")
 
 
 class SubmitBatchRequest(BaseModel):
@@ -2916,6 +2963,107 @@ async def _start_task_workflow(engine, task: AgentTask, team_id: str, wf: list) 
     _start_harness_monitor(task.task_id, team_id)
 
 
+async def _start_task_collaboration(task: AgentTask, team_id: str) -> None:
+    """协作模式执行：把任务投入智能体广场，团队各 agent 多轮真实讨论 → 共识 → 产物回写任务。
+
+    与线性流水线 `_start_task_workflow` 并存，由 task.metadata['execution_mode']=='collaborative'
+    触发。LLM 走系统配置（plaza 启动时已 set_chat_fn(harness.chat)），不依赖本地 claude CLI。
+    讨论在后台 asyncio 任务里跑，结束（CLOSED/共识）后把 summary/关键结论回写任务并落终态。
+    """
+    from .plaza_engine import get_plaza_engine
+    from .plaza import SeatTier, NicheRole
+
+    engine = get_plaza_engine()
+    # 兜底：确保广场用系统配置 LLM（main.py 启动已注入，这里防止未初始化）
+    if not getattr(engine, "_chat_fn", None):
+        try:
+            engine.set_chat_fn(get_chat_harness().chat)
+        except Exception:
+            pass
+
+    team = _tm().get_team(team_id)
+    agents = team.agents if team else {}
+    if isinstance(agents, dict):
+        agents = list(agents.values())
+    if not agents:
+        await _finalize_task_terminal_state(
+            task, force_status="failed", error="collaboration_no_agents",
+        )
+        return
+
+    plaza = engine.create_plaza(
+        name=f"task:{(task.title or task.task_id)[:40]}",
+        description=task.description or "",
+    )
+    for a in agents:
+        engine.add_participant(
+            plaza.id, a.agent_id, getattr(a, "name", "") or a.agent_id,
+            getattr(a, "role", "") or "", team_id,
+            SeatTier.MIDDLE, NicheRole.OBSERVER,
+        )
+
+    topic = task.title or "任务协作"
+    disc = engine.create_discussion(
+        plaza.id, topic=topic, description=task.description or "",
+        max_rounds=int((task.metadata or {}).get("collab_max_rounds", 4)),
+    )
+    if not disc:
+        await _finalize_task_terminal_state(
+            task, force_status="failed", error="collaboration_discussion_create_failed",
+        )
+        return
+
+    task.metadata["execution_mode"] = "collaborative"
+    task.metadata["collaboration"] = {
+        "mode": "plaza",
+        "plaza_id": plaza.id,
+        "discussion_id": disc.id,
+        "participant_count": len(agents),
+    }
+    await _te().start_task(task.task_id)
+    try:
+        _te()._store.save_task(task)
+    except Exception:
+        pass
+    _emit_pipeline_event(task.task_id, "collaboration_started", {
+        "plaza_id": plaza.id,
+        "discussion_id": disc.id,
+        "participants": len(agents),
+        "topic": topic,
+    })
+
+    async def _run_collab() -> None:
+        try:
+            result = await engine.run_discussion(plaza.id, disc.id)
+            summary = getattr(result, "summary", "") if result else ""
+            conclusions = list(getattr(result, "key_conclusions", []) or []) if result else []
+            collab = dict(task.metadata.get("collaboration", {}))
+            collab["summary"] = summary
+            collab["key_conclusions"] = conclusions
+            collab["message_count"] = len(getattr(result, "messages", []) or []) if result else 0
+            task.metadata["collaboration"] = collab
+            task.metadata.setdefault("artifacts", []).append({
+                "kind": "collaboration_summary",
+                "discussion_id": disc.id,
+                "summary": summary,
+                "key_conclusions": conclusions,
+            })
+            _emit_pipeline_event(task.task_id, "collaboration_completed", {
+                "discussion_id": disc.id,
+                "conclusions": len(conclusions),
+            })
+            await _finalize_task_terminal_state(task)
+        except Exception as run_err:
+            _harness_log.exception(
+                "[collab] task %s discussion failed: %s", task.task_id, run_err,
+            )
+            await _finalize_task_terminal_state(
+                task, force_status="failed", error=f"collaboration_error: {run_err}",
+            )
+
+    asyncio.create_task(_run_collab())
+
+
 async def _submit_internal_task(
     team_id: str,
     *,
@@ -2964,7 +3112,11 @@ async def _submit_internal_task(
         return task
 
     if auto_start:
-        await _start_task_workflow(engine, task, team_id, wf)
+        if (task.metadata or {}).get("execution_mode") == "collaborative":
+            # 协作模式：走智能体广场多轮讨论，而非线性 Claude 会话流水线
+            await _start_task_collaboration(task, team_id)
+        else:
+            await _start_task_workflow(engine, task, team_id, wf)
 
     return task
 
@@ -3056,6 +3208,10 @@ async def _real_task_executor(task) -> Any:
     status_code=status.HTTP_201_CREATED,
 )
 async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
+    # execution_mode 落入 metadata，供 _submit_internal_task 选择执行路径
+    _meta = dict(req.metadata or {})
+    if req.execution_mode:
+        _meta.setdefault("execution_mode", req.execution_mode)
     task = await _submit_internal_task(
         team_id,
         title=req.title,
@@ -3063,7 +3219,7 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
         agent_id=req.agent_id,
         priority=req.priority,
         dependencies=req.dependencies,
-        metadata=req.metadata,
+        metadata=_meta,
         auto_start=True,
     )
     return task.to_dict()
@@ -3123,6 +3279,18 @@ def _annotate_stuck(item: Dict[str, Any]) -> Dict[str, Any]:
             item["elapsed_sec"] = round(elapsed, 1)
             item["stuck"] = elapsed > _TASK_STUCK_SEC
             item["stuck_threshold_sec"] = _TASK_STUCK_SEC
+        # T3.1: Supplement with current step + last activity for frontend rendering
+        wf = (item.get("metadata") or {}).get("workflow", [])
+        active = next((s for s in wf if s.get("status") == "active"), None)
+        item["current_step"] = active.get("key") if active else (
+            "collaboration" if (item.get("metadata") or {}).get("collaboration") else "")
+        sid = active.get("session_id") if active else None
+        sess = _claude_sessions.get(sid) if sid else None
+        if sess:
+            la = sess.get("_last_activity") or sess.get("started_at", 0)
+            item["last_activity_sec"] = round(_time.time() - la, 1) if la else None
+        else:
+            item["last_activity_sec"] = None
     except Exception:
         pass
     return item
@@ -3775,6 +3943,8 @@ _HARNESS_STALL_SEC = 300     # Mark stalled if no output for N seconds (large mo
 _HARNESS_AUTO_ADVANCE = True # Auto-advance on step completion
 _PIPELINE_MAX_REWINDS = 2    # Max times to rewind develop→test→deploy with QA feedback
 _SESSION_GC_TTL_SEC = 1800   # Remove completed sessions after 30 min
+_STEP_WALL_TIMEOUT_SEC = 1200  # Hard wall-clock limit per step (seconds); exceeds → failed
+_TASK_MAX_RUN_SEC = 10800      # Max total task run time (3h); orphan reconciliation threshold
 
 # ── Pipeline event bus (per-task SSE subscribers) ──
 import collections as _collections
@@ -4111,21 +4281,47 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                     session["_last_activity"] = _time.time()
                     continue
 
-                last_activity = session.get("_last_activity", session.get("started_at", 0))
-                now = _time.time()
-                lines = session.get("lines")
-                current_count = len(lines) if lines else 0
-                prev_count = session.get("_prev_line_count", 0)
-
-                if current_count > prev_count:
-                    session["_last_activity"] = now
-                    session["_prev_line_count"] = current_count
-                elif now - last_activity > _HARNESS_STALL_SEC:
-                    _harness_log.warning(f"[Harness] Session {sid} stalled ({_HARNESS_STALL_SEC}s no output)")
-                    session["lines"].append(f"\n⚠️ 会话停滞 ({_HARNESS_STALL_SEC}s 无输出)\n")
+                # Wall-clock hard timeout: catch slow-drip or zombie sessions that stall
+                # detection alone won't catch (continuous tiny output, or thread stuck)
+                step_started = active_step.get("started_at") or session.get("started_at", 0)
+                if step_started and (_time.time() - step_started) > _STEP_WALL_TIMEOUT_SEC:
+                    _harness_log.warning(
+                        f"[Harness] Step {active_step['key']} wall-clock timeout "
+                        f"({_STEP_WALL_TIMEOUT_SEC}s) → failed"
+                    )
+                    session["lines"].append(
+                        f"\n⏱️ 步骤墙钟超时 ({_STEP_WALL_TIMEOUT_SEC}s)，判失败\n"
+                    )
                     session["status"] = "failed"
-                    session["exit_code"] = -1
-                    sess_status = "failed"  # Fall through to retry/advance
+                    session["exit_code"] = -2
+                    session["error"] = "step_wall_timeout"
+                    active_step["failure_reason"] = "step_wall_timeout"
+                    sess_status = "failed"
+                    # Kill lingering subprocess to avoid resource leak
+                    proc = session.get("proc")
+                    if proc and hasattr(proc, "poll") and proc.poll() is None:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    # Fall through to retry/advance logic below
+
+                if sess_status == "running":
+                    last_activity = session.get("_last_activity", session.get("started_at", 0))
+                    now = _time.time()
+                    lines = session.get("lines")
+                    current_count = len(lines) if lines else 0
+                    prev_count = session.get("_prev_line_count", 0)
+
+                    if current_count > prev_count:
+                        session["_last_activity"] = now
+                        session["_prev_line_count"] = current_count
+                    elif now - last_activity > _HARNESS_STALL_SEC:
+                        _harness_log.warning(f"[Harness] Session {sid} stalled ({_HARNESS_STALL_SEC}s no output)")
+                        session["lines"].append(f"\n⚠️ 会话停滞 ({_HARNESS_STALL_SEC}s 无输出)\n")
+                        session["status"] = "failed"
+                        session["exit_code"] = -1
+                        sess_status = "failed"  # Fall through to retry/advance
 
                 if sess_status == "running":
                     continue
@@ -6352,14 +6548,48 @@ def _is_ollama_backend() -> bool:
     return False
 
 
-def _get_deepseek_credentials() -> tuple:
-    """Get DeepSeek API key and base URL, preferring RTK proxy when available.
+def _harness_provider_credentials() -> tuple:
+    """Read the system-configured LLM (模型与连接页 / model_pool via ChatHarness).
 
-    Checks for RTK proxy at localhost:11435 (configured in Token Factory).
-    If RTK is reachable, uses it instead of direct DeepSeek API to save tokens.
+    This is the authoritative source: task execution must follow whatever the
+    user configured on the 模型与连接 page (e.g. codebuddy/deepseek-v4-pro),
+    NOT the local ~/.claude/settings.json. Returns
+    (api_key, base_url, model, provider_value) or (None, None, None, None).
+    """
+    try:
+        cfg = get_chat_harness().get_provider_config()
+    except Exception:
+        return None, None, None, None
+    api_key = (getattr(cfg, "api_key", "") or "").strip()
+    if not api_key:
+        return None, None, None, None
+    try:
+        base_url = cfg.resolve_base_url()
+    except Exception:
+        base_url = getattr(cfg, "api_base_url", "") or ""
+    model = (getattr(cfg, "model", "") or "").strip() or "deepseek-chat"
+    prov = getattr(cfg, "provider", None)
+    provider_val = getattr(prov, "value", None) or (str(prov) if prov else "")
+    return api_key, base_url, model, provider_val
+
+
+def _get_deepseek_credentials() -> tuple:
+    """Get the LLM api_key/base_url/model used by task-execution sessions.
+
+    Priority:
+      1) System-configured provider via ChatHarness (模型与连接页 / model_pool) —
+         authoritative, follows whatever the user set on the 模型与连接 page.
+      2) Legacy ~/.claude/settings.json env (本地 Claude CLI 配置) + RTK proxy,
+         kept only as a fallback when no provider is configured.
 
     Returns (api_key, base_url, model) or (None, None, None) if unavailable.
     """
+    # 1) Prefer the system-configured LLM (fixes 写死本地 claude 导致的卡死)
+    h_key, h_base, h_model, _h_prov = _harness_provider_credentials()
+    if h_key:
+        return h_key, h_base, h_model
+
+    # 2) Legacy fallback: ~/.claude/settings.json (+ RTK proxy when reachable)
     import json as _json
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
@@ -6414,7 +6644,12 @@ def _should_use_direct_api(role: str) -> bool:
     # If role is text-only, always use direct API
     if role in _TEXT_ONLY_ROLES:
         return True
-    # Check if backend is DeepSeek (non-Anthropic) → CLI has no tools
+    # If the system-configured provider is non-Anthropic, the local Claude CLI
+    # has no tool access → direct API is the right path (and avoids 写死本地 claude).
+    _hk, _hb, _hm, h_prov = _harness_provider_credentials()
+    if _hk and h_prov and h_prov != "anthropic":
+        return True
+    # Legacy check: ~/.claude/settings.json backend
     try:
         import json as _json
         settings_path = _os.path.expanduser("~/.claude/settings.json")
@@ -6487,6 +6722,20 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
     def _run():
         try:
+            # T4.2: Fail-fast if no LLM is configured at all (avoid starting local CLI
+            # that will hang forever when there's no backend).
+            _hk, _, _, _ = _harness_provider_credentials()
+            if not _hk:
+                _lk, _, _ = _get_deepseek_credentials()
+                if not _lk:
+                    session["status"] = "failed"
+                    session["exit_code"] = 1
+                    session["error"] = "no_llm_configured"
+                    session["lines"].append(
+                        "\n❌ 未配置任何可用 LLM（模型与连接页为空）→ 跳过执行\n"
+                    )
+                    return
+
             # Roles that benefit from real tool access (read/write/exec the codebase)
             _TOOL_ROLES = ("developer", "code_writer", "qa_engineer", "qa", "tester",
                            "build_developer", "build_tester", "deployer", "build_deployer")

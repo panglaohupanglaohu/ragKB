@@ -243,6 +243,48 @@ def _infer_skills_from_role(responsible_role: str) -> List[str]:
     return []
 
 
+def _resolve_responsible_agent(team_id: str, responsible: str) -> str:
+    """将执行计划中的"负责角色"文本解析为团队中具体 agent 的 ID.
+
+    匹配优先级: agent.name 精确匹配 → agent.name 含关键词 → agent.role 匹配
+    均失败时返回空字符串，任务将分配给整个团队。
+    """
+    responsible = (responsible or "").strip()
+    if not responsible or not team_id:
+        return ""
+    try:
+        from .api import _team_manager
+        if not _team_manager:
+            return ""
+        agents = _team_manager.list_agents(team_id)
+        if not agents:
+            return ""
+        # 1) 精确名称匹配
+        for a in agents:
+            if a.name == responsible:
+                return a.agent_id
+        # 2) 名称含关键词（任一方向）
+        resp_lower = responsible.lower()
+        for a in agents:
+            a_lower = a.name.lower()
+            if resp_lower in a_lower or a_lower in resp_lower:
+                return a.agent_id
+        # 3) 角色匹配
+        for a in agents:
+            if a.role and responsible in a.role:
+                return a.agent_id
+        # 4) 角色关键词交叉匹配
+        resp_keywords = set(responsible.split())
+        for a in agents:
+            role_words = set((a.role or "").lower().replace("_", " ").split())
+            if resp_keywords & role_words:
+                return a.agent_id
+        logger.info("未找到 agent 匹配 responsible=%s 在团队 %s 中，任务将分配至团队级", responsible[:30], team_id[:12])
+    except Exception as e:
+        logger.warning("解析负责 agent 失败: %s", e)
+    return ""
+
+
 async def _dispatch_discussion_tasks(
     plaza_id: str,
     disc,
@@ -293,11 +335,16 @@ async def _dispatch_discussion_tasks(
     plan_revision = _get_plan_revision(disc)
     for index, td in enumerate(tasks_data[:10]):
         expected_artifact = str(td.get("expected_artifact", "")).strip()
+        responsible_role = str(td.get("responsible", "")).strip()
+        # 解析负责角色，匹配团队中具体智能体
+        resolved_agent_id = _resolve_responsible_agent(team_id, responsible_role)
         description_lines = []
         if td.get("description"):
             description_lines.append(str(td["description"]).strip())
-        if td.get("responsible"):
-            description_lines.append(f"负责角色: {str(td['responsible']).strip()}")
+        if responsible_role:
+            description_lines.append(f"负责角色: {responsible_role}")
+            if resolved_agent_id:
+                description_lines.append(f"执行智能体: {resolved_agent_id[:12]}")
         if td.get("dependencies"):
             description_lines.append(f"依赖: {str(td['dependencies']).strip()}")
         if expected_artifact:
@@ -305,6 +352,7 @@ async def _dispatch_discussion_tasks(
 
         task = await _submit_internal_task(
             team_id,
+            agent_id=resolved_agent_id,  # 将任务分配给具体智能体
             title=str(td.get("title", f"任务 {index + 1}"))[:120],
             description="\n".join(line for line in description_lines if line)[:2000],
             priority=int(td.get("priority", 2)),
@@ -315,7 +363,7 @@ async def _dispatch_discussion_tasks(
                 team_id=team_id,
                 plan_revision=plan_revision,
                 plan_item_index=index,
-                responsible_role=str(td.get("responsible", "")).strip(),
+                responsible_role=responsible_role,
                 acceptance_test=str(td.get("acceptance_test", "")).strip(),
                 expected_artifacts=[expected_artifact] if expected_artifact else [],
             ),
@@ -1343,6 +1391,18 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
             # 推送当前状态（给跳过的 seq 使用虚拟 id）
             status_seq = max(msg.seq + 1 for msg in disc.messages) if disc.messages else 0
             yield f"id: {status_seq}\ndata: {json.dumps({'type': 'status', 'status': disc.status.value}, ensure_ascii=False)}\n\n"
+
+            # 如果讨论已结束，推送合成的 plan_updated + discussion_end 事件
+            # （SSE 连接时讨论可能已经跑完，需确保前端知道结果）
+            if disc.status == DiscussionStatus.CLOSED:
+                if disc.plan:
+                    end_seq = status_seq + 1
+                    yield f"id: {end_seq}\ndata: {json.dumps({'type': 'plan_updated', 'plan': disc.plan}, ensure_ascii=False)}\n\n"
+                    status_seq = end_seq
+                end_seq_final = status_seq + 1
+                yield f"id: {end_seq_final}\ndata: {json.dumps({'type': 'discussion_end', 'summary': disc.summary}, ensure_ascii=False)}\n\n"
+                # 讨论已结束，不需要等待实时事件
+                return
 
             # 实时推送新消息
             while True:

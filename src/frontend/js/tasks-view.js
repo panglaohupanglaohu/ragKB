@@ -273,8 +273,15 @@ async function loadTasks(){hideViewLoading("view-tasks");
     if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
     else if(t.status==='running'){
       const cancelBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">⏹ 取消</button>`;
+      // T3.2: Step-level retry/skip/terminate for stuck running tasks
+      let stepBtns='';
       if(hasWf&&!wfAllDone){
-        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn}`;
+        const activeIdx=t.metadata.workflow.findIndex(s=>s.status==='active');
+        if(activeIdx>=0){
+          stepBtns=` <button class="btn btn-sm" style="padding:2px 8px;font-size:10px;background:rgba(53,200,255,0.08)" onclick="retryStep('${t.task_id}',${activeIdx})" title="重试当前步骤">🔄</button>`+
+                   ` <button class="btn btn-sm" style="padding:2px 8px;font-size:10px;background:rgba(245,158,11,0.08)" onclick="skipStep('${t.task_id}',${activeIdx})" title="跳过当前步骤">⏭</button>`;
+        }
+        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span>${stepBtns} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn}`;
       } else {
         actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn} ${delBtn}`;
       }
@@ -285,7 +292,13 @@ async function loadTasks(){hideViewLoading("view-tasks");
     const src=t.metadata&&t.metadata.cross_team?`<span class="chip" style="font-size:9px;background:rgba(245,158,11,0.1);color:oklch(0.56 0.05 70)">跨团队 ← ${t.metadata.source_agent||t.metadata.source_team||''}</span>`:'';
     const wfHtml=renderWorkflow(t);
     const wfProgress=t.metadata&&t.metadata.workflow?(() => {const w=t.metadata.workflow;const done=w.filter(s=>s.status==='completed').length;return `<span style="font-size:10px;color:var(--dim);margin-left:6px">${done}/${w.length}</span>`})():'';
-    return `<tr><td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${escapeHtml(t.task_id)}</td><td style="min-width:280px"><b>${escapeHtml(t.title)}</b>${src}${wfProgress}${t.description?`<br><span style="color:var(--dim);font-size:11px">${escapeHtml(t.description?.slice(0,80)||'')}</span>`:''}${wfHtml}</td><td>${t.agent_id||'<span style="color:var(--dim)">自动</span>'}</td><td>${PRIO_LBL[t.priority]||t.priority}</td><td>${t.dependencies&&t.dependencies.length?t.dependencies.map(d=>'<span class="chip" style="font-size:10px">'+d+'</span>').join(''):'—'}</td><td><span class="st ${TST_CLS[t.status]||''}">${TST_LBL[t.status]||t.status}</span></td><td style="white-space:nowrap">${actions}</td></tr>`;
+    // T3.1: Stuck highlight + runtime info
+    const stuckBadge=t.stuck?`<span class="chip" style="font-size:9px;background:rgba(224,27,36,0.12);color:var(--red);margin-left:4px">⚠ 可能卡死</span>`:'';
+    const runtimeInfo=t.elapsed_sec!=null&&t.status==='running'?`<span style="font-size:10px;color:var(--dim);margin-left:4px">⏱${Math.round(t.elapsed_sec/60)}m${t.current_step?' · '+t.current_step:''}${t.last_activity_sec!=null?' · 活动'+Math.round(t.last_activity_sec)+'s前':''}</span>`:'';
+    // T5.5: Collaboration info
+    const collabInfo=t.metadata&&t.metadata.collaboration?`<span class="chip" style="font-size:9px;background:rgba(152,245,167,0.1);color:var(--lime);margin-left:4px">🤝 协作${t.metadata.collaboration.message_count?' · '+t.metadata.collaboration.message_count+'条':''}</span>`:'';
+    const stuckRow=t.stuck?' style="background:rgba(224,27,36,0.04)"':'';
+    return `<tr${stuckRow}><td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${escapeHtml(t.task_id)}</td><td style="min-width:280px"><b>${escapeHtml(t.title)}</b>${src}${stuckBadge}${collabInfo}${wfProgress}${runtimeInfo}${t.description?`<br><span style="color:var(--dim);font-size:11px">${escapeHtml(t.description?.slice(0,80)||'')}</span>`:''}${wfHtml}</td><td>${t.agent_id||'<span style="color:var(--dim)">自动</span>'}</td><td>${PRIO_LBL[t.priority]||t.priority}</td><td>${t.dependencies&&t.dependencies.length?t.dependencies.map(d=>'<span class="chip" style="font-size:10px">'+d+'</span>').join(''):'—'}</td><td><span class="st ${TST_CLS[t.status]||''}">${TST_LBL[t.status]||t.status}</span></td><td style="white-space:nowrap">${actions}</td></tr>`;
   }).join('');
   // populate agent select in modal
   const tm=await api(`${A}/teams/${tid}`);const sel=el('tk-agent');if(tm&&tm.agents){const aa=Array.isArray(tm.agents)?tm.agents:Object.values(tm.agents);sel.innerHTML='<option value="">自动分配</option>'+aa.map(a=>`<option value="${a.agent_id}">${a.name||a.agent_id}</option>`).join('')}
@@ -378,7 +391,7 @@ window.deleteTeam=async function(){
 // ── Add model ──
 el('btn-am').onclick=async()=>{const n=el('am-name').value.trim();if(!n){toast('请输入模型名');return}const r=await api(`${A}/teams/${tid}/models`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:el('am-prov').value,name:n,max_tokens:+el('am-tok').value,temperature:+el('am-temp').value,api_key:el('am-key').value,api_base_url:el('am-url').value,is_default:el('am-def').value==='true'})});if(r){toast('添加成功');closeModal('modal-add-model');el('am-name').value='';el('am-key').value='';el('am-url').value='';loadModels()}else toast('失败')};
 // ── Submit task ──
-el('btn-tk').onclick=async()=>{if(!tid){toast('请先选择一个团队');return}const t=el('tk-title').value.trim();if(!t){toast('请输入标题');return}el('btn-tk').disabled=true;el('btn-tk').textContent='提交中...';try{const deps=el('tk-deps').value.trim();const r=await api(`${A}/teams/${tid}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,description:el('tk-desc').value.trim(),agent_id:el('tk-agent').value||'',priority:+el('tk-prio').value,dependencies:deps?deps.split(',').map(s=>s.trim()).filter(Boolean):[]})});if(r){toast(`✅ 任务 ${r.task_id||''} 已提交`);closeModal('modal-add-task');el('tk-title').value='';el('tk-desc').value='';el('tk-deps').value='';loadTasks()}else{toast('❌ 提交失败，请检查后端日志')}}finally{el('btn-tk').disabled=false;el('btn-tk').textContent='提交'}};
+el('btn-tk').onclick=async()=>{if(!tid){toast('请先选择一个团队');return}const t=el('tk-title').value.trim();if(!t){toast('请输入标题');return}el('btn-tk').disabled=true;el('btn-tk').textContent='提交中...';try{const deps=el('tk-deps').value.trim();const execMode=(el('tk-exec-mode')||{}).value||'linear';const r=await api(`${A}/teams/${tid}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,description:el('tk-desc').value.trim(),agent_id:el('tk-agent').value||'',priority:+el('tk-prio').value,dependencies:deps?deps.split(',').map(s=>s.trim()).filter(Boolean):[],execution_mode:execMode})});if(r){toast(`✅ 任务 ${r.task_id||''} 已提交`);closeModal('modal-add-task');el('tk-title').value='';el('tk-desc').value='';el('tk-deps').value='';loadTasks()}else{toast('❌ 提交失败，请检查后端日志')}}finally{el('btn-tk').disabled=false;el('btn-tk').textContent='提交'}};
 // ── Batch submit ──
 el('btn-bt').onclick=async()=>{if(!tid){toast('请先选择一个团队');return}try{const j=JSON.parse(el('bt-json').value);if(!Array.isArray(j)||!j.length){toast('需要非空 JSON 数组');return}for(const t of j){if(!t.title){toast('每个任务必须有 title 字段');return}}el('btn-bt').disabled=true;el('btn-bt').textContent='提交中...';const r=await api(`${A}/teams/${tid}/tasks/batch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tasks:j})});if(r){toast(`✅ ${Array.isArray(r)?r.length:j.length} 个任务已提交`);closeModal('modal-batch-task');el('bt-json').value='';loadTasks()}else{toast('❌ 批量提交失败，请检查后端日志')}}catch(e){toast('JSON 格式错误: '+e.message)}finally{el('btn-bt').disabled=false;el('btn-bt').textContent='批量提交'}};
 // ── Close modals ──
@@ -425,4 +438,15 @@ window.connectAllTaskTerminals = connectAllTaskTerminals;
 window.expandTaskTerm = expandTaskTerm;
 window.stepClick = stepClick;
 window.advanceWorkflow = advanceWorkflow;
+// T3.2: Step-level retry / skip
+window.retryStep = async function(taskId, idx){
+  await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/${idx}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'active'})});
+  await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/run-claude`,{method:'POST'});
+  toast('🔄 已重试');loadTasks();
+};
+window.skipStep = async function(taskId, idx){
+  if(!confirm('确定跳过当前步骤？')) return;
+  await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/${idx}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'skipped'})});
+  toast('⏭ 已跳过');loadTasks();
+};
 })();

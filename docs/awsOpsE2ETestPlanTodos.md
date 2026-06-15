@@ -19,6 +19,16 @@
 
 ---
 
+## 2026-06-15 代码修复标注（已在 py/JS 侧完成，需重跑 E2E 验证）
+
+- [x] **Plaza 讨论结束无执行计划**：`_run_simulated` 模拟模式现在生成基本计划（含任务表格）+ `plan_updated` 广播；`run_discussion` 模拟返回前调用 `save_plaza` 持久化
+- [x] **SSE 重连错过 discussion_end**：`stream_discussion` 历史重放后若 `disc.status == CLOSED`，推送合成 `plan_updated` + `discussion_end` 事件
+- [x] **任务不分配给具体 Agent**：新增 `_resolve_responsible_agent()` 将执行计划中的"负责角色"（如"上云架构师"）解析为 team 中实际 agent_id，传入 `_submit_internal_task(agent_id=...)`，使每个子任务分配给对应智能体执行
+- [x] **TTS 讨论无语音**：Web Speech 回退放宽到任意中文语音（非仅限男声）+ voices 预加载 + 错误 toast 提示
+- [ ] **待重跑验证**：以上修复均在 Python/JS 代码层完成并通过单元测试（pytest 234 passed / vitest 161 passed），需填入有效 API key 后重跑 E2E 脚本验证端到端链路
+
+---
+
 ## 自动化入口
 
 - 脚本：`scripts/aws_ops_e2e_test.py`
@@ -103,10 +113,17 @@ rtk python3 scripts/aws_ops_e2e_test.py \
   - Case：`POST /plaza/{plaza_id}/discussions/{disc_id}/start`。
   - 验收：discussion 有 `summary`、`key_conclusions` 或 `plan.content`。
   - 失败判定：LLM 调用失败、plan 为空、超时。
+  - **兜底逻辑**：LLM 不可用时模拟模式自动生成基本执行计划（含说明和任务表格），前端仍可显示计划面板。
 
 - [ ] **T2-4** 分支 A：将计划派发给 Build System 团队编写整体运维脚本。
   - Case：`POST /dispatch`，`team_id=build_system`。
   - 验收：创建至少 1 个任务，任务 metadata 包含 plaza/discussion trace。
+  - **Agent 分配**：派发时自动解析"负责角色"列，匹配 Build System 团队中对应 agent 并分配 `agent_id`。
+
+- [ ] **T2-4b** 分支 A2：将子任务派发给 AWS 运维团队自身，各智能体分别执行。
+  - Case：`POST /dispatch` 或 `/dispatch-and-execute`，`team_id=aws_team`。
+  - 验收：每个子任务分配至对应 agent（如"上云架构师→架构师 agent_id"），task.agent_id 非空。
+  - 失败判定：任务 0 个或所有 task.agent_id 为空。
 
 - [ ] **T2-5** 分支 B：记录技能萃取输出并进入技能萃取页链路。
   - Case：`POST /outputs`，`output_type=skill_candidate`。
@@ -185,8 +202,11 @@ rtk python3 scripts/aws_ops_e2e_test.py \
 
 - [ ] **T8-2** 生成改进 TODO。
   - 失败样例：
-    - LLM 配置不可用 → 补模型连接/密钥/默认模型验证。
-    - 讨论无计划 → Plaza 计划生成兜底。
-    - 技能候选不足 3 个 → 萃取 prompt 或候选拆分策略优化。
-    - 数字孪生按钮/API 不一致 → 前端按钮状态机补回归。
-    - 成本数据为空 → 注入测试成本样本或增加 dry-run 成本数据源。
+    - [ ] LLM 配置不可用 → 补模型连接/密钥/默认模型验证（**仍待修复**：DeepSeek API key 无效）
+    - [x] 讨论无计划 → Plaza 计划生成兜底（`_run_simulated` 已添加基本计划 + `save_plaza` 持久化）
+    - [x] 讨论结束后前端不刷新计划面板 → SSE 合成 `plan_updated` + `discussion_end` 事件
+    - [x] 派发子任务不分配给具体 Agent → `_resolve_responsible_agent()` 解析负责角色→agent_id
+    - [ ] 技能候选不足 3 个 → 萃取 prompt 或候选拆分策略优化（**仍待修复**：依赖 LLM）
+    - [ ] Build System 工作坊沙箱无法单步执行 → 需检查 team sync、LLM 决策和 step 错误态（**仍待修复**）
+    - [ ] 数字孪生按钮/API 不一致 → 前端按钮状态机补回归。
+    - [ ] 成本数据为空 → 注入测试成本样本或增加 dry-run 成本数据源。
