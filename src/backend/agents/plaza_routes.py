@@ -321,8 +321,8 @@ async def _dispatch_discussion_tasks(
         except Exception as e:
             logger.warning("LLM 任务拆解失败: %s，回退为单任务", e)
             tasks_data = [{
-                "title": f"[广场计划] {disc.topic[:50]}",
-                "description": plan_source[:500],
+                "title": f"[广场计划] {disc.topic[:80]}",
+                "description": f"来自广场讨论「{disc.topic}」的执行任务。讨论产生 {len(disc.messages)} 条消息。",
                 "priority": 2,
                 "responsible": "",
                 "dependencies": "",
@@ -334,6 +334,11 @@ async def _dispatch_discussion_tasks(
     created_tasks: List[Dict[str, Any]] = []
     plan_revision = _get_plan_revision(disc)
     for index, td in enumerate(tasks_data[:10]):
+        title_raw = str(td.get("title", f"任务 {index + 1}"))
+        # 质量校验：跳过明显的无效标题
+        if not _is_valid_task_title(title_raw):
+            logger.warning("派发跳过无效任务标题: %s", title_raw[:80])
+            continue
         expected_artifact = str(td.get("expected_artifact", "")).strip()
         responsible_role = str(td.get("responsible", "")).strip()
         # 解析负责角色，匹配团队中具体智能体
@@ -353,7 +358,7 @@ async def _dispatch_discussion_tasks(
         task = await _submit_internal_task(
             team_id,
             agent_id=resolved_agent_id,  # 将任务分配给具体智能体
-            title=str(td.get("title", f"任务 {index + 1}"))[:120],
+            title=title_raw[:120],
             description="\n".join(line for line in description_lines if line)[:2000],
             priority=int(td.get("priority", 2)),
             metadata=_build_plaza_task_metadata(
@@ -838,12 +843,16 @@ async def refresh_plan(plaza_id: str, disc_id: str) -> Dict[str, Any]:
 
 
 def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
-    """从 markdown 表格或列表格式中提取任务项."""
+    """从 markdown 表格或列表格式中提取任务项.
+    
+    只接受结构化格式（表格/列表），拒绝按行分割兜底。
+    返回空列表时，调用方应回退到 LLM 拆解或单任务兜底。"""
     import re
     tasks: List[Dict[str, Any]] = []
 
     priority_map = {"P0": 1, "P1": 1, "P2": 2, "P3": 3, "1": 1, "2": 2, "3": 3}
 
+    # ── 策略 1: Markdown 表格 ──
     table_lines = [
         line.strip()
         for line in plan_text.splitlines()
@@ -863,6 +872,9 @@ def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
                 priority = cells[3]
                 dependencies = cells[4]
                 expected_artifact = cells[5]
+                # 质量校验：过滤明显的非任务行
+                if not _is_valid_task_title(title):
+                    continue
                 description = "\n".join(
                     line for line in [
                         f"负责角色: {responsible}" if responsible else "",
@@ -881,42 +893,59 @@ def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
             if tasks:
                 return tasks
 
-    # 尝试匹配列表格式: - 任务标题: 描述
+    # ── 策略 2: 列表格式 ( - 标题: 描述 ) ──
     list_items = re.findall(r'[-*]\s+(.+?)[:：]\s*(.+)', plan_text)
     if list_items:
         for title, desc in list_items:
+            clean_title = title.strip()
+            if not _is_valid_task_title(clean_title):
+                continue
             tasks.append({
-                "title": title.strip(),
+                "title": clean_title,
                 "description": desc.strip(),
                 "priority": 2,
                 "responsible": "",
                 "dependencies": "",
                 "expected_artifact": "",
             })
-        return tasks
+        if tasks:
+            return tasks
 
-    # 回退：按行分割，每行视为一个任务
-    lines = [l.strip() for l in plan_text.split('\n') if l.strip() and not l.strip().startswith('#')]
-    for i, line in enumerate(lines[:8]):
-        clean = re.sub(r'^[\d.)\-*]+\s*', '', line)
-        if clean:
-            tasks.append({
-                "title": clean[:100],
-                "description": clean,
-                "priority": 2,
-                "responsible": "",
-                "dependencies": "",
-                "expected_artifact": "",
-            })
+    # ── 不执行按行分割兜底 ──
+    # 非结构化文本应回退到 LLM 拆解或单任务兜底，避免生成垃圾任务
+    # 例如系统提示、代码块、错误消息等不应被当作任务标题
+    return []
 
-    return tasks or [{
-        "title": "演化需求",
-        "description": plan_text[:500],
-        "priority": 2,
-        "responsible": "",
-        "dependencies": "",
-        "expected_artifact": "",
-    }]
+
+# ── 任务标题质量校验 ────────────────────────────────────
+
+_GARBAGE_TITLE_PATTERNS = [
+    re.compile(r"^```"),                          # 代码块
+    re.compile(r"我的定位[:：]"),                   # 系统提示
+    re.compile(r"你是议事长"),                      # prompt
+    re.compile(r"^⚠️"),                           # 错误/警告
+    re.compile(r"^💡"),                           # UI 提示
+    re.compile(r"我是 AgentsGroup"),               # AI 回复
+    re.compile(r"当前系统功能正常"),                 # 降级回复
+    re.compile(r"^[#]{1,6}\s"),                   # Markdown 标题
+    re.compile(r"[{}]"),                          # JSON/错误片段
+    re.compile(r"Authentication\s+Fails"),         # 认证错误
+    re.compile(r"api key"),                       # API key 错误
+    re.compile(r"^{.*}$"),                        # 纯 JSON 行
+]
+
+def _is_valid_task_title(title: str) -> bool:
+    """检查任务标题是否为有效的人类任务描述，排除代码块/系统提示/错误等."""
+    if not title or len(title.strip()) < 3:
+        return False
+    # 标题过长（>150字符）大概率不是任务标题
+    if len(title) > 150:
+        return False
+    t = title.strip()
+    for pattern in _GARBAGE_TITLE_PATTERNS:
+        if pattern.search(t):
+            return False
+    return True
 
 
 @router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行")
