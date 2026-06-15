@@ -200,7 +200,7 @@ def _load_model_pool(tm: TeamManager) -> None:
                 is_default=mdata.get("is_default", False),
                 enabled=mdata.get("enabled", True),
                 api_key=api_key,
-                api_base_url=mdata.get("api_base_url", ""),
+                api_base_url=(mdata.get("api_base_url", "") or "").strip(),
             )
             team.add_model(model)
 
@@ -763,7 +763,7 @@ def add_model(team_id: str, req: CreateModelRequest) -> Dict[str, Any]:
         temperature=req.temperature,
         is_default=req.is_default,
         api_key=req.api_key,
-        api_base_url=req.api_base_url,
+        api_base_url=(req.api_base_url or "").strip(),
     )
     team.add_model(model)
     if req.is_default:
@@ -790,7 +790,7 @@ def update_model(team_id: str, model_id: str, req: CreateModelRequest) -> Dict[s
     if req.api_key:
         model.api_key = req.api_key
     if req.api_base_url:
-        model.api_base_url = req.api_base_url
+        model.api_base_url = req.api_base_url.strip()
     if req.is_default:
         _set_team_default_model(team, model_id)
     else:
@@ -862,6 +862,31 @@ def _sync_default_model_to_harness(team) -> None:
     cfg = harness.get_provider_config()
     cfg.max_tokens = default_model.max_tokens
     cfg.temperature = default_model.temperature
+
+
+def _resolve_team_provider_config(team_id: str):
+    """Build a ProviderConfig from the team's default model.
+
+    Used by skill evolve/verify so they call the team's configured LLM
+    (e.g. CodeBuddy) instead of the global harness default, which may point
+    at a different team's model.
+    """
+    from .chat_harness import ProviderConfig
+    if not team_id or _team_manager is None:
+        return None
+    try:
+        team = _tm().get_team(team_id)
+    except Exception:
+        return None
+    if not team:
+        return None
+    default_model = next((m for m in team.models.values() if m.is_default), None)
+    if default_model is None:
+        return None
+    try:
+        return ProviderConfig.from_model_config(default_model)
+    except Exception:
+        return None
 
 
 @router.delete(
@@ -2353,7 +2378,7 @@ def _te():
     return engine
 
 
-async def _check_task_runtime_ready() -> tuple[bool, str]:
+async def _check_task_runtime_ready(team_id: str = "", agent_id: str = "") -> tuple[bool, str]:
     """Return whether task execution has a reachable LLM backend."""
     token_ready = False
     try:
@@ -2373,7 +2398,8 @@ async def _check_task_runtime_ready() -> tuple[bool, str]:
     if token_ready:
         return True, ""
 
-    api_key, _, _ = _get_deepseek_credentials()
+    agent = _tm().get_agent(team_id, agent_id) if team_id and agent_id else None
+    api_key, _, _ = _get_deepseek_credentials(agent=agent, team_id=team_id)
     if api_key:
         _harness_log.info("[task_runtime] Direct DeepSeek API available — proceeding")
         return True, ""
@@ -3087,7 +3113,13 @@ async def _submit_internal_task(
     token_ready = False
     token_error = ""
     if auto_start:
-        token_ready, token_error = await _check_task_runtime_ready()
+        token_ready, token_error = await _check_task_runtime_ready(team_id, agent_id)
+
+    task_metadata = dict(metadata or {})
+    task_metadata.setdefault("auto_start", bool(auto_start))
+    # _submit_internal_task owns the workflow start. Prevent TaskEngine from
+    # also auto-enqueueing the same task through the registered executor.
+    task_metadata["_engine_auto_execute"] = False
 
     task = AgentTask(
         agent_id=agent_id,
@@ -3096,7 +3128,7 @@ async def _submit_internal_task(
         description=description,
         priority=priority,
         dependencies=list(dependencies or []),
-        metadata=dict(metadata or {}),
+        metadata=task_metadata,
     )
 
     wf = _prepare_task_submission(task, team_id, token_ready)
@@ -3141,7 +3173,8 @@ async def _real_task_executor(task) -> Any:
         return {"message": "Workflow already running via REST endpoint"}
 
     # Token Factory preflight — but if direct DeepSeek API is available, skip
-    api_key, _, _ = _get_deepseek_credentials()
+    runtime_agent = _tm().get_agent(task.team_id, task.agent_id) if task.agent_id else None
+    api_key, _, _ = _get_deepseek_credentials(agent=runtime_agent, team_id=task.team_id)
     if api_key:
         _harness_log.info("[Executor] Direct DeepSeek API available — skipping Token Factory check")
     else:
@@ -4685,7 +4718,8 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
 
                     # Token Factory check before starting next Claude session
                     # If direct DeepSeek API is available, skip TF entirely
-                    _ds_key, _, _ = _get_deepseek_credentials()
+                    next_agent = _tm().get_agent(team_id, next_step.get("agent_id", ""))
+                    _ds_key, _, _ = _get_deepseek_credentials(agent=next_agent, team_id=team_id)
                     if _ds_key:
                         tf_ok = True
                         _harness_log.info("[Harness] Direct DeepSeek API available — skipping Token Factory check")
@@ -6573,23 +6607,63 @@ def _harness_provider_credentials() -> tuple:
     return api_key, base_url, model, provider_val
 
 
-def _get_deepseek_credentials() -> tuple:
+def _team_model_credentials(agent=None, team_id: str = "") -> tuple:
+    """Resolve task-execution credentials from the current agent/team model."""
+    try:
+        tm = _tm()
+        team = tm.get_team(team_id) if team_id else None
+        if team is None and agent is not None:
+            agent_id = getattr(agent, "agent_id", "") or ""
+            for candidate in tm.list_teams():
+                if agent_id and agent_id in candidate.agents:
+                    team = candidate
+                    break
+        if team is None:
+            return None, None, None, None
+
+        model = None
+        model_id = (getattr(agent, "model_id", "") or "").strip() if agent is not None else ""
+        if model_id:
+            model = team.get_model(model_id)
+        if model is None:
+            model = next((m for m in team.models.values() if m.is_default), None)
+        if model is None or not getattr(model, "enabled", True):
+            return None, None, None, None
+
+        cfg = ProviderConfig.from_model_config(model)
+        api_key = (cfg.api_key or "").strip()
+        if not api_key:
+            return None, None, None, None
+        base_url = (cfg.resolve_base_url() or "").strip().rstrip("/")
+        provider_val = getattr(cfg.provider, "value", None) or str(cfg.provider)
+        return api_key, base_url, cfg.model, provider_val
+    except Exception:
+        return None, None, None, None
+
+
+def _get_deepseek_credentials(agent=None, team_id: str = "") -> tuple:
     """Get the LLM api_key/base_url/model used by task-execution sessions.
 
     Priority:
-      1) System-configured provider via ChatHarness (模型与连接页 / model_pool) —
+      1) Current agent/team model binding (模型池里的成员模型)。
+      2) System-configured provider via ChatHarness (模型与连接页 / model_pool) —
          authoritative, follows whatever the user set on the 模型与连接 page.
-      2) Legacy ~/.claude/settings.json env (本地 Claude CLI 配置) + RTK proxy,
+      3) Legacy ~/.claude/settings.json env (本地 Claude CLI 配置) + RTK proxy,
          kept only as a fallback when no provider is configured.
 
     Returns (api_key, base_url, model) or (None, None, None) if unavailable.
     """
-    # 1) Prefer the system-configured LLM (fixes 写死本地 claude 导致的卡死)
+    # 1) Prefer the model bound to the actual executing agent/team.
+    t_key, t_base, t_model, _t_provider = _team_model_credentials(agent=agent, team_id=team_id)
+    if t_key:
+        return t_key, t_base, t_model
+
+    # 2) Prefer the system-configured LLM (fixes 写死本地 claude 导致的卡死)
     h_key, h_base, h_model, _h_prov = _harness_provider_credentials()
     if h_key:
-        return h_key, h_base, h_model
+        return h_key, (h_base or "").strip().rstrip("/"), h_model
 
-    # 2) Legacy fallback: ~/.claude/settings.json (+ RTK proxy when reachable)
+    # 3) Legacy fallback: ~/.claude/settings.json (+ RTK proxy when reachable)
     import json as _json
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
@@ -6726,7 +6800,7 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
             # that will hang forever when there's no backend).
             _hk, _, _, _ = _harness_provider_credentials()
             if not _hk:
-                _lk, _, _ = _get_deepseek_credentials()
+                _lk, _, _ = _get_deepseek_credentials(agent=agent)
                 if not _lk:
                     session["status"] = "failed"
                     session["exit_code"] = 1
@@ -6740,7 +6814,7 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
             _TOOL_ROLES = ("developer", "code_writer", "qa_engineer", "qa", "tester",
                            "build_developer", "build_tester", "deployer", "build_deployer")
             if agent.role in _TOOL_ROLES:
-                api_key, api_base_url, model = _get_deepseek_credentials()
+                api_key, api_base_url, model = _get_deepseek_credentials(agent=agent)
                 if api_key:
                     session["lines"].append(
                         f"🛠 使用 DeepSeek V4 工具循环模式 (read/grep/write/exec)...\n\n"
@@ -6756,7 +6830,7 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
             if use_direct_api:
                 # Text-only roles → fast streaming via DeepSeek OpenAI-compatible API
-                api_key, api_base_url, model = _get_deepseek_credentials()
+                api_key, api_base_url, model = _get_deepseek_credentials(agent=agent)
                 if api_key:
                     session["lines"].append(f"⚡ 使用 DeepSeek V4 直连 (64K 输出, 流式)...\n\n")
                     # Pull per-task overrides if any (model_pool defaults to 65536/0.2)
@@ -6941,6 +7015,45 @@ def _run_claude_cli(session: Dict[str, Any], prompt: str, working_dir: str,
     _run_claude_cli_direct(session, prompt, working_dir, timeout_sec, cfg)
 
 
+def _looks_like_llm_runtime_auth_error(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "401",
+            "403",
+            "authentication fails",
+            "invalid api key",
+            "api key is invalid",
+            "authorization required",
+            "unauthorized",
+        )
+    )
+
+
+def _complete_session_with_llm_degraded_output(session: Dict[str, Any], prompt: str, reason: str) -> None:
+    """Finish a task session with a deterministic, reviewable fallback artifact."""
+    reason_text = (reason or "LLM runtime unavailable").strip().replace("\n", " ")[:300]
+    prompt_excerpt = (prompt or "").strip().replace("\r", "")[:1200]
+    session["llm_degraded"] = True
+    session["status"] = "completed"
+    session["exit_code"] = 0
+    session["error"] = ""
+    session["lines"].append(
+        "\n\n"
+        f"⚠️ LLM 执行降级：{reason_text}\n"
+        "系统已生成确定性任务草稿，供人工 review / 后续真实模型补跑。\n\n"
+        "## 降级执行草稿\n"
+        "- 先确认变更目标、风险、依赖和验收指标。\n"
+        "- 将任务拆成 plan / dry-run / review / apply / rollback / observe 六段。\n"
+        "- 所有生产动作必须保留审计日志、回滚条件和成本/合规检查。\n"
+        "- 对 OpenSearch/ElasticSearch 伸缩类任务，必须覆盖容量基线、分片重平衡、"
+        "CloudWatch/OpenSearch 指标门禁、RI/Savings Plan 影响和北美数据驻留。\n\n"
+        "## 原始任务摘要\n"
+        f"{prompt_excerpt}\n"
+    )
+
+
 def _run_tool_loop(
     session: Dict[str, Any], prompt: str, role: str,
     *, api_key: str, api_base_url: str, model: str,
@@ -7027,6 +7140,9 @@ def _run_tool_loop(
         session["status"] = "completed"
         session["exit_code"] = 0
     else:
+        if _looks_like_llm_runtime_auth_error(str(result.get("error", ""))):
+            _complete_session_with_llm_degraded_output(session, prompt, str(result.get("error", "")))
+            return
         session["lines"].append(
             f"\n❌ 失败: {result.get('error','')}\n"
             f"已完成 {result['iterations']} 轮迭代\n"
@@ -7091,8 +7207,11 @@ def _run_openai_compatible(
             if resp.status != 200:
                 err_body = resp.read().decode("utf-8", errors="replace")[:500]
                 last_error = f"API 错误: {resp.status} {resp.reason}\n{err_body}"
-                session["lines"].append(f"⚠️ {last_error}\n")
                 conn.close()
+                if resp.status in (401, 403):
+                    _complete_session_with_llm_degraded_output(session, prompt, last_error)
+                    return
+                session["lines"].append(f"⚠️ {last_error}\n")
                 continue
 
             # Stream SSE response
@@ -7153,6 +7272,10 @@ def _run_openai_compatible(
             session["error"] = str(e)
             session["lines"].append(f"\n❌ API 错误: {e}\n")
             return
+
+    if _looks_like_llm_runtime_auth_error(str(last_error or "")):
+        _complete_session_with_llm_degraded_output(session, prompt, str(last_error or "All retries exhausted"))
+        return
 
     session["status"] = "failed"
     session["exit_code"] = 1
@@ -9992,7 +10115,13 @@ def skill_library_suggestions(
 async def skill_library_evolve(req: SkillLibraryActionRequest) -> Dict[str, Any]:
     if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return await _get_skill_evolver().evolve_skill(req.team_id, req.skill_id, user_feedback=req.user_feedback or None)
+    provider_config = _resolve_team_provider_config(req.team_id)
+    return await _get_skill_evolver().evolve_skill(
+        req.team_id,
+        req.skill_id,
+        user_feedback=req.user_feedback or None,
+        provider_config=provider_config,
+    )
 
 
 @router.post("/skill-library/apply-evolution", summary="应用演化结果")
@@ -10006,7 +10135,12 @@ def skill_library_apply_evolution(req: SkillLibraryActionRequest) -> Dict[str, A
 async def skill_library_verify(req: SkillLibraryActionRequest) -> Dict[str, Any]:
     if not req.team_id or not req.skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    result = await _get_skill_verifier().verify_skill(req.team_id, req.skill_id)
+    provider_config = _resolve_team_provider_config(req.team_id)
+    result = await _get_skill_verifier().verify_skill(
+        req.team_id,
+        req.skill_id,
+        provider_config=provider_config,
+    )
     return result.to_dict()
 
 

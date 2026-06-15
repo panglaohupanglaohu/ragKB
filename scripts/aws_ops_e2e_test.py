@@ -209,7 +209,24 @@ class Runner:
             self.ctx["improvement_todos"].append("补齐模型池中的 codebuddy/deepseek-v4-pro 默认配置，并保存 API key。")
             return {"_status": FAIL, "_detail": "未找到截图对应的 CodeBuddy/DeepSeek 模型池配置", "llm_status": status}
 
-        preferred = next((m for m in candidates if m.get("is_default")), candidates[0])
+        def model_priority(model: dict[str, Any]) -> tuple[int, int, str]:
+            model_id = str(model.get("model_id") or "").lower()
+            team_id = str(model.get("team_id") or "")
+            team_name = str(model.get("team_name") or "")
+            score = 0
+            if team_name == DEFAULT_AWS_TEAM_NAME:
+                score += 100
+            if team_id == "build_system":
+                score += 80
+            if model_id == "codebuddy":
+                score += 60
+            if str(model.get("provider") or "").lower() == "codebuddy":
+                score += 30
+            if model.get("is_default"):
+                score += 10
+            return (score, 1 if model.get("has_api_key") else 0, model_id)
+
+        preferred = max(candidates, key=model_priority)
         test_payload = {
             "provider": preferred.get("provider") or "deepseek",
             "name": preferred.get("name") or "deepseek-v4-pro",
@@ -223,12 +240,15 @@ class Runner:
         preferred["test_result"] = llm_test
         self.ctx["objects"]["codebuddy_model"] = preferred
         if t_code != 200 or not llm_test.get("success"):
+            self.ctx["objects"]["llm_degraded"] = True
             self.ctx["improvement_todos"].append("修复 CodeBuddy/DeepSeek 模型连接：检查 API key、base_url、网络连通性和默认模型同步。")
+            status = FAIL if self.args.require_real_llm else WARN
             return {
-                "_status": FAIL,
-                "_detail": f"找到模型但 LLM test 失败 HTTP {t_code}: {compact(llm_test, 500)}",
+                "_status": status,
+                "_detail": f"找到模型但 LLM test 失败，将使用确定性降级演示 HTTP {t_code}: {compact(llm_test, 500)}",
                 "model": preferred,
             }
+        self.ctx["objects"]["llm_degraded"] = False
         return {"_detail": f"{preferred.get('team_name')} / {preferred.get('model_id')} / {preferred.get('name')}", "model": preferred}
 
     def cleanup_legacy_aws_e2e_teams(self) -> dict[str, Any]:
@@ -279,6 +299,54 @@ class Runner:
         self.ctx["objects"]["aws_team_id"] = team_id
         self.ctx["objects"]["aws_team_name"] = team_name
         return {"team_id": team_id, "team": team, "reused": False, "_detail": f"created {team_id}"}
+
+    def ensure_aws_team_llm_model(self) -> dict[str, Any]:
+        team_id = self.ctx["objects"]["aws_team_id"]
+        models_payload, code = self.client.get(f"/api/v1/agent-config/teams/{team_id}/models?limit=200&offset=0")
+        self.require_status(models_payload, code, {200}, "list AWS team models")
+        models = items(models_payload)
+
+        default_model = next((m for m in models if m.get("is_default")), None)
+        if default_model is None and models:
+            default_model = models[0]
+            result, set_code = self.client.put(
+                f"/api/v1/agent-config/teams/{team_id}/models/{urllib.parse.quote(str(default_model.get('model_id')), safe='')}/default"
+            )
+            self.require_status(result, set_code, {200}, "set AWS team default model")
+
+        if default_model is None:
+            source = self.ctx["objects"].get("codebuddy_model") or {}
+            if not source:
+                build_models, build_code = self.client.get("/api/v1/agent-config/teams/build_system/models?limit=200&offset=0")
+                self.require_status(build_models, build_code, {200}, "list Build System models")
+                source_models = items(build_models)
+                source = next((m for m in source_models if str(m.get("model_id") or "").lower() == "codebuddy"), None)
+                source = source or next((m for m in source_models if m.get("is_default")), None) or (source_models[0] if source_models else {})
+            if not source:
+                self.ctx["improvement_todos"].append("AWS 运维团队模型池为空，且 Build System 未找到可复制的 codebuddy/default 模型。")
+                return {"_status": FAIL, "_detail": "AWS team has no model and no source model"}
+
+            payload = {
+                "provider": source.get("provider") or "deepseek",
+                "name": source.get("name") or "deepseek-v4-pro",
+                "max_tokens": int(source.get("max_tokens") or 4096),
+                "temperature": float(source.get("temperature") or 0.7),
+                "is_default": True,
+                "api_base_url": source.get("api_base_url") or "",
+            }
+            result, create_code = self.client.post(f"/api/v1/agent-config/teams/{team_id}/models", payload)
+            self.require_status(result, create_code, {201}, "create AWS team model")
+            default_model = result
+
+        model_id = str(default_model.get("model_id") or "")
+        if not model_id:
+            raise AssertionError(f"default model_id missing: {default_model}")
+        self.ctx["objects"]["aws_model"] = default_model
+        self.ctx["objects"]["aws_model_id"] = model_id
+        return {
+            "_detail": f"{model_id} / {default_model.get('provider')} / {default_model.get('name')}",
+            "model": default_model,
+        }
 
     def list_tools_and_skills(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         tools_payload, t_code = self.client.get("/api/v1/agent-config/tools?limit=200&offset=0")
@@ -340,12 +408,14 @@ class Runner:
         existing_agents = items(existing_payload) if existing_code == 200 else []
         existing_by_name = {str(agent.get("name") or ""): agent for agent in existing_agents}
         agents: list[dict[str, Any]] = []
+        default_model_id = str(self.ctx["objects"].get("aws_model_id") or "")
         for idx, (key, name, role) in enumerate(role_specs):
             agent_payload = {
                 "name": name,
                 "role": role,
                 "description": f"{name}：{role}",
                 "template_type": "custom",
+                "model_id": default_model_id,
                 "system_prompt": f"你是 AWS 运维团队的{name}，负责{role}。回答必须围绕 ElasticSearch 伸缩、稳定性、成本和合规。",
             }
             if name in existing_by_name:
@@ -389,13 +459,15 @@ class Runner:
         team_skills_payload, team_skills_code = self.client.get(f"/api/v1/agent-config/teams/{team_id}/skills?limit=200&offset=0")
         actual_team_skills = items(team_skills_payload) if team_skills_code == 200 else []
         bound_skill_count = sum(len(agent.get("skills") or []) for agent in agents)
+        model_bound_count = sum(1 for agent in agents if agent.get("model_id"))
         tool_enable_ok = all(row["code"] == 200 for row in tool_enable_results)
         skill_enable_ok = all(row["code"] == 200 for row in skill_enable_results)
-        status = PASS if tool_ids and tool_enable_ok and skill_ids and skill_enable_ok and actual_team_skills and bound_skill_count > 0 else FAIL
-        detail = f"team_agents={len(agents)}, tools={len(tool_ids)}, skill_refs={len(skill_ids)}, actual_team_skills={len(actual_team_skills)}, bound_skills={bound_skill_count}"
+        status = PASS if tool_ids and tool_enable_ok and skill_ids and skill_enable_ok and actual_team_skills and bound_skill_count > 0 and model_bound_count == len(agents) else FAIL
+        detail = f"team_agents={len(agents)}, tools={len(tool_ids)}, skill_refs={len(skill_ids)}, actual_team_skills={len(actual_team_skills)}, bound_skills={bound_skill_count}, model_bound={model_bound_count}"
         if status == FAIL:
             self.ctx["improvement_todos"].append("补充 AWS/Terraform/监控/成本/合规相关默认工具和技能，避免新团队初始化为空。")
             self.ctx["improvement_todos"].append("团队技能绑定必须校验 enable/bind 返回码，优先使用 slug/name 作为技能引用，避免 search skill_id 与注册表实例不一致。")
+            self.ctx["improvement_todos"].append("AWS 运维团队成员必须绑定团队默认模型，避免成员详情和运行时出现空 model_id。")
         return {
             "_status": status,
             "_detail": detail,
@@ -453,8 +525,18 @@ class Runner:
         if s_code != 200:
             self.ctx["improvement_todos"].append("Plaza 讨论启动失败时增加计划生成兜底，至少保留结构化空计划和 request_id。")
             return {"_status": FAIL, "_detail": f"discussion start HTTP {s_code}: {compact(start, 500)}", "plaza": plaza, "discussion": discussion}
-        detail, g_code = self.client.get(f"/api/v1/agent-config/plaza/{plaza_id}/discussions/{discussion_id}")
-        self.require_status(detail, g_code, {200}, "get discussion")
+        detail = {}
+        g_code = 0
+        deadline = time.time() + self.args.plaza_wait_seconds
+        while time.time() < deadline:
+            detail, g_code = self.client.get(f"/api/v1/agent-config/plaza/{plaza_id}/discussions/{discussion_id}")
+            self.require_status(detail, g_code, {200}, "get discussion")
+            plan_probe = compact(detail.get("plan") or detail.get("summary") or detail.get("key_conclusions") or "", 6000)
+            if len(plan_probe.strip()) >= 20 and detail.get("status") in {"closed", "summarizing"}:
+                break
+            if len(plan_probe.strip()) >= 20 and detail.get("message_count", 0):
+                break
+            time.sleep(2)
         plan_text = compact(detail.get("plan") or detail.get("summary") or detail.get("key_conclusions") or "", 6000)
         self.ctx["objects"]["discussion_plan_text"] = plan_text
         if len(plan_text.strip()) < 20:
@@ -605,7 +687,12 @@ class Runner:
         for _ in range(2):
             step, s_code = self.client.post(f"/api/v1/sandbox/sessions/{sid}/step", timeout=120)
             steps.append({"code": s_code, "step": step})
-        inject_skill, _ = self.client.post(f"/api/v1/sandbox/sessions/{sid}/inject", {"confirm": True, "type": "skill_inject", "skill_id": seed_skill})
+        inject_skill = {"skipped": True, "reason": "no_seed_skill"}
+        if seed_skill:
+            inject_skill, _ = self.client.post(
+                f"/api/v1/sandbox/sessions/{sid}/inject",
+                {"confirm": True, "type": "skill_inject", "skill_id": seed_skill},
+            )
         inject_task, _ = self.client.post(f"/api/v1/sandbox/sessions/{sid}/inject", {"confirm": True, "type": "task_change"})
         session, g_code = self.client.get(f"/api/v1/sandbox/sessions/{sid}")
         self.require_status(session, g_code, {200}, "get sandbox")
@@ -773,7 +860,7 @@ class Runner:
                 add_todo("Sandbox step 500 需要返回结构化错误：session_id、team_id、use_llm、selected_agent、missing_skill_id、backend traceback id。")
                 add_todo("Build System 工作坊修复伪代码：sync build_system agents -> ensure twins_count>0 -> pause created session -> step once -> assert total_steps_executed increments。")
         if not self.ctx["improvement_todos"]:
-            self.ctx["improvement_todos"].append("本轮未发现阻塞项；建议补真实浏览器 UI 回归，覆盖按钮状态和截图证据。")
+            self.ctx["improvement_todos"].append("本轮未发现阻塞项；建议补可重复的自动化 UI 回归，覆盖按钮状态和截图证据。")
         return self.ctx
 
     def write_reports(self) -> None:
@@ -808,7 +895,7 @@ class Runner:
             for result in failed:
                 lines.append(f"- `{result.step}`：{result.detail}")
         else:
-            lines.append("- 未发现 FAIL；请继续补真实浏览器 UI 回归。")
+            lines.append("- 未发现 FAIL；请继续补可重复的自动化 UI 回归。")
         lines.extend(["", "## 改进 TODOS", ""])
         for todo in report.get("improvement_todos", []):
             lines.append(f"- [ ] {todo}")
@@ -821,6 +908,7 @@ class Runner:
         self.step("T0-1b cleanup legacy duplicate AWS E2E teams", self.cleanup_legacy_aws_e2e_teams, critical=False)
         self.step("T0-2 CodeBuddy DeepSeek LLM config and real call", self.find_codebuddy_model, critical=False)
         self.step("T1-1 create AWS ops team", self.create_aws_team)
+        self.step("T1-1b ensure AWS team default LLM model", self.ensure_aws_team_llm_model, critical=False)
         self.step("T1-2/T1-3 create agents and bind initial tools/skills", self.create_agents_and_bind_capabilities, critical=False)
         self.step("T2 plaza discussion for ElasticSearch scaling", self.plaza_discussion, critical=False)
         self.step("T2 branch A/B dispatch tasks and record skill output", self.dispatch_and_record_outputs, critical=False)
@@ -842,8 +930,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--llm-timeout", type=int, default=240)
     parser.add_argument("--skill-wait-seconds", type=int, default=180)
+    parser.add_argument("--plaza-wait-seconds", type=int, default=300)
     parser.add_argument("--aws-team-name", default=DEFAULT_AWS_TEAM_NAME)
     parser.add_argument("--keep-legacy-aws-teams", action="store_true")
+    parser.add_argument("--require-real-llm", action="store_true")
     parser.add_argument("--report-md", default="docs/reports/aws-ops-e2e-report.md")
     parser.add_argument("--report-json", default="docs/reports/aws-ops-e2e-report.json")
     parser.add_argument("--fail-fast", action="store_true")

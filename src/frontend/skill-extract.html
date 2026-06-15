@@ -464,12 +464,15 @@
     <div class="modal-body modal-tab-content" id="tab-usage" style="display:none;flex-direction:column;gap:16px;padding:20px 24px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h4 style="margin:0">📊 使用效果 (Before → After)</h4>
-        <button class="btn btn-sm" onclick="refreshUsageTab()" id="btn-refresh-usage">🔄 刷新</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-sm" onclick="showUsageCompare()" id="btn-show-usage-compare">👁️ 展示对比</button>
+          <button class="btn btn-sm" onclick="refreshUsageTab()" id="btn-refresh-usage">🔄 刷新</button>
+        </div>
       </div>
       <!-- Usage metrics row -->
       <div id="usage-metrics" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"></div>
       <!-- Before / After comparison -->
-      <div style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+      <div id="usage-compare-panel" style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
         <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between">
           <span>🔬 技能状态对比</span>
           <span id="usage-diff-summary" style="font-family:var(--font-mono)"></span>

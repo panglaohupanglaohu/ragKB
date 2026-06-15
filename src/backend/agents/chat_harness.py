@@ -214,7 +214,7 @@ class ProviderConfig:
 
     def resolve_base_url(self) -> str:
         if self.api_base_url:
-            return self.api_base_url.rstrip("/")
+            return self.api_base_url.strip().rstrip("/")
         return self._DEFAULT_URLS.get(self.provider, "http://127.0.0.1:11434/v1")
 
     @classmethod
@@ -888,10 +888,11 @@ class ChatHarness:
         system_prompt: str = "",
         tools: Optional[List[Dict[str, Any]]] = None,
         model_override: str = "",
+        config_override: Optional[ProviderConfig] = None,
     ) -> TurnResult:
         """Execute a single chat turn. This is the main entry point."""
         self._total_calls += 1
-        config = self.get_provider_config(agent_id)
+        config = config_override or self.get_provider_config(agent_id)
         client = LLMClient(config)
 
         session = self.get_or_create_session(session_id, agent_id, system_prompt)

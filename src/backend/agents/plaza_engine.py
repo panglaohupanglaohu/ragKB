@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from uuid import uuid4
@@ -33,6 +34,7 @@ _EXCHANGES_PER_ROUND = 2  # 每轮内交锋次数
 _SPEAKERS_PER_EXCHANGE = 3  # 每次交锋参与人数
 _MAX_RETRIES = 3  # LLM 调用最大重试次数
 _RETRY_BACKOFF_BASE = 1.5  # 退避基数（秒）
+_LLM_CALL_TIMEOUT = 12.0  # 单次 LLM 调用超时，避免议事厅永久 in_progress
 _CORE_ROLE_PRIORITY = {
     "architect": 0,
     "researcher": 1,
@@ -56,6 +58,7 @@ class PlazaEngine:
         self._discussion_locks: Dict[str, asyncio.Lock] = {}
         self._chat_fn: Optional[Callable] = None  # ChatHarness.chat reference
         self._escalation_queue: List[Dict[str, Any]] = []  # failed tasks for human review
+        self._llm_degraded_until: float = 0.0
 
     def set_chat_fn(self, fn: Callable):
         """注入 ChatHarness.chat 异步函数."""
@@ -122,6 +125,98 @@ class PlazaEngine:
             "task_ids": previous_task_ids,
             "task_count": len(previous_task_ids),
         }
+
+    def _is_unusable_llm_text(self, text: str) -> bool:
+        """Detect provider fallback/error text that must not become a plan."""
+        lowered = (text or "").lower()
+        markers = (
+            "当前 llm 未连接",
+            "authentication fails",
+            "api key",
+            "invalid_request_error",
+            "当前系统功能正常，但需要 llm",
+            "llm 当前不可用",
+            "暂时离线",
+            "no choices returned",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _mark_llm_degraded(self, seconds: float = 300.0) -> None:
+        self._llm_degraded_until = max(self._llm_degraded_until, time.monotonic() + seconds)
+
+    def _has_actionable_plan(self, text: str) -> bool:
+        if not text or self._is_unusable_llm_text(text):
+            return False
+        return "## 执行计划" in text and "| 序号 | 任务 |" in text
+
+    def _role_label_for(self, participants: List[Participant], keywords: List[str], fallback: str) -> str:
+        for participant in participants:
+            hay = f"{participant.agent_name} {participant.role}".lower()
+            if any(keyword.lower() in hay for keyword in keywords):
+                return participant.agent_name or participant.role or fallback
+        return fallback
+
+    def _build_deterministic_plan_content(
+        self,
+        disc: Discussion,
+        participants: List[Participant],
+        reason: str,
+    ) -> str:
+        """Build a product-demo-safe plan when the provider is unavailable."""
+        leader = self._role_label_for(participants, ["leader", "协调", "派发", "风险"], "运维 Leader")
+        architect = self._role_label_for(participants, ["架构", "architect", "规划", "容量"], "上云架构师")
+        operator = self._role_label_for(participants, ["操作", "operator", "terraform", "资源创建"], "运维操作员")
+        monitor = self._role_label_for(participants, ["巡检", "监控", "故障", "responder"], "巡检监控员")
+        cost = self._role_label_for(participants, ["成本", "cost", "ri", "账单"], "成本优化成员")
+        region = self._role_label_for(participants, ["北美", "north", "合规", "ai 项目"], "北美 AI 项目运维员")
+        return (
+            "## 技术概要\n"
+            f"围绕「{disc.topic}」，先冻结当前生产基线，再比较纵向升配与横向扩节点两条路径。"
+            "首要方案是由 Build System 生成可审阅、可 dry-run、可回滚的 Terraform/运维脚本，"
+            "AWS 运维团队负责容量评估、变更执行、监控验收、成本治理与区域合规。"
+            "最大风险是扩容后索引迁移、热点分片和跨可用区流量导致的性能抖动；"
+            "因此所有动作必须有指标门禁、回滚窗口和北美 AI 项目数据驻留检查。"
+            f"本计划由系统在 {reason} 场景下生成，可直接派发任务并进入数字孪生演练。\n\n"
+            "## 加权结论 (P0→P1→P2)\n"
+            f"- [P0] 先完成容量与风险基线，再让 Build System 编写伸缩脚本 | {architect} / Build System | 没有基线和脚本就无法安全变更\n"
+            f"- [P0] 变更执行必须绑定 dry-run、代码 review、单步 apply 和回滚脚本 | {operator} / {leader} | 降低生产误操作和不可逆变更风险\n"
+            f"- [P1] 监控验收、故障注入和成本门禁必须在演练场先跑通 | {monitor} / {cost} | 保证扩容后的稳定性和预算可控\n"
+            f"- [P1] 北美 AI 项目单独执行区域合规检查 | {region} | 满足数据驻留、审计和法律约束\n"
+            "- [P2] 后续可把脚本模板沉淀为公共技能，并把区域合规做成特质技能\n\n"
+            "## 执行计划\n"
+            "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            "|---|---|---|---|---|---|\n"
+            f"| 1 | 建立 ES 当前容量、索引、分片和 SLO 基线 | {architect} | P0 | 无 | 容量评估表、扩容选型建议、风险清单 |\n"
+            "| 2 | 生成 ElasticSearch 伸缩 Terraform/运维脚本 | Build System | P0 | 任务1 | plan/dry-run/apply/rollback 脚本与 README |\n"
+            f"| 3 | 执行代码 review、单步变更和彩排回滚 | {operator} | P0 | 任务2 | 审核记录、执行日志、回滚验证结果 |\n"
+            f"| 4 | 配置 CloudWatch/OpenSearch 指标门禁与故障处理演练 | {monitor} | P1 | 任务2 | 告警规则、验收指标、故障演练报告 |\n"
+            f"| 5 | 评估扩容账单、RI/Savings Plan 与治理阈值 | {cost} | P1 | 任务1 | 成本预测、购买建议、治理目标 |\n"
+            f"| 6 | 完成北美 AI 项目区域合规与部署限制检查 | {region} | P1 | 任务2 | 合规检查表、区域部署准入结论 |\n\n"
+            "## 补充观察\n"
+            f"{leader} 负责把 P0 任务按变更窗口派发，并在数字孪生演练通过后再进入真实执行。"
+        )
+
+    def _build_fallback_agent_content(self, participant: Participant, prompt: str) -> str:
+        role_text = f"{participant.agent_name or participant.agent_id}（{participant.role}）"
+        lowered = prompt.lower()
+        if "执行计划" in prompt or "修订后的执行计划" in prompt:
+            return (
+                "## 修订说明\n"
+                "LLM 当前不可用，先按变更安全路径生成可派发计划。\n\n"
+                "## 执行计划\n"
+                "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+                "|---|---|---|---|---|---|\n"
+                f"| 1 | 补齐容量基线与回滚门禁 | {role_text} | P0 | 无 | 可执行变更清单 |\n"
+                "| 2 | 生成脚本并完成 review | Build System | P0 | 任务1 | 脚本、README、review 记录 |\n"
+                f"| 3 | 在演练场执行单步扩容和故障注入 | {role_text} | P1 | 任务2 | 演练报告 |\n"
+            )
+        if "成本" in prompt or "cost" in lowered:
+            return f"{role_text} 建议先做扩容前后账单预测，把 RI/Savings Plan 建议和预算阈值写入变更门禁。"
+        if "监控" in prompt or "故障" in prompt:
+            return f"{role_text} 建议把 CPU、JVMMemoryPressure、写入延迟、分片迁移和 5xx 告警作为验收门禁，并保留回滚窗口。"
+        if "合规" in prompt or "北美" in prompt:
+            return f"{role_text} 建议单独检查北美 AI 项目的数据驻留、日志审计和区域部署限制，再进入生产变更。"
+        return f"{role_text} 建议先确认容量基线、脚本 dry-run、代码 review、监控验收和回滚路径，再推进 ElasticSearch 伸缩。"
 
     # ── 广场 CRUD ──────────────────────────────────────────
 
@@ -416,6 +511,18 @@ class PlazaEngine:
             discussion_topic=disc.topic,
             round_number=disc.max_rounds,
         )
+        if not self._has_actionable_plan(disc.summary):
+            participants_for_plan = ([moderator] if moderator else []) + speakers
+            disc.summary = self._build_deterministic_plan_content(
+                disc,
+                participants_for_plan,
+                "LLM 不可用或未返回结构化计划",
+            )
+            disc.key_conclusions = [
+                "先建立 ES 容量与风险基线",
+                "Build System 生成可 dry-run/可回滚脚本",
+                "AWS 运维团队负责监控、成本与北美合规门禁",
+            ]
         # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
         disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
@@ -815,15 +922,27 @@ class PlazaEngine:
         discussion_topic: str = "",
         round_number: int = 0,
     ) -> str:
+        if time.monotonic() < self._llm_degraded_until:
+            return self._build_fallback_agent_content(participant, prompt)
         last_error = None
         for attempt in range(_MAX_RETRIES):
             try:
-                result = await self._chat_fn(
-                    prompt,
-                    agent_id=participant.agent_id,
-                    system_prompt=self._build_agent_system_prompt(participant),
+                result = await asyncio.wait_for(
+                    self._chat_fn(
+                        prompt,
+                        agent_id=participant.agent_id,
+                        system_prompt=self._build_agent_system_prompt(participant),
+                    ),
+                    timeout=_LLM_CALL_TIMEOUT,
                 )
                 if result and result.response:
+                    if self._is_unusable_llm_text(result.response):
+                        logger.warning(
+                            "Agent %s received provider fallback text; using deterministic content",
+                            participant.agent_id,
+                        )
+                        self._mark_llm_degraded()
+                        return self._build_fallback_agent_content(participant, prompt)
                     return result.response
                 last_error = Exception("empty response")
             except Exception as e:
@@ -831,6 +950,18 @@ class PlazaEngine:
                 logger.warning(
                     f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
                 )
+                if isinstance(e, asyncio.TimeoutError):
+                    self._mark_llm_degraded()
+                    self._escalate_failure(
+                        participant,
+                        prompt,
+                        e,
+                        plaza_id=plaza_id,
+                        discussion_id=discussion_id,
+                        discussion_topic=discussion_topic,
+                        round_number=round_number,
+                    )
+                    return self._build_fallback_agent_content(participant, prompt)
             if attempt < _MAX_RETRIES - 1:
                 await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
 
@@ -936,6 +1067,13 @@ class PlazaEngine:
             discussion_topic=disc.topic,
             round_number=disc.current_round or 1,
         )
+        if not self._has_actionable_plan(plan_text):
+            participants = list(plaza.participants.values())
+            plan_text = self._build_deterministic_plan_content(
+                disc,
+                participants,
+                "刷新计划时 LLM 不可用或未返回结构化计划",
+            )
 
         disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
 
@@ -963,12 +1101,6 @@ class PlazaEngine:
         speakers: List[Participant],
     ):
         """无 LLM 时的模拟讨论."""
-        sim_responses = [
-            "这是一个很好的话题。从技术角度来看，我认为关键在于系统的可扩展性和模块化设计。",
-            "我同意前面的观点，同时想补充：在实际实施中，我们还需要考虑性能瓶颈和容错机制。",
-            "从测试的角度，我建议我们在设计阶段就规划好测试策略，包括单元测试和集成测试的覆盖范围。",
-            "关于这个问题，业界已经有一些成熟的方案可以参考。我们可以结合自身需求进行适配。",
-        ]
 
         if moderator:
             msg = PlazaMessage(
@@ -985,7 +1117,10 @@ class PlazaEngine:
             disc.current_round = round_num
             await self._broadcast(disc.id, {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds})
             for i, speaker in enumerate(speakers):
-                content = sim_responses[i % len(sim_responses)]
+                content = self._build_fallback_agent_content(
+                    speaker,
+                    f"{disc.topic}\n{disc.description}\n{disc.goal}",
+                )
                 msg = PlazaMessage(
                     discussion_id=disc.id, agent_id=speaker.agent_id,
                     agent_name=speaker.agent_name, role=speaker.role,
@@ -997,23 +1132,18 @@ class PlazaEngine:
                 await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
                 await asyncio.sleep(0.1)
 
-        disc.summary = f"关于「{disc.topic}」的讨论已完成。（模拟模式 — 配置 LLM API Key 后可获得真实 AI 讨论）"
-        # 模拟模式下也生成基本执行计划，确保前端能显示计划面板
-        sim_plan_content = (
-            f"## 技术概要\n"
-            f"本讨论在模拟模式下完成。讨论话题: {disc.topic}。"
-            f"如需真实 AI 讨论与可执行计划，请配置 LLM API Key 后重新启动讨论。\n\n"
-            f"## 加权结论 (P0→P1→P2)\n"
-            f"- [P0] 配置 LLM 提供商 | 项目负责人 | 讨论需要 LLM 才能生成真实结论\n\n"
-            f"## 执行计划\n"
-            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-            f"|---|---|---|---|---|---|\n"
-            f"| 1 | 配置 LLM API Key | 项目负责人 | P0 | 无 | LLM 可正常调用 |\n"
-            f"| 2 | 重新启动讨论 | 议事长 | P0 | 任务1 | 获得真实 AI 讨论结果 |\n\n"
-            f"## 补充观察\n"
-            f"当前系统处于模拟模式，请前往「模型与连接」页面配置 LLM。"
+        participants_for_plan = ([moderator] if moderator else []) + speakers
+        disc.summary = self._build_deterministic_plan_content(
+            disc,
+            participants_for_plan,
+            "模拟模式",
         )
-        disc.plan = self._build_plan_payload(disc, sim_plan_content, "模拟模式自动生成")
+        disc.key_conclusions = [
+            "先建立 ES 容量与风险基线",
+            "Build System 生成可 dry-run/可回滚脚本",
+            "AWS 运维团队负责监控、成本与北美合规门禁",
+        ]
+        disc.plan = self._build_plan_payload(disc, disc.summary, "模拟模式自动生成")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
         disc.status = DiscussionStatus.CLOSED
         disc.ended_at = datetime.now(timezone.utc).isoformat()

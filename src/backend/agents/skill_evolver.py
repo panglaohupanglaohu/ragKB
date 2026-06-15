@@ -32,6 +32,7 @@ class SkillEvolver:
         skill_id: str,
         evidence_sessions: Optional[List[str]] = None,
         user_feedback: Optional[str] = None,
+        provider_config=None,
     ) -> Dict[str, Any]:
         """收集证据 → LLM改进 instructions → version+1.
 
@@ -64,6 +65,7 @@ class SkillEvolver:
                     prompt=prompt_text,
                     system_prompt=EVOLVE_SYSTEM_PROMPT,
                     agent_id="skill_evolver",
+                    config_override=provider_config,
                 )
                 # chat() returns TurnResult object with .response attribute
                 if result and getattr(result, 'response', None):

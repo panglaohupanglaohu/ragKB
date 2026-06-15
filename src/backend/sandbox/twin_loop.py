@@ -538,7 +538,20 @@ class TwinLoopEngine:
             # 获取智能体记忆
             memory = self._memory_pool.get_or_create(twin.source_agent_id)
             # 决策
-            action = self._decision_func(twin, sim_state, twins)
+            try:
+                action = self._decision_func(twin, sim_state, twins)
+                if hasattr(action, "__await__"):
+                    action = await action
+                if not isinstance(action, dict):
+                    raise TypeError(f"decision returned {type(action).__name__}")
+            except Exception as e:
+                logger.warning(
+                    "Twin decision failed; fallback to rules. twin=%s error=%s",
+                    twin.source_agent_id,
+                    e,
+                )
+                action = self._default_decision(twin, sim_state, twins)
+                action["fallback_reason"] = str(e)[:160]
             agent_actions[twin.twin_id] = action
 
             # 计算奖励（感知混沌惩罚）
@@ -871,9 +884,23 @@ class TwinLoopEngine:
 
         # 执行单步
         session.status = SandboxStatus.RUNNING
-        # v4 C-2.3: 场景剧本混沌自动注入
-        await self._apply_scheduled_chaos(session, step_num)
-        step = await self._execute_step(session, sim_state, step_num)
+        try:
+            # v4 C-2.3: 场景剧本混沌自动注入
+            await self._apply_scheduled_chaos(session, step_num)
+            step = await self._execute_step(session, sim_state, step_num)
+        except Exception as e:
+            session.status = SandboxStatus.PAUSED
+            session.updated_at = datetime.now(timezone.utc).isoformat()
+            logger.exception("Sandbox step failed: session=%s step=%s", session_id, step_num)
+            return {
+                "error": "step_failed",
+                "detail": str(e)[:300],
+                "stepped": False,
+                "step_num": step_num,
+                "total_steps": session.total_steps_executed,
+                "status": session.status.value,
+                "session_id": session_id,
+            }
         session.steps.append(step)
         session.total_steps_executed += 1
 

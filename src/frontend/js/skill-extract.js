@@ -297,7 +297,11 @@ function updateAgentSelect() {
   const sel = document.getElementById('approve-agent-select');
   if (!sel) return;
   const agents = teamAgents[currentTeamId] || [];
-  sel.innerHTML = agents.map(a =>
+  if (agents.length === 0) {
+    sel.innerHTML = '<option value="">（本团队暂无智能体）</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">选择要赋予的智能体…</option>' + agents.map(a =>
     `<option value="${a.agent_id}">${a.name || a.agent_id}${a.role ? ' (' + a.role + ')' : ''}</option>`
   ).join('');
 }
@@ -386,6 +390,11 @@ function handleSSE(data) {
       break;
     case 'skill_approved':
       updateQueueItemStatus({ item_id: data.item_id, status: 'approved', status_icon: '◎', status_label: '已通过' });
+      // 将后端返回的 skill_id 写回队列项，确保 resolveSkillId 能找到
+      const approvedItem = queueItems.find(i => i.item_id === data.item_id);
+      if (approvedItem) {
+        approvedItem.skill_draft = { skill_id: data.skill_id, ...(data.skill || {}) };
+      }
       loadSkills();
       updatePipelineStepper('published');
       spawnSkillNodeAnimated(data.skill);  // Use animated version
@@ -700,15 +709,39 @@ function formatInstructions(text) {
     .replace(/\n/g, '<br>');
 }
 
-window.switchModalTab = function(tab) {
+// 确保 allSkills 已加载（身份解析的前提）；未就绪时同步拉一次，避免其它 Tab 解析不到 skill_id
+async function ensureSkillsLoaded() {
+  if (!allSkills || allSkills.length === 0) {
+    try { await loadSkills(); } catch (_) { /* 容错：保持空数组，后续走 slug 回退 */ }
+  }
+}
+
+// 技能未注册入库时的统一引导：明确告诉用户去「编辑」标签页点哪个按钮注册，并自动切过去
+function promptRegisterFirst(action) {
+  const item = queueItems.find(q => q.item_id === selectedItemId);
+  const name = item?.draft_name || '该技能';
+  const msg = `「${name}」尚未注册入库，无法${action}。请在「编辑」标签页底部点击 🎯 批准为特质技能 / 📦 储备技能 / 🌍 公共技能 完成注册后再试。`;
+  showToast(`请先批准入库再${action}`);
+  try { addMessage('system', `ℹ️ ${msg}`); } catch (_) {}
+  // 自动切到「编辑」页，让批准按钮可见
+  try { switchModalTab('edit'); } catch (_) {}
+}
+
+window.switchModalTab = async function(tab) {
   document.querySelectorAll('.modal-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.modal-tab-content').forEach(c => {
     c.classList.toggle('active', c.id === 'tab-' + tab);
     c.style.display = c.id === 'tab-' + tab ? 'flex' : 'none';
   });
+  // 离开编辑页时，用最新的名称同步顶部标题（避免验证/演化页仍显示旧名称）
+  const nameEl = document.getElementById('edit-name');
+  const titleEl = document.getElementById('modal-title');
+  if (nameEl && titleEl && nameEl.value.trim()) titleEl.textContent = nameEl.value.trim();
   // Show footer (save/approve/reject) only on edit tab
   const footer = document.getElementById('modal-footer-actions');
   if (footer) footer.style.display = (tab === 'edit') ? 'flex' : 'none';
+  // 依赖技能身份的 Tab：切换前确保 allSkills 就绪
+  if (['evolve', 'verify', 'usage', 'version'].includes(tab)) await ensureSkillsLoaded();
   if (tab === 'evolve') loadEvolveTab();
   if (tab === 'verify') loadVerifyTab();
   if (tab === 'usage') loadUsageTab();
@@ -722,15 +755,18 @@ let _evolveCache = null;
 // Helper: resolve skill_id from queue item (checks skill_draft, then looks up by slug in skills array)
 function resolveSkillId(item) {
   if (!item) return '';
+  // 1) SSE broadcast 中已存 skill_id
   if (item.skill_draft?.skill_id) return item.skill_draft.skill_id;
-  // After approval, find by slug in loaded skills
   const slug = item.draft_slug;
+  // 2) 从 allSkills 中按 slug 查找
   if (slug && allSkills?.length) {
-    const found = allSkills.find(s => s.slug === slug);
+    const found = allSkills.find(s => s.slug === slug || s.skill_id === slug);
     if (found) return found.skill_id || found.slug;
   }
-  // Approved items can use draft_slug as fallback
+  // 3) 已批准的项直接用 slug 作 skill_id（后端 _find_skill 支持 slug 回退）
   if (item.status === 'approved' && slug) return slug;
+  // 4) 尝试从 item 广播的 skill 数据中提取
+  if (item.skill_draft) return item.skill_draft.skill_id || slug || '';
   return '';
 }
 
@@ -765,24 +801,29 @@ window.triggerEvolve = async function() {
   if (!selectedItemId) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
   if (!item) return;
-  if (item.status !== 'approved') { showToast('需要先批准入库才能演化'); return; }
   const skillId = resolveSkillId(item);
-  if (!skillId) { showToast('找不到已注册的技能ID'); return; }
-  document.getElementById('btn-evolve').textContent = '⏳ 演化中...';
-  document.getElementById('btn-evolve').disabled = true;
-  const result = await api('/skill-library/evolve', {
-    method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-  });
-  document.getElementById('btn-evolve').textContent = '⚡ 触发演化';
-  document.getElementById('btn-evolve').disabled = false;
-  if (!result || result.error) { showToast('演化失败: ' + (result?.error || 'unknown')); return; }
-  _evolveCache = result;
-  const diffEl = document.getElementById('evolve-diff');
-  diffEl.style.display = 'block';
-  document.getElementById('evolve-old').textContent = result.original_instructions || '';
-  document.getElementById('evolve-new').textContent = result.improved_instructions || '';
-  showToast('🧬 演化完成，请审阅');
+  // 已在技能库中注册（与"阶段: approved"徽章同源）即可演化，不再仅依赖本地队列项 status
+  const registered = !!(skillId && allSkills?.some(s => s.slug === item.draft_slug || s.skill_id === skillId || s.slug === skillId));
+  if ((item.status !== 'approved' && !registered) || !skillId) { promptRegisterFirst('演化'); return; }
+  const btn = document.getElementById('btn-evolve');
+  btn.textContent = '⏳ 演化中...';
+  btn.disabled = true;
+  try {
+    const result = await api('/skill-library/evolve', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+    });
+    if (!result || result.error) { showToast('演化失败: ' + (result?.error || 'unknown')); return; }
+    _evolveCache = result;
+    const diffEl = document.getElementById('evolve-diff');
+    diffEl.style.display = 'block';
+    document.getElementById('evolve-old').textContent = result.original_instructions || '';
+    document.getElementById('evolve-new').textContent = result.improved_instructions || '';
+    showToast('🧬 演化完成，请审阅');
+  } finally {
+    btn.textContent = '⚡ 触发演化';
+    btn.disabled = false;
+  }
 };
 
 window.acceptEvolution = async function() {
@@ -807,7 +848,7 @@ window.acceptEvolution = async function() {
     // Evolution VFX: light beam → shrink → expand
     if (targetNode) triggerEvolutionVFX(targetNode);
 
-    loadQueue(); loadSkills();
+    await loadQueue(); await loadSkills();
   }
 };
 
@@ -975,6 +1016,18 @@ function escHtml(s) {
 
 window.refreshUsageTab = function() { loadUsageTab(); showToast('🔄 已刷新'); };
 
+window.showUsageCompare = function() {
+  const panel = document.getElementById('usage-compare-panel');
+  if (!panel) return;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const oldShadow = panel.style.boxShadow;
+  panel.style.boxShadow = '0 0 0 2px oklch(0.62 0.09 250/.55) inset';
+  setTimeout(() => {
+    panel.style.boxShadow = oldShadow || '';
+  }, 1200);
+  showToast('已定位到 Before/After 对比区');
+};
+
 // ── Usage Chat: Interactive Skill Optimization ─────────────────
 let _usageChatHistory = [];
 
@@ -1073,9 +1126,10 @@ function loadVerifyTab() {
 window.triggerVerify = async function() {
   if (!selectedItemId) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
-  if (item && item.status !== 'approved') { showToast('需要先批准入库才能验证'); return; }
   const skillId = resolveSkillId(item);
-  if (!skillId) { showToast('找不到已注册的技能ID'); return; }
+  // 与演化口径一致：已在库注册即可验证，不单看 item.status
+  const registered = !!(skillId && allSkills?.some(s => s.slug === item?.draft_slug || s.skill_id === skillId || s.slug === skillId));
+  if ((item && item.status !== 'approved' && !registered) || !skillId) { promptRegisterFirst('验证'); return; }
   document.getElementById('btn-verify').textContent = '⏳ 验证中...';
   document.getElementById('btn-verify').disabled = true;
   document.getElementById('verify-status').textContent = '🔬 正在生成测试场景并执行...';
@@ -1151,11 +1205,11 @@ window.triggerVerify = async function() {
   // Show results
   document.getElementById('verify-status').style.display = 'none';
   document.getElementById('verify-results').style.display = 'block';
-  const pr = (result.pass_rate * 100).toFixed(0);
+  const pr = ((result.pass_rate ?? 0) * 100).toFixed(0);
   document.getElementById('verify-pass-rate').textContent = pr + '%';
-  document.getElementById('verify-pass-rate').style.color = result.pass_rate >= 0.7 ? 'oklch(0.7 0.1 140)' : 'oklch(0.7 0.1 25)';
-  document.getElementById('verify-passed').textContent = result.passed;
-  document.getElementById('verify-failed').textContent = result.failed;
+  document.getElementById('verify-pass-rate').style.color = (result.pass_rate ?? 0) >= 0.7 ? 'oklch(0.7 0.1 140)' : 'oklch(0.7 0.1 25)';
+  document.getElementById('verify-passed').textContent = result.passed ?? 0;
+  document.getElementById('verify-failed').textContent = result.failed ?? 0;
   const detailsEl = document.getElementById('verify-details');
 
   // Build detailed results including process log
@@ -1336,28 +1390,21 @@ window.confirmNewVersion = async function() {
   const skillId = resolveSkillId(item);
   if (!skillId) { showToast('技能尚未入库'); return; }
   const changelog = document.getElementById('version-changelog').value.trim();
-  
-  // Apply current instructions as a new version via evolve + apply
-  const result = await api('/skill-library/evolve', {
+
+  const result = await api('/skill-library/version/snapshot', {
     method: 'POST',
     body: JSON.stringify({
       team_id: currentTeamId,
       skill_id: skillId,
-      user_feedback: changelog || '创建新版本快照',
+      changelog: changelog || '',
     }),
   });
-  if (result && result.improved_instructions) {
-    const applyResult = await api('/skill-library/apply-evolution', {
-      method: 'POST',
-      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: result.improved_instructions }),
-    });
-    if (applyResult && !applyResult.error) {
-      showToast(`✅ 版本已更新到 v${applyResult.version}`);
-      cancelNewVersion();
-      loadVersionTab();
-      loadSkills();
-      return;
-    }
+  if (result && result.ok) {
+    showToast(`✅ 已创建版本快照 v${result.version}`);
+    cancelNewVersion();
+    loadVersionTab();
+    loadSkills();
+    return;
   }
   showToast('❌ 版本创建失败', 'error');
 };
@@ -1377,7 +1424,12 @@ window.saveEdits = async function() {
     method: 'POST',
     body: JSON.stringify({ field_updates: updates }),
   });
-  if (r) { showToast('已保存'); loadQueue(); }
+  if (r) {
+    showToast('已保存');
+    const titleEl = document.getElementById('modal-title');
+    if (titleEl && updates.name.trim()) titleEl.textContent = updates.name.trim();
+    loadQueue();
+  }
 };
 
 async function publishSkillWithGate(skillId, skillName) {
@@ -1418,14 +1470,37 @@ window.approveAs = async function(skillType) {
   const body = { reviewer: 'human', edited_fields: edits, skill_type: skillType };
   if (skillType === 'trait') {
     const agentSel = document.getElementById('approve-agent-select');
-    if (!agentSel || !agentSel.value) { showToast('请先选择目标智能体'); agentSel.style.display = ''; return; }
+    const agents = teamAgents[currentTeamId] || [];
+    if (agents.length === 0) {
+      // 团队无可分配成员：特质技能无处可赋，给出明确出路而非死胡同
+      showToast('当前团队暂无智能体，无法赋予特质技能', 'error');
+      addMessage('system', 'ℹ️ 「特质技能」需要赋予给某个智能体，但当前团队还没有成员。出路：① 点击 📦 储备技能 先入库（不赋予任何人），或 🌍 公共技能（赋予全团队，将随新成员自动生效）；② 或先到「智能体」配置页为本团队添加成员后再回来赋予。');
+      return;
+    }
+    if (!agentSel || !agentSel.value) {
+      // 有成员但未选：高亮下拉框并明确指向它
+      showToast('请先在批准按钮左侧的下拉框选择要赋予的智能体', 'error');
+      if (agentSel) {
+        agentSel.style.display = '';
+        agentSel.style.outline = '2px solid oklch(0.72 0.12 70)';
+        agentSel.focus();
+        setTimeout(() => { agentSel.style.outline = 'none'; }, 2500);
+      }
+      addMessage('system', 'ℹ️ 「特质技能」会把该技能赋予某一个智能体。请在「特质技能」按钮左侧的下拉框中选择目标智能体后再点击。');
+      return;
+    }
     body.target_agent_id = agentSel.value;
   }
   const r = await api(`/teams/${currentTeamId}/skill-extract/${selectedItemId}/approve`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
-  if (!r) return;
+  if (!r) {
+    // 入库失败不再静默：明确告知原因与出路（最常见是登录态过期 401）
+    showToast('批准入库失败，请重新登录后再试', 'error');
+    addMessage('system', '⚠️ 批准入库未成功。最常见原因是登录会话已过期（接口返回 401 / “认证已失效，请重新登录”）。请点击右上角「登出」后重新登录，再回到本技能点击批准；若仍失败，请检查后端是否正常运行。');
+    return;
+  }
   const typeLabels = { trait: '特质技能', public: '公共技能', reserve: '储备技能' };
   const typeIcons = { trait: '🎯', public: '🌍', reserve: '📦' };
   if (skillType === 'public') {
@@ -1446,7 +1521,11 @@ window.approveAs = async function(skillType) {
     addMessage('system', `📦 技能「${r.draft_name}」已入库储备，未赋予任何智能体`);
   }
   const idx = queueItems.findIndex(q => q.item_id === selectedItemId);
-  if (idx >= 0) Object.assign(queueItems[idx], r);
+  if (idx >= 0) {
+    Object.assign(queueItems[idx], r);
+    // 写回 skill_id，确保切换演化/验证/版本 Tab 时身份解析一次命中
+    queueItems[idx].skill_draft = { skill_id: r.skill_id || r.draft_slug, ...(r.skill || {}) };
+  }
   await loadSkills();
   renderQueue();
 
@@ -2669,7 +2748,14 @@ async function loadPipelineTab() {
   if (!selectedItemId || !currentPipeline) {
     // Try loading
     if (selectedItemId) await loadItemPipeline(selectedItemId);
-    if (!currentPipeline) return;
+    if (!currentPipeline) {
+      // 友好空态：草稿尚未进入复核管线
+      const evtEl = document.getElementById('pipe-event-list');
+      if (evtEl) evtEl.innerHTML = '<div style="text-align:center;padding:16px;color:oklch(0.45 0.005 110);font-size:12px">该草稿尚未进入复核管线，批准入库后将在此显示阶段与门禁</div>';
+      const stageEl = document.getElementById('pipe-current-stage');
+      if (stageEl) stageEl.textContent = '未进入管线';
+      return;
+    }
   }
   const p = currentPipeline;
   updateModalPipelineStepper(p.current_stage);
@@ -4399,6 +4485,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   let routerSelectedSkills = new Set();
   let routerResults = [];
   let selectedAgentId = 'default';
+  let currentRouteSessionId = '';
 
   // Mode switching
   window._switchPageMode = function(mode) {
@@ -4696,6 +4783,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
+      currentRouteSessionId = data.session_id || '';
 
       setPipelineStep('rerank', data.stage1_ms);
       if (data.stage1_ms) setPipelineStepTiming('retrieve', data.stage1_ms);
@@ -4722,6 +4810,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
         const top = incoming[0];
         addRouterLog('route', `🏆 本次最佳: <b>${top.name}</b> (分数: ${(top.score * 100).toFixed(1)}%)`);
       }
+      _loadDashboard();
     } catch(e) {
       addRouterLog('sys', `❌ 路由失败: ${e.message}`);
       setPipelineStep('retrieve');
@@ -4750,6 +4839,15 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     const container = document.getElementById('rresults');
     const header = document.getElementById('rresults-header');
     const stats = document.getElementById('rr-stats');
+
+    // awsOps 待优化: 按 skill_id 严格去重(后端偶发同一 skill_id 重复返回),保留首项
+    const _seenSkillIds = new Set();
+    results = results.filter(r => {
+      const key = r.skill_id || r.slug || r.name;
+      if (_seenSkillIds.has(key)) return false;
+      _seenSkillIds.add(key);
+      return true;
+    });
 
     header.style.display = 'flex';
     stats.textContent = `${results.length} results`;
@@ -4780,7 +4878,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
         <span class="rr-check">✓</span>
         <span class="rr-icon">${r.icon || '⚡'}</span>
         <div class="rr-body">
-          <div class="rr-name">${r.name}</div>
+          <div class="rr-name">${r.name}${(r.version || r.origin_team_id) ? `<span style="font-size:9px;margin-left:6px;padding:1px 5px;border-radius:3px;background:oklch(0.3 0.01 250/.4);color:oklch(0.7 0.04 250)">${r.version ? 'v' + r.version : ''}${r.version && r.origin_team_id ? ' · ' : ''}${r.origin_team_id ? '团队' + String(r.origin_team_id).slice(0, 6) : (r.source || '')}</span>` : ''}</div>
           <div class="rr-desc">${r.description || r.match_reasons?.join(', ') || ''}</div>
           <div class="rr-tags">${(r.match_reasons || []).slice(0, 3).map(t => reasonTag(t)).join('')}</div>
         </div>
@@ -4996,7 +5094,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const resp = await _af_sk('/api/v1/skill-router/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: selectedAgentId, team_id: currentTeamId || 'default', skill_ids: skillIds })
+        body: JSON.stringify({ agent_id: selectedAgentId, team_id: currentTeamId || 'default', skill_ids: skillIds, session_id: currentRouteSessionId })
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
@@ -5029,8 +5127,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       addRouterLog('assign', `✅ 注入完成！${data.assigned_count || skillIds.length} 项技能已融入智能体`);
 
       // S-5.3: 注入次数 +1;若后端抬升了熟练度先验,提示并打通到数字孪生闭环
-      const assignsEl = document.getElementById('dash-assigns');
-      if (assignsEl) assignsEl.textContent = (parseInt(assignsEl.textContent) || 0) + (data.assigned_count || skillIds.length);
+      _loadDashboard();
       if (data.proficiency_boosted && Object.keys(data.proficiency_boosted).length) {
         const parts = Object.entries(data.proficiency_boosted).map(([sk, v]) => `${sk} →${Number(v).toFixed(2)}`);
         addRouterLog('assign', `📈 熟练度已抬升: ${parts.join(' · ')}(下次数字孪生试炼即体现)`);
@@ -5306,5 +5403,24 @@ window.addEventListener('storage', function(e) {
 });
 
 // ── Init ────────────────────────────────────────────────────────
+// awsOps 待优化: 进入页面前做认证门禁，避免访客模式产生 401 与登录态跳转残留
+async function _ensureAuthOrRedirect() {
+  try {
+    const r = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+    if (r.status === 401) { _gotoLogin(); return false; }
+    if (!r.ok) return true; // 连接异常交由离线流程处理，不误跳转
+    const d = await r.json().catch(() => null);
+    if (d && d.authenticated === false) { _gotoLogin(); return false; }
+  } catch (e) { /* 网络异常不强制跳转 */ }
+  return true;
+}
+function _gotoLogin() {
+  const next = location.pathname + location.search + location.hash;
+  location.href = '/login.html?next=' + encodeURIComponent(next);
+}
+
 initScene();
-loadTeams();
+(async () => {
+  if (!(await _ensureAuthOrRedirect())) return;
+  loadTeams();
+})();

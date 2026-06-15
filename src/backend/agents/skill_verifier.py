@@ -84,7 +84,7 @@ class SkillVerifier:
         self._results: Dict[str, VerificationResult] = {}
         self._process_log: List[Dict[str, Any]] = []  # 透明化执行日志
 
-    async def verify_skill(self, team_id: str, skill_id: str) -> VerificationResult:
+    async def verify_skill(self, team_id: str, skill_id: str, provider_config=None) -> VerificationResult:
         """验证技能: 生成测试材料 → 沙箱执行验证脚本 → 评估 pass_rate."""
         self._process_log = []
         result = VerificationResult(skill_id=skill_id, status="testing")
@@ -119,7 +119,7 @@ class SkillVerifier:
 
         # Step 1: 生成测试场景
         self._process_log.append({"step": "generate_tests", "msg": "生成技能验证场景..."})
-        test_scenarios = await self._generate_tests(skill)
+        test_scenarios = await self._generate_tests(skill, provider_config=provider_config)
         self._process_log.append({"step": "tests_generated", "msg": f"生成 {len(test_scenarios)} 个测试场景", "scenarios": [t.get("scenario","")[:100] for t in test_scenarios]})
 
         # Step 2: 沙箱执行验证脚本
@@ -470,7 +470,7 @@ class SkillVerifier:
             print(json.dumps(payload, ensure_ascii=False))
         """).strip() + "\n"
 
-    async def _generate_tests(self, skill: SkillDefinition) -> List[Dict[str, str]]:
+    async def _generate_tests(self, skill: SkillDefinition, provider_config=None) -> List[Dict[str, str]]:
         """通过 LLM 生成测试场景."""
         if not self._chat_harness:
             # Fallback: simple structural test
@@ -483,6 +483,7 @@ class SkillVerifier:
                 prompt=f"为以下技能生成3个测试场景:\n\n名称: {skill.name}\n描述: {skill.description}\n指令: {skill.instructions[:2000]}",
                 system_prompt=VERIFY_PROMPT,
                 agent_id="skill_verifier",
+                config_override=provider_config,
             )
             # chat() returns TurnResult object with .response attribute
             response_text = getattr(result, 'response', '') if result else ''

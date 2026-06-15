@@ -148,7 +148,7 @@ class TaskEngine:
         self._publish_event("created", task)
         # Only auto-execute tasks that have an executor callback registered;
         # otherwise keep them in PENDING for manual/cross-team workflows.
-        if self._executor:
+        if self._executor and self._auto_execute_enabled(task):
             await self._enqueue_if_ready(task.task_id)
         return task
 
@@ -159,9 +159,13 @@ class TaskEngine:
         for t in tasks:
             self._store.save_task(t)
             self._publish_event("created", t)
-            if self._executor:
+            if self._executor and self._auto_execute_enabled(t):
                 await self._enqueue_if_ready(t.task_id)
         return tasks
+
+    def _auto_execute_enabled(self, task: AgentTask) -> bool:
+        """Whether the engine should enqueue this task immediately."""
+        return (task.metadata or {}).get("_engine_auto_execute", True) is not False
 
     def get_task(self, task_id: str) -> Optional[AgentTask]:
         return self._tasks.get(task_id)

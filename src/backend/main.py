@@ -711,6 +711,9 @@ import os as _os
 
 # User store: username -> password hash.
 _USER_STORE = Path(CONFIG_USER_STORE_PATH)
+# Token store file: persists auth tokens across process restarts so that the
+# browser's ag-token cookie remains valid after the backend is restarted.
+_TOKEN_STORE = _USER_STORE.parent / "tokens.json"
 _PBKDF2_ITERATIONS = CONFIG_PBKDF2_ITERATIONS
 
 
@@ -774,7 +777,30 @@ elif "admin" not in _USERS:
     logger.warning("⚠️ ADMIN_PASSWORD is not set; default admin account is disabled")
 
 # Token store: token -> {"username": str, "created_at": float}
-_TOKENS: Dict[str, dict] = {}
+def _load_tokens() -> Dict[str, dict]:
+    try:
+        if _TOKEN_STORE.exists():
+            data = json.loads(_TOKEN_STORE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {
+                    str(k): {"username": str(v.get("username", "")), "created_at": float(v.get("created_at", 0))}
+                    for k, v in data.items()
+                    if isinstance(v, dict) and v.get("username")
+                }
+    except Exception as exc:
+        logger.warning("⚠️ Failed to load token store: %s", exc)
+    return {}
+
+
+def _save_tokens() -> None:
+    try:
+        _TOKEN_STORE.parent.mkdir(parents=True, exist_ok=True)
+        _TOKEN_STORE.write_text(json.dumps(_TOKENS, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("⚠️ Failed to save token store: %s", exc)
+
+
+_TOKENS: Dict[str, dict] = _load_tokens()
 _TOKEN_TTL = CONFIG_TOKEN_TTL
 
 # CSRF protection
@@ -854,6 +880,8 @@ def _clean_expired_tokens():
     expired = [t for t, v in _TOKENS.items() if now - v.get("created_at", 0) > _TOKEN_TTL]
     for t in expired:
         del _TOKENS[t]
+    if expired:
+        _save_tokens()
 
 
 def _create_token(username: str) -> str:
@@ -861,6 +889,7 @@ def _create_token(username: str) -> str:
     _clean_expired_tokens()
     token = secrets.token_hex(32)
     _TOKENS[token] = {"username": username, "created_at": _time.time()}
+    _save_tokens()
     return token
 
 
@@ -879,7 +908,10 @@ def _revoke_token(token: str) -> bool:
     """Invalidate a token if it is still present."""
     if not token:
         return False
-    return _TOKENS.pop(token, None) is not None
+    removed = _TOKENS.pop(token, None) is not None
+    if removed:
+        _save_tokens()
+    return removed
 
 
 def _extract_bearer_token(authorization: str = "") -> str:
@@ -1434,6 +1466,9 @@ _frontend_dir = Path(__file__).parent.parent / "frontend"
 if _frontend_dir.exists():
     app.mount("/js", StaticFiles(directory=str(_frontend_dir / "js")), name="js")
     app.mount("/css", StaticFiles(directory=str(_frontend_dir / "css")), name="css")
+    _three_dir = Path(__file__).resolve().parents[2] / "node_modules" / "three"
+    if _three_dir.exists():
+        app.mount("/vendor/three", StaticFiles(directory=str(_three_dir)), name="three_vendor")
 
     from fastapi.responses import FileResponse
 

@@ -3,8 +3,7 @@
  * 从数字孪生拉取 6 个房间，场景选择后实际切换 3D 场景
  * 加载方式: <script type="module" src="/js/sandbox-twin-3d.js"></script>
  */
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from '/vendor/three/build/three.module.js';
 
 // ── 全局状态 ──
 let scene, camera, renderer, controls, clock;
@@ -56,6 +55,25 @@ function mkMat(color, opts) {
 
 function mkBasic(color, opts) {
   return new THREE.MeshBasicMaterial(Object.assign({ color: new THREE.Color(color) }, opts));
+}
+
+function createSimpleControls(cameraRef) {
+  const target = new THREE.Vector3(0, 0.8, 0);
+  const state = {
+    target,
+    autoRotate: true,
+    autoRotateSpeed: 0.3,
+    update() {
+      if (state.autoRotate && clock) {
+        const elapsed = clock.getElapsedTime() * state.autoRotateSpeed * 0.18;
+        const radius = Math.max(7, Math.hypot(cameraRef.position.x, cameraRef.position.z));
+        cameraRef.position.x = Math.sin(elapsed) * radius;
+        cameraRef.position.z = Math.cos(elapsed) * radius;
+      }
+      cameraRef.lookAt(target);
+    },
+  };
+  return state;
 }
 
 // ── Agent 人形 ──
@@ -384,11 +402,7 @@ function initScene() {
   renderer.setSize(W, H);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.minDistance = 5; controls.maxDistance = 30;
-  controls.maxPolarAngle = Math.PI / 1.8; controls.target.set(0, 0.8, 0);
-  controls.autoRotate = true; controls.autoRotateSpeed = 0.3;
+  controls = createSimpleControls(camera);
 
   clock = new THREE.Clock();
 

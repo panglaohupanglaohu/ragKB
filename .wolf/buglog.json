@@ -36,5 +36,81 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-06-13T05:40:00.000000"
+  },
+  {
+    "id": "bug-003",
+    "timestamp": "2026-06-15T03:45:12.234880",
+    "error_message": "并发任务长期'执行中'不收敛(217总/5running卡死)；任务执行 LLM 写死本地 claude，本地不可达时会话无限挂起",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "_get_deepseek_credentials/_should_use_direct_api/_run_claude_cli_direct 全读 ~/.claude/settings.json + 本地 claude CLI，忽略系统'模型与连接页'配置的 ChatHarness provider(model_pool)",
+    "fix": "新增 _harness_provider_credentials() 读 get_chat_harness().get_provider_config()；_get_deepseek_credentials 改为优先 harness 配置再回退本地；_should_use_direct_api 在配置 provider 非 anthropic 时直连绕开本地 CLI",
+    "tags": [
+      "task-execution",
+      "llm-config",
+      "stuck",
+      "claude-cli",
+      "chat_harness",
+      "model_pool",
+      "T4"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-15T03:45:12.234880"
+  },
+  {
+    "id": "bug-009",
+    "timestamp": "2026-06-15T15:58:00.000000",
+    "error_message": "skill-extract 批准入库点击无反应：选了特质/公有/储备、保存了编辑，仍不能入库",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "登录会话过期，approve 接口返回 401（控制台 'API 401 ... 认证已失效，请重新登录'）。approveAs 的 `if (!r) return;` 在 api() 失败时静默返回，用户看不到原因，表现为按钮点了没反应、入库不了",
+    "fix": "approveAs 在 r 为空时不再静默：弹红色 toast '批准入库失败，请重新登录后再试' + addMessage 给出完整出路（登出重登→回到技能点击批准）。浏览器验证：重登后用有效会话+CSRF 调 approve，HTTP200，item 'IaC管理下的Auto Scaling组配置' 从 ready_for_review→approved",
+    "tags": [
+      "auth",
+      "401",
+      "csrf",
+      "skill-extract",
+      "approve",
+      "silent-failure",
+      "ux"
+    ],
+    "related_bugs": ["bug-001"],
+    "occurrences": 1,
+    "last_seen": "2026-06-15T15:58:00.000000"
+  },
+  {
+    "id": "bug-010",
+    "timestamp": "2026-06-16T06:28:00.000000",
+    "error_message": "技能演化/验证/效果改进建议偶发报错: 当前 LLM 未连接 (Authentication Fails, api key: ****TAzS is invalid)",
+    "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py, src/backend/agents/skill_evolver.py, src/backend/agents/skill_verifier.py",
+    "root_cause": "skill-library/evolve 与 verify 走全局 ChatHarness 默认模型，启动时可能指向其他团队默认模型(ai_coding/qwen3)，未按当前 team_id 使用团队默认 CodeBuddy 模型；同时 api_base_url 允许带前导空格，增加配置不一致风险。",
+    "fix": "新增 _resolve_team_provider_config(team_id) 并将 ProviderConfig 注入 skill_evolver/skill_verifier 的 chat 调用(config_override)，确保按团队默认模型路由；在 add/update/load/resolve_base_url 统一 strip api_base_url 前导空格。",
+    "tags": [
+      "llm-routing",
+      "team-default-model",
+      "skill-evolve",
+      "skill-verify",
+      "codebuddy",
+      "api-base-url"
+    ],
+    "related_bugs": ["bug-003"],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T06:28:00.000000"
+  },
+  {
+    "id": "bug-011",
+    "timestamp": "2026-06-16T06:28:00.000000",
+    "error_message": "版本页点击创建新版本经常失败（依赖 LLM 状态）",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "confirmNewVersion 误将“创建版本快照”实现为先调用 /skill-library/evolve 再 apply-evolution，导致创建版本与 LLM 可用性耦合。",
+    "fix": "confirmNewVersion 改为直接调用 /skill-library/version/snapshot，不再依赖 LLM；同时保留刷新版本时间线与技能列表。",
+    "tags": [
+      "skill-version",
+      "snapshot",
+      "frontend",
+      "llm-coupling"
+    ],
+    "related_bugs": ["bug-010"],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T06:28:00.000000"
   }
 ]
