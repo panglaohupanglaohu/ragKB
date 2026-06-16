@@ -755,7 +755,12 @@ class ChatHarness:
     ) -> ChatSession:
         """Get existing session or create a new one."""
         if session_id and session_id in self._sessions:
-            return self._sessions[session_id]
+            session = self._sessions[session_id]
+            if system_prompt and session.system_prompt != system_prompt:
+                session.system_prompt = system_prompt
+            if agent_id and not session.agent_id:
+                session.agent_id = agent_id
+            return session
         session = ChatSession(
             session_id=session_id or uuid4().hex[:12],
             agent_id=agent_id,
@@ -1216,6 +1221,23 @@ class ChatHarness:
                     break
 
         prompt_lower = prompt.lower()
+        system_lower = (system_prompt or "").lower()
+
+        if (
+            (" ri" in f" {prompt_lower}" or "reserved instance" in prompt_lower or "预留实例" in prompt_lower)
+            and any(kw in system_lower for kw in ["reserved instance", "savings plan", "成本", "账单", "finops", "aws"])
+        ):
+            return (
+                "在当前成本优化智能体语境下，RI 指 AWS Reserved Instance（预留实例），不是编程领域术语。\n\n"
+                "建议按这条路径处理：\n"
+                "1. 先拉取过去 30/60/90 天实例族、区域、规格、运行小时和利用率，确认稳定基线。\n"
+                "2. 区分可承诺的稳定负载和波动负载；稳定部分评估 RI，弹性部分优先 Savings Plan 或按需/Spot。\n"
+                "3. 计算覆盖率、利用率、到期时间、预付方式和现金流影响，避免为了折扣买过量。\n"
+                "4. 对 OpenSearch/ElasticSearch 扩容，分别估算实例、存储、跨 AZ 流量、快照和监控成本。\n"
+                "5. 设置 Cost Gate：覆盖率低、利用率低、预算超阈值或区域合规缺失时阻断采购。\n"
+                "6. 输出购买建议、风险、回滚/调整策略，并把治理目标写回任务或系统演进项。\n\n"
+                f"⚠️ 当前 LLM 未连接 ({error[:80]})，以上为成本治理降级答复。"
+            )
 
         if any(kw in prompt_lower for kw in ["状态", "status", "进度", "report"]):
             return (

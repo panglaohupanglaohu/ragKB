@@ -19,6 +19,7 @@
 - 模型配置：AWS team 默认模型 `0f136344`；6 个成员均已绑定模型。
 - 议事厅：Plaza `696d69237aff`，Discussion `c86d7ab6a194`，已生成 6 项结构化计划并派发 6 个任务。
 - 技能：已完成 public / trait / reserve 三类审批，并通过 verify/evolve/publish 相关链路。
+- Agent Loop RI 语义验证：成本优化成员 `cda86797` 的能力画像已显示 `云成本治理与 RI 购买建议`；输入 `如何RI` 后回复明确解释为 AWS Reserved Instance / 预留实例，未误判为编程/数据库语境。
 - 数字孪生：Build System 工作坊 session `c6d0a6cd-fa70-4fe1-9b2c-b8b0ce3e2ec8` 单步 2 次成功；AWS trial `bea6c509-0a48-466d-9edd-be58fd1501ab` 覆盖 6 类故障注入。
 - 浏览器冒烟：已检查团队配置、技能赋予、议事厅、数字孪生 3D、成本治理；`/sandbox-twin.html` 已修复为本地 Three.js 模块加载。
 - 降级说明：如果真实 LLM 运行时返回 provider fallback/无效 key，系统会标注并生成确定性 6 项计划、可审核技能候选和沙箱规则动作；这属于可演示的韧性路径，不再导致流程中断。
@@ -560,6 +561,40 @@ ElasticSearch/OpenSearch 扩容成本治理：识别 Token 与云资源成本最
 创意演示点：
 
 - 技能不只是“总结”，而是让团队下一次处理同类变更时变得更像有经验的组织。
+
+### 5.5 演示成本优化成员的 RI 特质技能与 Agent Loop
+
+这个步骤用于避免 RI 被模型误解成编程、数据库或需求工程里的缩写。现场要把它当成一个产品能力点演示：系统不是只把 prompt 发给模型，而是会带上当前团队、当前成员、成员角色和已绑定技能。
+
+操作：
+
+1. 打开 `http://127.0.0.1:8080/agent-team-config.html`。
+2. 选择团队 `AWS 运维团队`。
+3. 打开成员详情，选择 `成本优化成员`。
+4. 检查能力画像或技能列表中存在 `云成本治理与 RI 购买建议`。
+5. 点击 `Agent Loop`。
+6. 输入：
+
+```text
+如何RI
+```
+
+7. 等待回复完成。
+
+通过标准：
+
+- 回复第一屏必须把 RI 明确解释为 `AWS Reserved Instance` 或 `预留实例`。
+- 回复内容应围绕账单基线、覆盖率、利用率、购买期限、Savings Plan、预算门禁、OpenSearch/ElasticSearch 扩容成本展开。
+- 回复不应解释为 `Referential Integrity`、数据库完整性、需求工程、代码 review 缩写或其他编程语境。
+- 能力画像接口 `/api/v1/agent-config/teams/a7c36670/agents/cda86797/capability-profile` 返回 200，并且 `skills` 中能看到 `云成本治理与 RI 购买建议`。
+
+已实测结果：
+
+- `profile_status_code=200`
+- `profile_has_ri_trait_skill=true`
+- `loop_status_code=200`
+- `loop_contains_reserved_instance=true`
+- `loop_contains_programming_ri=false`
 
 ---
 

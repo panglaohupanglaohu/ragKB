@@ -15,6 +15,7 @@
 - [x] **核心对象**：AWS team `a7c36670`；AWS model `0f136344`；Plaza `696d69237aff`；Discussion `c86d7ab6a194`；Build workshop session `c6d0a6cd-fa70-4fe1-9b2c-b8b0ce3e2ec8`；AWS trial `bea6c509-0a48-466d-9edd-be58fd1501ab`
 - [x] **议事厅计划**：已生成 6 项结构化执行计划，并成功派发为 6 个 Build System 任务。
 - [x] **技能链路**：技能萃取产出候选并完成 public / trait / reserve 三类审批；3 个技能完成 verify/evolve/publish 相关操作。
+- [x] **Agent Loop RI 消歧链路**：成本优化成员 `cda86797` 能力画像返回 200，并显示 `云成本治理与 RI 购买建议`；Agent Loop 输入 `如何RI` 后回答 `AWS Reserved Instance/预留实例`，未落入编程/数据库 RI 语境。
 - [x] **数字孪生**：Build System 工作坊创建 session 并单步 2 次成功；AWS 演练场覆盖 6 类故障注入。
 - [x] **成本治理**：Cost Gate 返回 `pass`，并输出成本/token 治理目标入口。
 - [x] **LLM 失败降级链路**：即使运行时收到 provider fallback/无效 key 文本，Plaza 会生成确定性 6 项计划，技能萃取会生成可审核候选，Sandbox step 会降级到规则动作并恢复 session 状态。
@@ -182,6 +183,20 @@ rtk python3 scripts/aws_ops_e2e_test.py \
   - Case：对其中一个技能调用 `/skill-library/evolve`；若生成改进建议，调用 `/apply-evolution`。
   - 验收：产生演化结果或明确失败原因。
 
+- [x] **T3-5** 成本优化成员 RI 特质技能 Agent Loop 回归。
+  - Case：成本优化成员绑定 `云成本治理与 RI 购买建议`，该技能为 RI/Savings Plan/成本治理语义；点击 Agent Loop 后输入 `如何RI`。
+  - 验收：回复必须把 RI 解释为 `AWS Reserved Instance/预留实例`，并输出覆盖率、利用率、购买期限、Savings Plan、预算门禁、OpenSearch/ElasticSearch 扩容成本等内容；不得解释为编程、数据库或需求工程缩写。
+  - 失败判定：能力画像 500、技能列表不显示 RI 技能、回复出现 `Referential Integrity`/数据库完整性/需求工程等编程语境。
+  - 伪代码：
+    ```python
+    profile = get(f'/teams/{aws_team}/agents/{cost_agent}/capability-profile')
+    assert profile.status_code == 200
+    assert any('RI' in s.name or '预留' in s.name for s in profile.skills)
+    loop = post('/agent-loop', {'agent_id': cost_agent, 'prompt': '如何RI'})
+    assert 'Reserved Instance' in loop.final_response or '预留实例' in loop.final_response
+    assert 'Referential Integrity' not in loop.final_response
+    ```
+
 ## T4 数字孪生工作坊：模拟运维脚本编写过程
 
 - [ ] **T4-1** 用 Build System 创建脚本编写沙箱 session。
@@ -242,6 +257,7 @@ rtk python3 scripts/aws_ops_e2e_test.py \
     - [x] 讨论结束后前端不刷新计划面板 → SSE 合成 `plan_updated` + `discussion_end` 事件
     - [x] 派发子任务不分配给具体 Agent → `_resolve_responsible_agent()` 解析负责角色→agent_id
     - [x] 技能候选不足 3 个 → 技能萃取已补 LLM 不可用时的 AWS 场景候选兜底，E2E 已完成 3 个审批。
+    - [x] 成本优化成员 Agent Loop 把 `如何RI` 误解成编程 RI → Agent Loop 已注入团队/成员/技能上下文和 AWS Reserved Instance 消歧；SkillEvolver 已阻止 LLM fallback 文本污染技能说明；能力画像已修复团队本地特质技能解析。
     - [x] Build System 工作坊沙箱无法单步执行 → Sandbox step 已补 agent 决策异常降级和 session 状态恢复，E2E 单步 2 次通过。
     - [x] `/sandbox-twin.html` 3D 场景模块加载失败 → 后端挂载本地 Three.js，前端改用 `/vendor/three/build/three.module.js` 并移除远程 OrbitControls 依赖。
     - [ ] 后续增强：补可重复的 Playwright UI 回归，覆盖 Plaza 按钮状态、SkillRouter 注入、Sandbox 3D 截图和成本页 Gate 自检。

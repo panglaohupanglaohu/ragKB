@@ -579,6 +579,149 @@ def _find_agent_across_teams(agent_id: str) -> tuple[str, AgentProfile] | tuple[
     return None, None
 
 
+def _resolve_skill_definition(team_id: str, skill_id: str) -> Optional[SkillDefinition]:
+    """Resolve a bound skill id/slug/name from team-local skills, library, or registry."""
+    sid = (skill_id or "").strip()
+    if not sid:
+        return None
+
+    team = _tm().get_team(team_id) if team_id else None
+    if team:
+        skill = team.skills.get(sid)
+        if skill is not None:
+            return skill
+        for candidate in team.skills.values():
+            if candidate.slug == sid or candidate.name == sid:
+                return candidate
+
+    lib = _get_skill_library()
+    if lib is not None:
+        skill = lib._find_skill(team_id, sid)
+        if skill is not None:
+            return skill
+
+    registry = _sr()
+    if hasattr(registry, "get"):
+        skill = registry.get(sid)
+        if skill is not None:
+            return skill
+    return registry.get_by_slug(sid)
+
+
+def _clip_text(text: str, limit: int = 600) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def _agent_loop_skill_score(skill: SkillDefinition, prompt: str, agent: AgentProfile) -> int:
+    haystack = " ".join([
+        skill.name or "",
+        skill.description or "",
+        skill.instructions or "",
+        skill.slug or "",
+        skill.visibility or "",
+        agent.name or "",
+        agent.role or "",
+        agent.description or "",
+    ]).lower()
+    prompt_l = (prompt or "").lower()
+    score = 0
+    for kw in ("ri", "reserved instance", "预留实例", "savings plan", "成本", "账单", "finops", "cost"):
+        if kw in haystack:
+            score += 4
+        if kw in prompt_l:
+            score += 2
+    if skill.visibility in {"trait", "private"}:
+        score += 2
+    if skill.version and skill.version > 1:
+        score += 2
+    score += min(int(skill.quality_score * 3), 3)
+    return score
+
+
+def _get_agent_loop_skills(team_id: str, agent: AgentProfile, prompt: str) -> List[SkillDefinition]:
+    """Return full skill definitions bound to an agent, ranked for this prompt."""
+    skills: List[SkillDefinition] = []
+    seen: set[str] = set()
+    for sid in agent.skills:
+        skill = _resolve_skill_definition(team_id, sid)
+        if skill and skill.skill_id not in seen:
+            seen.add(skill.skill_id)
+            skills.append(skill)
+    skills.sort(key=lambda s: _agent_loop_skill_score(s, prompt, agent), reverse=True)
+    return skills
+
+
+def _is_cost_ri_context(agent: AgentProfile, skills: List[SkillDefinition], prompt: str) -> bool:
+    text = " ".join([
+        prompt or "",
+        agent.name or "",
+        agent.role or "",
+        agent.description or "",
+        agent.system_prompt or "",
+        " ".join((s.name or "") + " " + (s.description or "") + " " + (s.instructions or "") for s in skills[:8]),
+    ]).lower()
+    return (
+        ("ri" in text or "reserved instance" in text or "预留实例" in text or "savings plan" in text)
+        and any(kw in text for kw in ("成本", "账单", "finops", "cost", "aws", "云"))
+    )
+
+
+def _build_agent_loop_prompt_and_system(
+    *,
+    prompt: str,
+    team_id: str,
+    agent: Optional[AgentProfile],
+    system_prompt: str = "",
+) -> tuple[str, str]:
+    """Inject role and skill context into Agent Loop, especially for short prompts."""
+    if agent is None:
+        return prompt, system_prompt
+
+    skills = _get_agent_loop_skills(team_id, agent, prompt)
+    cost_ri_context = _is_cost_ri_context(agent, skills, prompt)
+    effective_prompt = prompt
+    prompt_l = (prompt or "").strip().lower()
+    if cost_ri_context and ("ri" in prompt_l or "预留" in prompt_l) and len(prompt_l) <= 24:
+        effective_prompt = (
+            "在 AWS 成本治理语境下，回答用户关于 RI 的问题。"
+            "这里 RI 必须解释为 Reserved Instance/预留实例，并结合 Savings Plan、覆盖率、利用率、购买周期和治理门禁。"
+            f"\n\n原始用户问题: {prompt}"
+        )
+
+    skill_lines = []
+    for skill in skills[:8]:
+        visibility = skill.visibility or "bound"
+        skill_lines.append(
+            f"- [{visibility}] {skill.name} v{skill.version}: {_clip_text(skill.description, 220)}\n"
+            f"  指令: {_clip_text(skill.instructions, 420)}"
+        )
+
+    base_system = system_prompt or agent.system_prompt or ""
+    context_parts = [
+        base_system,
+        "## Agent Loop Runtime Context",
+        f"你正在以智能体「{agent.name}」回答，职责: {agent.role or agent.description or '未配置'}。",
+        f"所属团队: {team_id or 'unknown'}。",
+        "必须优先使用该智能体已绑定的特质/私有/演化技能；不要被全局编程语境覆盖。",
+    ]
+    if cost_ri_context:
+        context_parts.append(
+            "缩写消歧: 在该智能体语境下，RI 默认表示 AWS Reserved Instance / 预留实例，"
+            "并与 Savings Plan、账单预测、覆盖率、利用率、到期续约、预算门禁相关；"
+            "除非用户明确提到代码/数据库/需求工程，否则不要解释成编程领域的 RI。"
+        )
+    if skill_lines:
+        context_parts.append("## 当前智能体可用技能\n" + "\n".join(skill_lines))
+    context_parts.append(
+        "回答要求: 先按角色和技能消歧，再给可执行步骤、检查指标、风险和验收标准；"
+        "如果问题很短，也要从当前 agent 的团队/技能上下文补足业务语境。"
+    )
+    return effective_prompt, "\n\n".join(p for p in context_parts if p)
+
+
 # Request / Response Models
 
 
@@ -8855,10 +8998,9 @@ def agent_capability_profile(team_id: str, agent_id: str) -> Dict[str, Any]:
     success_rate = metrics.get("tasks_completed", 0) / max(total, 1)
     failure_rate = metrics.get("tasks_failed", 0) / max(total, 1)
     # Get skill details
-    sr = _sr()
     skill_details = []
     for sid in agent.skills[:10]:
-        s = sr.get_by_slug(sid) or sr.get_by_id(sid)
+        s = _resolve_skill_definition(team_id, sid)
         if s:
             skill_details.append({"id": s.skill_id, "name": s.name, "quality_score": round(s.quality_score or 0, 2),
                 "version": s.version, "lifecycle": _value_or_text(s.lifecycle_stage)})
@@ -9099,17 +9241,27 @@ async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     harness = get_chat_harness()
     permission_context = None
     team_id = ""
+    agent = None
     events: List[Dict[str, Any]] = []
     if req.agent_id:
         team_id, agent = _find_agent_across_teams(req.agent_id)
         if agent is not None:
             permission_context = _build_agent_permission_context(agent)
+            model = _tm().get_team(team_id).get_model(agent.model_id) if team_id and agent.model_id and _tm().get_team(team_id) else None
+            if model is not None:
+                harness.set_agent_provider(agent.agent_id, ProviderConfig.from_model_config(model))
+    effective_prompt, effective_system_prompt = _build_agent_loop_prompt_and_system(
+        prompt=req.prompt,
+        team_id=team_id or "",
+        agent=agent,
+        system_prompt=req.system_prompt,
+    )
     result = await harness.agent_loop(
-        req.prompt,
+        effective_prompt,
         agent_id=req.agent_id,
         team_id=team_id or "",
         session_id=req.session_id,
-        system_prompt=req.system_prompt,
+        system_prompt=effective_system_prompt,
         max_iterations=req.max_iterations,
         permission_context=permission_context,
         on_event=lambda event_type, payload: events.append({"type": event_type, **payload}),
@@ -9128,18 +9280,29 @@ async def run_agent_loop_stream(req: AgentLoopRequest):
     harness = get_chat_harness()
     permission_context = None
     team_id = ""
+    agent = None
     if req.agent_id:
         team_id, agent = _find_agent_across_teams(req.agent_id)
         if agent is not None:
             permission_context = _build_agent_permission_context(agent)
+            team = _tm().get_team(team_id) if team_id else None
+            model = team.get_model(agent.model_id) if team and agent.model_id else None
+            if model is not None:
+                harness.set_agent_provider(agent.agent_id, ProviderConfig.from_model_config(model))
+    effective_prompt, effective_system_prompt = _build_agent_loop_prompt_and_system(
+        prompt=req.prompt,
+        team_id=team_id or "",
+        agent=agent,
+        system_prompt=req.system_prompt,
+    )
 
     async def event_gen():
         async for chunk in harness.agent_loop_stream(
-            req.prompt,
+            effective_prompt,
             agent_id=req.agent_id,
             team_id=team_id or "",
             session_id=req.session_id,
-            system_prompt=req.system_prompt,
+            system_prompt=effective_system_prompt,
             max_iterations=req.max_iterations,
             permission_context=permission_context,
         ):
