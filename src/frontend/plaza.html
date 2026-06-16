@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智能体广场 — AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/base.css">
@@ -58,10 +58,10 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 
 /* ── Left: concrete wall panel ── */
 .left{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
-.left .hd{padding:20px 16px 14px;border-bottom:1px solid var(--line)}
+.left .hd{padding:20px 16px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
 .left .hd h2{font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--ink);letter-spacing:3px;text-transform:uppercase}
 .left .hd .sub{font-size:9px;color:var(--dim);margin-top:4px;letter-spacing:1px;font-family:var(--font-mono)}
-.left .list{flex:1;overflow-y:auto;padding:6px 8px}
+.left .list{flex:1 1 0;overflow-y:auto;padding:6px 8px;min-height:0}
 .plaza-card{padding:12px 14px;margin-bottom:4px;background:transparent;border:1px solid transparent;
   cursor:pointer;transition:all 0.3s}
 .plaza-card:hover{background:#00000008;border-color:var(--line-light)}
