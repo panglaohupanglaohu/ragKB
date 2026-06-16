@@ -2,6 +2,7 @@
 
 > Auto-maintained by OpenWolf. Last scanned: 2026-06-12T14:58:00.000Z
 > Files: 508 tracked | Anatomy hits: 0 | Misses: 0
+> Manual note (2026-06-16): updated `src/frontend/plaza.html` CSP (connect-src/media-src) and modal confirm shell; updated `src/frontend/js/plaza.js` for Three.js deprecation compatibility and delete-confirm/audio-unlock behavior; updated `src/frontend/js/digital-twin/secs-core.js` runtime bootstrap timing and runtime-status timeout handling; removed dead `lucide.min.css` dependency from `src/frontend/Agent-digital-twin.html`.
 
 ## ./
 

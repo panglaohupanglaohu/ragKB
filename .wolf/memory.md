@@ -73,3 +73,7 @@
 | 16:06 | awsOps 两个非LLM待优化项修复 | src/frontend/js/skill-extract.js · docs/awsOpsE2ETestPlanTodos.md | renderRouterResults 按skill_id去重+版本徽章;init加_ensureAuthOrRedirect认证门禁;vitest 171 passed | ~3k |
 | 16:08 | awsOps E2E复跑+标注 | docs/awsOpsE2ETestPlanTodos.md · docs/reports/aws-ops-e2e-report.* | PASS=8/FAIL=5,FAIL全为DeepSeek key无效(secret,需用户填)根因 | ~2k |
 | 06:28 | 修复技能页LLM路由与版本创建耦合问题 | src/backend/agents/api.py, chat_harness.py, skill_evolver.py, skill_verifier.py, src/frontend/js/skill-extract.js, src/frontend/skill-extract.html | 演化/验证按team默认模型路由(config_override)+api_base_url统一strip；效果页新增“展示对比”按钮；版本创建改走/version/snapshot脱离LLM依赖；后端健康恢复 | ~3k |
+| 16:32 | 修复plaza控制台CSP/Three废弃警告 | src/frontend/plaza.html, src/frontend/js/plaza.js, .wolf/buglog.json | connect-src放行ga.jspm.io sourcemap；Clock→performance.now；PCFSoftShadowMap→PCFShadowMap；plaza vitest 10/10 + node --check 通过 | ~1k |
+| 17:18 | 修复删除叉触发灰屏与data:audio CSP噪音 | src/frontend/plaza.html, src/frontend/js/plaza.js, .wolf/buglog.json | 移除unlockAudio data:audio播放；CSP增media-src；新增静态m-confirm并修正overlay关闭守卫；plaza vitest 10/10 + node --check通过 | ~1.5k |
+| 18:51 | 修复数字孪生页运行时无限连接中 | src/frontend/js/digital-twin/secs-core.js, .wolf/buglog.json | runtime bootstrap 从 load 前移到 DOMContentLoaded；runtime-status 加4s超时，避免永远转圈；digital-twin vitest 10/10 + node --check通过 | ~1.5k |
+| 18:52 | 移除数字孪生页失效 Lucide 样式依赖 | src/frontend/Agent-digital-twin.html, .wolf/buglog.json | 外链 lucide.min.css 返回404且页面未使用；删除引用，rg 无残留；digital-twin vitest 10/10 通过 | ~0.8k |

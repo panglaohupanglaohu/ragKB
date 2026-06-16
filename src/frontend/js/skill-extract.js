@@ -3134,7 +3134,7 @@ function initScene() {
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.target.set(0, 2, 0);
 
-  clock = new THREE.Clock();
+  clock = new THREE.Timer();
 
   // Lighting
   scene.add(new THREE.AmbientLight(0x2A2828, 0.18));

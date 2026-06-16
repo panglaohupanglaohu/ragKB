@@ -143,6 +143,17 @@
   // P0-1 运行时状态机：connecting → online / offline / error
   // ═══════════════════════════════════════════════════════════════
   var _runtimeState = { status:'connecting', mode:'', retryCount:0, pollTimer:null, retryTimer:null };
+  var _runtimeBootstrapDone = false;
+
+  async function _fetchWithTimeout(url, timeoutMs) {
+    var controller = new AbortController();
+    var timer = setTimeout(function(){ controller.abort(); }, timeoutMs || 4000);
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   function _setRuntimeStatus(status, mode, errorMsg) {
     _runtimeState.status = status;
@@ -212,7 +223,7 @@
 
   window.loadRuntimeStatus = async function() {
     try {
-      var r = await fetch(SECS+'/runtime-status');
+      var r = await _fetchWithTimeout(SECS+'/runtime-status', 4000);
       if (r.status === 401) {
         _setRuntimeStatus('offline');
         return;
@@ -233,6 +244,15 @@
       }
     }
   };
+
+  function _bootstrapRuntimePanel() {
+    if (_runtimeBootstrapDone) return;
+    _runtimeBootstrapDone = true;
+    _setRuntimeStatus('connecting');
+    loadRuntimeStatus();
+    setTimeout(loadSecsStats, 200);
+    setTimeout(loadExerciseHistory, 500);
+  }
 
   // 强制同步世界状态（刷新按钮）
   window.forceSyncWorld = async function() {
@@ -2259,11 +2279,21 @@
   if (document.readyState==='complete') _hookNewFeatures();
   else window.addEventListener('DOMContentLoaded', _hookNewFeatures);
 
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', function() {
+      _setInjectEnabled(false);
+      _bootstrapRuntimePanel();
+    }, { once:true });
+  } else {
+    _setInjectEnabled(false);
+    _bootstrapRuntimePanel();
+  }
+
   window.addEventListener('load', function() {
     _setInjectEnabled(false);  // 确保加载完成后仍是禁用
-    setTimeout(loadRuntimeStatus, 300);
-    setTimeout(loadSecsStats, 500);
-    setTimeout(loadExerciseHistory, 800);
+    loadRuntimeStatus();
+    loadSecsStats();
+    loadExerciseHistory();
   });
 
 })();

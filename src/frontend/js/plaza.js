@@ -76,8 +76,9 @@ window.openM = openM; window.closeM = closeM;
       // 输入框内操作不关弹窗
       e.preventDefault(); e.stopPropagation(); return;
     }
+    if (overlay.id) { closeM(overlay.id); return; }
     var modal = overlay.closest('.modal') || overlay.parentElement;
-    if (modal && modal.id) { closeM(modal.id); } else { overlay.parentElement?.classList.remove('open'); }
+    if (modal && modal.id) { closeM(modal.id); }
   };
   document.addEventListener('click', _closeSelGuard, true);
 })();
@@ -88,15 +89,16 @@ function showConfirm(msg, onOk) {
   if (!m) {
     m = document.createElement('div');
     m.id = 'm-confirm';
-    m.className = 'modal';
+    m.className = 'modal-overlay';
     m.setAttribute('role', 'dialog');
     m.setAttribute('aria-modal', 'true');
-    m.innerHTML = '<div class="modal-overlay" onclick="closeM(\'m-confirm\')"></div>' +
-      '<div class="modal-content" style="max-width:360px"><div class="modal-h">确认操作</div>' +
-      '<div id="confirm-msg" style="font-size:12px;padding:12px 0;color:var(--sumi-2)"></div>' +
-      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-      '<button class="btn" onclick="closeM(\'m-confirm\')">取消</button>' +
-      '<button id="confirm-ok-btn" class="btn btn-accent">确认</button></div></div>';
+    m.onclick = function(e) { if (e.target === m) closeM('m-confirm'); };
+    m.innerHTML = '<div class="modal" style="max-width:360px">' +
+      '<h3 style="margin-bottom:10px">确认操作</h3>' +
+      '<div id="confirm-msg" style="font-size:12px;padding:12px 0;color:var(--text);line-height:1.6"></div>' +
+      '<div class="modal-actions">' +
+      '<button class="btn-cancel" onclick="closeM(\'m-confirm\')">取消</button>' +
+      '<button id="confirm-ok-btn" class="btn-primary">确认</button></div></div>';
     document.body.appendChild(m);
     // E-4.2: Esc 关闭 + 焦点归还
     m.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeM('m-confirm'); } });
@@ -152,7 +154,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setClearColor(0x1A2026);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -513,9 +515,6 @@ function unlockAudio() {
     const buf = ctx.createBuffer(1, 1, 22050);
     const src = ctx.createBufferSource();
     src.buffer = buf; src.connect(ctx.destination); src.start(0);
-    // Also play a silent HTML5 Audio to unlock that path
-    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
-    a.volume = 0; a.play().catch(() => {});
   } catch(e) {}
 }
 document.addEventListener('click', unlockAudio, { once: true });
@@ -1008,7 +1007,7 @@ function updateCameraLookAt() {
 }
 
 /* ═══════════ ANIMATION ═══════════ */
-const clock = new THREE.Clock();
+const animStartMs = performance.now();
 // D-1: 隐藏标签页暂停渲染
 let _renderPaused = false;
 document.addEventListener('visibilitychange', () => { _renderPaused = document.hidden; });
@@ -1022,7 +1021,7 @@ function animate() {
     _emptyFrameSkip = (_emptyFrameSkip + 1) % 4;
     if (_emptyFrameSkip !== 0) return;
   }
-  const t = clock.getElapsedTime();
+  const t = (performance.now() - animStartMs) / 1000;
   updateCameraLookAt();
   controls.update();
 

@@ -1,5 +1,21 @@
 [
   {
+    "id": "bug-plaza-modal-hidden",
+    "timestamp": "2026-06-16T13:30:00.000000",
+    "error_message": "议事广场删除按钮只弹出蒙版看不到确认框；新建广场按钮点击也只显示蒙版无内容",
+    "file": "src/frontend/plaza.html",
+    "root_cause": "commit 8a420c7 给 plaza.html 链入全局 css/components.css，其中 .modal{display:none} 与本页将 .modal 用作弹窗内容面板的写法冲突；本页局部 .modal 规则未设 display，全局 display:none 胜出，导致所有弹窗(删除确认/新建广场/编辑/新建讨论)内容面板被隐藏，仅遮罩 .modal-overlay 可见",
+    "fix": "在 plaza.html 局部 .modal 规则加 display:block 覆盖全局 display:none（单处改动）",
+    "tags": [
+      "frontend",
+      "plaza",
+      "css",
+      "modal",
+      "specificity",
+      "components.css"
+    ]
+  },
+  {
     "id": "bug-001",
     "timestamp": "2026-06-13T05:18:00.922814",
     "error_message": "E-5 test_full_flow.py 跑出 401 '认证已失效，请重新登录' (Backend not healthy)",
@@ -112,5 +128,86 @@
     "related_bugs": ["bug-010"],
     "occurrences": 1,
     "last_seen": "2026-06-16T06:28:00.000000"
+  }
+,
+  {
+    "id": "bug-012",
+    "timestamp": "2026-06-16T16:32:00.000000",
+    "error_message": "plaza 页面控制台报 CSP 拦截 sourcemap + Three.js 废弃警告(Clock/PCFSoftShadowMap)",
+    "file": "src/frontend/plaza.html, src/frontend/js/plaza.js",
+    "root_cause": "plaza.html 的 connect-src 未允许 ga.jspm.io，DevTools 拉取 es-module-shims.js.map 被 CSP 拦截；plaza.js 仍使用 THREE.Clock 与 THREE.PCFSoftShadowMap，升级到 three@0.174 后触发 deprecation 警告。",
+    "fix": "CSP connect-src 增加 https://ga.jspm.io；渲染循环改为 performance.now() 计时替代 THREE.Clock；shadowMap.type 改用 THREE.PCFShadowMap。vitest(plaza) 2 文件 10 用例通过，node --check 通过。",
+    "tags": [
+      "plaza",
+      "csp",
+      "sourcemap",
+      "threejs",
+      "deprecation",
+      "frontend"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T16:32:00.000000"
+  },
+  {
+    "id": "bug-013",
+    "timestamp": "2026-06-16T17:18:00.000000",
+    "error_message": "点击议事广场删除叉后出现灰屏，控制台报 data:audio/wav 被 CSP 拦截",
+    "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
+    "root_cause": "删除点击时触发首个用户手势，执行 unlockAudio 中 new Audio(data:audio/wav...) 解锁逻辑；页面 CSP 未声明 media-src，默认落到 default-src 'self' 导致报错。同时确认弹层依赖动态创建，遮罩关闭守卫对 overlay 关闭目标处理不稳，表现为灰屏体感。",
+    "fix": "移除 unlockAudio 的 data:audio 播放，仅保留 AudioContext 解锁；CSP 增加 media-src 'self' data: blob:；补充静态 m-confirm 弹层并修正 overlay 关闭守卫优先按 overlay.id 关闭。plaza vitest 10/10 + node --check 通过。",
+    "tags": [
+      "plaza",
+      "delete",
+      "modal",
+      "csp",
+      "media-src",
+      "tts"
+    ],
+    "related_bugs": [
+      "bug-012"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T17:18:00.000000"
+  },
+  {
+    "id": "bug-014",
+    "timestamp": "2026-06-16T18:51:00.000000",
+    "error_message": "Agent-digital-twin.html 运行时状态一直显示'连接中...'，页面像一直在转圈",
+    "file": "src/frontend/js/digital-twin/secs-core.js",
+    "root_cause": "SECS 运行时面板只在 window.load 后才首次调用 loadRuntimeStatus()；若页面资源较慢或 load 事件被延后，右侧状态会永久停留在初始 connecting。且 runtime-status 使用裸 fetch 无超时，接口挂起时也会无限保持 spinner。",
+    "fix": "新增 _fetchWithTimeout() 给 /runtime-status 4s 超时；新增 _bootstrapRuntimePanel() 在 DOMContentLoaded 即启动 runtime/stats/history 拉取，并保留 load 时二次刷新。node --check + 4 个 digital-twin vitest 文件 10 用例通过。",
+    "tags": [
+      "digital-twin",
+      "secs",
+      "runtime-status",
+      "spinner",
+      "bootstrap",
+      "frontend"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T18:51:00.000000"
+  },
+  {
+    "id": "bug-015",
+    "timestamp": "2026-06-16T18:52:00.000000",
+    "error_message": "Agent-digital-twin.html 加载 lucide.min.css 失败，浏览器报 stylesheet URL 无法加载",
+    "file": "src/frontend/Agent-digital-twin.html",
+    "root_cause": "页面引用 `https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css`，该 URL 当前返回 404；同时页面内并无任何 lucide class 使用，属于失效且未使用的外部依赖。",
+    "fix": "删除 Agent-digital-twin.html 中无效的 lucide stylesheet 引用。`rg` 确认页面和相关脚本无 lucide 残留；digital-twin 4 个 vitest 文件 10 用例通过。",
+    "tags": [
+      "digital-twin",
+      "stylesheet",
+      "cdn",
+      "404",
+      "unused-dependency",
+      "frontend"
+    ],
+    "related_bugs": [
+      "bug-014"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T18:52:00.000000"
   }
 ]
