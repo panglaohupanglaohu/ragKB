@@ -3,6 +3,8 @@
 > Auto-maintained by OpenWolf. Last scanned: 2026-06-12T14:58:00.000Z
 > Files: 508 tracked | Anatomy hits: 0 | Misses: 0
 > Manual note (2026-06-16): updated `src/frontend/plaza.html` CSP (connect-src/media-src) and modal confirm shell; updated `src/frontend/js/plaza.js` for Three.js deprecation compatibility and delete-confirm/audio-unlock behavior; updated `src/frontend/js/digital-twin/secs-core.js` runtime bootstrap timing and runtime-status timeout handling; removed dead `lucide.min.css` dependency from `src/frontend/Agent-digital-twin.html`.
+> Manual note (2026-06-17): updated `src/frontend/js/agent-team-config.js` model row action handlers to URL-encode/decode `model_id` and harden edit-model lookup fallback, fixing the “CodeBuddy 编辑不弹窗” issue in 模型与连接页.
+> Manual note (2026-06-17): updated `src/frontend/js/wizard.js` to export missing inline-onclick handlers (`addExp`, `addPerm`, `rmPerm`, `togWzChan`, `wzFinish`) onto `window`, fixing “ReferenceError: addExp is not defined” in 新建智能体→人格设定→专长领域.
 
 ## ./
 

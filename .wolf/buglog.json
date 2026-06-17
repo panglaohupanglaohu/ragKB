@@ -210,4 +210,44 @@
     "occurrences": 1,
     "last_seen": "2026-06-16T18:52:00.000000"
   }
+,
+  {
+    "id": "bug-016",
+    "timestamp": "2026-06-17T00:00:00.000000",
+    "error_message": "agent-team-config 模型与连接页点击编辑按钮不弹窗（仅遮罩出现，内容面板不可见 / 弹窗透明 / 位置错钉左上角）",
+    "file": "src/frontend/agent-team-config.html",
+    "root_cause": "根因来自 UI美化todos.md A1+A6 任务的回归(commit 8a420c7): A1「合并共享CSS三层」时把 ws-theme-bridge.css 归档，只搬了 4 套 [data-obc-theme] 主题令牌进 theme.css，漏搬了文件末尾整段 --ws-* 辅助色系(--ws-panel-bg/--ws-border-light/--ws-hover-bg/--ws-active-bg 等，注释明写 used by agent-team-config)；A6 又在 agent-team-config.html 删掉 ws-theme-bridge.css 的 <link> 并加入 components.css。后果叠加: (1) --ws-* 整层失效→弹窗/toast/卡片背景透明无边框; (2) components.css 的 .modal{display:none;position:fixed;inset:0} 污染本页用作内容面板的 .modal(本页局部 .modal 未声明 display/position)→面板被隐藏且钉死左上角。浏览器复现确认 overlayDisplay=flex 但 panelDisplay=none、bg=rgba(0,0,0,0)。审计: 全工程仅 agent-team-config.css 消费 --ws-*(64处)，影响面只此一页。最初误诊为 model_id 编码问题在 js 加 encode/decode，无效已 git checkout 还原。",
+    "fix": "两处: (1) src/frontend/agent-team-config.html 在 components.css 之后、agent-team-config.css 之前恢复 <link rel=stylesheet href=/css/ws-theme-bridge.css>，补回 --ws-* 辅助色系(theme.css 已接管主题令牌，此处只补 --ws-*，同值重复不改外观)。(2) src/frontend/css/agent-team-config.css 局部 .modal 加 display:block;position:relative;inset:auto 覆盖 components.css 的全局污染。验证: --ws-panel-bg=#21272D、面板 bg=rgb(33,39,45) 实色有边框、position=relative、居中(centeredX/Y true)、编辑弹窗完整渲染。",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "modal",
+      "css-cascade",
+      "ws-theme-bridge",
+      "components-css-pollution",
+      "ui美化todos-A1-regression"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T00:00:00.000000"
+  },
+  {
+    "id": "bug-017",
+    "timestamp": "2026-06-17T00:00:00.000000",
+    "error_message": "新建智能体向导第2步『专长领域』点击『+ 添加』报错: ReferenceError: addExp is not defined",
+    "file": "src/frontend/js/wizard.js",
+    "root_cause": "wizard.js 使用 IIFE 封装并启用 strict mode，模板里仍用内联 onclick(如 addExp()/addPerm()/rmPerm()/togWzChan()/wzFinish())。函数本体存在，但底部 window 导出列表缺少这些函数，导致点击时在全局作用域找不到 addExp，抛出 ReferenceError。",
+    "fix": "补齐 wizard.js 底部全局导出: window.addExp / window.addPerm / window.rmPerm / window.togWzChan / window.wzFinish（并保留原有导出）。浏览器验证: typeof window.addExp==='function'，执行 addExp 后专长 chip 可正常新增。",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "wizard",
+      "onclick",
+      "iife",
+      "global-export"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T00:00:00.000000"
+  }
 ]

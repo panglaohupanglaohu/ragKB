@@ -8,7 +8,7 @@ let humanFigure, extractionGroup;
 let myceliumGroup;
 let skillNodes = [];
 let extractionActive = false;
-let animTime = 0, animFrame = 0;
+let animTime = 0, animFrame = 0, animStartMs = 0;
 let extractParticleGeo, extractParticleData = [];
 const EXTRACT_PARTICLE_COUNT = 80;
 const myceliumColor = new THREE.Color(0xD4A574);
@@ -869,7 +869,7 @@ function triggerEvolutionVFX(node) {
   });
   const beam = new THREE.Mesh(beamGeo, beamMat);
   beam.position.set(pos.x, pos.y + 2.5, pos.z);
-  beam.userData._evolveBeam = { start: clock.getElapsedTime() };
+  beam.userData._evolveBeam = { start: (performance.now() - animStartMs) / 1000 };
   extractionGroup.add(beam);
 
   // Flash point light
@@ -878,7 +878,7 @@ function triggerEvolutionVFX(node) {
   extractionGroup.add(flash);
 
   // Animate: shrink → expand via userData flag
-  node.userData._evolving = { start: clock.getElapsedTime(), origScale: node.scale.x };
+  node.userData._evolving = { start: (performance.now() - animStartMs) / 1000, origScale: node.scale.x };
   // Cleanup after 2.5s
   setTimeout(() => {
     extractionGroup.remove(beam); beam.geometry.dispose(); beam.material.dispose();
@@ -1147,7 +1147,7 @@ window.triggerVerify = async function() {
     );
     scanRing.position.copy(pos);
     scanRing.userData._scanRing = true;
-    scanRing.userData._scanStart = clock.getElapsedTime();
+    scanRing.userData._scanStart = (performance.now() - animStartMs) / 1000;
     extractionGroup.add(scanRing);
   }
 
@@ -1192,7 +1192,7 @@ window.triggerVerify = async function() {
         blending: THREE.AdditiveBlending, depthWrite: false
       });
       const shatterPts = new THREE.Points(shatterGeo, shatterMat);
-      shatterPts.userData._shatter = { velocities: shatterVels, startTime: clock.getElapsedTime(), duration: 1.2 };
+      shatterPts.userData._shatter = { velocities: shatterVels, startTime: (performance.now() - animStartMs) / 1000, duration: 1.2 };
       scene.add(shatterPts);
       // Remove original scan ring
       extractionGroup.remove(scanRing);
@@ -3134,7 +3134,7 @@ function initScene() {
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.target.set(0, 2, 0);
 
-  clock = new THREE.Timer();
+  animStartMs = performance.now();
 
   // Lighting
   scene.add(new THREE.AmbientLight(0x2A2828, 0.18));
@@ -3447,7 +3447,7 @@ function growIncrementalMycelium(targetPos) {
   );
   tube.userData._targetOpacity = 0.18;
   tube.userData._growing = true;
-  tube.userData._growStart = clock.getElapsedTime();
+  tube.userData._growStart = (performance.now() - animStartMs) / 1000;
   myceliumGroup.add(tube);
 
   // Record new endpoint
@@ -3478,7 +3478,7 @@ function growIncrementalMycelium(targetPos) {
     );
     subTube.userData._targetOpacity = 0.12;
     subTube.userData._growing = true;
-    subTube.userData._growStart = clock.getElapsedTime() + 0.5; // Delayed
+    subTube.userData._growStart = (performance.now() - animStartMs) / 1000 + 0.5; // Delayed
     myceliumGroup.add(subTube);
     myceliumEndpoints.push(subPts[subPts.length - 1].clone());
   }
@@ -3616,7 +3616,7 @@ function spawnSkillNodeAnimated(skill) {
   extractionGroup.add(glowRing);
   mesh.userData = {
     skill, type,
-    spawnTime: clock.getElapsedTime(),
+    spawnTime: (performance.now() - animStartMs) / 1000,
     lifecycle: v,
     blink: v.blink,
     degraded: v.degraded || false,
@@ -3726,7 +3726,7 @@ function shatterSkillNode(skillId) {
     blending: THREE.AdditiveBlending, depthWrite: false
   });
   const shatterPts = new THREE.Points(shatterGeo, shatterMat);
-  shatterPts.userData._shatter = { velocities, startTime: clock.getElapsedTime(), duration: 1.5 };
+  shatterPts.userData._shatter = { velocities, startTime: (performance.now() - animStartMs) / 1000, duration: 1.5 };
   scene.add(shatterPts);
 
   // Remove original node and associated elements near its position
@@ -3822,7 +3822,7 @@ function spawnSkillNode(skill) {
   glowRing2.position.copy(mesh.position);
   extractionGroup.add(glowRing2);
   mesh.userData._glowRing = glowRing2;
-  mesh.userData = { skill, type, spawnTime: clock.getElapsedTime(), lifecycle: v, blink: v.blink, degraded: v.degraded || false };
+  mesh.userData = { skill, type, spawnTime: (performance.now() - animStartMs) / 1000, lifecycle: v, blink: v.blink, degraded: v.degraded || false };
   extractionGroup.add(mesh);
   skillNodes.push(mesh);
 
@@ -3997,7 +3997,7 @@ function _doHighlight(latest) {
   const pulseRing = new THREE.Mesh(pulseGeo, pulseMat);
   pulseRing.position.copy(pos);
   pulseRing.rotation.x = -Math.PI / 2;
-  pulseRing.userData._highlightPulse = { start: clock.getElapsedTime(), duration: 3.0 };
+  pulseRing.userData._highlightPulse = { start: (performance.now() - animStartMs) / 1000, duration: 3.0 };
   extractionGroup.add(pulseRing);
 
   // Boost latest crystal glow
@@ -4085,7 +4085,7 @@ function buildAmbientDust() {
 // ── Animation Loop ──────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
-  animTime = clock.getElapsedTime();
+  animTime = (performance.now() - animStartMs) / 1000;
   animFrame++;
   controls.update();
 

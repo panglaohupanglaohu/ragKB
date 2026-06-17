@@ -77,3 +77,16 @@
 | 17:18 | 修复删除叉触发灰屏与data:audio CSP噪音 | src/frontend/plaza.html, src/frontend/js/plaza.js, .wolf/buglog.json | 移除unlockAudio data:audio播放；CSP增media-src；新增静态m-confirm并修正overlay关闭守卫；plaza vitest 10/10 + node --check通过 | ~1.5k |
 | 18:51 | 修复数字孪生页运行时无限连接中 | src/frontend/js/digital-twin/secs-core.js, .wolf/buglog.json | runtime bootstrap 从 load 前移到 DOMContentLoaded；runtime-status 加4s超时，避免永远转圈；digital-twin vitest 10/10 + node --check通过 | ~1.5k |
 | 18:52 | 移除数字孪生页失效 Lucide 样式依赖 | src/frontend/Agent-digital-twin.html, .wolf/buglog.json | 外链 lucide.min.css 返回404且页面未使用；删除引用，rg 无残留；digital-twin vitest 10/10 通过 | ~0.8k |
+| 2026-06-17 | 修复模型与连接页 CodeBuddy 编辑不弹窗 | src/frontend/js/agent-team-config.js, .wolf/buglog.json | loadModels 的 inline onclick 改为传 URL 编码 model_id；openEditModel/delModel/setModelDefault 统一解码；编辑前查找模型增加 trim 兜底与 cache fallback，恢复 CodeBuddy 编辑弹窗 | ~1k |
+
+## 2026-06-17 — fix: agent-team-config 编辑弹窗不显示
+- 根因: 全局 components.css `.modal{display:none}` 污染本页用作内容面板的 `.modal`（局部未声明 display），属性级联致面板隐藏，仅遮罩可见。
+- 修复: src/frontend/css/agent-team-config.css 局部 `.modal` 加 `display:block`（单处）。
+- 还原: 之前误诊的 agent-team-config.js encode/decode 改动已 git checkout 还原。
+- 验证: 浏览器复现 openEditModel(qwen3) → panelDisplay block、面板 456x257 可见、编辑表单完整渲染。
+
+## 2026-06-17 — fix: 向导专长领域 addExp 未定义
+- 现象: 新建智能体 → 人格设定 → 专长领域点击「+ 添加」报 ReferenceError: addExp is not defined。
+- 根因: wizard.js 为 IIFE，模板用 inline onclick；addExp/addPerm/rmPerm/togWzChan/wzFinish 未导出到 window。
+- 修复: 在 wizard.js 底部补齐 window 导出上述函数。
+- 验证: node --check 通过；浏览器里 typeof window.addExp===function，执行后可新增专长 chip。
