@@ -730,7 +730,7 @@
   // ═══ 统一入口：SECS"沙箱推演" = 试炼导演台"创建试炼" ═══
   window.sexyCreateAndRun = async function() {
     if (!_selectedTeamId) { showToast('请先选择演练团队','warn'); return; }
-    if (window._currentSessionId) { showToast('试炼已存在，请先终止','warn'); return; }
+    if (window._sx && window._sx.sessionId) { showToast('试炼已存在，请先终止','warn'); return; }
 
     // 从 SECS 面板读取模式和参数
     var modeEl = document.querySelector('input[name="secs-mode"]:checked');
@@ -781,7 +781,7 @@
     // 直接调用试炼导演台的 createTrial（统一入口）
     await createTrial();
 
-    if (!window._currentSessionId) {
+    if (!(window._sx && window._sx.sessionId)) {
       // createTrial 失败，恢复 SECS 面板
       btn.disabled = false;
       btn.textContent = '▶ 沙箱推演';
@@ -790,13 +790,12 @@
     }
 
     // ═══ 试炼创建成功 → 同步 SECS 面板到试炼 session ═══
-    _sx.sessionId = window._currentSessionId;
     _sx.simRunning = false;
     _sx.steps = 0;
     _sx.maxSteps = steps;
     _sx.rewardPoints = [];
 
-    setT('secs-session-id', window._currentSessionId.slice(0,8));
+    setT('secs-session-id', _sx.sessionId.slice(0,8));
     document.getElementById('secs-btn-launch').style.display = 'none';
     document.getElementById('secs-ctrl-panel').style.display = 'block';
     document.getElementById('secs-btn-auto').style.display = '';
@@ -812,7 +811,7 @@
     _setInjectEnabled(true);
 
     showToast('✅ 试炼已就绪 — SECS面板与导演台互通', 'success');
-    _logConsole('✅ 统一入口创建成功 (session=' + window._currentSessionId.slice(0,8) + ')', 'success');
+    _logConsole('✅ 统一入口创建成功 (session=' + _sx.sessionId.slice(0,8) + ')', 'success');
 
     // SSE + 统计
     _connectSSE();
@@ -825,7 +824,7 @@
 
   // ▶ 自动运行（统一入口：操作试炼 session）
   window.sexyAutoRun = async function() {
-    if (!window._currentSessionId && !_sx.sessionId) { showToast('请先启动演练','warn'); return; }
+    if (!_sx.sessionId) { showToast('请先启动演练','warn'); return; }
 
     var autoBtn = document.getElementById('secs-btn-auto');
     var pauseBtn = document.getElementById('secs-btn-pause');
@@ -849,8 +848,7 @@
     _sx._abortCtrl = new AbortController();
     window._DTS._abortCtrl = _sx._abortCtrl;
 
-    var sid = window._currentSessionId || _sx.sessionId;
-    _logConsole('[API] POST /sessions/.../run (统一自动运行)', 'info');
+    var sid = _sx.sessionId;
     _logConsole('▶ 开始自动运行... session=' + sid.slice(0,8), 'info');
 
     try {
@@ -1526,7 +1524,7 @@
     if (_sx._abortCtrl) { _sx._abortCtrl.abort(); _sx._abortCtrl = null; }
     if (window._DTS && window._DTS._abortCtrl) { window._DTS._abortCtrl.abort(); window._DTS._abortCtrl = null; }
     // [2] 向后端发送停止信号
-    var sid = window._currentSessionId || _sx.sessionId;
+    var sid = _sx.sessionId;
     if (sid) {
       try {
         var rr = await fetch(SECS+'/sessions/'+encodeURIComponent(sid)+'/stop', { method:'POST' });
@@ -1560,12 +1558,11 @@
     if (launch) { launch.style.display = 'block'; launch.disabled = false; launch.textContent = '▶ 沙箱推演'; }
     if (ctrlPanel) ctrlPanel.style.display = 'none';
     // [fix] 保留 sessionId 用于报告按钮（延迟清除）
-    var sidForReport = window._currentSessionId || _sx.sessionId;
+    var sidForReport = _sx.sessionId;
     _paused = false;
     _sx.simRunning = false;
     _sx.steps = 0;
     _sx.sessionId = null;
-    window._currentSessionId = null;  // ⬅ 统一清理试炼sessionId
     // 重置试炼导演台状态（允许下次创建）
     if (window._DTS) {
       window._DTS.trialStatus = 'idle';
