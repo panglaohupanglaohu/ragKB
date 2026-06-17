@@ -248,6 +248,7 @@ def _resolve_responsible_agent(team_id: str, responsible: str) -> str:
     """将执行计划中的"负责角色"文本解析为团队中具体 agent 的 ID.
 
     匹配优先级: agent.name 精确匹配 → agent.name 含关键词 → agent.role 匹配
+    → 角色关键词交叉匹配 → 语义近似匹配（architect↔架构师等）
     均失败时返回空字符串，任务将分配给整个团队。
     """
     responsible = (responsible or "").strip()
@@ -280,6 +281,33 @@ def _resolve_responsible_agent(team_id: str, responsible: str) -> str:
             role_words = set((a.role or "").lower().replace("_", " ").split())
             if resp_keywords & role_words:
                 return a.agent_id
+        # 5) 语义近似匹配 — 中英文角色名映射
+        ROLE_SYNONYMS = {
+            "architect": ["架构师", "架构", "architect"],
+            "developer": ["开发", "开发者", "编程", "developer", "全栈"],
+            "researcher": ["研究", "研究员", "researcher", "调研"],
+            "qa_engineer": ["测试", "质检", "qa", "tester", "review"],
+            "devops": ["运维", "部署", "devops", "deployer", "操作员"],
+            "project_manager": ["项目经理", "pm", "leader", "协调"],
+            "documentation": ["文档", "doc", "writer"],
+            "finops": ["成本", "费用", "账单", "cost", "finops"],
+            "monitor": ["监控", "巡检", "monitor", "sre"],
+            "compliance": ["合规", "compliance", "区域"],
+        }
+        resp_lower_for_match = resp_lower
+        for a in agents:
+            role = (a.role or "").lower()
+            for eng_role, synonyms in ROLE_SYNONYMS.items():
+                if role == eng_role or eng_role in role:
+                    if any(syn in resp_lower_for_match for syn in synonyms):
+                        return a.agent_id
+        # 6) Build System 团队特殊处理：Build System → build_pm
+        if "build system" in resp_lower:
+            for a in agents:
+                if a.role == "project_manager":
+                    return a.agent_id
+            if agents:
+                return agents[0].agent_id
         logger.info("未找到 agent 匹配 responsible=%s 在团队 %s 中，任务将分配至团队级", responsible[:30], team_id[:12])
     except Exception as e:
         logger.warning("解析负责 agent 失败: %s", e)
