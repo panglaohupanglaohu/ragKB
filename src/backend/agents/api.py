@@ -3863,7 +3863,7 @@ async def rerun_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     task.metadata.pop("token_factory_error", None)
     task.metadata.pop("pipeline_rewinds", None)
     task.metadata.pop("qa_feedback", None)
-    task.status = AgentTaskStatus.PENDING  # type: ignore
+    task.status = TaskStatus.PENDING
     task.error = ""
     task.started_at = ""
     task.completed_at = ""
@@ -3884,8 +3884,9 @@ async def rerun_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
         task.metadata["workflow"] = wf
         agent = _tm().get_agent(team_id, first_pending.get("agent_id", ""))
         if agent:
-            api_key, base_url, model_name = _get_deepseek_credentials(agent=agent, team_id=team_id)
-            cfg = _build_provider_config(api_key, base_url, model_name, agent)
+            sr = _sr()
+            skill = sr.get_by_slug("code_implementation")
+            cfg = dict(skill.config or {}) if skill else {}
             import uuid as _uuid
             sid = str(_uuid.uuid4())[:12]
             step_prompt = _build_step_prompt(task, first_pending, wf)
@@ -3894,7 +3895,7 @@ async def rerun_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
             _harness_log.info("[Rerun] Restarted task %s at step '%s' (session %s)",
                               task_id, first_pending["key"], sid)
 
-    task.status = AgentTaskStatus.RUNNING  # type: ignore
+    task.status = TaskStatus.RUNNING
     engine._store.save_task(task)
     await engine.start_task(task_id)
     _start_harness_monitor(task_id, team_id)
