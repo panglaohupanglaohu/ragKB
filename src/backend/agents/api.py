@@ -2180,10 +2180,15 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     harness = get_chat_harness()
 
     # If team has a default model, ensure harness uses it
+    is_codebuddy_team = False
     if team_id:
         team = _tm().get_team(team_id)
         if team:
             _sync_default_model_to_harness(team)
+            for m in team.models.values():
+                if m.is_default and str(getattr(m, "provider", "")).lower() == "codebuddy":
+                    is_codebuddy_team = True
+                    break
 
     resolved_skills = _resolve_bound_skills(team_id, agent) if team_id else []
     permission_context = _build_agent_permission_context(agent)
@@ -2191,7 +2196,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     # Build tool schemas for function calling from agent's bound tools + bound skill requirements
     tools_for_llm = None
     effective_tools = _resolve_effective_tools(team_id, agent, resolved_skills) if team_id else []
-    if effective_tools:
+    if effective_tools and not is_codebuddy_team:
         tools_for_llm = []
         for t in effective_tools:
             if permission_context.blocks(t.name):
@@ -2236,14 +2241,22 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         f"请用中文回答，专业但易懂。"
     )
 
-    # Inject bound skill instructions into system prompt
-    if resolved_skills:
+    # Inject bound skill instructions into system prompt (skip for CodeBuddy to keep payload compact)
+    if resolved_skills and not is_codebuddy_team:
         skill_instructions = []
         for skill in resolved_skills:
             if skill.instructions:
                 skill_instructions.append(f"### {skill.name}\n{skill.instructions}")
         if skill_instructions:
             system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
+
+    if is_codebuddy_team and len(system_prompt) > 1800:
+        system_prompt = system_prompt[:1800] + "\n\n[系统提示已精简]"
+
+    config_override = _resolve_team_provider_config(team_id) if team_id else None
+    if config_override and config_override.provider == LLMProvider.CODEBUDDY:
+        config_override.thinking = None
+        config_override.reasoning_effort = ""
 
     result = await harness.chat(
         content,
@@ -2252,6 +2265,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         session_id=session_id,
         system_prompt=system_prompt,
         tools=tools_for_llm,
+        config_override=config_override,
     )
 
     # If LLM returned tool calls, execute them and feed results back
@@ -2541,13 +2555,14 @@ async def _check_task_runtime_ready(team_id: str = "", agent_id: str = "") -> tu
     if token_ready:
         return True, ""
 
+    # Check team model credentials (covers codebuddy/deepseek/any provider configured via UI)
     agent = _tm().get_agent(team_id, agent_id) if team_id and agent_id else None
     api_key, _, _ = _get_deepseek_credentials(agent=agent, team_id=team_id)
     if api_key:
-        _harness_log.info("[task_runtime] Direct DeepSeek API available — proceeding")
+        _harness_log.info("[task_runtime] Team model API key available (provider=%s) — proceeding", team_id)
         return True, ""
 
-    return False, "LLM 推理后端不可用，任务已创建但未启动执行"
+    return False, "LLM 推理后端不可用 — 请在「模型与连接」页面配置 API Key 并设为默认模型"
 
 
 def _prepare_task_submission(task: AgentTask, team_id: str, token_ready: bool) -> list:
@@ -3313,6 +3328,11 @@ async def _real_task_executor(task) -> Any:
     if task.metadata.get("workflow") and any(
         s.get("session_id") for s in task.metadata["workflow"]
     ):
+        # Ensure monitor is reattached for manual resume/restart flows.
+        try:
+            _start_harness_monitor(task.task_id, task.team_id)
+        except Exception:
+            pass
         return {"message": "Workflow already running via REST endpoint"}
 
     # Token Factory preflight — but if direct DeepSeek API is available, skip
@@ -3731,9 +3751,13 @@ async def stop_task(team_id: str, task_id: str) -> Dict[str, Any]:
 )
 async def remove_task(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    task = await _te().delete_task(task_id)
-    if task is None or task.team_id != team_id:
+    existing = _te().get_task(task_id)
+    if existing is None:
+        # Idempotent delete: treat missing task as already removed.
+        return {"deleted": False, "already_absent": True, "task_id": task_id}
+    if existing.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    await _te().delete_task(task_id)
     return {"deleted": True, "task_id": task_id}
 
 
@@ -3746,6 +3770,14 @@ async def start_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     task = await _te().start_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    # Manual restart: allow resuming terminal tasks that still have workflow context.
+    # start_task may no-op for failed/cancelled states; force runtime status back to running.
+    try:
+        if task.status.value in ("failed", "cancelled"):
+            task.status = task.status.__class__("running")
+    except Exception:
+        pass
 
     # Manual start from UI should launch the same workflow executor path used by
     # auto-start on submit, not just flip the task status to running.
@@ -4668,16 +4700,30 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                         try:
                             # Check the test step's status in workflow first
                             test_step_obj = next((s for s in wf if s.get("key") == "test"), None)
+                            test_verdict = ""
+                            if test_step_obj:
+                                ts = test_step_obj.get("_summary") or {}
+                                test_verdict = str(ts.get("verdict") or "").strip().upper()
+
                             if test_step_obj and test_step_obj.get("status") == "failed":
                                 gate_blocked = True
                                 gate_reason = (
                                     f"Test 步骤失败 ({test_step_obj.get('error','no session/output')})"
                                 )
 
+                            # Prefer structured verdict when available; avoid false positives
+                            # from markdown body scans (e.g., historical FAIL strings).
+                            if (not gate_blocked) and test_verdict in ("FAIL", "FAILED", "BLOCKER", "BLOCKED"):
+                                gate_blocked = True
+                                gate_reason = f"QA 验证结论 = {test_verdict}"
+
+                            verdict_is_pass = test_verdict in ("PASS", "PASSED", "OK", "SUCCESS")
+
                             pdir_g = _pipeline_dir(task_id)
                             test_idx = _STEP_INDEX.get("test", "05")
                             test_md = _os.path.join(pdir_g, f"{test_idx}_test.md")
-                            if _os.path.isfile(test_md):
+                            # Only fallback to markdown regex when verdict is missing/unknown.
+                            if _os.path.isfile(test_md) and (not gate_blocked) and (not verdict_is_pass):
                                 test_text = open(test_md, "r", encoding="utf-8").read()
                                 # Block if QA explicitly said FAIL or BLOCKER
                                 tl = test_text.lower()
@@ -6775,6 +6821,17 @@ def _team_model_credentials(agent=None, team_id: str = "") -> tuple:
 
         cfg = ProviderConfig.from_model_config(model)
         api_key = (cfg.api_key or "").strip()
+        if not api_key:
+            # Fallback: look up the secret store for this team's model key
+            try:
+                from .secret_store import load_model_api_keys
+                secrets = load_model_api_keys()
+                team_secrets = secrets.get(team.team_id, {})
+                stored_key = team_secrets.get(model.model_id, "") or team_secrets.get(model.name, "")
+                if stored_key:
+                    api_key = stored_key.strip()
+            except Exception:
+                pass
         if not api_key:
             return None, None, None, None
         base_url = (cfg.resolve_base_url() or "").strip().rstrip("/")

@@ -249,5 +249,176 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-06-17T00:00:00.000000"
+  },
+  {
+    "id": "bug-018",
+    "timestamp": "2026-06-17T18:25:00.000000",
+    "error_message": "AWS 运维团队智能体详情会话聊天返回兜底文案‘当前 LLM 未连接 (11133 Invalid request parameters)’，导致无法获得真实 LLM 回答",
+    "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py",
+    "root_cause": "CodeBuddy 会话路径与测试路径参数兼容性不一致：会话聊天会注入工具 schema / 较复杂系统提示词，在 CodeBuddy 严格参数校验下触发 11133；同时原实现遇到 11133 不做降级重试，直接进入 fallback 文案。",
+    "fix": "会话生成路径对 CodeBuddy 做兼容：1) api.py 在 _generate_agent_response 中识别 CodeBuddy 默认模型并跳过 tools schema 注入；2) chat_harness.py 在 LLMClient.chat_completion 中对 CodeBuddy 的 11133 增加参数降级重试（先最小非流式，再仅最后一条用户消息）；3) 保持前端会话创建 payload 合法。浏览器实测 POST /sessions/{sid}/messages 后 assistant 返回真实模型文本‘连接正常’，不再 fallback。",
+    "tags": [
+      "backend",
+      "chat-harness",
+      "codebuddy",
+      "llm",
+      "fallback",
+      "11133",
+      "compatibility"
+    ],
+    "related_bugs": [
+      "bug-010"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T18:25:00.000000"
+  },
+  {
+    "id": "bug-019",
+    "timestamp": "2026-06-17T19:05:00.000000",
+    "error_message": "智能体详情技能页缺少删除入口：部分行仅显示“绑定”，无法直接删除技能",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "ag-skills 的 renderSkillRow 将删除按钮放在 isBound 条件分支内，导致未绑定技能行不渲染删除操作；页面表现为只有“绑定”而无“删除”。",
+    "fix": "将 deleteSkillWithContext 删除按钮改为技能行通用操作（绑定/未绑定都显示），仅绑定状态按钮继续按 isBound 切换为“解绑”或“绑定”。",
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skills",
+      "delete",
+      "binding",
+      "ui-regression"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:05:00.000000"
+  },
+  {
+    "id": "bug-020",
+    "timestamp": "2026-06-17T19:22:00.000000",
+    "error_message": "智能体详情技能页点击删除不生效（按钮可见但接口未正确命中）",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "删除按钮 inline onclick 使用 escapeHtml(skill_id) 直接传参，包含特殊字符时被 HTML 实体化（如 & -> &amp;），deleteSkillWithContext 拿到的不是原始 skill_id，导致 DELETE /teams/{tid}/skills/{skill_id} 命中失败。",
+    "fix": "将 skill_id/skill_name/sourceId 改为 encodeURIComponent 传参，在 deleteSkillWithContext 内 decodeURIComponent 还原；DELETE 路径段使用 encodeURIComponent(rawSkillId) 发送。",
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skills",
+      "delete",
+      "encoding",
+      "onclick"
+    ],
+    "related_bugs": [
+      "bug-019"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:22:00.000000"
+  },
+  {
+    "id": "bug-021",
+    "timestamp": "2026-06-17T23:10:00.000000",
+    "error_message": "议事广场页底部「+ 新建广场」和「开始」按钮不可见（以前修过又复现），疑似前端优化导致",
+    "file": "src/frontend/plaza.html",
+    "root_cause": "UI美化(commit 8a420c7)把页面顶栏换成共享组件 .topbar-ws，其 position:relative 处于普通流并占据 56px 高度；但 .layout 仍保留为固定顶栏设计的 margin-top:56px，且同时有 height:calc(100vh - 56px)。二者叠加使内容总高 = 56(顶栏) + 56(margin) + (100vh-56) = 100vh + 56，整体溢出视口 56px，正好把底部的 .btn-new 与 .ctrl-bar(含 #btn-start) 挤出视口下方。浏览器实测: innerHeight=561，.btn-new top=575/bottom=609 inView=false，#btn-start top=578 inView=false，.left/.right bottom=617。",
+    "fix": "删除 src/frontend/plaza.html 中 .layout 的 margin-top:56px（顶栏已是普通流自然占位，height:calc(100vh-56px) 已为其预留高度），并加注释说明不可再加 margin-top。浏览器重载实测: .btn-new top=519/bottom=553 inView=true、#btn-start top=522 inView=true、.left/.right=56→561 正好填满视口，截图确认两按钮可见。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "layout",
+      "topbar-ws",
+      "viewport-overflow",
+      "ui美化-regression",
+      "css"
+    ],
+    "related_bugs": [
+      "bug-016"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T23:10:00.000000"
+  },
+  {
+    "id": "bug-022",
+    "timestamp": "2026-06-17T23:58:00.000000",
+    "error_message": "plaza 页面持续刷 API 404: /api/v1/agent-config/plaza/escalations?plaza_id=3c1394b23b1b&discussion_id=c7b791abb040（广场不存在）",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "讨论信号刷新路径会多处触发 refreshEscalationState（含并发触发）；当后端对某讨论上下文返回 404 '广场不存在' 时，前端没有熔断与并发去重，导致同一上下文反复请求并持续产生控制台告警噪音。另有深链/本地缓存上下文选择路径，需在前端做上下文自愈与失效容错，避免旧上下文污染后续请求。",
+    "fix": "在 plaza.js 增加升级项拉取防护：1) 讨论维度熔断集合 escalationFetchBlocked，遇到 404(广场不存在/讨论不存在)后停止该讨论后续 escalations 拉取；2) 并发去重集合 escalationFetchInFlight，确保同一讨论同一时刻最多 1 个 escalations 请求；3) refreshEscalationState 增加上下文自愈（从 DOM/localStorage 回补 plaza/discussion id）与已知广场校验；4) init 深链优先级修正，仅当 deepLink plaza 与选中 plaza 一致时才采用 deepLink discussion。浏览器实测：并发 3 次 refreshEscalationState 仅发 1 次 escalations 请求，不再出现 2~3 秒持续刷 404。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "escalations",
+      "404",
+      "circuit-breaker",
+      "dedupe",
+      "deep-link"
+    ],
+    "related_bugs": [
+      "bug-021"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T23:58:00.000000"
+  },
+  {
+    "id": "bug-023",
+    "timestamp": "2026-06-18T00:20:00.000000",
+    "error_message": "议事广场执行计划 ASSIGN 下拉选择 Build System 后会自动跳回 AI 编程团队，表现为“选不中”",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "renderPlanCard 每次重渲染计划卡片都会重建 `<select id=assign-team>`，但选项未按当前选择或上下文做 selected 回填，导致 DOM 替换后默认落到第一个 option（ai_coding）。用户手动选择成功后，在下一次重渲染时被静默重置，体感为无法选中 Build System。",
+    "fix": "renderPlanCard 增加选择保留逻辑：渲染前读取旧节点值 `previousTeam`，回退到 `AGCtx.get('team')`；生成 option 时对 `preferredTeam` 打 selected，并在 innerHTML 后再次防御性赋值 `assign-team.value = preferredTeam`。浏览器实测：选择 build_system 后等待 6 秒经历重渲染（节点已替换）仍保持 build_system，不再回退。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "assign-team",
+      "select",
+      "rerender",
+      "state-preservation"
+    ],
+    "related_bugs": [
+      "bug-022"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T00:20:00.000000"
+  },
+  {
+    "id": "bug-024",
+    "timestamp": "2026-06-18T00:45:00.000000",
+    "error_message": "任务流水线部署步骤（deployer）被 QA Gate 误阻断，最终报 pipeline halted: rewind cap (2) exhausted",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "Deploy QA Gate 同时读取结构化 test summary 与 test markdown 文本。即使 test_step._summary.verdict 已是 PASS，仍继续做 markdown 正则扫描（匹配 FAIL/BLOCKER 关键字），导致被历史文本/上下文中的 FAIL 字样误判，错误阻断 deploy；反复回滚后触发 rewind cap exhausted。",
+    "fix": "在 deploy QA Gate 逻辑中优先信任结构化 verdict：若 verdict=PASS/PASSED/OK/SUCCESS，跳过 markdown 正则兜底扫描；仅在 verdict 缺失/未知时才回退到 markdown 文本规则。保持 test step status=failed 与 verdict=FAIL/BLOCKER 的阻断不变。py_compile 与 get_errors 均通过。",
+    "tags": [
+      "backend",
+      "workflow",
+      "deploy",
+      "qa-gate",
+      "false-positive",
+      "rewind-cap",
+      "build-system"
+    ],
+    "related_bugs": [
+      "bug-023"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T00:45:00.000000"
+  },
+  {
+    "id": "bug-025",
+    "timestamp": "2026-06-18T01:25:00.000000",
+    "error_message": "删除任务时报 DELETE /api/v1/agent-config/teams/build_system/tasks/<task_id>/remove 404 (Task not found)",
+    "file": "src/frontend/js/tasks-view.js, src/backend/agents/api.py",
+    "root_cause": "前端任务列表存在历史/陈旧 task_id 时，调用 remove 接口会返回 Task not found；此前前端把该 404 当失败提示并记录警告日志，造成“删除不 work”的误导。",
+    "fix": "前端 tasks-view 删除与批量清理路径改为幂等处理：当 remove 返回 404 且 detail=Task not found 时视为已删除成功；同时后端 remove_task 路由改为幂等（缺失任务返回 already_absent），服务重载后可消除该 404。",
+    "tags": [
+      "frontend",
+      "backend",
+      "tasks",
+      "delete",
+      "idempotent",
+      "404",
+      "stale-id"
+    ],
+    "related_bugs": [
+      "bug-024"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T01:25:00.000000"
   }
 ]

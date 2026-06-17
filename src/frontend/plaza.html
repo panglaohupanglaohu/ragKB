@@ -54,7 +54,10 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .top-bar .nav-links .cur{color:var(--slit-glow);border-bottom:1px solid var(--slit-glow);font-size:11px;padding:6px 14px;letter-spacing:0.5px;cursor:default;pointer-events:none;display:inline-block}
 
 /* ── Layout ── */
-.layout{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 56px);margin-top:56px}
+/* 顶栏 .topbar-ws 为普通流(position:relative)，已占据 56px；此处仅用 height 预留高度，
+   不可再加 margin-top:56px，否则与 height:calc(100vh-56px) 叠加会溢出 56px，
+   把底部「新建广场」「开始」按钮挤出视口 (bug-plaza-layout-overflow) */
+.layout{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 56px)}
 
 /* ── Left: concrete wall panel ── */
 .left{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;position:relative}

@@ -216,8 +216,15 @@
 
 **目标**：全站统一为 `topbar-ws` 横向顶栏；新建 `js/nav.js` 取代 `global-nav.js` + `nav-sidebar.js` 的双轨。
 
+> ⚠️ **回归教训（bug-021）**：本任务把顶栏统一为普通流 `.topbar-ws`(position:relative,56px)，但 `plaza.html` 等页面的 `.layout` 还保留着为「固定/绝对定位顶栏」时代写的 `margin-top:56px`（叠加 `height:calc(100vh-56px)` 会溢出视口 56px，把底部按钮挤出屏幕）。**改顶栏前必须先做下面的步骤 0 审计。**
+
 **步骤**：
 ```pseudo
+0. 【必做·先于一切】审计各页对固定顶栏的布局假设：
+   grep -rn 'margin-top:\s*56px\|padding-top:\s*56px\|top:\s*56px\|calc(100vh' src/frontend/*.html src/frontend/css/*.css
+   - 顶栏既然是普通流(自然占 56px)，这些为固定顶栏预留的偏移多半要删/改
+   - 每改一页，浏览器实测：底部控件 inView、内容不溢出视口、不被顶栏遮挡
+
 1. 新建 js/nav.js（单一数据源）
    const PAGES = [
      {id:'agents',     label:'智能体团队', href:'/agent-team-config.html'},
@@ -241,7 +248,7 @@
 
 4. global-nav.js：标记 deprecated，逻辑并入 nav.js 后清空引用
 ```
-✅ 验收：`grep -rl 'global-nav.js\|nav-sidebar.js' src/frontend/*.html` 命中数为 0；每页顶栏 6 个真实链接 + 当前页高亮。
+✅ 验收：`grep -rl 'global-nav.js\|nav-sidebar.js' src/frontend/*.html` 命中数为 0；每页顶栏 6 个真实链接 + 当前页高亮；**且每页在浏览器实测：底部控件 inView、内容不溢出视口、不被普通流顶栏遮挡（步骤 0 防 bug-021 回归）。**
 
 ---
 

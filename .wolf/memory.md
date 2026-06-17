@@ -78,6 +78,9 @@
 | 18:51 | 修复数字孪生页运行时无限连接中 | src/frontend/js/digital-twin/secs-core.js, .wolf/buglog.json | runtime bootstrap 从 load 前移到 DOMContentLoaded；runtime-status 加4s超时，避免永远转圈；digital-twin vitest 10/10 + node --check通过 | ~1.5k |
 | 18:52 | 移除数字孪生页失效 Lucide 样式依赖 | src/frontend/Agent-digital-twin.html, .wolf/buglog.json | 外链 lucide.min.css 返回404且页面未使用；删除引用，rg 无残留；digital-twin vitest 10/10 通过 | ~0.8k |
 | 2026-06-17 | 修复模型与连接页 CodeBuddy 编辑不弹窗 | src/frontend/js/agent-team-config.js, .wolf/buglog.json | loadModels 的 inline onclick 改为传 URL 编码 model_id；openEditModel/delModel/setModelDefault 统一解码；编辑前查找模型增加 trim 兜底与 cache fallback，恢复 CodeBuddy 编辑弹窗 | ~1k |
+| 19:22 | 修复智能体技能删除不生效 | src/frontend/js/agent-detail.js, .wolf/buglog.json | 删除按钮参数改为 encodeURIComponent 传递，deleteSkillWithContext 内 decode；DELETE 路径段也 encode，修复特殊字符 ID 删除失败；node --check + get_errors 通过 | ~1k |
+| 18:25 | 修复智能体详情可读性与会话LLM回退 | src/frontend/js/agent-detail.js, src/backend/agents/api.py, src/backend/agents/chat_harness.py | 人格页技能ID→名称映射、关系页优先name；会话聊天针对CodeBuddy跳过tools并加11133参数错误降级重试，浏览器实测 send_session_message 返回 assistant=“连接正常” 非 fallback | ~4k |
+| 19:05 | 修复智能体技能页缺少删除入口 | src/frontend/js/agent-detail.js, .wolf/buglog.json | 智能体详情→技能列表将“删除技能”按钮从仅已绑定可见改为所有技能行可见；已绑定仍保留“解绑”，未绑定保留“绑定”；node --check + get_errors 通过 | ~0.8k |
 
 ## 2026-06-17 — fix: agent-team-config 编辑弹窗不显示
 - 根因: 全局 components.css `.modal{display:none}` 污染本页用作内容面板的 `.modal`（局部未声明 display），属性级联致面板隐藏，仅遮罩可见。
@@ -90,3 +93,47 @@
 - 根因: wizard.js 为 IIFE，模板用 inline onclick；addExp/addPerm/rmPerm/togWzChan/wzFinish 未导出到 window。
 - 修复: 在 wizard.js 底部补齐 window 导出上述函数。
 - 验证: node --check 通过；浏览器里 typeof window.addExp===function，执行后可新增专长 chip。
+
+## 2026-06-17 — fix: 智能体技能页无删除按钮
+- 现象: 智能体详情→技能中，部分页面仅显示“绑定”按钮，没有技能删除入口。
+- 根因: ag-skills 行模板把删除按钮放在 `isBound` 分支内，未绑定技能行不会渲染删除操作。
+- 修复: 将删除按钮提升为行级通用操作（绑定与未绑定均可见），仅绑定/解绑按钮继续按状态分支。
+- 验证: node --check src/frontend/js/agent-detail.js + get_errors 均通过。
+
+## 2026-06-17 — fix: 议事广场底部按钮被挤出视口（前端优化回归）
+- 现象: plaza.html 底部「+ 新建广场」「开始」按钮看不见（以前修过又复现），用户疑前端优化导致。
+- 根因: UI美化(8a420c7)把顶栏换成普通流的 .topbar-ws(position:relative,56px)，但 .layout 仍保留固定顶栏时代的 margin-top:56px，叠加 height:calc(100vh-56px) 使内容溢出视口 56px，底部按钮被推出可视区。
+- 修复: 删除 .layout 的 margin-top:56px 并加注释。浏览器实测 .btn-new/#btn-start 回到视口内(inView=true)，.left/.right 正好 56→561 填满。
+- 关联: bug-021 / 同源回归 bug-016。
+
+## 2026-06-17 — doc: 冻结 UI美化plan/todos 阶段A
+- 决策: 用户选「方案A 保留但冻结」。UI美化优化plan.md/UI美化todos.md 不删除。
+- 动作: plan 顶部加 ⚠️暂停 banner（A1/A4/A6 已致 bug-016/bug-021）；todos A4 加「步骤0 固定顶栏偏移审计」+ 浏览器实测验收项；plan §6 三决策未拍板前不得续推 A1/A4/A6。
+
+## 2026-06-17 — fix: plaza escalations 404 持续刷屏
+- 现象: 控制台反复报 `API 404: /api/v1/agent-config/plaza/escalations?... 广场不存在`，同一讨论上下文每 2~3 秒重复触发。
+- 根因: `refreshEscalationState` 被多处并发/定时触发；后端返回 404 时前端没有熔断与并发去重，导致同一上下文持续重试。另有深链/本地缓存上下文需前端容错自愈。
+- 修复: plaza.js 增加按讨论维度熔断(`escalationFetchBlocked`) + in-flight 去重(`escalationFetchInFlight`)；`refreshEscalationState` 增加 DOM/localStorage 上下文回补与已知广场校验；init 深链讨论选择改为仅在 deepLink plaza 与当前选中一致时采用。
+- 验证: 浏览器并发触发 3 次 `refreshEscalationState(true)` 仅 1 次 escalations 请求；不再出现持续 404 请求风暴。
+- 关联: bug-022。
+
+## 2026-06-18 — fix: ASSIGN 下拉 Build System 选不中
+- 现象: 在 plaza 执行计划卡片里将 ASSIGN 选为 Build System 后，几秒后又自动跳回 AI 编程团队，用户体感“选不中”。
+- 根因: renderPlanCard 重渲染会替换整块 DOM，`#assign-team` 新节点默认选中第一个 option；未保留旧值。
+- 修复: renderPlanCard 渲染前读取旧值 `previousTeam`，回退 `AGCtx.get('team')` 作为 `preferredTeam`；options 对匹配项加 selected，并在渲染后再次赋值 `assign-team.value=preferredTeam`。
+- 验证: 浏览器实测选择 build_system 后等待 6 秒（节点重建 sameNode=false）仍保持 build_system。
+- 关联: bug-023。
+
+## 2026-06-18 — fix: QA 误判导致 deploy 被阻断
+- 现象: deploy 报“部署已被 QA 阻断: QA 验证结论 = FAIL”，并最终“重试上限已达(2)”。但任务 metadata 里 `qa_feedback.verdict` 已是 PASS。
+- 根因: deploy QA Gate 在已有结构化 verdict 的情况下仍做 test markdown 正则扫描，文本内出现 FAIL/BLOCKER 关键词会误触发 gate_blocked。
+- 修复: backend `api.py` 中 QA Gate 改为优先使用结构化 verdict；若 verdict=PASS/PASSED/OK/SUCCESS 则跳过 markdown 正则兜底，仅在 verdict 缺失/未知时才回退文本规则。
+- 验证: py_compile + get_errors 通过；新任务不会再因 PASS 场景被 regex 误判阻断。
+- 关联: bug-024。
+
+## 2026-06-18 — fix: 删除任务 404(Task not found) 的幂等处理
+- 现象: 控制台出现 `DELETE .../tasks/<id>/remove 404`，前端提示删除失败。
+- 根因: 任务 ID 已陈旧/已不存在；删除语义本应幂等，但前端把 404 作为硬失败。
+- 修复: `src/frontend/js/tasks-view.js` 中单条删除与批量清理都对 404+Task not found 视为“已删除”；并在 `src/backend/agents/api.py` 把 remove 路由改为幂等（missing -> already_absent）。
+- 验证: 浏览器同 ID 返回 404 时前端判定 `treatedAsSuccess=true`；语法/错误检查通过。
+- 关联: bug-025。

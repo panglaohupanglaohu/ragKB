@@ -26,6 +26,9 @@
 - [2026-06-13] 跨文档状态会滞后：本文件 v4 的 C-4.1/D-0.2 标 [~]，实际已由 frontendBigChangeTodos F3/F4 完成。核对 todos 时必须跨 5 份文档交叉比对（全局优化 / 数字孪生v3.1 / 场景演练v4 / AgentsGroupConfig / frontendBigChange），避免误报未完成。
 - [2026-06-17] 弹窗"点击只出遮罩、内容不显示"几乎都是 CSS 级联污染：页面把 `.modal` 当弹窗内容面板用，同时链入全局 `css/components.css`（其中 `.modal{display:none}`）。页面局部 `.modal` 若不声明 display，全局 display:none 按属性级联胜出 → 面板被隐藏。修法固定：在该页局部 `.modal` 规则加 `display:block`（单处）。已发生于 plaza.html 与 agent-team-config.css。**不要**误诊为 JS/ID 编码问题去改逻辑。排查命令：浏览器对 overlay 与 `.modal` 取 getComputedStyle，看 panel display 是否 none。
 - [2026-06-17] 前端文件若用 IIFE 封装且模板内使用 inline onclick，必须把每个 onclick 引用函数显式挂到 window。仅在文件内定义函数不等于全局可见；漏导出会在点击时报 `ReferenceError: <fn> is not defined`（本次为 wizard.js 的 addExp）。
+- [2026-06-17] 本机重启服务验证时必须用项目 `./start.sh`（会进入项目 virtualenv 并带齐 aiohttp 等依赖）。直接 `python3 src/backend/main.py` 可能使用系统解释器，导致会话聊天接口报 `ModuleNotFoundError: aiohttp` 假性回归，干扰真实问题定位。
+- [2026-06-17] 智能体详情「技能」行操作不要把“删除”放进绑定状态分支里。删除是行级通用操作（无论当前是绑定还是未绑定都应可见）；仅“绑定/解绑”按钮按 isBound 切换，避免出现只有“绑定”但没有“删除”的页面回归。
+- [2026-06-17] inline onclick 传参不能用 HTML 转义值（如 `escapeHtml(skill_id)`）直接当业务 ID；`&amp;` 等实体会导致后端删除/更新命中失败。参数应 `encodeURIComponent` 传递，在处理函数内 `decodeURIComponent` 还原，并在 URL path 段再次 `encodeURIComponent`。
 
 ## Decision Log
 

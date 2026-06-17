@@ -310,8 +310,15 @@ async function loadTasks(){hideViewLoading("view-tasks");
 async function taskAction(id,action){
   if(action==='delete'){
     if(!confirm('确定要永久删除此任务吗？此操作不可撤销。')) return;
-    const r=await api(`${A}/teams/${tid}/tasks/${id}/remove`,{method:'DELETE'});
-    if(r){toast('✅ 已永久删除');loadTasks()}else{toast('❌ 删除失败','error')}
+    const resp=await csrfFetch(`${A}/teams/${tid}/tasks/${id}/remove`,{method:'DELETE'});
+    const body=await resp.json().catch(()=>null);
+    const alreadyMissing=resp.status===404 && ((body&&body.detail)||'').toLowerCase().indexOf('task not found')>=0;
+    if(resp.ok||alreadyMissing){
+      toast(alreadyMissing?'✅ 任务已不存在（视为已删除）':'✅ 已永久删除');
+      loadTasks();
+    }else{
+      toast('❌ 删除失败: '+((body&&body.detail)||`HTTP ${resp.status}`),'error');
+    }
   }
   else if(action==='cancel'){
     if(!confirm('确定要取消此任务吗？')) return;
@@ -425,7 +432,12 @@ window.cancelAllTasks = async function(){
   let count=0;
   for(const t of matched){
     if(t.status==='running') await api(`${A}/teams/${tid}/tasks/${t.task_id}/stop`,{method:'POST'}).catch(()=>{});
-    await api(`${A}/teams/${tid}/tasks/${t.task_id}/remove`,{method:'DELETE'});
+    const resp=await csrfFetch(`${A}/teams/${tid}/tasks/${t.task_id}/remove`,{method:'DELETE'});
+    if(!resp.ok&&resp.status!==404){
+      const body=await resp.json().catch(()=>null);
+      toast('❌ 清理失败: '+((body&&body.detail)||`HTTP ${resp.status}`),'error');
+      return;
+    }
     count++;
   }
   toast(`已清理 ${count} 个任务`);loadTasks();

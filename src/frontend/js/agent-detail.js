@@ -17,6 +17,28 @@ async function listApi(path, limit = 200, offset = 0){
   const payload=await api(path);
   return Array.isArray(payload)?payload:Array.isArray(payload?.items)?payload.items:[];
 }
+function _isLikelyOpaqueId(v){
+  return /^[a-f0-9]{8,}$/i.test(String(v||''));
+}
+
+async function _resolveSkillLabels(teamId, skills){
+  const list = Array.isArray(skills) ? skills : [];
+  if (!list.length) return [];
+  const payload = await api(`${A}/teams/${teamId}/skills`).catch(function(){ return null; });
+  const items = Array.isArray(payload) ? payload : (Array.isArray(payload?.items) ? payload.items : []);
+  const map = {};
+  items.forEach(function(s){
+    const name = s && s.name ? String(s.name) : '';
+    if (!name) return;
+    if (s.skill_id) map[String(s.skill_id)] = name;
+    if (s.slug) map[String(s.slug)] = name;
+    map[name] = name;
+  });
+  return list.map(function(raw){
+    const key = String(raw||'');
+    return { raw: key, label: map[key] || key };
+  });
+}
 async function loadAgent(id){
   if(id){aid=id;_chatSid=''}const d=await api(`${A}/teams/${tid}/agents/${aid}`);
   if(!d){el('agent-content').innerHTML='<p style="color:var(--dim);padding:40px">加载失败</p>';return}
@@ -56,7 +78,12 @@ function renderATab(d){
     renderEmployeeView(d);
   } else if(atab==='ag-aware'){
     const tr=m.traits||[],bd=m.behavior_boundaries||[];
-    c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${(d.skills||[]).length+tr.length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">Agent 当前正在关注的任务</p>${(d.skills||[]).map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${escapeHtml(s)}</div><div class="meta">skill · active</div></div>`).join('')}${tr.map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${escapeHtml(t)}</div><div class="meta">trait · personality</div></div>`).join('')}${bd.map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${escapeHtml(b)}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!(d.skills||[]).length&&!tr.length&&!bd.length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
+    c.innerHTML='<div class="section"><div class="section-title">关注点</div><p style="color:var(--dim);font-size:12px">加载中...</p></div>';
+    _resolveSkillLabels(tid, d.skills||[]).then(function(resolved){
+      c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${resolved.length+tr.length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">技能、性格特质与行为边界</p>${resolved.map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${escapeHtml(s.label)}${_isLikelyOpaqueId(s.raw)&&s.label===s.raw?` <span style="font-size:11px;color:var(--dim)">(${escapeHtml(s.raw.slice(0,8))})</span>`:''}</div><div class="meta">skill · active</div></div>`).join('')}${tr.map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${escapeHtml(t)}</div><div class="meta">trait · personality</div></div>`).join('')}${bd.map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${escapeHtml(b)}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!resolved.length&&!tr.length&&!bd.length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
+    }).catch(function(){
+      c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${(d.skills||[]).length+tr.length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">技能、性格特质与行为边界</p>${(d.skills||[]).map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${escapeHtml(s)}</div><div class="meta">skill · active</div></div>`).join('')}${tr.map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${escapeHtml(t)}</div><div class="meta">trait · personality</div></div>`).join('')}${bd.map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${escapeHtml(b)}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!(d.skills||[]).length&&!tr.length&&!bd.length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
+    });
   } else if(atab==='ag-soul'){
     const soul=`# Soul — ${d.name||d.agent_id}\n\n## Identity\n- **名称**: ${d.name||d.agent_id}\n- **角色**: ${escapeHtml(d.role||d.description||'-')}\n- **创建时间**: ${cr}\n\n## Personality\n- ${p.tone||'professional'}\n- ${p.response_style||'concise'}\n- 创造力: ${p.creativity??0.5}\n- 语言: ${p.language||'zh-CN'}\n- 专长: ${(p.expertise_areas||[]).join(', ')||'无'}\n\n## Boundaries\n${(m.behavior_boundaries||[]).map(b=>'- '+b).join('\n')||'- 无限制'}`;
     // Load saved soul or generate default
@@ -89,7 +116,7 @@ function renderATab(d){
       const renderSkillRow = (s, isBound, source) => {
         const versionInfo = s.version ? ` v${s.version}` : '';
         const lifecycle = s.lifecycle_stage ? `<span class="chip" style="font-size:9px">${escapeHtml(s.lifecycle_stage)}</span>` : '';
-        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button>${isBound?`<button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${escapeHtml(s.skill_id)}','${escapeHtml(s.name)}','agent','${escapeHtml(aid)}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
+        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${encodeURIComponent(s.skill_id||'')}','${encodeURIComponent(s.name||'')}','agent','${encodeURIComponent(aid||'')}')" title="删除" style="color:var(--pink)">🗑️</button>${isBound?`<button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
       };
       let html = `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 智能体技能</div><span style="color:var(--dim);font-size:12px">${mySkills.length} 个已绑定 · 团队共 ${all.length} 个</span></div>`;
       html += `<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop 测试</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 查看任务</button></div>`;
@@ -101,7 +128,7 @@ function renderATab(d){
     });
   } else if(atab==='ag-relations'){
     api(`${A}/teams/${tid}/agents/${aid}/relationships`).then(rel=>{
-      c.innerHTML=`<div class="section"><div class="section-title">🔗 关系</div>${rel&&rel.relationships&&rel.relationships.length?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${escapeHtml(r.target||r.name||'?')}</span><span class="chip">${escapeHtml(r.type||'peer')}</span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div><div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?d.channels.map(ch=>`<div class="ws-item"><span class="fname">📡 ${escapeHtml(ch.channel_name)}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span></span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div>`;
+      c.innerHTML=`<div class="section"><div class="section-title">🔗 关系</div>${rel&&rel.relationships&&rel.relationships.length?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${escapeHtml(r.name||r.target||'?')}</span><span class="chip">${escapeHtml(r.type||'peer')}</span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div><div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?d.channels.map(ch=>`<div class="ws-item"><span class="fname">📡 ${escapeHtml(ch.channel_name)}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span></span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div>`;
     });
   } else if(atab==='ag-workspace'){
     var wsPath='';
@@ -157,7 +184,7 @@ function renderATab(d){
     c.innerHTML=`<div class="card" style="max-width:600px"><div class="section-title">⚙️ 设置</div><div class="form-group"><label class="form-label">名称</label><input class="fi" value="${d.name||''}" id="set-name"></div><div class="form-group"><label class="form-label">角色</label><input class="fi" value="${d.role||''}" id="set-role"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="set-desc">${d.description||''}</textarea></div><div class="form-group"><label class="form-label">系统提示词</label><textarea class="fi" id="set-prompt" rows="4">${d.system_prompt||''}</textarea></div><div class="form-group"><label class="form-label">模型 ID</label><input class="fi" value="${escapeHtml(d.model_id||'')}" id="set-model"></div><div id="agent-test-result" class="hidden" style="margin-top:12px;padding:14px;border-radius:0;border:1px solid var(--line);font-size:13px"></div><div style="display:flex;gap:10px;margin-top:20px"><button class="btn btn-pink" onclick="saveAgent()">保存</button><button class="btn" onclick="testAgentLLM()">🧪 测试连接</button><button class="btn btn-danger" onclick="delAgent()">删除</button></div></div>`;
   }
 }
-async function newSession(){const r=await api(`${A}/teams/${tid}/agents/${aid}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});if(r){toast('会话已创建');_chatSid=r.session_id||r.id;loadAgent()}else{toast('已创建');loadAgent()}}
+async function newSession(){const r=await api(`${A}/teams/${tid}/agents/${aid}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:`${aid||'agent'}-${new Date().toISOString().slice(0,16)}`})});if(r){toast('会话已创建');_chatSid=r.session_id||r.id;loadAgent()}else{toast('会话创建失败','error')}}
 let _chatSid='';
 function openChatSession(sid){_chatSid=sid;loadAgent()}
 function closeChatSession(){_chatSid='';loadAgent()}
@@ -524,9 +551,12 @@ async function togAgentSkill(skillId,bind){
 
 // ── Enhanced Skill Delete (with context) ──
 async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) {
+  const rawSkillId = decodeURIComponent(String(skillId || ''));
+  const rawSkillName = decodeURIComponent(String(skillName || ''));
+  const rawSourceId = decodeURIComponent(String(sourceId || ''));
   // 查找技能详情确定影响范围
   const teamSkills = await listApi(`${A}/teams/${tid}/skills`, 200, 0);
-  const skill = teamSkills.find(s => s.skill_id === skillId || s.name === skillName || s.slug === skillId);
+  const skill = teamSkills.find(s => s.skill_id === rawSkillId || s.name === rawSkillName || s.slug === rawSkillId);
   const boundAgents = []; // Will be populated from API
   let impactHtml = '';
   if (skill) {
@@ -536,26 +566,26 @@ async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) 
       const agents = Array.isArray(teamDetail.agents) ? teamDetail.agents : Object.values(teamDetail.agents);
       agents.forEach(a => {
         const aSkills = a.skills || [];
-        if (aSkills.includes(skillId) || aSkills.includes(skill.name) || aSkills.includes(skill.slug)) {
+        if (aSkills.includes(rawSkillId) || aSkills.includes(skill.name) || aSkills.includes(skill.slug)) {
           boundAgents.push(a.name || a.agent_id);
         }
       });
     }
     impactHtml = `
       <div style="margin:12px 0;padding:12px;background:rgba(224,27,36,0.06);border-radius:0;font-size:12px">
-        <div><b>删除对象:</b> ${escapeHtml(skill.name)} (${escapeHtml(skillId)})</div>
-        <div><b>来源:</b> ${sourceType === 'agent' ? `智能体 ${escapeHtml(sourceId)}` : `团队 ${escapeHtml(sourceType)}`}</div>
+        <div><b>删除对象:</b> ${escapeHtml(skill.name)} (${escapeHtml(rawSkillId)})</div>
+        <div><b>来源:</b> ${sourceType === 'agent' ? `智能体 ${escapeHtml(rawSourceId)}` : `团队 ${escapeHtml(sourceType)}`}</div>
         <div><b>类别:</b> ${escapeHtml(skill.category||'general')} · 版本: ${skill.version||1}</div>
         ${skill.lifecycle_stage ? `<div><b>生命周期:</b> ${escapeHtml(skill.lifecycle_stage)}</div>` : ''}
         ${boundAgents.length > 0 ? `<div style="margin-top:6px;color:var(--amber)"><b>⚠️ 影响范围:</b> ${boundAgents.length} 个智能体仍绑定此技能 (${boundAgents.map(escapeHtml).join(', ')})</div>` : ''}
         ${skill.is_default ? '<div style="margin-top:4px;color:var(--pink)"><b>⚠️ 此为默认技能</b> — 删除可能影响团队基础能力</div>' : ''}
       </div>`;
   }
-  const confirmed = confirm(`确认删除技能「${skillName}」？\n\n${skill ? '来源: ' + sourceType + ' · 影响智能体: ' + boundAgents.length + ' 个' : ''}\n\n此操作不可撤销。`);
+  const confirmed = confirm(`确认删除技能「${rawSkillName}」？\n\n${skill ? '来源: ' + sourceType + ' · 影响智能体: ' + boundAgents.length + ' 个' : ''}\n\n此操作不可撤销。`);
   if (!confirmed) return;
-  const r = await api(`${A}/teams/${tid}/skills/${skillId}`, { method: 'DELETE' });
+  const r = await api(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`, { method: 'DELETE' });
   if (r) {
-    toast(`✅ 已删除「${skillName}」`);
+    toast(`✅ 已删除「${rawSkillName}」`);
     if (typeof loadAgent === 'function' && window.aid) loadAgent();
     if (typeof loadSkills === 'function') loadSkills();
   } else {

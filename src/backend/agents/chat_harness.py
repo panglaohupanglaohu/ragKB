@@ -497,6 +497,43 @@ class LLMClient:
         """Call the chat completions endpoint."""
         import aiohttp
 
+        def _is_codebuddy_param_error(txt: str) -> bool:
+            t = (txt or "").lower()
+            return "11133" in t or "invalid request parameters" in t
+
+        async def _post_once(session, payload: Dict[str, Any], headers: Dict[str, str], url: str) -> Dict[str, Any]:
+            async with session.post(
+                url, json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=self._config.timeout),
+            ) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    return {
+                        "error": True,
+                        "status": resp.status,
+                        "message": error_text[:500],
+                    }
+                if payload.get("stream"):
+                    full_content = ""
+                    full_json = None
+                    async for line in resp.content:
+                        text = line.decode(errors='replace')
+                        if text.startswith("data: ") and text.strip() != "data: [DONE]":
+                            try:
+                                chunk = json.loads(text[6:])
+                                full_json = chunk  # keep last chunk for metadata
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    full_content += content
+                            except json.JSONDecodeError:
+                                pass
+                    if full_json:
+                        full_json["choices"][0]["message"] = {"role": "assistant", "content": full_content}
+                        return full_json
+                    return {"choices": [{"message": {"role": "assistant", "content": full_content}}]}
+                return await resp.json(content_type=None)
+
         model = model or self._config.model
         max_tokens = max_tokens or self._config.max_tokens
         temp = temperature if temperature >= 0 else self._config.temperature
@@ -510,7 +547,7 @@ class LLMClient:
         }
         if self._config.thinking and self._config.provider != LLMProvider.CODEBUDDY:
             payload["thinking"] = self._config.thinking
-        if self._config.reasoning_effort:
+        if self._config.reasoning_effort and self._config.provider != LLMProvider.CODEBUDDY:
             payload["reasoning_effort"] = self._config.reasoning_effort
         # Qwen3 models: disable thinking to get content in 'content' field
         if model and "qwen" in model.lower():
@@ -534,38 +571,30 @@ class LLMClient:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=payload, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=self._config.timeout),
-                ) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        return {
-                            "error": True,
-                            "status": resp.status,
-                            "message": error_text[:500],
-                        }
-                    # CodeBuddy returns SSE stream; collect all chunks
-                    if self._config.provider == LLMProvider.CODEBUDDY:
-                        full_content = ""
-                        full_json = None
-                        async for line in resp.content:
-                            text = line.decode(errors='replace')
-                            if text.startswith("data: ") and text.strip() != "data: [DONE]":
-                                try:
-                                    chunk = json.loads(text[6:])
-                                    full_json = chunk  # keep last chunk for metadata
-                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    if content:
-                                        full_content += content
-                                except json.JSONDecodeError:
-                                    pass
-                        if full_json:
-                            full_json["choices"][0]["message"] = {"role": "assistant", "content": full_content}
-                            return full_json
-                        return {"choices": [{"message": {"role": "assistant", "content": full_content}}]}
-                    return await resp.json(content_type=None)
+                result = await _post_once(session, payload, headers, url)
+                if (
+                    self._config.provider == LLMProvider.CODEBUDDY
+                    and result.get("error")
+                    and _is_codebuddy_param_error(result.get("message", ""))
+                ):
+                    # Compatibility fallback for strict parameter validation on CodeBuddy
+                    compact_payloads = [
+                        {
+                            "model": model,
+                            "messages": messages,
+                            "stream": False,
+                        },
+                        {
+                            "model": model,
+                            "messages": [messages[-1]] if messages else messages,
+                            "stream": False,
+                        },
+                    ]
+                    for p in compact_payloads:
+                        result = await _post_once(session, p, headers, url)
+                        if not result.get("error"):
+                            break
+                return result
         except Exception as exc:
             return {
                 "error": True,
@@ -597,7 +626,7 @@ class LLMClient:
         }
         if self._config.thinking:
             payload["thinking"] = self._config.thinking
-        if self._config.reasoning_effort:
+        if self._config.reasoning_effort and self._config.provider != LLMProvider.CODEBUDDY:
             payload["reasoning_effort"] = self._config.reasoning_effort
         # Qwen3 models: disable thinking to get content in 'content' field
         if model and "qwen" in model.lower():

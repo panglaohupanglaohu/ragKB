@@ -10,9 +10,12 @@ const tlog = (...a) => { if (DEBUG_TTS) console.log(...a); };
 const twarn = (...a) => { if (DEBUG_TTS) console.warn(...a); };
 let curPlaza = null, curDisc = null, curDiscData = null, evtSrc = null;
 let allTeams = [], allParticipants = [];
+let knownPlazas = [];
 let curVerificationState = null;
 let curConsensusState = null;
 let curEscalationState = null;
+const escalationFetchBlocked = new Set();
+const escalationFetchInFlight = new Set();
 let discussionSignalTimer = null;
 // SSE reconnect state
 let _sseRetryTimer = null, _sseRetryDelay = 1000, _sseClosedByUs = false;
@@ -27,6 +30,61 @@ const deepLinkDiscussionId = Q.get('discussion_id') || '';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const asItems = payload => Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
+
+function stripQueryParams(keys) {
+  if (!Array.isArray(keys) || !keys.length) return;
+  try {
+    const u = new URL(window.location.href);
+    let changed = false;
+    keys.forEach(k => {
+      if (u.searchParams.has(k)) {
+        u.searchParams.delete(k);
+        changed = true;
+      }
+    });
+    if (changed) window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+  } catch (e) {
+    // ignore URL cleanup failures
+  }
+}
+
+function normalizePlazaSelectionOnError() {
+  curPlaza = null;
+  curDisc = null;
+  curDiscData = null;
+  curVerificationState = null;
+  curConsensusState = null;
+  curEscalationState = null;
+  localStorage.removeItem('plaza_curPlaza');
+  localStorage.removeItem('plaza_curDisc');
+  clearDiscussionSignals();
+  clearSpeechPlayback();
+  teardownSSE();
+  renderArena3D([]);
+  $('disc-list').innerHTML = '<div style="color:var(--dim);font-size:10px">先选择广场</div>';
+  $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;letter-spacing:1px;font-family:var(--font-mono)">SELECT PLAZA · CREATE DISCUSSION<br>全员自动入座</div>';
+  $('plan-panel').style.display = 'none';
+  $('btn-start').disabled = true;
+  $('btn-start').textContent = '开始';
+  $('status-text').textContent = '';
+}
+
+function isKnownPlaza(id) {
+  if (!id) return false;
+  return knownPlazas.some(p => p.id === id);
+}
+
+function activePlazaIdFromDOM() {
+  return document.querySelector('#plaza-list .plaza-card.active')?.dataset?.plazaId || '';
+}
+
+function activeDiscussionIdFromDOM() {
+  return document.querySelector('#disc-list .disc-item.active')?.dataset?.discussionId || '';
+}
+
+function escalationCtxKey(plazaId, discussionId) {
+  return `${String(plazaId || '')}::${String(discussionId || '')}`;
+}
 
 function toast(m) {
   const text = String(m ?? '');
@@ -1062,39 +1120,67 @@ onResize(); animate();
 /* ═══════════ PLAZA CRUD ═══════════ */
 async function loadPlazas() {
   const ps = await listApi(`${API}/plaza`, 200, 0);
+  knownPlazas = Array.isArray(ps) ? ps : [];
   const list = $('plaza-list');
-  if (!ps || !ps.length) { list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">无广场</div>'; return; }
+  if (!ps || !ps.length) {
+    list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">无广场</div>';
+    return [];
+  }
   list.innerHTML = ps.map(p =>
-    `<div class="plaza-card ${p.id === curPlaza ? 'active' : ''}" onclick="selectPlaza('${esc(p.id)}')">
+    `<div class="plaza-card ${p.id === curPlaza ? 'active' : ''}" data-plaza-id="${esc(p.id)}" onclick="selectPlaza('${esc(p.id)}')">
       <div class="nm">${esc(p.name)}</div>
       <div class="mt"><span>${p.participant_count} 人</span><span>${p.discussion_count} 题</span></div>
       <button class="btn-edit" title="编辑广场" onclick="event.stopPropagation();openEditPlaza('${esc(p.id)}')">✎</button>
       <button class="btn-del" title="删除广场" onclick="event.stopPropagation();deletePlaza('${esc(p.id)}','${esc(p.name)}')">×</button>
     </div>`
   ).join('');
+  return ps;
 }
 
 window.selectPlaza = async function(id) {
+  if (!id) return false;
   // Close any existing SSE connection
   teardownSSE();
-  curPlaza = id; curDisc = null; curDiscData = null;
-  localStorage.setItem('plaza_curPlaza', id);
-  localStorage.removeItem('plaza_curDisc');
   clearSpeechPlayback();
-  loadPlazas();
   // 先拉取广场详情，仅在没有参与者时才自动入座（兼容旧广场）
   let plaza = await api(`${API}/plaza/${id}`);
-  if (!plaza) return;
+  if (!plaza) {
+    if (window.api?._lastError?.status === 404) {
+      if (deepLinkPlazaId === id) stripQueryParams(['plaza_id', 'discussion_id']);
+      if (localStorage.getItem('plaza_curPlaza') === id) localStorage.removeItem('plaza_curPlaza');
+      if (localStorage.getItem('plaza_curDisc')) localStorage.removeItem('plaza_curDisc');
+      const fallback = knownPlazas.find(p => p.id !== id);
+      if (fallback?.id) {
+        toast('目标广场不存在，已切换到可用广场');
+        return window.selectPlaza(fallback.id);
+      }
+      normalizePlazaSelectionOnError();
+      toast('目标广场不存在，请重新创建或选择其他广场');
+    }
+    return false;
+  }
+
+  curPlaza = id;
+  curDisc = null;
+  curDiscData = null;
+  curVerificationState = null;
+  curConsensusState = null;
+  curEscalationState = null;
+  localStorage.setItem('plaza_curPlaza', id);
+  localStorage.removeItem('plaza_curDisc');
+  await loadPlazas();
+
   if (!plaza.participants || !plaza.participants.length) {
     await api(`${API}/plaza/${id}/auto-seat`, { method: 'POST' });
     plaza = await api(`${API}/plaza/${id}`);
-    if (!plaza) return;
+    if (!plaza) return false;
   }
   renderArena3D(plaza.participants || []);
   renderDiscList(await listApi(`${API}/plaza/${id}/discussions`, 200, 0));
   $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
   $('plan-panel').style.display = 'none';
   $('btn-start').disabled = true; $('status-text').textContent = '';
+  return true;
 };
 
 /* ═══════════ AGENT TREE HELPERS ═══════════ */
@@ -1322,7 +1408,7 @@ window.deletePlaza = async function(id, name) {
 /* ═══════════ DISCUSSIONS ═══════════ */
 function renderDiscList(ds) {
   $('disc-list').innerHTML = ds.map(d =>
-    `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" onclick="selectDisc('${esc(d.id)}')">
+    `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" data-discussion-id="${esc(d.id)}" onclick="selectDisc('${esc(d.id)}')">
       <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">重新讨论</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
       <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
     </div>`
@@ -1354,12 +1440,31 @@ window.deleteDisc = async function(event, discId) {
 };
 
 window.selectDisc = async function(discId, opts) {
+  if (!curPlaza || !discId) return false;
+  const disc = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`);
+  if (!disc) {
+    if (window.api?._lastError?.status === 404) {
+      if (deepLinkDiscussionId === discId) stripQueryParams(['discussion_id']);
+      if (localStorage.getItem('plaza_curDisc') === discId) localStorage.removeItem('plaza_curDisc');
+      if (curDisc === discId) curDisc = null;
+      curDiscData = null;
+      curVerificationState = null;
+      curConsensusState = null;
+      curEscalationState = null;
+      $('btn-start').disabled = true;
+      $('btn-start').textContent = '开始';
+      $('status-text').textContent = '';
+      $('plan-panel').style.display = 'none';
+      toast('目标讨论不存在，请重新选择讨论');
+    }
+    return false;
+  }
+
   curDisc = discId;
+  escalationFetchBlocked.delete(escalationCtxKey(curPlaza, discId));
   _msgRenderLimit = 50;  // E-6.1: 切讨论时重置分页
   localStorage.setItem('plaza_curDisc', discId);
   if (!opts?.keepSpeech) clearSpeechPlayback();
-  const disc = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`);
-  if (!disc) return;
   curDiscData = disc;
   const plaza = await api(`${API}/plaza/${curPlaza}`);
   if (plaza) { renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0)); renderArena3D(plaza.participants || []); }
@@ -1383,6 +1488,7 @@ window.selectDisc = async function(discId, opts) {
     $('plan-panel').style.display = 'none';
   }
   if (disc.status === 'in_progress' || disc.plan?.content || disc.summary) connectSSE(discId);
+  return true;
 };
 
 // E-6.1: 消息分页 — 超长讨论只渲染近 N 条
@@ -1706,7 +1812,15 @@ function scheduleDiscussionSignalRefresh(delay = 600) {
 
 function renderPlanCard(planContent, revised = false) {
   const p = $('plan-panel'); p.style.display = '';
-  const opts = allTeams.map(t => `<option value="${esc(t.team_id)}">${esc(t.name)}</option>`).join('');
+  const previousTeam = $('assign-team')?.value || '';
+  const ctxTeam = (() => {
+    try { return window.AGCtx?.get?.('team') || ''; } catch (e) { return ''; }
+  })();
+  const preferredTeam = previousTeam || ctxTeam || '';
+  const opts = allTeams.map(t => {
+    const selected = preferredTeam && t.team_id === preferredTeam ? ' selected' : '';
+    return `<option value="${esc(t.team_id)}"${selected}>${esc(t.name)}</option>`;
+  }).join('');
   p.innerHTML = `<div class="plan-card"><h4>执行计划${revised ? ' <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">已修订</span>' : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
     <div class="assign-row"><span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">ASSIGN:</span>
     <select id="assign-team" onchange="try{AGCtx.set('team',this.value)}catch(e){}">${opts}</select><button class="plan-btn" onclick="assignPlan()">派发</button></div>
@@ -1717,6 +1831,10 @@ function renderPlanCard(planContent, revised = false) {
       <button class="plan-btn accent" onclick="enterCostGov()" title="将讨论结论作为成本治理输入">💰 成本治理</button>
       <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
     </div></div>`;
+  if (preferredTeam && $('assign-team')) {
+    // Re-apply value defensively in case option order changes during rerender.
+    $('assign-team').value = preferredTeam;
+  }
   renderConsensusState();
   renderEscalationState();
   renderVerificationState();
@@ -1844,13 +1962,47 @@ window.refreshConsensusState = async function(silent = false) {
 };
 
 window.refreshEscalationState = async function(silent = false) {
-  if (!curPlaza || !curDisc) return;
-  const payload = await api(`${API}/plaza/escalations?plaza_id=${encodeURIComponent(curPlaza)}&discussion_id=${encodeURIComponent(curDisc)}`);
-  if (!payload) return;
-  curEscalationState = normalizeEscalationState(payload);
-  renderEscalationState();
-  if (!silent && curEscalationState.total) {
-    toast(`升级项 ${curEscalationState.total} 条 · 待处理 ${curEscalationState.pending_count}`);
+  let plazaId = curPlaza || '';
+  let discussionId = curDisc || '';
+
+  // Self-heal context to survive stale closure state or invalid deep links.
+  if (!plazaId || !isKnownPlaza(plazaId)) {
+    plazaId = activePlazaIdFromDOM() || localStorage.getItem('plaza_curPlaza') || '';
+  }
+  if (!discussionId) {
+    discussionId = activeDiscussionIdFromDOM() || localStorage.getItem('plaza_curDisc') || '';
+  }
+
+  if (!plazaId || !discussionId) return;
+  if (knownPlazas.length && !isKnownPlaza(plazaId)) return;
+
+  if (plazaId !== curPlaza) curPlaza = plazaId;
+  if (discussionId !== curDisc) curDisc = discussionId;
+
+  const ctxKey = escalationCtxKey(plazaId, discussionId);
+  if (escalationFetchBlocked.has(ctxKey)) return;
+  if (escalationFetchInFlight.has(ctxKey)) return;
+  escalationFetchInFlight.add(ctxKey);
+
+  try {
+    const payload = await api(`${API}/plaza/escalations?plaza_id=${encodeURIComponent(plazaId)}&discussion_id=${encodeURIComponent(discussionId)}`);
+    if (!payload) {
+      const err = window.api?._lastError;
+      const msg = String(err?.message || '');
+      // Some legacy discussions can miss escalation context on backend; stop retry storm for this context.
+      if (err?.status === 404 && /广场不存在|讨论不存在/.test(msg)) {
+        escalationFetchBlocked.add(ctxKey);
+        if (!silent) toast('升级项上下文不可用，已暂停该讨论的升级项拉取');
+      }
+      return;
+    }
+    curEscalationState = normalizeEscalationState(payload);
+    renderEscalationState();
+    if (!silent && curEscalationState.total) {
+      toast(`升级项 ${curEscalationState.total} 条 · 待处理 ${curEscalationState.pending_count}`);
+    }
+  } finally {
+    escalationFetchInFlight.delete(ctxKey);
   }
 };
 
@@ -2288,14 +2440,21 @@ function connectSSE(discId) {
 async function init() {
   try {
     allTeams = await api(`${API}/teams`) || [];
-    await loadPlazas(); renderArena3D([]);
+    const plazas = await loadPlazas(); renderArena3D([]);
     const savedPlaza = localStorage.getItem('plaza_curPlaza');
     const savedDisc = localStorage.getItem('plaza_curDisc');
-    const initialPlaza = deepLinkPlazaId || savedPlaza;
-    const initialDisc = deepLinkDiscussionId || savedDisc;
+    const initialPlaza = [deepLinkPlazaId, savedPlaza].find(id => id && plazas.some(p => p.id === id)) || '';
+    const initialDisc = (deepLinkDiscussionId && deepLinkPlazaId && deepLinkPlazaId === initialPlaza)
+      ? deepLinkDiscussionId
+      : (savedDisc || '');
+    if (!initialPlaza && (deepLinkPlazaId || savedPlaza)) {
+      stripQueryParams(['plaza_id', 'discussion_id']);
+      localStorage.removeItem('plaza_curPlaza');
+      localStorage.removeItem('plaza_curDisc');
+    }
     if (initialPlaza) {
-      await selectPlaza(initialPlaza);
-      if (initialDisc) await selectDisc(initialDisc);
+      const ok = await selectPlaza(initialPlaza);
+      if (ok && initialDisc) await selectDisc(initialDisc);
     }
   } catch(e) {
     console.error('[Plaza] init failed:', e);
