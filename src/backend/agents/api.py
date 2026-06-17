@@ -3827,6 +3827,81 @@ async def fail_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     return task.to_dict()
 
 
+@router.post(
+    "/teams/{team_id}/tasks/{task_id}/rerun",
+    summary="Reset and re-execute a task from the first failed/pending step",
+)
+async def rerun_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
+    """Reset workflow steps and restart execution from the first non-completed step."""
+    _get_team_or_404(team_id)
+    engine = _te()
+    task = engine.get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    wf = (task.metadata or {}).get("workflow", [])
+    if not wf:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No workflow to rerun")
+
+    # Reset all non-completed steps to pending, clear session_ids for failed/active steps
+    for s in wf:
+        if s.get("status") in ("failed", "active", "skipped"):
+            s["status"] = "pending"
+            s["session_id"] = ""
+            s.pop("error", None)
+        elif s.get("status") == "completed":
+            # Keep completed steps, but allow rerun from a specific point
+            pass
+
+    # If all steps were completed, reset all
+    if all(s.get("status") == "completed" for s in wf):
+        for s in wf:
+            s["status"] = "pending"
+            s["session_id"] = ""
+
+    task.metadata["workflow"] = wf
+    task.metadata.pop("token_factory_error", None)
+    task.metadata.pop("pipeline_rewinds", None)
+    task.metadata.pop("qa_feedback", None)
+    task.status = AgentTaskStatus.PENDING  # type: ignore
+    task.error = ""
+    task.started_at = ""
+    task.completed_at = ""
+    task.result = None
+    engine._store.save_task(task)
+
+    # Re-check runtime and start
+    token_ready, token_error = await _check_task_runtime_ready(team_id)
+    if not token_ready:
+        task.metadata["token_factory_error"] = token_error
+        engine._store.save_task(task)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=token_error)
+
+    # Find first pending step and start it
+    first_pending = next((s for s in wf if s.get("status") == "pending"), None)
+    if first_pending:
+        first_pending["status"] = "active"
+        task.metadata["workflow"] = wf
+        agent = _tm().get_agent(team_id, first_pending.get("agent_id", ""))
+        if agent:
+            api_key, base_url, model_name = _get_deepseek_credentials(agent=agent, team_id=team_id)
+            cfg = _build_provider_config(api_key, base_url, model_name, agent)
+            import uuid as _uuid
+            sid = str(_uuid.uuid4())[:12]
+            step_prompt = _build_step_prompt(task, first_pending, wf)
+            _start_claude_session(sid, step_prompt, cfg, agent, task_id)
+            first_pending["session_id"] = sid
+            _harness_log.info("[Rerun] Restarted task %s at step '%s' (session %s)",
+                              task_id, first_pending["key"], sid)
+
+    task.status = AgentTaskStatus.RUNNING  # type: ignore
+    engine._store.save_task(task)
+    await engine.start_task(task_id)
+    _start_harness_monitor(task_id, team_id)
+
+    return task.to_dict()
+
+
 # ── Workflow Steps (per-task execution pipeline visualization) ──────
 
 
@@ -6682,6 +6757,33 @@ def _build_step_prompt(task, step: Dict, workflow: list) -> str:
         prior_steps = _get_prior_steps_from_pipeline(task.task_id, key)
         if prior_steps:
             prev_parts.append(prior_steps)
+    except Exception:
+        pass
+
+    # ── 2b. Dependent task context — inherit parent task title/description ──
+    try:
+        deps = getattr(task, "dependencies", None) or []
+        if deps:
+            engine = _te()
+            dep_parts = []
+            for dep_id in deps[:3]:  # max 3 parent tasks
+                parent = engine.get_task(dep_id)
+                if parent and parent.title and parent.title != task.task_id:
+                    dep_parts.append(
+                        f"## 📎 依赖任务上下文 — {parent.title}\n\n"
+                        f"{parent.description or '(无描述)'}\n\n"
+                    )
+                    # Also include parent's completed workflow artifacts if available
+                    parent_wf = (parent.metadata or {}).get("workflow", [])
+                    parent_completed = [s for s in parent_wf if s.get("status") == "completed"]
+                    if parent_completed:
+                        dep_parts.append(f"### 父任务已完成步骤 ({len(parent_completed)}/{len(parent_wf)})\n")
+                        for s in parent_wf:
+                            if s.get("status") == "completed":
+                                dep_parts.append(f"- ✅ {s.get('label', s.get('key',''))} → {s.get('agent_id','')}\n")
+                        dep_parts.append("\n")
+            if dep_parts:
+                prev_parts.append("".join(dep_parts))
     except Exception:
         pass
 

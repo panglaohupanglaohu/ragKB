@@ -286,8 +286,8 @@ async function loadTasks(){hideViewLoading("view-tasks");
         actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn} ${delBtn}`;
       }
     }
-    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span> ${delBtn}`;
-    else if(t.status==='cancelled'||t.status==='failed') actions=delBtn;
+    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
+    else if(t.status==='cancelled'||t.status==='failed') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
     else actions='—';
     const src=t.metadata&&t.metadata.cross_team?`<span class="chip" style="font-size:9px;background:rgba(245,158,11,0.1);color:oklch(0.56 0.05 70)">跨团队 ← ${t.metadata.source_agent||t.metadata.source_team||''}</span>`:'';
     const wfHtml=renderWorkflow(t);
@@ -441,6 +441,23 @@ window.cancelAllTasks = async function(){
     count++;
   }
   toast(`已清理 ${count} 个任务`);loadTasks();
+};
+window.rerunTask = async function(taskId){
+  if(!confirm('确定要重跑此任务？将重置失败/跳过的步骤并重新执行。')) return;
+  toast('⏳ 正在重跑...');
+  try{
+    const resp=await csrfFetch(`${A}/teams/${tid}/tasks/${taskId}/rerun`,{method:'POST'});
+    const body=await resp.json().catch(()=>null);
+    if(!resp.ok){
+      toast('❌ 重跑失败: '+((body&&body.detail)||`HTTP ${resp.status}`),'error');
+      return;
+    }
+    toast('✅ 任务已重跑');
+    loadTasks();
+    setTimeout(()=>connectAllTaskTerminals(),500);
+  }catch(e){
+    toast('❌ 重跑失败: '+e.message,'error');
+  }
 };
 window.taskAction = taskAction;
 window.startClaudeForTask = startClaudeForTask;

@@ -420,5 +420,48 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-06-18T01:25:00.000000"
+  },
+  {
+    "id": "bug-026",
+    "timestamp": "2026-06-18T02:10:00.000000",
+    "error_message": "讨论结束后未看到萃取/网页等按钮，结束态操作入口缺失",
+    "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
+    "root_cause": "结束态讨论卡片将长标题与多个操作按钮渲染在同一行，标题过长导致按钮区域被挤压/折叠，体感为按钮消失。",
+    "fix": "`renderDiscList` 将 closed 状态按钮抽到独立 `.disc-actions` 行；样式层增加 `.disc-actions` 换行布局与 `.disc-act` nowrap，并让标题 `.tp` 支持 `min-width:0` 与 `word-break`，确保长标题不再吞掉按钮。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "discussion",
+      "closed-state",
+      "buttons",
+      "layout"
+    ],
+    "related_bugs": [
+      "bug-021",
+      "bug-023"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:10:00.000000"
+  },
+  {
+    "id": "bug-027",
+    "timestamp": "2026-06-18T02:25:00.000000",
+    "error_message": "控制台持续出现 escalations 接口 404（广场不存在）提示，影响广场页面可读性",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "refreshEscalationState 使用全局 api() 包装器请求 escalations；当后端返回已知无害 404（广场/讨论上下文失效）时，api.js 会先统一 console.warn 输出，导致即使业务层已熔断仍产生噪音提示。",
+    "fix": "将 escalations 拉取改为 scoped fetch + 本地状态处理：对 404(广场不存在/讨论不存在)直接熔断并静默返回，不再触发全局 API warn；其他状态按需 toast。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "escalations",
+      "404",
+      "logging",
+      "noise-reduction"
+    ],
+    "related_bugs": [
+      "bug-022"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:25:00.000000"
   }
 ]

@@ -1407,12 +1407,16 @@ window.deletePlaza = async function(id, name) {
 
 /* ═══════════ DISCUSSIONS ═══════════ */
 function renderDiscList(ds) {
-  $('disc-list').innerHTML = ds.map(d =>
-    `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" data-discussion-id="${esc(d.id)}" onclick="selectDisc('${esc(d.id)}')">
-      <div class="dh"><div class="tp">${esc(d.topic)}</div>${d.status === 'closed' ? `<button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">重新讨论</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button>` : ''}<button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
+  $('disc-list').innerHTML = ds.map(d => {
+    const closedActions = d.status === 'closed'
+      ? `<div class="disc-actions"><button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">重新讨论</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button></div>`
+      : '';
+    return `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" data-discussion-id="${esc(d.id)}" onclick="selectDisc('${esc(d.id)}')">
+      <div class="dh"><div class="tp">${esc(d.topic)}</div><button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
       <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
-    </div>`
-  ).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
+      ${closedActions}
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
 }
 function statusTxt(s) { return { open: '待启动', in_progress: '进行中', summarizing: '总结中', closed: '已结束' }[s] || s; }
 
@@ -1985,17 +1989,26 @@ window.refreshEscalationState = async function(silent = false) {
   escalationFetchInFlight.add(ctxKey);
 
   try {
-    const payload = await api(`${API}/plaza/escalations?plaza_id=${encodeURIComponent(plazaId)}&discussion_id=${encodeURIComponent(discussionId)}`);
-    if (!payload) {
-      const err = window.api?._lastError;
-      const msg = String(err?.message || '');
+    const escalationUrl = `${API}/plaza/escalations?plaza_id=${encodeURIComponent(plazaId)}&discussion_id=${encodeURIComponent(discussionId)}`;
+    const resp = await fetch(escalationUrl, { credentials: 'same-origin' });
+    if (!resp.ok) {
+      let msg = '';
+      try {
+        const d = await resp.json();
+        msg = String(d?.detail || d?.message || '');
+      } catch (_) {
+        // no-op
+      }
       // Some legacy discussions can miss escalation context on backend; stop retry storm for this context.
-      if (err?.status === 404 && /广场不存在|讨论不存在/.test(msg)) {
+      if (resp.status === 404 && /广场不存在|讨论不存在/.test(msg)) {
         escalationFetchBlocked.add(ctxKey);
         if (!silent) toast('升级项上下文不可用，已暂停该讨论的升级项拉取');
+        return;
       }
+      if (!silent) toast(`升级项拉取失败 (HTTP ${resp.status})`);
       return;
     }
+    const payload = await resp.json();
     curEscalationState = normalizeEscalationState(payload);
     renderEscalationState();
     if (!silent && curEscalationState.total) {

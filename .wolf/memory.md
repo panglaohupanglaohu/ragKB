@@ -137,3 +137,17 @@
 - 修复: `src/frontend/js/tasks-view.js` 中单条删除与批量清理都对 404+Task not found 视为“已删除”；并在 `src/backend/agents/api.py` 把 remove 路由改为幂等（missing -> already_absent）。
 - 验证: 浏览器同 ID 返回 404 时前端判定 `treatedAsSuccess=true`；语法/错误检查通过。
 - 关联: bug-025。
+
+## 2026-06-18 — fix: 讨论结束后看不到萃取等按钮
+- 现象: 已结束讨论卡片在长标题场景下只看到部分按钮或看不到“萃取/网页”。
+- 根因: `plaza.js` 把结束态按钮和标题塞在同一行，标题过长挤压按钮区域；样式未做独立动作行与换行容错。
+- 修复: 结束态按钮改为独立 `.disc-actions` 行；`plaza.html` 增加 `.disc-actions` 可换行，`.disc-act` 强制 nowrap，标题 `.tp` 支持 `min-width:0 + word-break`。
+- 验证: 浏览器检查已结束讨论 actions=`[重新讨论, 萃取, 网页]`。
+- 关联: bug-026。
+
+## 2026-06-18 — fix: 清掉 escalations 的“广场不存在”提示
+- 现象: 控制台出现 `API 404 /api/v1/agent-config/plaza/escalations ... 广场不存在`。
+- 根因: `refreshEscalationState` 使用全局 `api()`，404 会被 `api.js` 统一 `console.warn`，即便前端已做熔断也会先打印噪音。
+- 修复: `plaza.js` 改为该接口使用 scoped `fetch`，在本地处理 404（广场/讨论不存在）并熔断，不再触发全局 API 警告。
+- 验证: 浏览器两次触发 refreshEscalationState 后 `hasEscalation404Log=false`。
+- 关联: bug-027。
