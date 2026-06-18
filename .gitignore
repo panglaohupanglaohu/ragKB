@@ -26,3 +26,7 @@ src/docs/agent_handoffs/
 # Build output
 /dist/
 /node_modules/
+
+# disabled nested-repo metadata (kept locally for reversibility)
+.git_disabled/
+**/.git_disabled/
