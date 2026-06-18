@@ -1,6 +1,8 @@
-<!-- docs-signoff: author="CodeBuddy (GLM-5.2)" kind="llm" doc="plan" ts="2026-06-18T00:16:00Z" -->
+<!-- docs-signoff: author="CodeBuddy (GLM-5.2)" kind="llm" doc="plan" ts="2026-06-18T01:08:00Z" -->
 
 # docs/ 写入签名规则（可验证）
+
+> **本文件元信息**：由 CodeBuddy (GLM-5.2) 于 2026-06-18 01:08 UTC 创建/修订。签名块见第一行。
 
 > 适用范围：`docs/` 目录下所有 **plan / todos** 文件（文件名含 `plan`、`todos`、`计划`，`.bak` 除外）。
 > 约束对象：**任何**向该目录写入或修改 plan/todos 的工具 / LLM / 系统 / 人。
