@@ -61,9 +61,9 @@
 
   <!-- 治理动作上移到顶部操作栏 -->
   <div class="ev-action-bar">
-    <button class="btn cost-btn cost-btn--primary" onclick="evaluateCostGate()">🚦 成本门禁评估</button>
-    <button class="btn cost-btn" onclick="generateGovernanceGoals()">🎯 生成治理目标</button>
-    <button class="btn cost-btn" onclick="runSustainabilityCheck()">📈 可持续性检查</button>
+    <button class="btn cost-btn cost-btn--primary" onclick="runCostGateSelfCheck()">🚦 Cost Gate 自检</button>
+    <button class="btn cost-btn" onclick="createOptimizationTask('breakdown',0)">⚡ 创建优化任务</button>
+    <button class="btn cost-btn" onclick="createPlazaTopic('breakdown',0)">📋 创建 Plaza 话题</button>
     <button class="btn cost-btn cost-btn--ghost" onclick="runCycleOnRatchet()">▶ 运行棘轮演进周期</button>
     <button class="btn cost-btn cost-btn--ghost" onclick="runAuditOnly()">🔍 仅审查</button>
   </div>
