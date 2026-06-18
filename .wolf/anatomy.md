@@ -762,3 +762,10 @@
 - `scripts/skill_closed_loop_demo.py` — 技能闭环离线验证脚本(真 TwinLoop+真场景,30 seeds,code_review 成功率 72.1%→90.4%)(新增)
 - `README.md` — 新增「技能闭环演示」章节(萃取链路+twin_loop 机理+复跑命令+实测数字)
 - 关键系统认知:twin_loop 任务成功率 success_p=clamp(0.3+0.6×proficiency,0.2,0.95);场景五维评分 task_completion 0.3/collaboration 0.25/resilience 0.2/cost 0.15/extractability 0.1;trial_api._compute_evaluation;离线引擎纯 sandbox.* 不需 fastapi/LLM,沙箱可跑
+
+## 本轮改动(2026-06-18, docs 签名治理规则)
+
+- `docs/SIGNING_RULE.md` — 总规则:写入 docs/ 的 plan/todos 第一行非空须为签名块 `<!-- docs-signoff: author kind doc ts -->`(新增,自身已签)
+- `scripts/check-docs-signoff.cjs` — 可验证校验器:--selftest(5/5) / 默认(格式错=FAIL,缺签名=WARN) / --strict(缺签名也 FAIL)
+- `.github/copilot-instructions.md` L19 + `AGENTS.md ## 5` — ponytail 常驻注入一行精简规则(省 token,覆盖多 Agent)
+- 用户决定:暂只告警不严格(default 模式),不挂 pre-commit/CI/ponytail hook。存量 29 份未签名按「下次编辑补签名」

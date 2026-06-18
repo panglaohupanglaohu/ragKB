@@ -64,4 +64,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+## 5. docs/ Sign-off
+
+When writing or editing a plan/todos file under `docs/`, the first non-empty line MUST be a sign-off block:
+`<!-- docs-signoff: author="<who>" kind="<llm|tool|human>" doc="<plan|todos>" ts="<ISO-8601 UTC>" -->`
+Update `ts` on every edit. Verify with `node scripts/check-docs-signoff.cjs --strict`. Full rule: `docs/SIGNING_RULE.md`.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
 ## Imported Claude Cowork project instructions

@@ -1309,6 +1309,29 @@ def update_agent_skills(
     team_id: str, agent_id: str, req: UpdateSkillsRequest
 ) -> Dict[str, Any]:
     agent = _get_agent_or_404(team_id, agent_id)
+    # 门禁：新增绑定的技能必须是已启用且生命周期 >= team_local
+    existing_skills = set(agent.skills or [])
+    new_skills = set(req.skill_ids) - existing_skills
+    if new_skills:
+        team = _tm().get_team(team_id)
+        if team:
+            blocked = []
+            for sid in new_skills:
+                skill = _resolve_skill_definition(team_id, sid)
+                if skill is None:
+                    blocked.append(f"{sid} (技能不存在)")
+                    continue
+                if not getattr(skill, "enabled", True):
+                    blocked.append(f"{skill.name} (已禁用)")
+                    continue
+                stage = getattr(skill, "lifecycle_stage", "") or ""
+                if stage in ("draft", "needs_llm_review"):
+                    blocked.append(f"{skill.name} (生命周期={stage}，需先验证/批准)")
+            if blocked:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail="以下技能未通过门禁，不允许绑定: " + "; ".join(blocked)
+                )
     agent.skills = _canonicalize_skill_bindings(team_id, req.skill_ids)
     _tm()._persist()
     return agent.to_dict()
@@ -1727,8 +1750,26 @@ def edit_skill(team_id: str, skill_id: str, req: Optional[EditSkillRequest] = Bo
     "/teams/{team_id}/skills/{skill_id}",
     summary="Delete skill from team",
 )
-def delete_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
+def delete_skill(team_id: str, skill_id: str, force: str = "") -> Dict[str, Any]:
     _get_team_or_404(team_id)
+    # 门禁：已验证/已发布的技能不允许直接删除，需 force=true
+    if force.lower() not in ("true", "1", "yes"):
+        team = _tm().get_team(team_id)
+        if team:
+            skill = _resolve_skill_definition(team_id, skill_id)
+            if skill:
+                stage = getattr(skill, "lifecycle_stage", "") or ""
+                visibility = getattr(skill, "visibility", "") or ""
+                if stage in ("verified", "published", "production"):
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        detail=f"技能「{skill.name}」当前生命周期为 {stage}，已通过验证/发布，不允许直接删除。如需强制删除请传 force=true。"
+                    )
+                if visibility == "public":
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        detail=f"技能「{skill.name}」已发布为公共技能，不允许直接删除。请先取消发布再删除。"
+                    )
     return _delete_skill_across_teams(skill_id)
 
 

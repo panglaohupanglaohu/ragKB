@@ -200,6 +200,47 @@ async function deleteSkill(skillId,skillName){
   if(r){toast('✅ 技能已删除');if(typeof loadAgent==='function'&&window.aid)loadAgent();loadSkills()}else toast('删除失败')
 }
 
+// ── 多选删除 ──
+let _skillSelectMode=false;
+function toggleSkillSelectMode(){
+  _skillSelectMode=!_skillSelectMode;
+  const btn=document.getElementById('btn-skill-select');
+  const delBtn=document.getElementById('btn-batch-delete');
+  if(_skillSelectMode){
+    btn.textContent='✕ 退出多选';
+    btn.style.background='rgba(245,158,11,0.1)';
+    btn.style.color='var(--amber)';
+    delBtn.style.display='';
+  }else{
+    btn.textContent='☑ 多选模式';
+    btn.style.background='rgba(53,200,255,0.08)';
+    btn.style.color='var(--cyan-s)';
+    delBtn.style.display='none';
+  }
+  loadSkills();
+}
+function updateSkillSelCount(){
+  const cbs=document.querySelectorAll('.skill-sel-cb:checked');
+  const el2=document.getElementById('skill-sel-count');
+  if(el2) el2.textContent=cbs.length;
+}
+async function batchDeleteSkills(){
+  const cbs=document.querySelectorAll('.skill-sel-cb:checked');
+  if(!cbs.length){toast('请先勾选要删除的技能');return}
+  const ids=Array.from(cbs).map(cb=>cb.value);
+  if(!confirm(`确认删除选中的 ${ids.length} 个技能？此操作不可撤销。`))return;
+  let ok=0,fail=0;
+  for(const sid of ids){
+    try{
+      const resp=await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(sid)}?force=true`,{method:'DELETE'});
+      if(resp.ok) ok++; else fail++;
+    }catch{fail++}
+  }
+  toast(`✅ 已删除 ${ok} 个${fail?`，❌ 失败 ${fail} 个`:''}`);
+  if(typeof loadAgent==='function'&&window.aid)loadAgent();
+  loadSkills();
+}
+
 // ── Skills (Clawith-style) ──
 async function loadSkills(){hideViewLoading('view-skills');
   const[teamSkills,classification]=await Promise.all([
@@ -209,14 +250,15 @@ async function loadSkills(){hideViewLoading('view-skills');
   _lastSkillClassification=classification;
   _lastSkillPoolChanges=[];
   const box=el('skills-cards');
-  let html='<div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-sm btn-pink" onclick="openGenerateSkillModal()">⚡ 生成技能</button><button class="btn btn-sm" onclick="importSkillFromFile()">📥 导入技能</button><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出全部</button></div>';
+  let html='<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap"><button class="btn btn-sm btn-pink" onclick="openGenerateSkillModal()">⚡ 生成技能</button><button class="btn btn-sm" onclick="importSkillFromFile()">📥 导入技能</button><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出全部</button><button class="btn btn-sm" onclick="toggleSkillSelectMode()" id="btn-skill-select" style="background:rgba(53,200,255,0.08);color:var(--cyan-s)">☑ 多选模式</button><button class="btn btn-sm btn-danger" id="btn-batch-delete" style="display:none" onclick="batchDeleteSkills()">🗑 删除选中 (<span id="skill-sel-count">0</span>)</button></div>';
   html+=renderSkillClassificationPanel(classification);
   if(!teamSkills.length){box.innerHTML=html+'<p style="color:var(--dim)">当前团队暂无技能</p>';return}
   const cats={};teamSkills.forEach(s=>{const c=(s.category||'general').toUpperCase();if(!cats[c])cats[c]=[];cats[c].push(s)});
   Object.keys(cats).sort().forEach(cat=>{
     html+=`<div class="sb-section" style="margin-top:16px;margin-bottom:10px">${cat}</div>`;
     cats[cat].forEach(s=>{const on=s.enabled!==false;const hasCfg=s.config_schema&&Object.keys(s.config_schema).length;
-      html+=`<div style="display:flex;align-items:center;padding:14px 18px;background:var(--panel2,#21272D);border:1px solid var(--line);border-radius:0;margin-bottom:6px;gap:12px"><span style="font-size:22px;width:36px;text-align:center">${s.icon||'⚡'}</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><b style="font-size:13px;color:var(--text)">${s.name}</b><span class="chip" style="font-size:10px;padding:1px 6px">${s.source||'Built-in'}</span>${s.is_default?'<span class="chip" style="background:rgba(38,162,105,0.1);color:var(--lime);font-size:10px;padding:1px 6px">Default</span>':''}${s.slug?`<span class="chip" style="font-size:10px;padding:1px 6px">${s.slug}</span>`:''}</div><div style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||'')}</div></div><div style="display:flex;align-items:center;gap:8px">${hasCfg?`<button class="btn btn-sm btn-ghost" onclick="openSkillConfig('${s.name}')" title="配置" style="color:var(--pink)">⚙️</button>`:''}<button class="btn btn-sm btn-ghost" onclick="testSkillExec('${s.name}')" title="测试执行">▶</button>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkill('${s.skill_id}','${s.name}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-ghost" onclick="viewSkillPortability('${s.skill_id}')" title="可移植性">🏷</button><button class="btn btn-sm btn-ghost" onclick="viewSkillFolder('${s.skill_id}')" title="文件结构">📁</button><label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer"><input type="checkbox" role="switch" ${on?'checked':''} onchange="togSkill('${s.skill_id}',this.checked)" style="opacity:0;width:0;height:0"><span style="position:absolute;inset:0;background:${on?'var(--pink)':'var(--dim)'};border-radius:0;transition:.3s"></span><span style="position:absolute;top:2px;left:${on?'22px':'2px'};width:20px;height:20px;background:oklch(0.96 0.003 110);border-radius:50%;transition:.3s"></span></label></div></div>`})});
+      const selectCb=_skillSelectMode?`<input type="checkbox" class="skill-sel-cb" value="${s.skill_id}" onchange="updateSkillSelCount()" style="margin-right:8px;accent-color:var(--pink);cursor:pointer">`:'';
+      html+=`<div style="display:flex;align-items:center;padding:14px 18px;background:var(--panel2,#21272D);border:1px solid var(--line);border-radius:0;margin-bottom:6px;gap:12px">${selectCb}<span style="font-size:22px;width:36px;text-align:center">${s.icon||'⚡'}</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><b style="font-size:13px;color:var(--text)">${s.name}</b><span class="chip" style="font-size:10px;padding:1px 6px">${s.source||'Built-in'}</span>${s.is_default?'<span class="chip" style="background:rgba(38,162,105,0.1);color:var(--lime);font-size:10px;padding:1px 6px">Default</span>':''}${s.slug?`<span class="chip" style="font-size:10px;padding:1px 6px">${s.slug}</span>`:''}</div><div style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||'')}</div></div><div style="display:flex;align-items:center;gap:8px">${hasCfg?`<button class="btn btn-sm btn-ghost" onclick="openSkillConfig('${s.name}')" title="配置" style="color:var(--pink)">⚙️</button>`:''}<button class="btn btn-sm btn-ghost" onclick="testSkillExec('${s.name}')" title="测试执行">▶</button>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkill('${s.skill_id}','${s.name}')" title="删除" style="color:var(--pink)">🗑️</button><button class="btn btn-sm btn-ghost" onclick="viewSkillPortability('${s.skill_id}')" title="可移植性">🏷</button><button class="btn btn-sm btn-ghost" onclick="viewSkillFolder('${s.skill_id}')" title="文件结构">📁</button><label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer"><input type="checkbox" role="switch" ${on?'checked':''} onchange="togSkill('${s.skill_id}',this.checked)" style="opacity:0;width:0;height:0"><span style="position:absolute;inset:0;background:${on?'var(--pink)':'var(--dim)'};border-radius:0;transition:.3s"></span><span style="position:absolute;top:2px;left:${on?'22px':'2px'};width:20px;height:20px;background:oklch(0.96 0.003 110);border-radius:50%;transition:.3s"></span></label></div></div>`})});
   box.innerHTML=html;
 }
 async function togSkill(id,en){await api(`${A}/teams/${tid}/skills/${id}/${en?'enable':'disable'}`,{method:'POST'});toast(en?'已启用':'已禁用');loadSkills()}
@@ -370,6 +412,9 @@ window.openSkillConfig = openSkillConfig;
 window.viewSkillInstructions = viewSkillInstructions;
 window.openEditSkill = openEditSkill;
 window.deleteSkill = deleteSkill;
+window.toggleSkillSelectMode = toggleSkillSelectMode;
+window.updateSkillSelCount = updateSkillSelCount;
+window.batchDeleteSkills = batchDeleteSkills;
 window.viewSkillPortability = viewSkillPortability;
 window.viewSkillFolder = viewSkillFolder;
 window.openGenerateSkillModal = openGenerateSkillModal;

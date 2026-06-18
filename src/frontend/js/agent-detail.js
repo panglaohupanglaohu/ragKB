@@ -545,8 +545,24 @@ async function togAgentTool(toolId,bind){
 async function togAgentSkill(skillId,bind){
   const d=await api(`${A}/teams/${tid}/agents/${aid}`);if(!d)return;
   let cur=new Set(d.skills||[]);if(bind)cur.add(skillId);else cur.delete(skillId);
-  await api(`${A}/teams/${tid}/agents/${aid}/skills`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({skill_ids:[...cur]})});
-  toast(bind?`已绑定 ${skillId}`:`已解绑 ${skillId}`);loadAgent();
+  try {
+    const resp = await csrfFetch(`${A}/teams/${tid}/agents/${aid}/skills`,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({skill_ids:[...cur]})
+    });
+    if (resp.ok) {
+      toast(bind?`已绑定 ${skillId}`:`已解绑 ${skillId}`);
+      loadAgent();
+    } else if (resp.status === 409) {
+      const body = await resp.json().catch(()=>({}));
+      toast('绑定被门禁拦截: ' + (body.detail || '技能未通过验证'), 'error');
+    } else {
+      toast(`绑定失败 HTTP ${resp.status}`, 'error');
+    }
+  } catch(e) {
+    toast('绑定失败: ' + e.message, 'error');
+  }
 }
 
 // ── Enhanced Skill Delete (with context) ──
@@ -583,13 +599,31 @@ async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) 
   }
   const confirmed = confirm(`确认删除技能「${rawSkillName}」？\n\n${skill ? '来源: ' + sourceType + ' · 影响智能体: ' + boundAgents.length + ' 个' : ''}\n\n此操作不可撤销。`);
   if (!confirmed) return;
-  const r = await api(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`, { method: 'DELETE' });
-  if (r) {
-    toast(`✅ 已删除「${rawSkillName}」`);
-    if (typeof loadAgent === 'function' && window.aid) loadAgent();
-    if (typeof loadSkills === 'function') loadSkills();
-  } else {
-    toast('删除失败');
+  try {
+    const resp = await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`✅ 已删除「${rawSkillName}」`);
+      if (typeof loadAgent === 'function' && window.aid) loadAgent();
+      if (typeof loadSkills === 'function') loadSkills();
+    } else if (resp.status === 409) {
+      const body = await resp.json().catch(() => ({}));
+      const detail = body.detail || '技能已通过验证/发布，不允许直接删除';
+      const goForce = confirm(detail + '\n\n是否强制删除？');
+      if (goForce) {
+        const resp2 = await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}?force=true`, { method: 'DELETE' });
+        if (resp2.ok) {
+          toast(`✅ 已强制删除「${rawSkillName}」`);
+          if (typeof loadAgent === 'function' && window.aid) loadAgent();
+          if (typeof loadSkills === 'function') loadSkills();
+        } else {
+          toast('强制删除失败');
+        }
+      }
+    } else {
+      toast(`删除失败 HTTP ${resp.status}`);
+    }
+  } catch (e) {
+    toast('删除失败: ' + e.message);
   }
 }
 

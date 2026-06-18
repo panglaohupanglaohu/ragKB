@@ -151,3 +151,5 @@
 - 修复: `plaza.js` 改为该接口使用 scoped `fetch`，在本地处理 404（广场/讨论不存在）并熔断，不再触发全局 API 警告。
 - 验证: 浏览器两次触发 refreshEscalationState 后 `hasEscalation404Log=false`。
 - 关联: bug-027。
+
+- 2026-06-18 docs 签名治理:总规则 docs/SIGNING_RULE.md + 校验器 check-docs-signoff.cjs(selftest 5/5,全量 0 FAIL/29 WARN);ponytail 一行注入(copilot-instructions L19 + AGENTS.md §5);用户选 WARN-only、不挂钩子
