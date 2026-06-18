@@ -110,19 +110,43 @@ function renderATab(d){
   } else if(atab==='ag-skills'){
     // 只显示当前智能体的技能，数据隔离
     const agentSkillIds = new Set(d.skills||[]);
-    listApi(`${A}/teams/${tid}/skills`,200,0).then(all=>{
-      const mySkills = all.filter(s => agentSkillIds.has(s.skill_id) || agentSkillIds.has(s.name) || agentSkillIds.has(s.slug));
-      const teamSkills = all.filter(s => !(agentSkillIds.has(s.skill_id) || agentSkillIds.has(s.name) || agentSkillIds.has(s.slug)));
+    const isBoundSkill = (s) => agentSkillIds.has(s.skill_id) || agentSkillIds.has(s.name) || agentSkillIds.has(s.slug);
+    Promise.all([
+      listApi(`${A}/teams/${tid}/skills`,200,0),
+      api(`${A}/skills`).catch(() => []),   // 全局内置技能库（可供绑定）
+    ]).then(([all, registry]) => {
+      const mySkills = all.filter(isBoundSkill);
+      const teamAvail = all.filter(s => !isBoundSkill(s));
+      // 智能体绑定了、但团队技能注册表里没有记录的技能（如内置核心技能），仍需展示，
+      // 否则会出现「智能体明明有技能却显示为空」。用 id 兜底构造一个最小技能行。
+      const coveredIds = new Set();
+      mySkills.forEach(s => { [s.skill_id, s.name, s.slug].forEach(v => v && coveredIds.add(v)); });
+      const orphanSkills = [...agentSkillIds].filter(id => !coveredIds.has(id)).map(id => ({
+        skill_id: id,
+        name: id,
+        category: '内置',
+        description: '该技能未登记在团队技能库（可能为内置/核心技能）',
+      }));
+      mySkills.push(...orphanSkills);
+      // 全局内置技能库里、尚未绑定且团队列表中没有的技能，作为「可绑定」补充进来。
+      // 内置技能在 agent.skills 中按 name 存储，故绑定标识用 name，保证解绑/识别一致。
+      const teamCovered = new Set();
+      all.forEach(s => { [s.skill_id, s.name, s.slug].forEach(v => v && teamCovered.add(v)); });
+      const registryAvail = (Array.isArray(registry) ? registry : [])
+        .filter(s => !isBoundSkill(s) && !teamCovered.has(s.skill_id) && !teamCovered.has(s.name))
+        .map(s => ({ ...s, bind_id: s.name || s.skill_id, _from_registry: true }));
+      const teamSkills = [...teamAvail, ...registryAvail];
       const renderSkillRow = (s, isBound, source) => {
+        const bindId = s.bind_id || s.skill_id;
         const versionInfo = s.version ? ` v${s.version}` : '';
         const lifecycle = s.lifecycle_stage ? `<span class="chip" style="font-size:9px">${escapeHtml(s.lifecycle_stage)}</span>` : '';
-        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${encodeURIComponent(s.skill_id||'')}','${encodeURIComponent(s.name||'')}','agent','${encodeURIComponent(aid||'')}')" title="删除" style="color:var(--pink)">🗑️</button>${isBound?`<button class="btn btn-sm btn-danger" onclick="togAgentSkill('${s.skill_id}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${s.skill_id}',true)">绑定</button>`}</span></div>`;
+        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${encodeURIComponent(s.skill_id||'')}','${encodeURIComponent(s.name||'')}','agent','${encodeURIComponent(aid||'')}')" title="删除" style="color:var(--pink)">🗑️</button>${isBound?`<button class="btn btn-sm btn-danger" onclick="togAgentSkill('${escapeHtml(bindId)}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${escapeHtml(bindId)}',true)">绑定</button>`}</span></div>`;
       };
-      let html = `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 智能体技能</div><span style="color:var(--dim);font-size:12px">${mySkills.length} 个已绑定 · 团队共 ${all.length} 个</span></div>`;
+      let html = `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 智能体技能</div><span style="color:var(--dim);font-size:12px">${mySkills.length} 个已绑定 · 可绑定 ${teamSkills.length} 个</span></div>`;
       html += `<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop 测试</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 查看任务</button></div>`;
       html += mySkills.length ? mySkills.map(s => renderSkillRow(s, true, `🫵 ${escapeHtml(d.name||d.agent_id)}`)).join('') : '<p style="color:var(--dim);padding:0 14px 12px">该智能体当前没有已绑定技能</p>';
-      html += `<div class="sb-section" style="margin-top:16px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">团队可用技能 (${teamSkills.length})</div>`;
-      html += teamSkills.length ? teamSkills.map(s => renderSkillRow(s, false, `📦 ${escapeHtml(tid)}`)).join('') : '<p style="color:var(--dim);padding:0 14px 4px">当前团队没有更多可绑定技能</p>';
+      html += `<div class="sb-section" style="margin-top:16px;margin-bottom:8px;font-size:11px;color:var(--dim);letter-spacing:1px">可绑定技能 (${teamSkills.length})</div>`;
+      html += teamSkills.length ? teamSkills.map(s => renderSkillRow(s, false, s._from_registry ? '🌐 技能库' : `📦 ${escapeHtml(tid)}`)).join('') : '<p style="color:var(--dim);padding:0 14px 4px">当前没有更多可绑定技能</p>';
       html += `</div>`;
       c.innerHTML = html;
     });
@@ -545,23 +569,27 @@ async function togAgentTool(toolId,bind){
 async function togAgentSkill(skillId,bind){
   const d=await api(`${A}/teams/${tid}/agents/${aid}`);if(!d)return;
   let cur=new Set(d.skills||[]);if(bind)cur.add(skillId);else cur.delete(skillId);
+  const action=bind?'绑定':'解绑';
   try {
-    const resp = await csrfFetch(`${A}/teams/${tid}/agents/${aid}/skills`,{
+    const resp = await csrfFetch(`${A}/teams/${tid}/agents/${encodeURIComponent(aid)}/skills`,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({skill_ids:[...cur]})
     });
     if (resp.ok) {
+      // csrfFetch 绕过了 api() 的缓存清理，需手动清掉该 agent 的 GET 缓存，
+      // 否则 loadAgent() 会命中 5s TTL 缓存返回旧的 skills 列表。
+      var agentGetKey = 'GET:' + A + '/teams/' + tid + '/agents/' + aid;
+      if (_reqCache[agentGetKey]) delete _reqCache[agentGetKey];
       toast(bind?`已绑定 ${skillId}`:`已解绑 ${skillId}`);
       loadAgent();
-    } else if (resp.status === 409) {
-      const body = await resp.json().catch(()=>({}));
-      toast('绑定被门禁拦截: ' + (body.detail || '技能未通过验证'), 'error');
     } else {
-      toast(`绑定失败 HTTP ${resp.status}`, 'error');
+      const body = await resp.json().catch(()=>({}));
+      const detail = body.detail || body.message || '';
+      toast(`${action}失败 HTTP ${resp.status}${detail ? ': ' + detail : ''}`, 'error');
     }
   } catch(e) {
-    toast('绑定失败: ' + e.message, 'error');
+    toast(`${action}失败: ` + e.message, 'error');
   }
 }
 

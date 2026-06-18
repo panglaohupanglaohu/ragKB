@@ -29,6 +29,11 @@
 - [2026-06-17] 本机重启服务验证时必须用项目 `./start.sh`（会进入项目 virtualenv 并带齐 aiohttp 等依赖）。直接 `python3 src/backend/main.py` 可能使用系统解释器，导致会话聊天接口报 `ModuleNotFoundError: aiohttp` 假性回归，干扰真实问题定位。
 - [2026-06-17] 智能体详情「技能」行操作不要把“删除”放进绑定状态分支里。删除是行级通用操作（无论当前是绑定还是未绑定都应可见）；仅“绑定/解绑”按钮按 isBound 切换，避免出现只有“绑定”但没有“删除”的页面回归。
 - [2026-06-17] inline onclick 传参不能用 HTML 转义值（如 `escapeHtml(skill_id)`）直接当业务 ID；`&amp;` 等实体会导致后端删除/更新命中失败。参数应 `encodeURIComponent` 传递，在处理函数内 `decodeURIComponent` 还原，并在 URL path 段再次 `encodeURIComponent`。
+- [2026-06-18] skill-extract 去重不能只看 source_text 前缀（如前 2000 字）且不能丢失来源上下文；不同讨论常有模板化前缀，会发生跨议题误判“已萃取过”。应使用来源签名（source_plaza_id/source_discussion_id/source_output_id）+ 全文哈希，至少要比对全文哈希而非前缀。
+- [2026-06-18] 队列删除语义不能只删除当前项；若希望“删除后不再自动出现”，必须写 tombstone（来源指纹）并在 start_extraction 前拦截。否则同来源再次触发会复活，造成“删了又出现”。
+- [2026-06-18] LLM 不可用时不能用固定兜底技能模板（同一组 ES/Terraform/成本等）；这会让不同议题看起来都萃取成“其他议题”。兜底也要绑定 source_title/source_text 动态生成，至少名称需体现当前议题关键词。
+- [2026-06-18] skill-extract 队列 UI 不能无条件展示团队全部历史项；从议事厅跳转场景必须按 source_meta(plaza/discussion/output)做来源隔离，否则用户会把历史项误认为“当前萃取结果”。
+- [2026-06-18] skill-extract 详情弹窗里“按钮没展示出来”优先排查 CSS 布局裁切（tab 条/usage 头部动作区的 flex 单行挤压），不要先怀疑 JS 显隐。先查元素是否在 DOM 中且无 `display:none`，再修为 `flex-wrap`/`overflow-x:auto` 并给动作区在窄宽度下换行。
 
 ## Decision Log
 

@@ -12,6 +12,7 @@ Provides semi-automated skill extraction from chat logs / documents:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 import logging
@@ -95,6 +96,7 @@ class SkillReviewItem:
     source_text: str = ""            # Original raw text (chat log / doc snippet)
     source_title: str = ""           # Label for the source (e.g. "广场讨论 #123")
     source_type: str = "chat"        # "chat", "document", "manual"
+    source_meta: Dict[str, Any] = field(default_factory=dict)  # Optional source context (e.g. plaza/discussion ids)
 
     # LLM-prefilled draft fields
     draft_name: str = ""
@@ -128,6 +130,7 @@ class SkillReviewItem:
             "team_id": self.team_id,
             "source_title": self.source_title,
             "source_type": self.source_type,
+            "source_meta": self.source_meta,
             "source_text_preview": self.source_text[:200] + "…" if len(self.source_text) > 200 else self.source_text,
             "source_text": self.source_text,
             "draft_name": self.draft_name,
@@ -252,6 +255,7 @@ class SkillExtractorEngine:
     def __init__(self):
         # team_id → dict of item_id → SkillReviewItem
         self._queues: Dict[str, Dict[str, SkillReviewItem]] = {}
+        self._deleted_sources: Dict[str, List[str]] = {}  # team_id -> deleted source fingerprints
         self._sse_queues: Dict[str, List[asyncio.Queue]] = {}  # team_id → queues
         self._locks: Dict[str, asyncio.Lock] = {}
         self._load_persisted_queues()
@@ -277,6 +281,9 @@ class SkillExtractorEngine:
                 team_id = data.get("team_id", fp.stem)
                 items = data.get("items", [])
                 queue = self._ensure_team_queue(team_id)
+                deleted_sources = data.get("deleted_sources", [])
+                if isinstance(deleted_sources, list):
+                    self._deleted_sources[team_id] = [str(x) for x in deleted_sources if str(x).strip()]
                 approved_count = 0
                 for item_data in items:
                     item = SkillReviewItem.from_dict(item_data) if hasattr(SkillReviewItem, 'from_dict') else self._item_from_dict(item_data)
@@ -301,11 +308,50 @@ class SkillExtractorEngine:
             data = {
                 "team_id": team_id,
                 "items": [item.to_dict() for item in queue.values()],
+                "deleted_sources": list(self._deleted_sources.get(team_id, [])),
             }
             fp = self.QUEUE_DIR / f"{self._safe_team_id(team_id)}.json"
             fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             logger.warning("Failed to persist queue for team %s: %s", team_id, e)
+
+    @staticmethod
+    def _norm_text(v: Any) -> str:
+        return str(v or "").strip()
+
+    @classmethod
+    def _source_key(cls, source_type: str, source_title: str, source_meta: Dict[str, Any]) -> str:
+        s_type = cls._norm_text(source_type)
+        plaza_id = cls._norm_text(source_meta.get("source_plaza_id"))
+        discussion_id = cls._norm_text(source_meta.get("source_discussion_id"))
+        output_id = cls._norm_text(source_meta.get("source_output_id"))
+        if plaza_id and discussion_id:
+            return f"{s_type}|plaza:{plaza_id}|discussion:{discussion_id}|output:{output_id}"
+        title = cls._norm_text(source_title)
+        return f"{s_type}|title:{title}" if title else ""
+
+    @staticmethod
+    def _source_text_hash(text: str) -> str:
+        return hashlib.sha256((text or "").strip().encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _source_fingerprint(cls, source_type: str, source_title: str, source_meta: Dict[str, Any], source_text: str) -> str:
+        return f"{cls._source_key(source_type, source_title, source_meta)}|sha256:{cls._source_text_hash(source_text)}"
+
+    def _is_deleted_source(self, team_id: str, source_type: str, source_title: str, source_meta: Dict[str, Any], source_text: str) -> bool:
+        fp = self._source_fingerprint(source_type, source_title, source_meta, source_text)
+        deleted = self._deleted_sources.get(team_id, [])
+        return fp in deleted
+
+    def _mark_source_deleted(self, team_id: str, source_type: str, source_title: str, source_meta: Dict[str, Any], source_text: str) -> None:
+        fp = self._source_fingerprint(source_type, source_title, source_meta, source_text)
+        deleted = self._deleted_sources.setdefault(team_id, [])
+        if fp in deleted:
+            return
+        deleted.append(fp)
+        # ponytail: keep a bounded tombstone list; if this grows too large, move to TTL/indexed store.
+        if len(deleted) > 500:
+            del deleted[: len(deleted) - 500]
 
     @staticmethod
     def _item_from_dict(d: Dict[str, Any]) -> SkillReviewItem:
@@ -315,6 +361,7 @@ class SkillExtractorEngine:
             source_text=d.get("source_text", ""),
             source_title=d.get("source_title", ""),
             source_type=d.get("source_type", "chat"),
+            source_meta=d.get("source_meta", {}) if isinstance(d.get("source_meta", {}), dict) else {},
         )
         item.item_id = d.get("item_id", item.item_id)
         item.status = SkillReviewStatus(d["status"]) if d.get("status") else SkillReviewStatus.PENDING
@@ -373,77 +420,76 @@ class SkillExtractorEngine:
         return any(marker in lowered for marker in markers)
 
     def _fallback_skill_specs(self, item: SkillReviewItem) -> List[Dict[str, Any]]:
+        import re
+
         suffix = item.item_id.lower()
+        source_title = (item.source_title or "").strip()
+        source_text = (item.source_text or "").strip()
+        text_for_keywords = f"{source_title}\n{source_text[:2500]}"
+
+        stopwords = {
+            "讨论", "方案", "执行", "问题", "系统", "项目", "页面", "功能", "需求", "优化", "分析", "任务", "结果", "总结",
+            "the", "and", "for", "with", "that", "this", "from", "into", "have", "will", "should",
+        }
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,8}|[A-Za-z][A-Za-z0-9_-]{2,20}", text_for_keywords)
+        freq: Dict[str, int] = {}
+        for token in tokens:
+            t = token.strip()
+            if not t:
+                continue
+            lower = t.lower()
+            if lower in stopwords:
+                continue
+            freq[t] = freq.get(t, 0) + 1
+        top_terms = [k for k, _ in sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0])))[:3]]
+
+        topic_label = source_title or "当前议题"
+        if top_terms:
+            topic_label = " / ".join(top_terms[:2])
+        topic_excerpt = source_text[:260] or source_title or "议题原文"
+
         return [
             {
-                "name": "ES 容量基线与伸缩决策",
-                "description": "把实例规格、节点数、索引分片、SLO 和风险基线转换成可审查的伸缩决策。",
-                "category": "automation",
-                "icon": "📈",
-                "slug": f"es-capacity-scaling-decision-{suffix}",
+                "name": f"{topic_label}需求拆解与约束澄清",
+                "description": "围绕当前议题提炼关键目标、边界条件和不可违反约束，形成可执行的问题定义。",
+                "category": "research",
+                "icon": "🧭",
+                "slug": f"topic-constraint-clarification-{suffix}",
                 "instructions": (
-                    "输入当前 ES/OpenSearch 指标、索引规模和业务 SLO；输出纵向升配、横向扩节点、"
-                    "分片调整和变更窗口建议。必须包含风险、回滚条件和验收指标。"
+                    f"基于原文片段『{topic_excerpt}』，先列业务目标与验收口径，再明确前置条件、依赖和不可变约束；"
+                    "输出时必须给出‘必须做/可选做/禁止做’三栏。"
                 ),
-                "required_tools": ["monitoring", "cost-gate"],
-                "confidence": 0.42,
+                "required_tools": ["read_file", "web_search"],
+                "confidence": 0.36,
                 "scope": "public",
             },
             {
-                "name": "Terraform 变更脚本门禁",
-                "description": "为云资源伸缩生成 dry-run、apply、rollback 和代码 review 的脚本化门禁。",
+                "name": f"{topic_label}实施路径与风险防护",
+                "description": "将议题拆成最小可交付步骤，并为每步补齐回滚条件与风险触发阈值。",
                 "category": "automation",
-                "icon": "🧰",
-                "slug": f"terraform-change-gate-{suffix}",
+                "icon": "🛠️",
+                "slug": f"topic-delivery-risk-guard-{suffix}",
                 "instructions": (
-                    "将资源变更拆成 plan、review、apply、verify、rollback 五段。任何 apply 前必须保存 plan、"
-                    "变更 diff、审批人和回滚命令。"
+                    "把方案拆成 3-5 个顺序步骤；每步明确输入、输出、负责人与验证动作。"
+                    "对高风险步骤提供熔断条件与回滚指令，避免一次性大改。"
                 ),
-                "required_tools": ["terraform", "shell", "git"],
-                "confidence": 0.42,
+                "required_tools": ["run_in_terminal", "read_file", "grep_search"],
+                "confidence": 0.35,
                 "scope": "public",
             },
             {
-                "name": "监控验收与故障回滚演练",
-                "description": "把扩容后的关键指标、告警、故障注入和回滚动作合成一套演练技能。",
+                "name": f"{topic_label}验收指标与复盘闭环",
+                "description": "为当前议题建立可量化验收标准，并沉淀复盘模板，保证后续可追踪改进。",
                 "category": "testing",
-                "icon": "🧪",
-                "slug": f"monitoring-rollback-drill-{suffix}",
+                "icon": "✅",
+                "slug": f"topic-acceptance-retro-loop-{suffix}",
                 "instructions": (
-                    "在变更前定义 CPU、JVM、写入延迟、分片迁移、5xx 和告警门禁；"
-                    "演练网络延迟、节点离线、任务突变和逻辑死锁；失败时执行单步回滚。"
+                    "定义最小验收集（功能、性能、稳定性、成本）；"
+                    "失败时记录 root cause 与 next action，并把可复用规则写入团队规范。"
                 ),
-                "required_tools": ["monitoring", "sandbox", "incident-runbook"],
-                "confidence": 0.4,
-                "scope": "public",
-            },
-            {
-                "name": "云成本治理与 RI 购买建议",
-                "description": "将扩容计划映射到账单预测、预算阈值、RI/Savings Plan 和治理目标。",
-                "category": "general",
-                "icon": "💰",
-                "slug": f"cloud-cost-ri-governance-{suffix}",
-                "instructions": (
-                    "估算实例、存储、跨 AZ 流量和快照成本；给出 RI/Savings Plan 购买建议，"
-                    "并把 token/服务/团队维度的高消耗项写入治理 todo。"
-                ),
-                "required_tools": ["cost-gate", "billing"],
-                "confidence": 0.38,
+                "required_tools": ["testFailure", "run_in_terminal"],
+                "confidence": 0.34,
                 "scope": "reserve",
-            },
-            {
-                "name": "北美 AI 区域合规部署检查",
-                "description": "为北美 AI 项目部署建立数据驻留、日志审计和区域准入检查。",
-                "category": "general",
-                "icon": "🛡️",
-                "slug": f"na-ai-region-compliance-{suffix}",
-                "instructions": (
-                    "检查区域、数据驻留、日志保留、访问审计、模型调用和跨境传输限制；"
-                    "不满足准入条件时阻止生产部署。"
-                ),
-                "required_tools": ["compliance-check", "audit-log"],
-                "confidence": 0.38,
-                "scope": "personal",
             },
         ]
 
@@ -520,14 +566,54 @@ class SkillExtractorEngine:
         source_text: str,
         source_title: str = "",
         source_type: str = "chat",
+        source_meta: Optional[Dict[str, Any]] = None,
     ) -> SkillReviewItem:
         """Create a queue item and start async LLM pre-filling."""
         queue = self._ensure_team_queue(team_id)
 
-        # ── Dedup: check if same source_text already exists in queue ──
-        text_fingerprint = source_text.strip()[:2000]  # Compare first 2000 chars
+        incoming_meta: Dict[str, Any] = source_meta if isinstance(source_meta, dict) else {}
+
+        if self._is_deleted_source(team_id, source_type, source_title, incoming_meta, source_text):
+            logger.info("⏭️ 删除墓碑拦截: 来源已被手动删除，跳过自动萃取")
+            await self._broadcast(team_id, "dedup_skipped", {
+                "existing_item_id": "",
+                "existing_name": source_title or "已删除来源",
+                "existing_status": SkillReviewStatus.REJECTED.value,
+                "message": "该来源已手动删除，默认不再自动萃取",
+            })
+            blocked = SkillReviewItem(
+                team_id=team_id,
+                source_text=source_text,
+                source_title=source_title,
+                source_type=source_type,
+                source_meta=incoming_meta,
+                status=SkillReviewStatus.REJECTED,
+            )
+            blocked.reviewer_notes = "source_deleted_tombstone"
+            return blocked
+
+        incoming_key = self._source_key(source_type, source_title, incoming_meta)
+        incoming_hash = self._source_text_hash(source_text)
+
+        # ── Dedup: same source context + same full text hash ──
+        # ponytail: this keeps dedup simple and deterministic; if we need near-duplicate matching later, upgrade to fuzzy hash.
         for existing in queue.values():
-            if existing.source_text.strip()[:2000] == text_fingerprint:
+            existing_meta = existing.source_meta if isinstance(existing.source_meta, dict) else {}
+            existing_key = self._source_key(existing.source_type, existing.source_title, existing_meta)
+            existing_hash = self._source_text_hash(existing.source_text)
+            if incoming_hash != existing_hash:
+                continue
+
+            has_both_keys = bool(incoming_key and existing_key)
+            if has_both_keys and incoming_key != existing_key:
+                continue
+
+            if (not has_both_keys) and (
+                self._norm_text(source_type) != self._norm_text(existing.source_type)
+                or self._norm_text(source_title) != self._norm_text(existing.source_title)
+            ):
+                continue
+
                 # Same source text already in queue
                 logger.info(f"⏭️ 去重跳过: 相同来源文本已在队列中 (item={existing.item_id})")
                 await self._broadcast(team_id, "dedup_skipped", {
@@ -543,6 +629,7 @@ class SkillExtractorEngine:
             source_text=source_text,
             source_title=source_title or f"来源 {len(queue) + 1}",
             source_type=source_type,
+            source_meta=incoming_meta,
             status=SkillReviewStatus.PENDING,
         )
         queue[item.item_id] = item
@@ -676,6 +763,7 @@ Output ONLY valid JSON."""
                         source_text=item.source_text,
                         source_title=item.source_title,
                         source_type=item.source_type,
+                        source_meta=dict(item.source_meta or {}),
                         status=SkillReviewStatus.READY_FOR_REVIEW,
                     )
                     extra_item.draft_name = extra_skill.get("name", "")[:64]
@@ -932,6 +1020,9 @@ Output ONLY valid JSON."""
         """Remove an item from the queue."""
         queue = self._queues.get(team_id, {})
         if item_id in queue:
+            item = queue[item_id]
+            source_meta = item.source_meta if isinstance(item.source_meta, dict) else {}
+            self._mark_source_deleted(team_id, item.source_type, item.source_title, source_meta, item.source_text)
             del queue[item_id]
             await self._broadcast(team_id, "item_deleted", {"item_id": item_id})
             self._persist_queue(team_id)

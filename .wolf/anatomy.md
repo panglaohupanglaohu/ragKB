@@ -769,3 +769,31 @@
 - `scripts/check-docs-signoff.cjs` — 可验证校验器:--selftest(5/5) / 默认(格式错=FAIL,缺签名=WARN) / --strict(缺签名也 FAIL)
 - `.github/copilot-instructions.md` L19 + `AGENTS.md ## 5` — ponytail 常驻注入一行精简规则(省 token,覆盖多 Agent)
 - 用户决定:暂只告警不严格(default 模式),不挂 pre-commit/CI/ponytail hook。存量 29 份未签名按「下次编辑补签名」
+
+## 本轮改动(2026-06-18, skill-extract 跨议题误去重)
+
+- `src/backend/agents/skill_extractor.py` — 去重从“前 2000 字符”改为“来源签名(source_meta) + 全文 SHA-256”；不同 discussion/output 不再误判同源。`SkillReviewItem` 持久化新增 `source_meta`。
+- `src/backend/agents/api.py` — `POST /teams/{team_id}/skill-extract/start` 支持 `source_meta` 透传给引擎。
+- `src/frontend/js/skill-extract.js` — Plaza 跳转萃取时提交 `source_meta(source_plaza_id/source_discussion_id/source_output_id)`，避免跨议题 dedup 碰撞。
+- 结果: 不同议题即使文本前缀相同，也不会再直接命中旧 item 返回“该文本已萃取过”；仅同源+同全文内容才去重。
+
+## 本轮改动(2026-06-18, skill-extract 删除后复活)
+
+- `src/backend/agents/skill_extractor.py` — 新增 deleted source tombstone：删除队列项时记录来源指纹(`source_type/plaza/discussion/output + 全文sha256`)并持久化到队列文件。
+- `src/backend/agents/skill_extractor.py` — `start_extraction` 在入队前先查 tombstone，命中则返回 `dedup_skipped`（状态 rejected）且不入队，避免“删了又出现”。
+- 结果: 用户手动删除的同来源候选不会在再次点击萃取时自动复活；需变更来源内容/上下文才会重新生成。
+
+## 本轮改动(2026-06-18, skill-extract fallback 议题化)
+
+- `src/backend/agents/skill_extractor.py` — 将 LLM 不可用时的固定兜底模板改为 topic-aware 生成：基于 `source_title + source_text` 提取关键词，动态构造 3 条候选（需求拆解/实施路径/验收闭环）。
+- 结果: 不同议题在 LLM 不可用场景下不再产出同名固定技能，减少“萃取到其他议题”的错觉。
+
+## 本轮改动(2026-06-18, skill-extract 队列来源隔离)
+
+- `src/frontend/js/skill-extract.js` — 当从议事厅跳转并携带 `currentExtractSourceMeta` 时，右侧审核队列仅渲染匹配该来源(`source_meta`)的项目，不再默认混入团队历史旧议题。
+- 空列表文案改为“当前讨论来源暂无…”，避免误判为“萃取出来还是其他议题”。
+
+## 本轮改动(2026-06-18, skill-extract 弹窗按钮可见性)
+
+- `src/frontend/skill-extract.html` — 为详情弹窗 tab 条与“效果”页动作区增加稳定 class（`modal-tabs-bar` / `usage-top-bar` / `usage-top-actions` / `usage-chat-head` / `usage-chat-quick-actions`），避免后续继续依赖内联样式定位。
+- `src/frontend/css/skill-extract.css` — 新增响应式可见性规则：tab 条支持换行+横向滚动，usage 头部动作区和快捷按钮支持换行；`max-width:960px` 下动作区占满并左对齐，确保“展示对比/刷新/快捷建议”按钮不再被裁切。

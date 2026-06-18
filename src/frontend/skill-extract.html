@@ -278,7 +278,7 @@
       <button class="close-btn" onclick="closeDetail()">✕</button>
     </div>
     <!-- Modal tabs -->
-    <div style="display:flex;gap:2px;border-bottom:1px solid #4A535C;margin:0 24px;padding-top:4px">
+    <div class="modal-tabs-bar" style="display:flex;gap:2px;border-bottom:1px solid #4A535C;margin:0 24px;padding-top:4px">
       <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')"><span class="tab-icon">✎</span>编辑</button>
       <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')"><span class="tab-icon">⟳</span>演化</button>
       <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')"><span class="tab-icon">◈</span>验证</button>
@@ -465,9 +465,9 @@
     </div>
     <!-- Tab: Usage / Before-After -->
     <div class="modal-body modal-tab-content" id="tab-usage" style="display:none;flex-direction:column;gap:16px;padding:20px 24px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="usage-top-bar" style="display:flex;justify-content:space-between;align-items:center">
         <h4 style="margin:0">📊 使用效果 (Before → After)</h4>
-        <div style="display:flex;gap:6px;align-items:center">
+        <div class="usage-top-actions" style="display:flex;gap:6px;align-items:center">
           <button class="btn btn-sm" onclick="showUsageCompare()" id="btn-show-usage-compare">👁️ 展示对比</button>
           <button class="btn btn-sm" onclick="refreshUsageTab()" id="btn-refresh-usage">🔄 刷新</button>
         </div>
@@ -500,9 +500,9 @@
       </div>
       <!-- Chat: Interactive Skill Optimization -->
       <div style="border:1px solid oklch(0.55 0.1 250/.2);border-radius:8px;overflow:hidden">
-        <div style="padding:8px 12px;background:oklch(0.12 0.01 250);font-size:11px;color:oklch(0.65 0.08 250);display:flex;justify-content:space-between;align-items:center">
+        <div class="usage-chat-head" style="padding:8px 12px;background:oklch(0.12 0.01 250);font-size:11px;color:oklch(0.65 0.08 250);display:flex;justify-content:space-between;align-items:center">
           <span>💬 对话优化技能</span>
-          <div style="display:flex;gap:4px">
+          <div class="usage-chat-quick-actions" style="display:flex;gap:4px">
             <button class="btn btn-sm" onclick="usageChatSuggest('improve')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">💡 改进建议</button>
             <button class="btn btn-sm" onclick="usageChatSuggest('simplify')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">✂️ 精简指令</button>
             <button class="btn btn-sm" onclick="usageChatSuggest('edge')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">🔀 边界场景</button>
@@ -571,32 +571,7 @@
       <div style="font-size:11px;color:oklch(0.55 0.005 110);padding:8px 12px;background:oklch(0.12 0.005 60);border-left:3px solid oklch(0.55 0.1 250/.4);line-height:1.6">
         管线将技能从「日志采集」逐步推进到「发布」。每个阶段可添加上下文、复核确认后推进。单人即可操作。
       </div>
-      <!-- SkillClaw Workflow: Evidence → Attribution → Evolution → Distribution -->
-      <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden;margin-bottom:4px">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:oklch(0.15 0.005 110)">
-          <div class="skillclaw-phase" data-claw-phase="evidence" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
-            <div style="font-size:16px">🔍</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">日志采集</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">收集原始经验</div>
-          </div>
-          <div class="skillclaw-phase" data-claw-phase="attribution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
-            <div style="font-size:16px">🏷️</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">上下文补全</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">补充场景细节</div>
-          </div>
-          <div class="skillclaw-phase" data-claw-phase="evolution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
-            <div style="font-size:16px">🧬</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">情境验证</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">确认可行性</div>
-          </div>
-          <div class="skillclaw-phase" data-claw-phase="distribution" style="padding:8px;background:oklch(0.1 0.005 60);text-align:center">
-            <div style="font-size:16px">📦</div>
-            <div style="font-size:9px;font-weight:600;color:oklch(0.7 0.005 110);margin-top:2px">技能发布</div>
-            <div style="font-size:8px;color:oklch(0.45 0.005 110)">上线可用</div>
-          </div>
-        </div>
-      </div>
-      <!-- Mini pipeline stepper in modal -->
+      <!-- Pipeline stepper in modal -->
       <div style="display:flex;align-items:center;gap:6px;padding:8px 0">
         <div class="pipe-step" data-modal-stage="draft" style="flex:1;padding:8px 6px">
           <span class="pipe-num">1</span><span class="pipe-label">日志采集</span>
@@ -710,6 +685,7 @@
         <button class="btn btn-approve" onclick="approveAs('reserve')" style="background:oklch(0.52 0.04 160/.2);border-color:oklch(0.52 0.04 160/.4);color:oklch(0.72 0.06 160)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
           储备技能</button>
+        <button class="btn" onclick="injectSkillToAgent()" id="btn-inject-to-agent" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.35);color:oklch(0.72 0.06 160)" title="将已批准的技能赋予所选智能体，提升其熟练度">⚡ 注入Agent</button>
       </div>
     </div>
   </div>

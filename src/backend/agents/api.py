@@ -14,12 +14,11 @@ Tab-based organization:
 from __future__ import annotations
 
 import asyncio
-import copy
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel, Field
 
 from .models import (
@@ -33,9 +32,7 @@ from .models import (
     HermesAgentConfig,
     ModelConfig,
     SkillCategory,
-    SkillDefinition,
     ToolCategory,
-    ToolDefinition,
     ToolsetDistribution,
 )
 from .hermes_research import (
@@ -54,21 +51,12 @@ from .chat_harness import (
     ProviderConfig,
     get_chat_harness,
 )
-from .budget import TokenBudget, get_budget_guard, get_usage_store
-from .budget.guard import save_budget_settings
-from .secret_store import (
-    load_model_api_keys,
-    resolve_api_key,
-    save_default_llm_api_key,
-    save_model_api_keys,
-)
 from .execution_registry import (
     ToolPermissionContext,
     PortRuntime,
     assemble_tool_pool,
     build_execution_registry,
 )
-from .security.permission_resolver import PermissionResolver
 from .session_store import (
     list_sessions as list_stored_sessions,
     search_sessions,
@@ -76,13 +64,6 @@ from .session_store import (
 from .skill_registry import SkillRegistry, get_default_skills
 from .team_manager import TeamManager
 from .tool_registry import ToolRegistry, get_default_tools
-
-try:
-    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
-    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
-except Exception:
-    _DEFAULT_PAGE_SIZE = 50
-    _MAX_PAGE_SIZE = 200
 
 
 router = APIRouter(prefix="/api/v1/agent-config", tags=["agent-config"])
@@ -101,36 +82,7 @@ _CONFIG_DIR = _mp_os.path.join(
     "config",
 )
 _MODEL_POOL_PATH = _mp_os.path.join(_CONFIG_DIR, "model_pool.json")
-
-
-def _normalize_pagination(limit: int, offset: int) -> tuple[int, int, bool]:
-    """Normalize optional limit/offset while preserving old unpaginated callers."""
-    limit = getattr(limit, "default", limit)
-    offset = getattr(offset, "default", offset)
-    limit = int(limit or 0)
-    offset = max(int(offset or 0), 0)
-    if limit < 0:
-        limit = 0
-    if limit > _MAX_PAGE_SIZE:
-        limit = _MAX_PAGE_SIZE
-    if offset > 0 and limit <= 0:
-        limit = _DEFAULT_PAGE_SIZE
-    return limit, offset, bool(limit > 0 or offset > 0)
-
-
-def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
-    """Return either the legacy plain list or a paginated response envelope."""
-    limit, offset, paginate = _normalize_pagination(limit, offset)
-    if not paginate:
-        return items
-    total = len(items)
-    return {
-        "items": items[offset:offset + limit],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
+_API_KEYS_PATH = _mp_os.path.join(_CONFIG_DIR, ".api_keys.json")
 
 
 def _save_model_pool() -> None:
@@ -163,9 +115,21 @@ def _save_model_pool() -> None:
         _mp_os.makedirs(_CONFIG_DIR, exist_ok=True)
         with open(_MODEL_POOL_PATH, "w", encoding="utf-8") as f:
             _mp_json.dump(data, f, ensure_ascii=False, indent=2)
-        save_model_api_keys(secrets)
+        with open(_API_KEYS_PATH, "w", encoding="utf-8") as f:
+            _mp_json.dump(secrets, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def _load_api_keys() -> Dict[str, Dict[str, str]]:
+    """Load API keys from .api_keys.json (gitignored secrets file)."""
+    if not _mp_os.path.isfile(_API_KEYS_PATH):
+        return {}
+    try:
+        with open(_API_KEYS_PATH, "r", encoding="utf-8") as f:
+            return _mp_json.load(f)
+    except Exception:
+        return {}
 
 
 def _load_model_pool(tm: TeamManager) -> None:
@@ -177,7 +141,7 @@ def _load_model_pool(tm: TeamManager) -> None:
             data = _mp_json.load(f)
     except Exception:
         return
-    secrets = load_model_api_keys()
+    secrets = _load_api_keys()
     for team in tm.list_teams():
         team_data = data.get(team.team_id)
         if not team_data:
@@ -186,11 +150,7 @@ def _load_model_pool(tm: TeamManager) -> None:
         # Replace the entire model pool with persisted version
         team.models.clear()
         for mid, mdata in team_data.items():
-            api_key = resolve_api_key(
-                mdata.get("provider", "deepseek"),
-                explicit=team_secrets.get(mid, ""),
-                plaintext_fallback=mdata.get("api_key", ""),
-            )
+            api_key = team_secrets.get(mid, mdata.get("api_key", ""))
             model = ModelConfig(
                 model_id=mdata.get("model_id", mid),
                 provider=mdata.get("provider", "deepseek"),
@@ -200,52 +160,9 @@ def _load_model_pool(tm: TeamManager) -> None:
                 is_default=mdata.get("is_default", False),
                 enabled=mdata.get("enabled", True),
                 api_key=api_key,
-                api_base_url=(mdata.get("api_base_url", "") or "").strip(),
+                api_base_url=mdata.get("api_base_url", ""),
             )
             team.add_model(model)
-
-
-def _reconcile_orphan_tasks() -> None:
-    """Mark stale running tasks as failed(orphaned) on startup.
-
-    After a process restart, tasks that were `running` but have no live monitor
-    thread or session are zombies. Also catches tasks exceeding _TASK_MAX_RUN_SEC.
-    """
-    try:
-        engine = _te()
-        all_tasks = engine.list_tasks()
-    except Exception:
-        return
-    now = _time.time()
-    for task in all_tasks:
-        if task.status.value != "running":
-            continue
-        started = _ts_to_epoch(getattr(task, "started_at", None) or getattr(task, "created_at", None))
-        has_monitor = task.task_id in _harness_threads
-        # Check if any session is alive
-        wf = (task.metadata or {}).get("workflow", [])
-        active = next((s for s in wf if s.get("status") == "active"), None)
-        sid = active.get("session_id") if active else None
-        alive = bool(sid and sid in _claude_sessions and _claude_sessions[sid].get("status") == "running")
-        collab = (task.metadata or {}).get("collaboration")
-        too_old = started and (now - started) > _TASK_MAX_RUN_SEC
-        if (not has_monitor and not alive and not collab) or too_old:
-            task.error = "orphaned"
-            try:
-                engine._store.save_task(task)
-            except Exception:
-                pass
-            import asyncio as _asyncio
-            try:
-                loop = _asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(_finalize_task_terminal_state(task, force_status="failed", error="orphaned"))
-                else:
-                    _asyncio.run(_finalize_task_terminal_state(task, force_status="failed", error="orphaned"))
-            except Exception:
-                # Best-effort; at minimum mark failed in-memory
-                task.status = TaskStatus.FAILED
-            _harness_log.info(f"[Orphan] Task {task.task_id} marked orphaned (too_old={too_old})")
 
 
 def init_agent_config(team_manager: TeamManager) -> None:
@@ -262,8 +179,6 @@ def init_agent_config(team_manager: TeamManager) -> None:
     _init_harness_from_teams(team_manager)
     # Initialize skill library chain (演化/验证/效果贯通)
     _init_skill_library_chain(team_manager, _skill_registry)
-    # T2.1: Reconcile orphan tasks from previous process
-    _reconcile_orphan_tasks()
 
 
 def _get_tool_registry() -> ToolRegistry:
@@ -290,11 +205,10 @@ def _init_harness_from_teams(tm: TeamManager) -> None:
         harness = get_chat_harness()
         for team in tm.list_teams():
             for m in team.models.values():
-                api_key = resolve_api_key(m.provider, explicit=m.api_key)
-                if m.is_default and api_key:
+                if m.is_default and m.api_key:
                     harness.update_default_provider(
                         provider=m.provider,
-                        api_key=api_key,
+                        api_key=m.api_key,
                         api_base_url=m.api_base_url,
                         model=m.name,
                     )
@@ -363,365 +277,6 @@ def _sr() -> SkillRegistry:
     return _skill_registry
 
 
-def _clone_skill_definition(skill: SkillDefinition) -> SkillDefinition:
-    """Create a team-local copy so edits and usage stats do not mutate shared registry state."""
-    cloned = copy.deepcopy(skill)
-    if not cloned.slug:
-        cloned.slug = cloned.name
-    return cloned
-
-
-def _resolve_skill_definition(team_id: str, skill_ref: str) -> Optional[SkillDefinition]:
-    """Resolve a skill reference from team-local storage, skill library, or the default registry."""
-    ref = (skill_ref or "").strip()
-    if not ref:
-        return None
-
-    team = _tm().get_team(team_id)
-    if team:
-        if ref in team.skills:
-            return team.skills[ref]
-        for skill in team.skills.values():
-            if ref in {skill.skill_id, skill.slug, skill.name}:
-                return skill
-
-    try:
-        from .skill_library import get_skill_library
-
-        lib = get_skill_library()
-        skill = lib._find_skill(team_id, ref)
-        if skill:
-            return skill
-        for item in lib.browse(team_id=team_id):
-            if ref in {item.get("skill_id", ""), item.get("slug", ""), item.get("name", "")}:
-                resolved = lib._find_skill(team_id, item.get("skill_id", "") or ref)
-                if resolved:
-                    return resolved
-    except Exception:
-        pass
-
-    registry = _sr()
-    skill = registry.get(ref) or registry.get_by_slug(ref)
-    if skill:
-        return skill
-    for item in registry.list_all():
-        if item.name == ref:
-            return item
-    return None
-
-
-def _ensure_team_skill_copy(team_id: str, skill: SkillDefinition) -> SkillDefinition:
-    """Materialize a bound skill into the team so agent bindings survive restarts."""
-    team = _get_team_or_404(team_id)
-
-    if skill.skill_id in team.skills:
-        return team.skills[skill.skill_id]
-
-    for existing in team.skills.values():
-        if skill.name == existing.name:
-            return existing
-        if skill.slug and skill.slug == existing.slug:
-            return existing
-
-    cloned = _clone_skill_definition(skill)
-    team.add_skill(cloned)
-    return cloned
-
-
-def _canonicalize_skill_bindings(team_id: str, skill_refs: List[str]) -> List[str]:
-    """Resolve incoming skill refs and store them as team-local canonical skill IDs."""
-    canonical: List[str] = []
-    seen: set[str] = set()
-
-    for skill_ref in skill_refs:
-        skill = _resolve_skill_definition(team_id, skill_ref)
-        if skill is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Skill not found: {skill_ref}")
-        team_skill = _ensure_team_skill_copy(team_id, skill)
-        if team_skill.skill_id not in seen:
-            seen.add(team_skill.skill_id)
-            canonical.append(team_skill.skill_id)
-
-    return canonical
-
-
-def _delete_skill_across_teams(skill_id: str) -> Dict[str, Any]:
-    """Delete a skill from every team and unbind it from every agent that references it."""
-    removed_identifiers: set[str] = {skill_id}
-    removed_agent_count = 0
-    removed_teams: List[str] = []
-
-    resolved: Optional[SkillDefinition] = None
-    for team in _tm().list_teams():
-        resolved = _resolve_skill_definition(team.team_id, skill_id)
-        if resolved is not None:
-            removed_identifiers.update(
-                identifier for identifier in (resolved.skill_id, resolved.slug, resolved.name) if identifier
-            )
-            break
-
-    for team in _tm().list_teams():
-        removed_any = False
-        for existing_skill_id, existing_skill in list(team.skills.items()):
-            identifiers = {existing_skill_id, existing_skill.skill_id, existing_skill.slug, existing_skill.name}
-            if removed_identifiers.intersection(identifier for identifier in identifiers if identifier):
-                team.skills.pop(existing_skill_id, None)
-                removed_any = True
-                removed_identifiers.update(
-                    identifier for identifier in identifiers if identifier
-                )
-        if removed_any:
-            removed_teams.append(team.team_id)
-
-    for team in _tm().list_teams():
-        for agent in team.agents.values():
-            if not agent.skills:
-                continue
-            before = len(agent.skills)
-            agent.skills = [
-                skill_ref
-                for skill_ref in agent.skills
-                if skill_ref not in removed_identifiers
-            ]
-            removed_agent_count += before - len(agent.skills)
-
-    if not removed_teams and removed_agent_count <= 0:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
-
-    _tm()._persist()
-
-    try:
-        from .skill_library import get_skill_library
-
-        lib = get_skill_library()
-        if lib and lib._skill_store:
-            lib._skill_store.delete(skill_id)
-    except Exception:
-        pass
-
-    return {
-        "status": "deleted",
-        "skill_id": skill_id,
-        "removed_from_teams": removed_teams,
-        "removed_agent_bindings": removed_agent_count,
-    }
-
-
-def _resolve_bound_skills(team_id: str, agent: AgentProfile) -> List[SkillDefinition]:
-    """Resolve an agent's bound skills into concrete definitions."""
-    resolved: List[SkillDefinition] = []
-    seen: set[str] = set()
-    for skill_ref in agent.skills or []:
-        skill = _resolve_skill_definition(team_id, skill_ref)
-        if skill is None or not skill.enabled:
-            continue
-        if skill.skill_id in seen:
-            continue
-        seen.add(skill.skill_id)
-        resolved.append(skill)
-    return resolved
-
-
-def _resolve_tool_definition(team_id: str, tool_ref: str) -> Optional[ToolDefinition]:
-    """Resolve a tool reference from team-local tools first, then the global registry."""
-    ref = (tool_ref or "").strip()
-    if not ref:
-        return None
-
-    team = _tm().get_team(team_id)
-    if team:
-        if ref in team.tools:
-            return team.tools[ref]
-        for tool in team.tools.values():
-            if ref in {tool.tool_id, tool.name}:
-                return tool
-
-    registry = _tr()
-    tool = registry.get(ref)
-    if tool:
-        return tool
-    for item in registry.list_all():
-        if item.name == ref:
-            return item
-    return None
-
-
-def _resolve_effective_tools(team_id: str, agent: AgentProfile, skills: List[SkillDefinition]) -> List[ToolDefinition]:
-    """Merge explicit agent tools with tools implied by bound skills."""
-    effective: List[ToolDefinition] = []
-    seen: set[str] = set()
-    tool_refs: List[str] = list(agent.tools or [])
-    for skill in skills:
-        tool_refs.extend(skill.required_tools or [])
-
-    for tool_ref in tool_refs:
-        tool = _resolve_tool_definition(team_id, tool_ref)
-        if tool is None or not tool.enabled or tool.tool_id in seen:
-            continue
-        seen.add(tool.tool_id)
-        effective.append(tool)
-
-    return effective
-
-
-def _build_agent_permission_context(agent: AgentProfile) -> ToolPermissionContext:
-    return PermissionResolver().build_context(agent)
-
-
-def _find_agent_across_teams(agent_id: str) -> tuple[str, AgentProfile] | tuple[None, None]:
-    target = (agent_id or "").strip()
-    if not target:
-        return None, None
-    for team in _tm().list_teams():
-        agent = team.get_agent(target)
-        if agent is not None:
-            return team.team_id, agent
-    return None, None
-
-
-def _resolve_skill_definition(team_id: str, skill_id: str) -> Optional[SkillDefinition]:
-    """Resolve a bound skill id/slug/name from team-local skills, library, or registry."""
-    sid = (skill_id or "").strip()
-    if not sid:
-        return None
-
-    team = _tm().get_team(team_id) if team_id else None
-    if team:
-        skill = team.skills.get(sid)
-        if skill is not None:
-            return skill
-        for candidate in team.skills.values():
-            if candidate.slug == sid or candidate.name == sid:
-                return candidate
-
-    lib = _get_skill_library()
-    if lib is not None:
-        skill = lib._find_skill(team_id, sid)
-        if skill is not None:
-            return skill
-
-    registry = _sr()
-    if hasattr(registry, "get"):
-        skill = registry.get(sid)
-        if skill is not None:
-            return skill
-    return registry.get_by_slug(sid)
-
-
-def _clip_text(text: str, limit: int = 600) -> str:
-    text = (text or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "..."
-
-
-def _agent_loop_skill_score(skill: SkillDefinition, prompt: str, agent: AgentProfile) -> int:
-    haystack = " ".join([
-        skill.name or "",
-        skill.description or "",
-        skill.instructions or "",
-        skill.slug or "",
-        skill.visibility or "",
-        agent.name or "",
-        agent.role or "",
-        agent.description or "",
-    ]).lower()
-    prompt_l = (prompt or "").lower()
-    score = 0
-    for kw in ("ri", "reserved instance", "预留实例", "savings plan", "成本", "账单", "finops", "cost"):
-        if kw in haystack:
-            score += 4
-        if kw in prompt_l:
-            score += 2
-    if skill.visibility in {"trait", "private"}:
-        score += 2
-    if skill.version and skill.version > 1:
-        score += 2
-    score += min(int(skill.quality_score * 3), 3)
-    return score
-
-
-def _get_agent_loop_skills(team_id: str, agent: AgentProfile, prompt: str) -> List[SkillDefinition]:
-    """Return full skill definitions bound to an agent, ranked for this prompt."""
-    skills: List[SkillDefinition] = []
-    seen: set[str] = set()
-    for sid in agent.skills:
-        skill = _resolve_skill_definition(team_id, sid)
-        if skill and skill.skill_id not in seen:
-            seen.add(skill.skill_id)
-            skills.append(skill)
-    skills.sort(key=lambda s: _agent_loop_skill_score(s, prompt, agent), reverse=True)
-    return skills
-
-
-def _is_cost_ri_context(agent: AgentProfile, skills: List[SkillDefinition], prompt: str) -> bool:
-    text = " ".join([
-        prompt or "",
-        agent.name or "",
-        agent.role or "",
-        agent.description or "",
-        agent.system_prompt or "",
-        " ".join((s.name or "") + " " + (s.description or "") + " " + (s.instructions or "") for s in skills[:8]),
-    ]).lower()
-    return (
-        ("ri" in text or "reserved instance" in text or "预留实例" in text or "savings plan" in text)
-        and any(kw in text for kw in ("成本", "账单", "finops", "cost", "aws", "云"))
-    )
-
-
-def _build_agent_loop_prompt_and_system(
-    *,
-    prompt: str,
-    team_id: str,
-    agent: Optional[AgentProfile],
-    system_prompt: str = "",
-) -> tuple[str, str]:
-    """Inject role and skill context into Agent Loop, especially for short prompts."""
-    if agent is None:
-        return prompt, system_prompt
-
-    skills = _get_agent_loop_skills(team_id, agent, prompt)
-    cost_ri_context = _is_cost_ri_context(agent, skills, prompt)
-    effective_prompt = prompt
-    prompt_l = (prompt or "").strip().lower()
-    if cost_ri_context and ("ri" in prompt_l or "预留" in prompt_l) and len(prompt_l) <= 24:
-        effective_prompt = (
-            "在 AWS 成本治理语境下，回答用户关于 RI 的问题。"
-            "这里 RI 必须解释为 Reserved Instance/预留实例，并结合 Savings Plan、覆盖率、利用率、购买周期和治理门禁。"
-            f"\n\n原始用户问题: {prompt}"
-        )
-
-    skill_lines = []
-    for skill in skills[:8]:
-        visibility = skill.visibility or "bound"
-        skill_lines.append(
-            f"- [{visibility}] {skill.name} v{skill.version}: {_clip_text(skill.description, 220)}\n"
-            f"  指令: {_clip_text(skill.instructions, 420)}"
-        )
-
-    base_system = system_prompt or agent.system_prompt or ""
-    context_parts = [
-        base_system,
-        "## Agent Loop Runtime Context",
-        f"你正在以智能体「{agent.name}」回答，职责: {agent.role or agent.description or '未配置'}。",
-        f"所属团队: {team_id or 'unknown'}。",
-        "必须优先使用该智能体已绑定的特质/私有/演化技能；不要被全局编程语境覆盖。",
-    ]
-    if cost_ri_context:
-        context_parts.append(
-            "缩写消歧: 在该智能体语境下，RI 默认表示 AWS Reserved Instance / 预留实例，"
-            "并与 Savings Plan、账单预测、覆盖率、利用率、到期续约、预算门禁相关；"
-            "除非用户明确提到代码/数据库/需求工程，否则不要解释成编程领域的 RI。"
-        )
-    if skill_lines:
-        context_parts.append("## 当前智能体可用技能\n" + "\n".join(skill_lines))
-    context_parts.append(
-        "回答要求: 先按角色和技能消歧，再给可执行步骤、检查指标、风险和验收标准；"
-        "如果问题很短，也要从当前 agent 的团队/技能上下文补足业务语境。"
-    )
-    return effective_prompt, "\n\n".join(p for p in context_parts if p)
-
-
 # Request / Response Models
 
 
@@ -773,7 +328,6 @@ class PermissionItem(BaseModel):
     resource: str = ""
     access_level: str = "read"
     channels: List[str] = Field(default_factory=list)
-    allowed_tools: List[str] = Field(default_factory=list)
 
 
 class UpdatePermissionsRequest(BaseModel):
@@ -797,11 +351,8 @@ class UpdateChannelsRequest(BaseModel):
 
 
 @router.get("/teams", summary="List all teams")
-def list_teams(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = [
+def list_teams() -> List[Dict[str, Any]]:
+    return [
         {
             "team_id": t.team_id,
             "name": t.name,
@@ -811,14 +362,10 @@ def list_teams(
         }
         for t in _tm().list_teams()
     ]
-    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams-tree", summary="All teams with agents tree")
-def teams_tree(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def teams_tree() -> List[Dict[str, Any]]:
     """返回团队→智能体树状结构，供广场选人使用."""
     result = []
     for t in _tm().list_teams():
@@ -833,13 +380,11 @@ def teams_tree(
                     "agent_id": a.agent_id,
                     "name": a.name or a.agent_id,
                     "role": a.role or "",
-                    "skills": getattr(a, "skills", []) or [],
-                    "tools": getattr(a, "tools", []) or [],
                 }
                 for a in agents_list
             ],
         })
-    return _paginate_optional(result, limit=limit, offset=offset)
+    return result
 
 
 @router.get("/teams/{team_id}", summary="Get team detail")
@@ -882,14 +427,9 @@ def _get_team_or_404(team_id: str):
 
 
 @router.get("/teams/{team_id}/models", summary="List team models")
-def list_models(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_models(team_id: str) -> List[Dict[str, Any]]:
     team = _get_team_or_404(team_id)
-    items = [m.to_dict() for m in team.models.values()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [m.to_dict() for m in team.models.values()]
 
 
 @router.post(
@@ -906,7 +446,7 @@ def add_model(team_id: str, req: CreateModelRequest) -> Dict[str, Any]:
         temperature=req.temperature,
         is_default=req.is_default,
         api_key=req.api_key,
-        api_base_url=(req.api_base_url or "").strip(),
+        api_base_url=req.api_base_url,
     )
     team.add_model(model)
     if req.is_default:
@@ -933,7 +473,7 @@ def update_model(team_id: str, model_id: str, req: CreateModelRequest) -> Dict[s
     if req.api_key:
         model.api_key = req.api_key
     if req.api_base_url:
-        model.api_base_url = req.api_base_url.strip()
+        model.api_base_url = req.api_base_url
     if req.is_default:
         _set_team_default_model(team, model_id)
     else:
@@ -995,41 +535,15 @@ def _sync_default_model_to_harness(team) -> None:
             break
     if default_model is None:
         return
-    api_key = resolve_api_key(default_model.provider, explicit=default_model.api_key)
     harness.update_default_provider(
         provider=default_model.provider,
-        api_key=api_key,
+        api_key=default_model.api_key,
         api_base_url=default_model.api_base_url,
         model=default_model.name,
     )
     cfg = harness.get_provider_config()
     cfg.max_tokens = default_model.max_tokens
     cfg.temperature = default_model.temperature
-
-
-def _resolve_team_provider_config(team_id: str):
-    """Build a ProviderConfig from the team's default model.
-
-    Used by skill evolve/verify so they call the team's configured LLM
-    (e.g. CodeBuddy) instead of the global harness default, which may point
-    at a different team's model.
-    """
-    from .chat_harness import ProviderConfig
-    if not team_id or _team_manager is None:
-        return None
-    try:
-        team = _tm().get_team(team_id)
-    except Exception:
-        return None
-    if not team:
-        return None
-    default_model = next((m for m in team.models.values() if m.is_default), None)
-    if default_model is None:
-        return None
-    try:
-        return ProviderConfig.from_model_config(default_model)
-    except Exception:
-        return None
 
 
 @router.delete(
@@ -1048,23 +562,14 @@ def remove_model(team_id: str, model_id: str) -> Dict[str, str]:
 
 
 @router.get("/tools", summary="List all available tools")
-def list_all_tools(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = [t.to_dict() for t in _tr().list_all()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+def list_all_tools() -> List[Dict[str, Any]]:
+    return [t.to_dict() for t in _tr().list_all()]
 
 
 @router.get("/teams/{team_id}/tools", summary="List team tools")
-def list_team_tools(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_team_tools(team_id: str) -> List[Dict[str, Any]]:
     team = _get_team_or_404(team_id)
-    items = [t.to_dict() for t in team.tools.values()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [t.to_dict() for t in team.tools.values()]
 
 
 @router.post(
@@ -1111,24 +616,22 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
     "/teams/{team_id}/tools/{tool_id}",
     summary="Edit tool properties",
 )
-def edit_tool(team_id: str, tool_id: str, req: Optional[EditToolRequest] = Body(None)) -> Dict[str, Any]:
+def edit_tool(team_id: str, tool_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     tool = team.tools.get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
-    req = req or EditToolRequest()
     # Update allowed fields
     for field in ("name", "description", "icon", "requires_approval"):
-        val = getattr(req, field, None)
-        if val is not None:
-            setattr(tool, field, val)
-    if req.category is not None:
+        if field in req:
+            setattr(tool, field, req[field])
+    if "category" in req:
         try:
-            tool.category = ToolCategory(req.category)
+            tool.category = ToolCategory(req["category"])
         except ValueError:
             pass
-    if req.parameters is not None and isinstance(req.parameters, dict):
-        tool.parameters = req.parameters
+    if "parameters" in req and isinstance(req["parameters"], dict):
+        tool.parameters = req["parameters"]
     _tm()._persist()
     return tool.to_dict()
 
@@ -1154,60 +657,26 @@ def delete_tool(team_id: str, tool_id: str) -> Dict[str, str]:
 
 
 @router.get("/skills", summary="List all available skills")
-def list_all_skills(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = [s.to_dict() for s in _sr().list_all()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+def list_all_skills() -> List[Dict[str, Any]]:
+    return [s.to_dict() for s in _sr().list_all()]
 
 
 @router.get("/skills/required", summary="List required skills")
-def list_required_skills(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = [s.to_dict() for s in _sr().list_required()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+def list_required_skills() -> List[Dict[str, Any]]:
+    return [s.to_dict() for s in _sr().list_required()]
 
 
 @router.get("/teams/{team_id}/skills", summary="List team skills")
-def list_team_skills(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_team_skills(team_id: str) -> List[Dict[str, Any]]:
     team = _get_team_or_404(team_id)
-    effective_skills: Dict[str, Dict[str, Any]] = {}
-
-    for skill in team.skills.values():
-        payload = skill.to_dict()
-        payload["bound_agent_count"] = 0
-        effective_skills[skill.skill_id] = payload
-
-    for agent in team.agents.values():
-        for skill_ref in agent.skills or []:
-            skill = _resolve_skill_definition(team_id, skill_ref)
-            if skill is None:
-                continue
-            if skill.skill_id not in effective_skills:
-                payload = skill.to_dict()
-                payload["bound_agent_count"] = 0
-                effective_skills[skill.skill_id] = payload
-            effective_skills[skill.skill_id]["bound_agent_count"] += 1
-
-    items = sorted(effective_skills.values(), key=lambda item: ((item.get("category") or "").lower(), (item.get("name") or "").lower()))
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [s.to_dict() for s in team.skills.values()]
 
 
 # TAB 5 -- AGENTS (5-step wizard)
 
 
 @router.get("/agents", summary="List all agents")
-def list_all_agents(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_all_agents() -> List[Dict[str, Any]]:
     agents: List[Dict[str, Any]] = []
     for team in _tm().list_teams():
         team_agents = team.agents.values() if isinstance(team.agents, dict) else team.agents
@@ -1217,7 +686,7 @@ def list_all_agents(
                 "team_id": team.team_id,
                 "team_name": team.name,
             })
-    return _paginate_optional(agents, limit=limit, offset=offset)
+    return agents
 
 
 def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
@@ -1228,14 +697,9 @@ def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
 
 
 @router.get("/teams/{team_id}/agents", summary="List agents in team")
-def list_agents(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_agents(team_id: str) -> List[Dict[str, Any]]:
     _get_team_or_404(team_id)
-    items = [a.to_dict() for a in _tm().list_agents(team_id)]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [a.to_dict() for a in _tm().list_agents(team_id)]
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}", summary="Get agent detail")
@@ -1297,7 +761,6 @@ def update_agent_tools(
 ) -> Dict[str, Any]:
     agent = _get_agent_or_404(team_id, agent_id)
     agent.tools = list(req.tool_ids)
-    _tm()._persist()
     return agent.to_dict()
 
 
@@ -1309,31 +772,7 @@ def update_agent_skills(
     team_id: str, agent_id: str, req: UpdateSkillsRequest
 ) -> Dict[str, Any]:
     agent = _get_agent_or_404(team_id, agent_id)
-    # 门禁：新增绑定的技能必须是已启用且生命周期 >= team_local
-    existing_skills = set(agent.skills or [])
-    new_skills = set(req.skill_ids) - existing_skills
-    if new_skills:
-        team = _tm().get_team(team_id)
-        if team:
-            blocked = []
-            for sid in new_skills:
-                skill = _resolve_skill_definition(team_id, sid)
-                if skill is None:
-                    blocked.append(f"{sid} (技能不存在)")
-                    continue
-                if not getattr(skill, "enabled", True):
-                    blocked.append(f"{skill.name} (已禁用)")
-                    continue
-                stage = getattr(skill, "lifecycle_stage", "") or ""
-                if stage in ("draft", "needs_llm_review"):
-                    blocked.append(f"{skill.name} (生命周期={stage}，需先验证/批准)")
-            if blocked:
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT,
-                    detail="以下技能未通过门禁，不允许绑定: " + "; ".join(blocked)
-                )
-    agent.skills = _canonicalize_skill_bindings(team_id, req.skill_ids)
-    _tm()._persist()
+    agent.skills = list(req.skill_ids)
     return agent.to_dict()
 
 
@@ -1356,11 +795,9 @@ def update_permissions(
                 resource=p.resource,
                 access_level=al,
                 channels=list(p.channels),
-                allowed_tools=list(p.allowed_tools),
             )
         )
     agent.permissions = perms
-    _tm()._persist()
     return agent.to_dict()
 
 
@@ -1482,82 +919,6 @@ class SessionMessageRequest(BaseModel):
     role: str = "user"
 
 
-class SkillExtractStartRequest(BaseModel):
-    source_text: str = Field(..., min_length=10)
-    source_title: str = ""
-    source_type: str = "chat"
-
-
-class SkillExtractEditRequest(BaseModel):
-    field_updates: Dict[str, Any] = Field(default_factory=dict)
-
-
-class SkillExtractApproveRequest(BaseModel):
-    reviewer: str = ""
-    edited_fields: Optional[Dict[str, Any]] = None
-    skill_type: str = "reserve"
-    target_agent_id: str = ""
-
-
-class SkillExtractRejectRequest(BaseModel):
-    reviewer: str = ""
-    reason: str = ""
-
-
-class ToolExecuteRequest(BaseModel):
-    arguments: Dict[str, Any] = Field(default_factory=dict)
-    agent_id: str = ""
-    team_id: str = ""
-
-
-class ToolConfigRequest(BaseModel):
-    config: Dict[str, Any] = Field(default_factory=dict)
-
-
-class EditToolRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    icon: Optional[str] = None
-    requires_approval: Optional[bool] = None
-    category: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-
-
-class EditSkillRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    icon: Optional[str] = None
-    instructions: Optional[str] = None
-    slug: Optional[str] = None
-    category: Optional[str] = None
-    required_tools: Optional[List[str]] = None
-
-
-class DigitalTwinStateRequest(BaseModel):
-    rooms: Optional[List[Any]] = None
-    positions: Optional[Dict[str, str]] = None
-
-
-class DigitalTwinMoveRequest(BaseModel):
-    agent_id: str
-    room_id: str
-
-
-class DigitalTwinInteractRequest(BaseModel):
-    from_: str = Field(default="", alias="from")
-    to: str = ""
-    type: str = "handoff"
-    content: str = ""
-
-
-class SkillLibraryActionRequest(BaseModel):
-    team_id: str = Field(..., min_length=1)
-    skill_id: str = Field(..., min_length=1)
-    user_feedback: str = ""
-    new_instructions: str = ""
-    target_team_id: str = ""
-
-
 @router.put("/teams/{team_id}", summary="Update team")
 def update_team(team_id: str, req: UpdateTeamRequest) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
@@ -1677,14 +1038,12 @@ def get_agent_logs(team_id: str, agent_id: str, limit: int = 50) -> Dict[str, An
 def enable_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     if skill_id not in team.skills:
-        source = _resolve_skill_definition(team_id, skill_id)
+        source = _sr().get(skill_id)
         if source is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in registry")
-        skill = _ensure_team_skill_copy(team_id, source)
-    else:
-        skill = team.skills[skill_id]
+        team.add_skill(source)
+    skill = team.skills[skill_id]
     skill.enabled = True
-    _tm()._persist()
     return skill.to_dict()
 
 
@@ -1694,10 +1053,6 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     removed = team.skills.pop(skill_id, None)
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
-    for agent in team.agents.values():
-        if skill_id in agent.skills:
-            agent.skills.remove(skill_id)
-    _tm()._persist()
     return {"disabled": skill_id}
 
 
@@ -1705,7 +1060,7 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     "/teams/{team_id}/skills/{skill_id}",
     summary="Edit skill properties",
 )
-def edit_skill(team_id: str, skill_id: str, req: Optional[EditSkillRequest] = Body(None)) -> Dict[str, Any]:
+def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     skill = team.skills.get(skill_id)
     if skill is None:
@@ -1713,26 +1068,24 @@ def edit_skill(team_id: str, skill_id: str, req: Optional[EditSkillRequest] = Bo
         from .skill_library import get_skill_library
         lib = get_skill_library()
         if lib:
-            skill = lib._find_skill(team_id, skill_id)
+            skill = lib._find_skill(skill_id, team_id)
         if skill is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
         # Add to team for editing
         team.skills[skill_id] = skill
-    req = req or EditSkillRequest()
     # Update allowed fields
     for field in ("name", "description", "icon", "instructions", "slug"):
-        val = getattr(req, field, None)
-        if val is not None:
-            setattr(skill, field, val)
-    if req.category is not None:
+        if field in req:
+            setattr(skill, field, req[field])
+    if "category" in req:
         try:
-            skill.category = SkillCategory(req.category)
+            skill.category = SkillCategory(req["category"])
         except ValueError:
             pass
-    if req.required_tools is not None and isinstance(req.required_tools, list):
-        skill.required_tools = req.required_tools
+    if "required_tools" in req and isinstance(req["required_tools"], list):
+        skill.required_tools = req["required_tools"]
     # Bump version on instruction edit
-    if req.instructions is not None:
+    if "instructions" in req:
         skill.version = getattr(skill, "version", 0) + 1
     _tm()._persist()
     # Also update skill store if available
@@ -1750,27 +1103,25 @@ def edit_skill(team_id: str, skill_id: str, req: Optional[EditSkillRequest] = Bo
     "/teams/{team_id}/skills/{skill_id}",
     summary="Delete skill from team",
 )
-def delete_skill(team_id: str, skill_id: str, force: str = "") -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    # 门禁：已验证/已发布的技能不允许直接删除，需 force=true
-    if force.lower() not in ("true", "1", "yes"):
-        team = _tm().get_team(team_id)
-        if team:
-            skill = _resolve_skill_definition(team_id, skill_id)
-            if skill:
-                stage = getattr(skill, "lifecycle_stage", "") or ""
-                visibility = getattr(skill, "visibility", "") or ""
-                if stage in ("verified", "published", "production"):
-                    raise HTTPException(
-                        status.HTTP_409_CONFLICT,
-                        detail=f"技能「{skill.name}」当前生命周期为 {stage}，已通过验证/发布，不允许直接删除。如需强制删除请传 force=true。"
-                    )
-                if visibility == "public":
-                    raise HTTPException(
-                        status.HTTP_409_CONFLICT,
-                        detail=f"技能「{skill.name}」已发布为公共技能，不允许直接删除。请先取消发布再删除。"
-                    )
-    return _delete_skill_across_teams(skill_id)
+def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
+    team = _get_team_or_404(team_id)
+    removed = team.skills.pop(skill_id, None)
+    if removed is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
+    # Remove from all agents in this team
+    for agent in team.agents:
+        if skill_id in agent.skills:
+            agent.skills.remove(skill_id)
+    _tm()._persist()
+    # Also remove from skill store
+    try:
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib and lib._skill_store:
+            lib._skill_store.delete(skill_id)
+    except Exception:
+        pass
+    return {"status": "deleted", "skill_id": skill_id}
 
 
 # ── Digital Twin Routes ──────────────────────────────────────────────────
@@ -1788,45 +1139,30 @@ def dt_get_state() -> Dict[str, Any]:
 
 
 @router.put("/digital-twin/state", summary="Update digital twin state")
-def dt_put_state(req: Optional[DigitalTwinStateRequest] = Body(None)) -> Dict[str, Any]:
-    req = req or DigitalTwinStateRequest()
-    if req.rooms is not None:
-        _dt_state["rooms"] = req.rooms
-    if req.positions is not None:
-        _dt_state["positions"] = req.positions
+def dt_put_state(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    if "rooms" in req:
+        _dt_state["rooms"] = req["rooms"]
+    if "positions" in req:
+        _dt_state["positions"] = req["positions"]
     return _dt_state
 
 
 @router.post("/digital-twin/move", summary="Move agent to room")
-def dt_move_agent(req: DigitalTwinMoveRequest = Body(...)) -> Dict[str, Any]:
-    if not req.agent_id or not req.room_id:
+def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    agent_id = req.get("agent_id", "")
+    room_id = req.get("room_id", "")
+    if not agent_id or not room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
-    # F3-1 (v4 C-4.2): 场景房间阶段状态机校验 — 有 scenario 阶段映射时只允许相邻阶段迁移
-    try:
-        from sandbox.api import get_orchestrator
-        ws = get_orchestrator().world_state
-        if getattr(ws, "_room_stages", None):
-            from_room = _dt_state["positions"].get(req.agent_id, "")
-            verdict = ws.validate_move(from_room, req.room_id)
-            if not verdict.get("allowed", True):
-                raise HTTPException(status.HTTP_409_CONFLICT,
-                                    detail={"error": "stage_violation",
-                                            "reason": verdict.get("reason", "")})
-    except HTTPException:
-        raise
-    except Exception as _mv_err:  # orchestrator 未初始化等 → 放行（向后兼容）
-        logger.debug(f"房间阶段校验跳过: {_mv_err}")
-    _dt_state["positions"][req.agent_id] = req.room_id
-    return {"status": "moved", "agent_id": req.agent_id, "room_id": req.room_id}
+    _dt_state["positions"][agent_id] = room_id
+    return {"status": "moved", "agent_id": agent_id, "room_id": room_id}
 
 
 @router.post("/digital-twin/interact", summary="Record agent interaction")
-def dt_interact(req: Optional[DigitalTwinInteractRequest] = Body(None)) -> Dict[str, Any]:
-    req = req or DigitalTwinInteractRequest()
-    from_agent = req.from_
-    to_agent = req.to
-    msg_type = req.type
-    content = req.content
+def dt_interact(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    from_agent = req.get("from", "")
+    to_agent = req.get("to", "")
+    msg_type = req.get("type", "handoff")
+    content = req.get("content", "")
     ts = datetime.now(timezone.utc).isoformat()
     interaction = {"from": from_agent, "to": to_agent, "type": msg_type, "content": content, "time": ts}
     _dt_state["interactions"].append(interaction)
@@ -1851,17 +1187,21 @@ def skill_extract_queue(team_id: str, status_filter: str = "") -> List[Dict[str,
 
 
 @router.post("/teams/{team_id}/skill-extract/start", summary="Start skill extraction")
-async def skill_extract_start(team_id: str, req: SkillExtractStartRequest) -> Dict[str, Any]:
+async def skill_extract_start(team_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    source_text = req.source_text
-    source_title = req.source_title
-    source_type = req.source_type
+    source_text = body.get("source_text", "")
+    source_title = body.get("source_title", "")
+    source_type = body.get("source_type", "chat")
+    source_meta = body.get("source_meta") if isinstance(body.get("source_meta"), dict) else {}
+    if not source_text or len(source_text) < 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="source_text must be at least 10 characters")
     item = await engine.start_extraction(
         team_id=team_id,
         source_text=source_text,
         source_title=source_title,
         source_type=source_type,
+        source_meta=source_meta,
     )
     return item.to_dict()
 
@@ -1903,10 +1243,10 @@ def skill_extract_detail(team_id: str, item_id: str) -> Dict[str, Any]:
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/edit", summary="Edit extraction draft")
-async def skill_extract_edit(team_id: str, item_id: str, req: SkillExtractEditRequest) -> Dict[str, Any]:
+async def skill_extract_edit(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    field_updates = req.field_updates
+    field_updates = body.get("field_updates", {})
     result = await engine.edit_item(team_id, item_id, field_updates)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -1914,13 +1254,13 @@ async def skill_extract_edit(team_id: str, item_id: str, req: SkillExtractEditRe
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/approve", summary="Approve extraction item")
-async def skill_extract_approve(team_id: str, item_id: str, req: SkillExtractApproveRequest) -> Dict[str, Any]:
+async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    reviewer = req.reviewer
-    edited_fields = req.edited_fields
-    skill_type = req.skill_type
-    target_agent_id = req.target_agent_id
+    reviewer = body.get("reviewer", "")
+    edited_fields = body.get("edited_fields")
+    skill_type = body.get("skill_type", "reserve")
+    target_agent_id = body.get("target_agent_id", "")
     result = await engine.approve_item(
         team_id, item_id, reviewer=reviewer, edited_fields=edited_fields,
         skill_type=skill_type, target_agent_id=target_agent_id,
@@ -1931,11 +1271,11 @@ async def skill_extract_approve(team_id: str, item_id: str, req: SkillExtractApp
 
 
 @router.post("/teams/{team_id}/skill-extract/{item_id}/reject", summary="Reject extraction item")
-async def skill_extract_reject(team_id: str, item_id: str, req: SkillExtractRejectRequest) -> Dict[str, Any]:
+async def skill_extract_reject(team_id: str, item_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     from .skill_extractor import get_skill_extractor_engine
     engine = get_skill_extractor_engine()
-    reviewer = req.reviewer
-    reason = req.reason
+    reviewer = body.get("reviewer", "")
+    reason = body.get("reason", "")
     result = await engine.reject_item(team_id, item_id, reviewer=reviewer, reason=reason)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -1980,7 +1320,7 @@ def get_skill_instructions(skill_id: str) -> Dict[str, Any]:
 
 
 @router.post("/tools/{tool_id}/execute", summary="Execute a tool directly")
-async def execute_tool(tool_id: str, req: ToolExecuteRequest) -> Dict[str, Any]:
+async def execute_tool(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     """Execute a tool with given arguments. Returns the execution result."""
     from .tool_executor import get_tool_executor
     tool = _tr().get(tool_id)
@@ -1993,47 +1333,30 @@ async def execute_tool(tool_id: str, req: ToolExecuteRequest) -> Dict[str, Any]:
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found")
     executor = get_tool_executor()
-    arguments = req.arguments
-    permission_context = None
-    agent_id = req.agent_id
-    team_id = req.team_id
-    if agent_id:
-        if team_id:
-            agent = _tm().get_agent(team_id, agent_id)
-        else:
-            team_id, agent = _find_agent_across_teams(agent_id)
-        if agent is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Agent not found")
-        permission_context = _build_agent_permission_context(agent)
+    arguments = body.get("arguments", body)
     result = await executor.execute(
         tool.name, arguments,
         requires_approval=tool.requires_approval,
-        agent_id=agent_id,
-        permission_context=permission_context,
     )
     return result.to_dict()
 
 
 @router.get("/tools/execution-history", summary="Get tool execution history")
-def get_tool_execution_history(
-    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def get_tool_execution_history(limit: int = 50) -> List[Dict[str, Any]]:
     from .tool_executor import get_tool_executor
-    items = get_tool_executor().get_history(limit + offset)
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return get_tool_executor().get_history(limit)
 
 
 @router.put(
     "/tools/{tool_id}/config",
     summary="Save tool configuration",
 )
-def save_tool_config(tool_id: str, req: ToolConfigRequest) -> Dict[str, Any]:
+def save_tool_config(tool_id: str, body: Dict[str, Any] = {}) -> Dict[str, Any]:
     """Save configuration for a tool."""
     tool = _tr().get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found")
-    config = req.config
+    config = body.get("config", body)
     tool.config = config
     return {"tool_id": tool_id, "config": tool.config}
 
@@ -2072,11 +1395,8 @@ _delegated_tasks: List[Dict[str, Any]] = []
 
 
 @router.get("/templates", summary="List agent templates")
-def list_templates(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    return _paginate_optional(_templates, limit=limit, offset=offset)
+def list_templates() -> List[Dict[str, Any]]:
+    return _templates
 
 
 @router.post("/templates", summary="Create agent template", status_code=status.HTTP_201_CREATED)
@@ -2110,21 +1430,6 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
     target = _tm().get_agent(team_id, req.target_agent_id)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target agent not found")
-    # AgentsGroupConfig EC-6: 关系门禁（soft=警告放行 / hard=拒绝，settings.enforce_relationship_gate）
-    relationship_warning = None
-    try:
-        from .agent_relationships import gate_delegate
-        gate = gate_delegate(team_id, agent_id, req.target_agent_id)
-        if not gate.get("allowed"):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                detail={"error": "relationship_gate_blocked", "reason": gate.get("reason"),
-                        "allowed_contacts": gate.get("allowed_contacts", [])})
-        relationship_warning = gate.get("warning")
-    except HTTPException:
-        raise
-    except Exception as _gate_err:
-        logger.debug(f"关系门禁不可用，放行: {_gate_err}")
     result = {
         "task_id": str(uuid.uuid4())[:8],
         "from_agent": agent_id,
@@ -2135,8 +1440,6 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
         "status": "delegated",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    if relationship_warning:
-        result["relationship_warning"] = relationship_warning
     _delegated_tasks.append(result)
     _log_agent_action(agent_id, "delegated_task",
                       f"to={req.target_agent_id} task={result['task_id']}")
@@ -2164,15 +1467,9 @@ def get_agent_relationships(team_id: str, agent_id: str) -> Dict[str, Any]:
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}/sessions", summary="List agent sessions")
-def list_agent_sessions(
-    team_id: str,
-    agent_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_agent_sessions(team_id: str, agent_id: str) -> List[Dict[str, Any]]:
     _get_agent_or_404(team_id, agent_id)
-    items = [s for s in _sessions.values() if s.get("agent_id") == agent_id]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [s for s in _sessions.values() if s.get("agent_id") == agent_id]
 
 
 @router.post(
@@ -2221,60 +1518,52 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     harness = get_chat_harness()
 
     # If team has a default model, ensure harness uses it
-    is_codebuddy_team = False
     if team_id:
         team = _tm().get_team(team_id)
         if team:
             _sync_default_model_to_harness(team)
-            for m in team.models.values():
-                if m.is_default and str(getattr(m, "provider", "")).lower() == "codebuddy":
-                    is_codebuddy_team = True
-                    break
 
-    resolved_skills = _resolve_bound_skills(team_id, agent) if team_id else []
-    permission_context = _build_agent_permission_context(agent)
-
-    # Build tool schemas for function calling from agent's bound tools + bound skill requirements
+    # Build tool schemas for function calling from agent's bound tools
     tools_for_llm = None
-    effective_tools = _resolve_effective_tools(team_id, agent, resolved_skills) if team_id else []
-    if effective_tools and not is_codebuddy_team:
+    tool_names_bound = set(agent.tools) if agent.tools else set()
+    if tool_names_bound:
+        all_tools = _tr().list_all()
         tools_for_llm = []
-        for t in effective_tools:
-            if permission_context.blocks(t.name):
-                continue
-            props = {}
-            required_params = []
-            for pname, pdef in (t.parameters or {}).items():
-                ptype = pdef.get("type", "string")
-                if ptype == "integer":
-                    ptype = "number"
-                if ptype == "object":
-                    ptype = "string"
-                if ptype == "array":
-                    ptype = "string"
-                props[pname] = {
-                    "type": ptype,
-                    "description": pdef.get("description", ""),
-                }
-                if pdef.get("required"):
-                    required_params.append(pname)
-            fn_schema = {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": props,
-                        "required": required_params,
+        for t in all_tools:
+            if t.name in tool_names_bound or t.tool_id in tool_names_bound:
+                # Build OpenAI function calling schema
+                props = {}
+                required_params = []
+                for pname, pdef in (t.parameters or {}).items():
+                    ptype = pdef.get("type", "string")
+                    if ptype == "integer":
+                        ptype = "number"
+                    if ptype == "object":
+                        ptype = "string"
+                    if ptype == "array":
+                        ptype = "string"
+                    props[pname] = {
+                        "type": ptype,
+                        "description": pdef.get("description", ""),
+                    }
+                    if pdef.get("required"):
+                        required_params.append(pname)
+                fn_schema = {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": props,
+                            "required": required_params,
+                        },
                     },
-                },
-            }
-            tools_for_llm.append(fn_schema)
+                }
+                tools_for_llm.append(fn_schema)
 
     # Build system prompt from agent metadata + skill instructions
-    skill_labels = [skill.name for skill in resolved_skills] if resolved_skills else list(agent.skills or [])
-    skills_str = ", ".join(skill_labels) if skill_labels else "通用"
+    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
     system_prompt = (
         f"你是 {agent.name}，角色: {agent.role}。\n"
         f"技能: {skills_str}\n"
@@ -2282,31 +1571,23 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         f"请用中文回答，专业但易懂。"
     )
 
-    # Inject bound skill instructions into system prompt (skip for CodeBuddy to keep payload compact)
-    if resolved_skills and not is_codebuddy_team:
+    # Inject bound skill instructions into system prompt
+    skill_names_bound = set(agent.skills) if agent.skills else set()
+    if skill_names_bound:
+        all_skills = _sr().list_all()
         skill_instructions = []
-        for skill in resolved_skills:
-            if skill.instructions:
-                skill_instructions.append(f"### {skill.name}\n{skill.instructions}")
+        for s in all_skills:
+            if (s.name in skill_names_bound or s.skill_id in skill_names_bound) and s.instructions:
+                skill_instructions.append(f"### {s.name}\n{s.instructions}")
         if skill_instructions:
             system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
-
-    if is_codebuddy_team and len(system_prompt) > 1800:
-        system_prompt = system_prompt[:1800] + "\n\n[系统提示已精简]"
-
-    config_override = _resolve_team_provider_config(team_id) if team_id else None
-    if config_override and config_override.provider == LLMProvider.CODEBUDDY:
-        config_override.thinking = None
-        config_override.reasoning_effort = ""
 
     result = await harness.chat(
         content,
         agent_id=agent.agent_id,
-        team_id=team_id,
         session_id=session_id,
         system_prompt=system_prompt,
         tools=tools_for_llm,
-        config_override=config_override,
     )
 
     # If LLM returned tool calls, execute them and feed results back
@@ -2315,12 +1596,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         executor = get_tool_executor()
         tool_outputs = []
         for inv in result.tool_invocations:
-            tr = await executor.execute(
-                inv.tool_name,
-                inv.arguments,
-                agent_id=agent.agent_id,
-                permission_context=permission_context,
-            )
+            tr = await executor.execute(inv.tool_name, inv.arguments, agent_id=agent.agent_id)
             inv.result = tr.output if tr.success else f"Error: {tr.error}"
             tool_outputs.append(f"[{inv.tool_name}] {'✅' if tr.success else '❌'}: {inv.result[:500]}")
         # Append tool results and get a follow-up response
@@ -2328,7 +1604,6 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         followup = await harness.chat(
             f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
             agent_id=agent.agent_id,
-            team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
         )
@@ -2400,22 +1675,14 @@ async def send_session_message(
 
 
 @router.get("/teams/{team_id}/delegations", summary="List delegations for a team")
-def list_team_delegations(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_team_delegations(team_id: str) -> List[Dict[str, Any]]:
     _get_team_or_404(team_id)
-    items = [t for t in _delegated_tasks if t.get("team_id") == team_id]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [t for t in _delegated_tasks if t.get("team_id") == team_id]
 
 
 @router.get("/delegations", summary="List all delegated tasks")
-def list_delegations(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    return _paginate_optional(_delegated_tasks, limit=limit, offset=offset)
+def list_delegations() -> List[Dict[str, Any]]:
+    return _delegated_tasks
 
 
 @router.get("/delegations/stats", summary="Delegation statistics")
@@ -2560,8 +1827,6 @@ class SubmitTaskRequest(BaseModel):
     priority: int = Field(default=2, ge=0, le=3)
     dependencies: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    # 执行模式：linear=线性流水线(默认,原行为) / collaborative=智能体广场多轮协作
-    execution_mode: str = Field(default="linear")
 
 
 class SubmitBatchRequest(BaseModel):
@@ -2574,782 +1839,6 @@ def _te():
     if engine._executor is None:
         engine.set_executor(_real_task_executor)
     return engine
-
-
-async def _check_task_runtime_ready(team_id: str = "", agent_id: str = "") -> tuple[bool, str]:
-    """Return whether task execution has a reachable LLM backend."""
-    token_ready = False
-    try:
-        from token_factory import TokenFactory as _TF
-
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        token_ready = tf_status.get("ready", False)
-        _harness_log.info(
-            "[task_runtime] Token Factory ready=%s, providers=%s",
-            token_ready,
-            [n for n, p in tf._provider_health.items() if p.reachable],
-        )
-    except Exception as _tf_err:
-        _harness_log.warning("[task_runtime] Token Factory check failed: %s", _tf_err)
-
-    if token_ready:
-        return True, ""
-
-    # Check team model credentials (covers codebuddy/deepseek/any provider configured via UI)
-    agent = _tm().get_agent(team_id, agent_id) if team_id and agent_id else None
-    api_key, _, _ = _get_deepseek_credentials(agent=agent, team_id=team_id)
-    if api_key:
-        _harness_log.info("[task_runtime] Team model API key available (provider=%s) — proceeding", team_id)
-        return True, ""
-
-    return False, "LLM 推理后端不可用 — 请在「模型与连接」页面配置 API Key 并设为默认模型"
-
-
-def _prepare_task_submission(task: AgentTask, team_id: str, token_ready: bool) -> list:
-    """Seed workflow/context and persist a task handoff record before execution."""
-    wf = _generate_workflow(task, team_id)
-    if wf:
-        task.metadata["workflow"] = wf
-
-    try:
-        _seed_project_context(task.task_id, task.title, task.description or "")
-        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
-    except Exception as _ctx_err:
-        _harness_log.warning("[task_prepare] Context seeding failed: %s", _ctx_err)
-
-    _write_handoff(task.task_id, "task_init", {
-        "task_id": task.task_id,
-        "title": task.title,
-        "description": task.description,
-        "team_id": team_id,
-        "agent_id": task.agent_id,
-        "token_factory_ready": token_ready,
-        "workflow_steps": [s["key"] for s in wf] if wf else [],
-    })
-    return wf
-
-
-def _summarize_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
-    """Summarize workflow outputs into stable task artifact metadata."""
-    metadata = task.metadata or {}
-    workflow = metadata.get("workflow", []) or []
-    pipeline_dir = metadata.get("pipeline_dir") or metadata.get("artifact_dir") or _pipeline_dir(task.task_id)
-
-    changed_files: List[str] = []
-    step_artifacts: Dict[str, str] = {}
-    failed_steps: List[str] = []
-    completed_steps: List[str] = []
-    step_statuses: Dict[str, str] = {}
-    test_result: Dict[str, Any] = {}
-
-    for step in workflow:
-        step_key = str(step.get("key", "")).strip()
-        if not step_key:
-            continue
-
-        step_status = str(step.get("status", "pending"))
-        step_statuses[step_key] = step_status
-        if step_status == "completed":
-            completed_steps.append(step_key)
-        elif step_status == "failed":
-            failed_steps.append(step_key)
-
-        artifact_path = str(step.get("artifact", "")).strip()
-        if artifact_path:
-            step_artifacts[step_key] = artifact_path
-
-        step_summary = step.get("_summary") or {}
-        changed_files.extend(step_summary.get("files_changed", []) or [])
-        changed_files.extend(step.get("deliverable_paths", []) or [])
-
-        deploy_result = step.get("deploy_result") or {}
-        for branch in ("developer", "deployer"):
-            branch_result = deploy_result.get(branch) or {}
-            changed_files.extend(
-                entry.get("path", "")
-                for entry in branch_result.get("applied", [])
-                if entry.get("path")
-            )
-
-        if step_key == "test":
-            test_result = {
-                "status": step_status,
-                "verdict": step_summary.get("verdict", "UNKNOWN"),
-                "checklist": step_summary.get("checklist", []) or [],
-                "artifact": artifact_path,
-            }
-
-    deduped_changed_files: List[str] = []
-    seen_files: set[str] = set()
-    for path in changed_files:
-        normalized = str(path).strip()
-        if not normalized or normalized in seen_files:
-            continue
-        seen_files.add(normalized)
-        deduped_changed_files.append(normalized)
-
-    diff_evidence = _build_diff_evidence(deduped_changed_files, workflow)
-    trace_context = _build_task_trace_context(task)
-
-    failure_reason = ""
-    build_outcome = "completed"
-    if task.error:
-        build_outcome = "failed"
-        failure_reason = task.error
-    elif failed_steps:
-        build_outcome = "failed"
-        failure_reason = f"workflow_failed:{','.join(failed_steps)}"
-    elif test_result.get("status") == "failed" or test_result.get("verdict") in {"FAIL", "FAILED", "BLOCKED"}:
-        build_outcome = "failed"
-        failure_reason = f"qa_verdict:{test_result.get('verdict', 'UNKNOWN')}"
-
-    return {
-        "artifact_dir": pipeline_dir,
-        "changed_files": deduped_changed_files,
-        "test_result": test_result,
-        "workflow_summary": {
-            "total_steps": len(workflow),
-            "completed_steps": completed_steps,
-            "failed_steps": failed_steps,
-            "step_statuses": step_statuses,
-        },
-        "step_artifacts": step_artifacts,
-        "diff_by_file": diff_evidence["diff_by_file"],
-        "patch_preview": diff_evidence["patch_preview"],
-        "trace_context": trace_context,
-        "build_outcome": build_outcome,
-        "failure_reason": failure_reason,
-    }
-
-
-def _build_diff_evidence(
-    changed_files: List[str],
-    workflow: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Build small diff artifacts from deploy backups and current files."""
-    import difflib
-
-    project_root = _mp_os.path.dirname(_mp_os.path.dirname(_mp_os.path.dirname(
-        _mp_os.path.dirname(_mp_os.path.abspath(__file__)))))
-    backup_map: Dict[str, str] = {}
-
-    for step in workflow:
-        deploy_result = step.get("deploy_result") or {}
-        for branch in ("developer", "deployer"):
-            branch_result = deploy_result.get(branch) or {}
-            for entry in branch_result.get("backup", []) or []:
-                path = str(entry.get("path", "")).strip()
-                backup = str(entry.get("backup", "")).strip()
-                if path and backup and path not in backup_map:
-                    backup_map[path] = backup
-
-    diff_by_file: Dict[str, List[str]] = {}
-    patch_chunks: List[str] = []
-
-    for rel_path in changed_files[:20]:
-        abs_path = _mp_os.path.join(project_root, rel_path)
-        backup_path = backup_map.get(rel_path, "")
-
-        if not _mp_os.path.isfile(abs_path):
-            continue
-
-        try:
-            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
-                after_text = f.read()
-        except Exception:
-            continue
-
-        before_text = ""
-        if backup_path and _mp_os.path.isfile(backup_path):
-            try:
-                with open(backup_path, "r", encoding="utf-8", errors="replace") as f:
-                    before_text = f.read()
-            except Exception:
-                before_text = ""
-
-        diff_lines = list(
-            difflib.unified_diff(
-                before_text.splitlines(),
-                after_text.splitlines(),
-                fromfile=f"{rel_path} (before)",
-                tofile=f"{rel_path} (after)",
-                lineterm="",
-            )
-        )
-        if not diff_lines:
-            continue
-
-        preview_lines = diff_lines[:80]
-        diff_by_file[rel_path] = preview_lines
-        patch_chunks.append("\n".join(diff_lines[:200]))
-
-    patch_preview = "\n\n".join(patch_chunks)
-    if len(patch_preview) > 24000:
-        patch_preview = patch_preview[:24000] + "\n... (truncated)"
-
-    return {
-        "diff_by_file": diff_by_file,
-        "patch_preview": patch_preview,
-    }
-
-
-def _attach_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
-    """Write derived execution artifacts back to the task metadata for tracing."""
-    artifacts = _summarize_task_execution_artifacts(task)
-    task.metadata["artifact_dir"] = artifacts["artifact_dir"]
-    task.metadata["changed_files"] = list(artifacts["changed_files"])
-    task.metadata["test_result"] = dict(artifacts["test_result"])
-    task.metadata["workflow_summary"] = dict(artifacts["workflow_summary"])
-    task.metadata["step_artifacts"] = dict(artifacts["step_artifacts"])
-    task.metadata["diff_by_file"] = dict(artifacts["diff_by_file"])
-    task.metadata["patch_preview"] = artifacts["patch_preview"]
-    task.metadata["trace_context"] = dict(artifacts["trace_context"])
-    task.metadata["build_outcome"] = artifacts["build_outcome"]
-    task.metadata["failure_reason"] = artifacts["failure_reason"]
-    task.metadata["execution_artifacts"] = dict(artifacts)
-    trace_summary = _build_task_trace_summary(task, artifacts)
-    task.metadata["trace_summary"] = trace_summary
-    _persist_trace_summary(task, trace_summary)
-    return artifacts
-
-
-def _build_task_trace_context(task: AgentTask) -> Dict[str, Any]:
-    """Build a stable trace context for task/execution/evolution joins."""
-    metadata = task.metadata or {}
-    existing = dict(metadata.get("trace_context") or {})
-    context = {
-        "source": metadata.get("source", existing.get("source", "")),
-        "task_id": task.task_id,
-        "team_id": task.team_id,
-        "agent_id": task.agent_id,
-        "plaza_id": metadata.get("plaza_id", existing.get("plaza_id", "")),
-        "discussion_id": metadata.get("discussion_id", existing.get("discussion_id", "")),
-        "discussion_topic": metadata.get("discussion_topic", existing.get("discussion_topic", "")),
-        "plan_revision": metadata.get("plan_revision", existing.get("plan_revision")),
-        "plan_item_index": metadata.get("plan_item_index", existing.get("plan_item_index")),
-        "evolution_item_ids": list(metadata.get("evolution_item_ids", existing.get("evolution_item_ids", [])) or []),
-    }
-    for key, value in existing.items():
-        context.setdefault(key, value)
-    return context
-
-
-def _build_task_trace_summary(
-    task: AgentTask,
-    artifacts: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Build a compact trace summary for UI/debug endpoints."""
-    artifacts = artifacts or dict(task.metadata.get("execution_artifacts") or {})
-    trace_context = dict(artifacts.get("trace_context") or _build_task_trace_context(task))
-    recent_events = _read_task_trace_events(task)
-    linked_items = []
-    try:
-        import agent_team_api as _agent_team_api
-
-        evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
-        if evolution_engine:
-            for item_id in trace_context.get("evolution_item_ids", []) or []:
-                item = evolution_engine.evolution_items.get(item_id)
-                if item:
-                    linked_items.append(
-                        {
-                            "id": item.id,
-                            "status": item.status,
-                            "title": item.title,
-                            "verify_test_name": item.verify_test_name,
-                            "verify_result": item.verify_result,
-                            "verify_detail": item.verify_detail,
-                            "retry_count": item.retry_count,
-                            "max_retries": item.max_retries,
-                        }
-                    )
-    except Exception:
-        linked_items = []
-
-    return {
-        "task_id": task.task_id,
-        "team_id": task.team_id,
-        "agent_id": task.agent_id,
-        "status": task.status.value,
-        "source": task.metadata.get("source", ""),
-        "trace_context": trace_context,
-        "workflow_summary": dict(artifacts.get("workflow_summary") or {}),
-        "changed_files": list(artifacts.get("changed_files") or []),
-        "test_result": dict(artifacts.get("test_result") or {}),
-        "build_outcome": artifacts.get("build_outcome", ""),
-        "failure_reason": artifacts.get("failure_reason", ""),
-        "linked_evolution_items": linked_items,
-        "trace_event_count": len(recent_events),
-        "recent_trace_events": recent_events[-10:],
-    }
-
-
-def _persist_trace_summary(task: AgentTask, trace_summary: Dict[str, Any]) -> None:
-    """Persist a stable trace summary alongside pipeline artifacts when available."""
-    artifact_dir = str(task.metadata.get("artifact_dir") or "").strip()
-    if not artifact_dir:
-        return
-    try:
-        _os.makedirs(artifact_dir, exist_ok=True)
-        trace_path = _os.path.join(artifact_dir, "trace_summary.json")
-        import json as _json
-
-        with open(trace_path, "w", encoding="utf-8") as f:
-            _json.dump(trace_summary, f, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        _harness_log.debug("[TraceSummary] persist skipped for %s: %s", task.task_id, exc)
-
-
-def _read_task_trace_events(task: AgentTask) -> List[Dict[str, Any]]:
-    """Read persisted structured trace events for a task."""
-    artifact_dir = str(task.metadata.get("artifact_dir") or task.metadata.get("pipeline_dir") or "").strip()
-    if not artifact_dir:
-        artifact_dir = _pipeline_dir(task.task_id)
-    trace_path = _os.path.join(artifact_dir, "trace_events.jsonl")
-    if not _os.path.isfile(trace_path):
-        return []
-
-    events: List[Dict[str, Any]] = []
-    try:
-        import json as _json
-
-        with open(trace_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    events.append(_json.loads(line))
-                except Exception:
-                    continue
-    except Exception as exc:
-        _harness_log.debug("[TraceEvents] read skipped for %s: %s", task.task_id, exc)
-    return events
-
-
-def _append_task_trace_event(
-    task: AgentTask,
-    event_type: str,
-    payload: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Persist a structured trace event and keep a small in-memory tail on the task."""
-    payload = dict(payload or {})
-    artifact_dir = str(task.metadata.get("artifact_dir") or task.metadata.get("pipeline_dir") or "").strip()
-    if not artifact_dir:
-        artifact_dir = _pipeline_dir(task.task_id)
-        task.metadata.setdefault("pipeline_dir", artifact_dir)
-    trace_context = _build_task_trace_context(task)
-    event = {
-        "type": event_type,
-        "ts": _time.time(),
-        "task_id": task.task_id,
-        "team_id": task.team_id,
-        "status": task.status.value,
-        "trace_context": trace_context,
-        "payload": payload,
-    }
-    try:
-        import json as _json
-
-        _os.makedirs(artifact_dir, exist_ok=True)
-        trace_path = _os.path.join(artifact_dir, "trace_events.jsonl")
-        with open(trace_path, "a", encoding="utf-8") as f:
-            f.write(_json.dumps(event, ensure_ascii=False) + "\n")
-        global_trace_path = _global_trace_events_path()
-        _os.makedirs(_os.path.dirname(global_trace_path), exist_ok=True)
-        with open(global_trace_path, "a", encoding="utf-8") as f:
-            f.write(_json.dumps(event, ensure_ascii=False) + "\n")
-    except Exception as exc:
-        _harness_log.debug("[TraceEvents] append skipped for %s: %s", task.task_id, exc)
-
-    recent_events = list(task.metadata.get("trace_events") or [])
-    recent_events.append(event)
-    if len(recent_events) > 50:
-        recent_events = recent_events[-50:]
-    task.metadata["trace_events"] = recent_events
-    return event
-
-
-def _build_discussion_verification_state_payload(
-    evolution_engine: Any,
-    *,
-    plaza_id: str,
-    discussion_id: str,
-    trigger: str,
-    task_id: str = "",
-    synced_item_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Build a consistent SSE payload for Plaza verification reminders."""
-    queue_items = evolution_engine.get_verification_queue(
-        source_plaza_id=plaza_id,
-        source_discussion_id=discussion_id,
-    )
-    alerts = evolution_engine.get_verification_alerts(
-        source_plaza_id=plaza_id,
-        source_discussion_id=discussion_id,
-    )
-    status_counts: Dict[str, int] = {}
-    for item in queue_items:
-        status = str(item.get("status", "") or "")
-        status_counts[status] = status_counts.get(status, 0) + 1
-
-    return {
-        "type": "verification_state_updated",
-        "trigger": trigger,
-        "plaza_id": plaza_id,
-        "discussion_id": discussion_id,
-        "task_id": task_id,
-        "synced_item_ids": list(synced_item_ids or []),
-        "queue_count": len(queue_items),
-        "alert_count": len(alerts),
-        "status_counts": status_counts,
-        "queue": queue_items,
-        "alerts": alerts,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-async def _broadcast_plaza_verification_state(
-    task: AgentTask,
-    *,
-    synced_item_ids: Optional[List[str]] = None,
-    trigger: str,
-) -> None:
-    """Push verification reminder updates into Plaza SSE when a linked task changes state."""
-    metadata = task.metadata or {}
-    if metadata.get("source") != "plaza":
-        return
-
-    plaza_id = str(metadata.get("plaza_id") or "").strip()
-    discussion_id = str(metadata.get("discussion_id") or "").strip()
-    if not plaza_id or not discussion_id:
-        return
-
-    try:
-        import agent_team_api as _agent_team_api
-        from .plaza_engine import get_plaza_engine
-    except Exception:
-        return
-
-    evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
-    if not evolution_engine or not hasattr(evolution_engine, "get_verification_queue"):
-        return
-
-    plaza_engine = get_plaza_engine()
-    if not plaza_engine.get_discussion(plaza_id, discussion_id):
-        return
-
-    payload = _build_discussion_verification_state_payload(
-        evolution_engine,
-        plaza_id=plaza_id,
-        discussion_id=discussion_id,
-        trigger=trigger,
-        task_id=task.task_id,
-        synced_item_ids=synced_item_ids,
-    )
-    await plaza_engine._broadcast(discussion_id, payload)
-    _append_task_trace_event(
-        task,
-        "verification_state_broadcasted",
-        {
-            "trigger": trigger,
-            "queue_count": payload["queue_count"],
-            "alert_count": payload["alert_count"],
-            "synced_item_ids": list(synced_item_ids or []),
-        },
-    )
-
-
-def _sync_evolution_from_task(task: AgentTask) -> List[str]:
-    """Propagate Plaza task execution status into linked evolution items."""
-    metadata = task.metadata or {}
-    if metadata.get("source") != "plaza":
-        return []
-
-    try:
-        import agent_team_api as _agent_team_api
-    except Exception:
-        return []
-
-    evolution_engine = getattr(_agent_team_api, "_evolution_engine", None)
-    if not evolution_engine or not hasattr(evolution_engine, "sync_task_outcome"):
-        return []
-
-    artifacts = metadata.get("execution_artifacts") or _attach_task_execution_artifacts(task)
-    evolution_status = "completed"
-    if artifacts.get("build_outcome") == "failed" or task.error:
-        evolution_status = "failed"
-
-    synced_item_ids = evolution_engine.sync_task_outcome(
-        task.task_id,
-        status=evolution_status,
-        code_changes=artifacts.get("changed_files"),
-        artifact_dir=artifacts.get("artifact_dir", ""),
-        build_artifacts=artifacts,
-        error=task.error or artifacts.get("failure_reason", ""),
-    )
-    if synced_item_ids:
-        synced_items = []
-        for item_id in synced_item_ids:
-            item = evolution_engine.evolution_items.get(item_id)
-            if not item:
-                continue
-            synced_items.append(
-                {
-                    "id": item.id,
-                    "status": item.status,
-                    "title": item.title,
-                }
-            )
-        _append_task_trace_event(
-            task,
-            "evolution_synced",
-            {
-                "evolution_status": evolution_status,
-                "items": synced_items,
-            },
-        )
-    return synced_item_ids
-
-
-async def _finalize_task_terminal_state(
-    task: AgentTask,
-    *,
-    force_status: Optional[str] = None,
-    error: str = "",
-) -> Optional[AgentTask]:
-    """Finalize a task with derived execution artifacts and evolution sync."""
-    artifacts = _attach_task_execution_artifacts(task)
-    final_error = error or task.error or artifacts.get("failure_reason", "")
-
-    finalized: Optional[AgentTask]
-    if force_status == "failed" or (force_status is None and artifacts.get("build_outcome") == "failed"):
-        task.error = final_error
-        task.result = dict(artifacts)
-        finalized = await _te().fail_task(task.task_id, final_error)
-    else:
-        result_payload = dict(task.result) if isinstance(task.result, dict) else {}
-        result_payload.update(artifacts)
-        finalized = await _te().complete_task(task.task_id, result=result_payload)
-
-    if finalized is not None:
-        _append_task_trace_event(
-            finalized,
-            "task_finalized",
-            {
-                "build_outcome": artifacts.get("build_outcome", ""),
-                "failure_reason": final_error,
-                "changed_files": list(artifacts.get("changed_files") or []),
-                "test_result": dict(artifacts.get("test_result") or {}),
-            },
-        )
-        synced_item_ids = _sync_evolution_from_task(finalized)
-        await _broadcast_plaza_verification_state(
-            finalized,
-            synced_item_ids=synced_item_ids,
-            trigger="task_finalized",
-        )
-    return finalized
-
-
-async def _start_task_workflow(engine, task: AgentTask, team_id: str, wf: list) -> None:
-    """Launch the first workflow step and attach the harness monitor."""
-    if not wf:
-        return
-
-    first_step = wf[0]
-    if first_step.get("status") == "active" and first_step.get("agent_id"):
-        import uuid as _uuid
-
-        sr = _sr()
-        skill = sr.get_by_slug("code_implementation")
-        cfg = dict(skill.config or {}) if skill else {}
-        agent = _tm().get_agent(team_id, first_step["agent_id"])
-        if agent:
-            sid = str(_uuid.uuid4())[:12]
-            step_prompt = _build_step_prompt(task, first_step, wf)
-            _harness_log.info(
-                "[task_start] Starting Claude session %s for step '%s' (agent: %s)",
-                sid,
-                first_step["key"],
-                agent.name,
-            )
-            _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
-            first_step["session_id"] = sid
-            task.metadata["workflow"] = wf
-            _emit_pipeline_event(task.task_id, "step_started", {
-                "step": first_step["key"],
-                "label": first_step.get("label", ""),
-                "agent": agent.name,
-            })
-
-    await engine.start_task(task.task_id)
-    _start_harness_monitor(task.task_id, team_id)
-
-
-async def _start_task_collaboration(task: AgentTask, team_id: str) -> None:
-    """协作模式执行：把任务投入智能体广场，团队各 agent 多轮真实讨论 → 共识 → 产物回写任务。
-
-    与线性流水线 `_start_task_workflow` 并存，由 task.metadata['execution_mode']=='collaborative'
-    触发。LLM 走系统配置（plaza 启动时已 set_chat_fn(harness.chat)），不依赖本地 claude CLI。
-    讨论在后台 asyncio 任务里跑，结束（CLOSED/共识）后把 summary/关键结论回写任务并落终态。
-    """
-    from .plaza_engine import get_plaza_engine
-    from .plaza import SeatTier, NicheRole
-
-    engine = get_plaza_engine()
-    # 兜底：确保广场用系统配置 LLM（main.py 启动已注入，这里防止未初始化）
-    if not getattr(engine, "_chat_fn", None):
-        try:
-            engine.set_chat_fn(get_chat_harness().chat)
-        except Exception:
-            pass
-
-    team = _tm().get_team(team_id)
-    agents = team.agents if team else {}
-    if isinstance(agents, dict):
-        agents = list(agents.values())
-    if not agents:
-        await _finalize_task_terminal_state(
-            task, force_status="failed", error="collaboration_no_agents",
-        )
-        return
-
-    plaza = engine.create_plaza(
-        name=f"task:{(task.title or task.task_id)[:40]}",
-        description=task.description or "",
-    )
-    for a in agents:
-        engine.add_participant(
-            plaza.id, a.agent_id, getattr(a, "name", "") or a.agent_id,
-            getattr(a, "role", "") or "", team_id,
-            SeatTier.MIDDLE, NicheRole.OBSERVER,
-        )
-
-    topic = task.title or "任务协作"
-    disc = engine.create_discussion(
-        plaza.id, topic=topic, description=task.description or "",
-        max_rounds=int((task.metadata or {}).get("collab_max_rounds", 4)),
-    )
-    if not disc:
-        await _finalize_task_terminal_state(
-            task, force_status="failed", error="collaboration_discussion_create_failed",
-        )
-        return
-
-    task.metadata["execution_mode"] = "collaborative"
-    task.metadata["collaboration"] = {
-        "mode": "plaza",
-        "plaza_id": plaza.id,
-        "discussion_id": disc.id,
-        "participant_count": len(agents),
-    }
-    await _te().start_task(task.task_id)
-    try:
-        _te()._store.save_task(task)
-    except Exception:
-        pass
-    _emit_pipeline_event(task.task_id, "collaboration_started", {
-        "plaza_id": plaza.id,
-        "discussion_id": disc.id,
-        "participants": len(agents),
-        "topic": topic,
-    })
-
-    async def _run_collab() -> None:
-        try:
-            result = await engine.run_discussion(plaza.id, disc.id)
-            summary = getattr(result, "summary", "") if result else ""
-            conclusions = list(getattr(result, "key_conclusions", []) or []) if result else []
-            collab = dict(task.metadata.get("collaboration", {}))
-            collab["summary"] = summary
-            collab["key_conclusions"] = conclusions
-            collab["message_count"] = len(getattr(result, "messages", []) or []) if result else 0
-            task.metadata["collaboration"] = collab
-            task.metadata.setdefault("artifacts", []).append({
-                "kind": "collaboration_summary",
-                "discussion_id": disc.id,
-                "summary": summary,
-                "key_conclusions": conclusions,
-            })
-            _emit_pipeline_event(task.task_id, "collaboration_completed", {
-                "discussion_id": disc.id,
-                "conclusions": len(conclusions),
-            })
-            await _finalize_task_terminal_state(task)
-        except Exception as run_err:
-            _harness_log.exception(
-                "[collab] task %s discussion failed: %s", task.task_id, run_err,
-            )
-            await _finalize_task_terminal_state(
-                task, force_status="failed", error=f"collaboration_error: {run_err}",
-            )
-
-    asyncio.create_task(_run_collab())
-
-
-async def _submit_internal_task(
-    team_id: str,
-    *,
-    title: str,
-    description: str = "",
-    agent_id: str = "",
-    priority: int = 2,
-    dependencies: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    auto_start: bool = True,
-) -> AgentTask:
-    """Create a task using the same workflow/bootstrap path as the REST endpoint."""
-    _get_team_or_404(team_id)
-    if agent_id:
-        _get_agent_or_404(team_id, agent_id)
-
-    engine = _te()
-    if not engine._running:
-        await engine.start()
-
-    token_ready = False
-    token_error = ""
-    if auto_start:
-        token_ready, token_error = await _check_task_runtime_ready(team_id, agent_id)
-
-    task_metadata = dict(metadata or {})
-    task_metadata.setdefault("auto_start", bool(auto_start))
-    # _submit_internal_task owns the workflow start. Prevent TaskEngine from
-    # also auto-enqueueing the same task through the registered executor.
-    task_metadata["_engine_auto_execute"] = False
-
-    task = AgentTask(
-        agent_id=agent_id,
-        team_id=team_id,
-        title=title,
-        description=description,
-        priority=priority,
-        dependencies=list(dependencies or []),
-        metadata=task_metadata,
-    )
-
-    wf = _prepare_task_submission(task, team_id, token_ready)
-    await engine.submit_task(task)
-
-    if auto_start and not token_ready:
-        _harness_log.warning(
-            "[task_submit] Runtime unavailable — task %s queued but not started",
-            task.task_id,
-        )
-        task.metadata["token_factory_error"] = token_error
-        engine._store.save_task(task)
-        return task
-
-    if auto_start:
-        if (task.metadata or {}).get("execution_mode") == "collaborative":
-            # 协作模式：走智能体广场多轮讨论，而非线性 Claude 会话流水线
-            await _start_task_collaboration(task, team_id)
-        else:
-            await _start_task_workflow(engine, task, team_id, wf)
-
-    return task
 
 
 async def _real_task_executor(task) -> Any:
@@ -3369,16 +1858,10 @@ async def _real_task_executor(task) -> Any:
     if task.metadata.get("workflow") and any(
         s.get("session_id") for s in task.metadata["workflow"]
     ):
-        # Ensure monitor is reattached for manual resume/restart flows.
-        try:
-            _start_harness_monitor(task.task_id, task.team_id)
-        except Exception:
-            pass
         return {"message": "Workflow already running via REST endpoint"}
 
     # Token Factory preflight — but if direct DeepSeek API is available, skip
-    runtime_agent = _tm().get_agent(task.team_id, task.agent_id) if task.agent_id else None
-    api_key, _, _ = _get_deepseek_credentials(agent=runtime_agent, team_id=task.team_id)
+    api_key, _, _ = _get_deepseek_credentials()
     if api_key:
         _harness_log.info("[Executor] Direct DeepSeek API available — skipping Token Factory check")
     else:
@@ -3445,20 +1928,97 @@ async def _real_task_executor(task) -> Any:
     status_code=status.HTTP_201_CREATED,
 )
 async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
-    # execution_mode 落入 metadata，供 _submit_internal_task 选择执行路径
-    _meta = dict(req.metadata or {})
-    if req.execution_mode:
-        _meta.setdefault("execution_mode", req.execution_mode)
-    task = await _submit_internal_task(
-        team_id,
+    _get_team_or_404(team_id)
+    if req.agent_id:
+        _get_agent_or_404(team_id, req.agent_id)
+    engine = _te()
+    if not engine._running:
+        await engine.start()
+
+    # ── Token Factory 预检: 确保 LLM 推理后端可用 ──
+    token_ready = False
+    try:
+        from token_factory import TokenFactory as _TF
+        tf = _TF.instance()
+        tf_status = await tf.ensure_ready()
+        token_ready = tf_status.get("ready", False)
+        _harness_log.info("[submit_task] Token Factory ready=%s, providers=%s",
+                          token_ready,
+                          [n for n, p in tf._provider_health.items() if p.reachable])
+    except Exception as _tf_err:
+        _harness_log.warning("[submit_task] Token Factory check failed: %s", _tf_err)
+
+    task = AgentTask(
+        agent_id=req.agent_id,
+        team_id=team_id,
         title=req.title,
         description=req.description,
-        agent_id=req.agent_id,
         priority=req.priority,
-        dependencies=req.dependencies,
-        metadata=_meta,
-        auto_start=True,
+        dependencies=list(req.dependencies),
+        metadata=dict(req.metadata),
     )
+    # Auto-generate workflow steps
+    wf = _generate_workflow(task, team_id)
+    if wf:
+        task.metadata["workflow"] = wf
+
+    # Pre-seed pipeline workspace with project context
+    try:
+        _seed_project_context(task.task_id, req.title, req.description or "")
+        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
+    except Exception as _ctx_err:
+        _harness_log.warning("[submit_task] Context seeding failed: %s", _ctx_err)
+
+    # 写入任务启动 handoff 文件
+    _write_handoff(task.task_id, "task_init", {
+        "task_id": task.task_id,
+        "title": task.title,
+        "description": task.description,
+        "team_id": team_id,
+        "agent_id": req.agent_id,
+        "token_factory_ready": token_ready,
+        "workflow_steps": [s["key"] for s in wf] if wf else [],
+    })
+
+    await engine.submit_task(task)
+
+    # ── Token Factory 不就绪时检查是否有直连 API 可用 ──
+    if not token_ready:
+        api_key, _, _ = _get_deepseek_credentials()
+        if api_key:
+            _harness_log.info("[submit_task] Token Factory not ready but direct DeepSeek API available — proceeding")
+            token_ready = True  # Override: direct API works
+        else:
+            _harness_log.warning("[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
+                                 "请先确保 Ollama / LLM 推理后端可用。", task.task_id)
+            task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
+            return task.to_dict()
+
+    # Auto-start Claude Code for the first active step
+    if wf:
+        first_step = wf[0]
+        if first_step.get("status") == "active" and first_step.get("agent_id"):
+            import uuid as _uuid
+            sr = _sr()
+            skill = sr.get_by_slug("code_implementation")
+            cfg = dict(skill.config or {}) if skill else {}
+            agent = _tm().get_agent(team_id, first_step["agent_id"])
+            if agent:
+                sid = str(_uuid.uuid4())[:12]
+                step_prompt = _build_step_prompt(task, first_step, wf)
+                _harness_log.info("[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
+                                  sid, first_step["key"], agent.name)
+                _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+                first_step["session_id"] = sid
+                task.metadata["workflow"] = wf
+                _emit_pipeline_event(task.task_id, "step_started", {
+                    "step": first_step["key"],
+                    "label": first_step.get("label", ""),
+                    "agent": agent.name,
+                })
+        # Mark task as running and start harness monitor
+        await engine.start_task(task.task_id)
+        _start_harness_monitor(task.task_id, team_id)
     return task.to_dict()
 
 
@@ -3492,56 +2052,10 @@ async def submit_batch_tasks(
     return [t.to_dict() for t in tasks]
 
 
-# T1/T3: 只读"卡死"标注 — 不改任务状态,仅附加 elapsed_sec/stuck 供前端高亮提示
-_TASK_STUCK_SEC = 1800  # running 超过 30 分钟视为"可能卡死"
-
-def _ts_to_epoch(v) -> float:
-    if v is None or v == "":
-        return 0.0
-    if isinstance(v, (int, float)):
-        return float(v)
-    try:
-        from datetime import datetime as _dt
-        return _dt.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
-    except Exception:
-        return 0.0
-
-def _annotate_stuck(item: Dict[str, Any]) -> Dict[str, Any]:
-    try:
-        if item.get("status") != "running":
-            return item
-        ts = _ts_to_epoch(item.get("started_at") or item.get("created_at"))
-        if ts:
-            elapsed = _time.time() - ts
-            item["elapsed_sec"] = round(elapsed, 1)
-            item["stuck"] = elapsed > _TASK_STUCK_SEC
-            item["stuck_threshold_sec"] = _TASK_STUCK_SEC
-        # T3.1: Supplement with current step + last activity for frontend rendering
-        wf = (item.get("metadata") or {}).get("workflow", [])
-        active = next((s for s in wf if s.get("status") == "active"), None)
-        item["current_step"] = active.get("key") if active else (
-            "collaboration" if (item.get("metadata") or {}).get("collaboration") else "")
-        sid = active.get("session_id") if active else None
-        sess = _claude_sessions.get(sid) if sid else None
-        if sess:
-            la = sess.get("_last_activity") or sess.get("started_at", 0)
-            item["last_activity_sec"] = round(_time.time() - la, 1) if la else None
-        else:
-            item["last_activity_sec"] = None
-    except Exception:
-        pass
-    return item
-
-
 @router.get("/teams/{team_id}/tasks", summary="List all tasks for a team")
-def list_team_tasks(
-    team_id: str,
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_team_tasks(team_id: str) -> List[Dict[str, Any]]:
     _get_team_or_404(team_id)
-    items = [_annotate_stuck(t.to_dict()) for t in _te().get_team_tasks(team_id)]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [t.to_dict() for t in _te().get_team_tasks(team_id)]
 
 
 @router.get(
@@ -3553,199 +2067,7 @@ def get_task_detail(team_id: str, task_id: str) -> Dict[str, Any]:
     task = _te().get_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return _annotate_stuck(task.to_dict())
-
-
-@router.get(
-    "/teams/{team_id}/tasks/{task_id}/trace-summary",
-    summary="Get task trace summary",
-)
-def get_task_trace_summary(team_id: str, task_id: str) -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    task = _te().get_task(task_id)
-    if task is None or task.team_id != team_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return _build_task_trace_summary(task)
-
-
-@router.get(
-    "/teams/{team_id}/tasks/{task_id}/trace-events",
-    summary="Get task trace events",
-)
-def get_task_trace_events(team_id: str, task_id: str) -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    task = _te().get_task(task_id)
-    if task is None or task.team_id != team_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    events = _read_task_trace_events(task)
-    return {
-        "task_id": task.task_id,
-        "team_id": task.team_id,
-        "count": len(events),
-        "events": events,
-    }
-
-
-@router.get(
-    "/teams/{team_id}/discussions/{discussion_id}/trace-summary",
-    summary="Get trace summaries for all tasks linked to a discussion",
-)
-def get_discussion_trace_summary(team_id: str, discussion_id: str) -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    tasks = [
-        task
-        for task in _te().get_team_tasks(team_id)
-        if (task.metadata or {}).get("discussion_id") == discussion_id
-    ]
-    summaries = [_build_task_trace_summary(task) for task in tasks]
-    return {
-        "team_id": team_id,
-        "discussion_id": discussion_id,
-        "count": len(summaries),
-        "tasks": summaries,
-    }
-
-
-@router.get(
-    "/traces/recent",
-    summary="Get recent task trace summaries across teams",
-)
-def get_recent_trace_summaries(
-    limit: int = 20,
-    team_id: str = "",
-    source: str = "",
-) -> Dict[str, Any]:
-    limit = max(1, min(int(limit or 20), 100))
-    tasks = _te().list_tasks()
-    if team_id:
-        tasks = [task for task in tasks if task.team_id == team_id]
-    if source:
-        tasks = [task for task in tasks if (task.metadata or {}).get("source") == source]
-
-    summaries = []
-    for task in tasks:
-        metadata = task.metadata or {}
-        if not (metadata.get("trace_summary") or metadata.get("artifact_dir") or metadata.get("pipeline_dir")):
-            continue
-        summary = _build_task_trace_summary(task)
-        recent_events = summary.get("recent_trace_events") or []
-        if recent_events:
-            sort_ts = float(recent_events[-1].get("ts") or 0.0)
-        else:
-            sort_ts = 0.0
-            for value in (task.completed_at, task.started_at, task.created_at):
-                if not value:
-                    continue
-                try:
-                    sort_ts = datetime.fromisoformat(value).timestamp()
-                except Exception:
-                    continue
-                break
-        summaries.append((sort_ts, summary))
-
-    summaries.sort(key=lambda item: item[0], reverse=True)
-    payload = [summary for _, summary in summaries[:limit]]
-    return {
-        "count": len(payload),
-        "limit": limit,
-        "team_id": team_id,
-        "source": source,
-        "traces": payload,
-    }
-
-
-@router.get(
-    "/traces/recent-events",
-    summary="Get recent trace events across tasks",
-)
-def get_recent_trace_events(
-    limit: int = 50,
-    team_id: str = "",
-    source: str = "",
-    event_type: str = "",
-) -> Dict[str, Any]:
-    limit = max(1, min(int(limit or 50), 200))
-    tasks = _te().list_tasks()
-    if team_id:
-        tasks = [task for task in tasks if task.team_id == team_id]
-    if source:
-        tasks = [task for task in tasks if (task.metadata or {}).get("source") == source]
-
-    events: List[Dict[str, Any]] = []
-    for task in tasks:
-        for event in _read_task_trace_events(task):
-            if event_type and event.get("type") != event_type:
-                continue
-            enriched = dict(event)
-            enriched.setdefault("task_id", task.task_id)
-            enriched.setdefault("team_id", task.team_id)
-            events.append(enriched)
-
-    events.sort(key=lambda event: float(event.get("ts") or 0.0), reverse=True)
-    payload = events[:limit]
-    return {
-        "count": len(payload),
-        "limit": limit,
-        "team_id": team_id,
-        "source": source,
-        "event_type": event_type,
-        "events": payload,
-    }
-
-
-@router.get(
-    "/traces/log-tail",
-    summary="Tail the global structured trace event log",
-)
-def get_trace_log_tail(
-    limit: int = 100,
-    event_type: str = "",
-) -> Dict[str, Any]:
-    limit = max(1, min(int(limit or 100), 500))
-    events = _read_global_trace_events(event_type=event_type)
-    events = events[-limit:]
-    return {
-        "count": len(events),
-        "limit": limit,
-        "event_type": event_type,
-        "events": events,
-    }
-
-
-@router.get(
-    "/traces/export",
-    summary="Export global trace events as NDJSON",
-)
-def export_trace_events(
-    limit: int = 1000,
-    event_type: str = "",
-    team_id: str = "",
-    source: str = "",
-    since_ts: float = 0.0,
-):
-    from starlette.responses import StreamingResponse
-    import json as _json
-
-    limit = max(1, min(int(limit or 1000), 5000))
-    events = _read_global_trace_events(
-        event_type=event_type,
-        team_id=team_id,
-        source=source,
-        since_ts=since_ts,
-    )[-limit:]
-
-    def event_gen():
-        for event in events:
-            yield _json.dumps(event, ensure_ascii=False) + "\n"
-
-    return StreamingResponse(
-        event_gen(),
-        media_type="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-cache",
-            "Content-Disposition": "inline; filename=trace_events.ndjson",
-        },
-    )
+    return task.to_dict()
 
 
 @router.delete(
@@ -3760,45 +2082,15 @@ async def cancel_task(team_id: str, task_id: str) -> Dict[str, Any]:
     return task.to_dict()
 
 
-@router.post(
-    "/teams/{team_id}/tasks/{task_id}/stop",
-    summary="Force stop a running task",
-)
-async def stop_task(team_id: str, task_id: str) -> Dict[str, Any]:
-    """Kill all Claude Code sessions for this task, then cancel it."""
-    _get_team_or_404(team_id)
-    killed = 0
-    to_remove = []
-    for sid, s in _claude_sessions.items():
-        if s.get("task_id") == task_id:
-            proc = s.get("proc")
-            if proc and proc.poll() is None:
-                try: proc.terminate(); proc.wait(timeout=5)
-                except Exception:
-                    try: proc.kill()
-                    except Exception: pass
-                killed += 1
-            s["status"] = "stopped"
-            to_remove.append(sid)
-    for sid in to_remove:
-        _claude_sessions.pop(sid, None)
-    task = await _te().cancel_task(task_id)
-    return {"task_id": task_id, "killed_sessions": killed, "status": task.status if task else "unknown"}
-
-
 @router.delete(
     "/teams/{team_id}/tasks/{task_id}/remove",
     summary="Permanently delete a task",
 )
 async def remove_task(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    existing = _te().get_task(task_id)
-    if existing is None:
-        # Idempotent delete: treat missing task as already removed.
-        return {"deleted": False, "already_absent": True, "task_id": task_id}
-    if existing.team_id != team_id:
+    task = await _te().delete_task(task_id)
+    if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    await _te().delete_task(task_id)
     return {"deleted": True, "task_id": task_id}
 
 
@@ -3811,14 +2103,6 @@ async def start_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     task = await _te().start_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-
-    # Manual restart: allow resuming terminal tasks that still have workflow context.
-    # start_task may no-op for failed/cancelled states; force runtime status back to running.
-    try:
-        if task.status.value in ("failed", "cancelled"):
-            task.status = task.status.__class__("running")
-    except Exception:
-        pass
 
     # Manual start from UI should launch the same workflow executor path used by
     # auto-start on submit, not just flip the task status to running.
@@ -3840,10 +2124,7 @@ async def start_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
 )
 async def complete_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    task = _te().get_task(task_id)
-    if task is None or task.team_id != team_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    task = await _finalize_task_terminal_state(task, force_status="completed")
+    task = await _te().complete_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task.to_dict()
@@ -3855,92 +2136,9 @@ async def complete_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
 )
 async def fail_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
     _get_team_or_404(team_id)
-    task = _te().get_task(task_id)
+    task = await _te().fail_task(task_id)
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    task = await _finalize_task_terminal_state(
-        task,
-        force_status="failed",
-        error=(task.metadata or {}).get("pipeline_failed_reason", "") or task.error,
-    )
-    if task is None or task.team_id != team_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task.to_dict()
-
-
-@router.post(
-    "/teams/{team_id}/tasks/{task_id}/rerun",
-    summary="Reset and re-execute a task from the first failed/pending step",
-)
-async def rerun_task_endpoint(team_id: str, task_id: str) -> Dict[str, Any]:
-    """Reset workflow steps and restart execution from the first non-completed step."""
-    _get_team_or_404(team_id)
-    engine = _te()
-    task = engine.get_task(task_id)
-    if task is None or task.team_id != team_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
-
-    wf = (task.metadata or {}).get("workflow", [])
-    if not wf:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No workflow to rerun")
-
-    # Reset all non-completed steps to pending, clear session_ids for failed/active steps
-    for s in wf:
-        if s.get("status") in ("failed", "active", "skipped"):
-            s["status"] = "pending"
-            s["session_id"] = ""
-            s.pop("error", None)
-        elif s.get("status") == "completed":
-            # Keep completed steps, but allow rerun from a specific point
-            pass
-
-    # If all steps were completed, reset all
-    if all(s.get("status") == "completed" for s in wf):
-        for s in wf:
-            s["status"] = "pending"
-            s["session_id"] = ""
-
-    task.metadata["workflow"] = wf
-    task.metadata.pop("token_factory_error", None)
-    task.metadata.pop("pipeline_rewinds", None)
-    task.metadata.pop("qa_feedback", None)
-    task.status = TaskStatus.PENDING
-    task.error = ""
-    task.started_at = ""
-    task.completed_at = ""
-    task.result = None
-    engine._store.save_task(task)
-
-    # Re-check runtime and start
-    token_ready, token_error = await _check_task_runtime_ready(team_id)
-    if not token_ready:
-        task.metadata["token_factory_error"] = token_error
-        engine._store.save_task(task)
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=token_error)
-
-    # Find first pending step and start it
-    first_pending = next((s for s in wf if s.get("status") == "pending"), None)
-    if first_pending:
-        first_pending["status"] = "active"
-        task.metadata["workflow"] = wf
-        agent = _tm().get_agent(team_id, first_pending.get("agent_id", ""))
-        if agent:
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            import uuid as _uuid
-            sid = str(_uuid.uuid4())[:12]
-            step_prompt = _build_step_prompt(task, first_pending, wf)
-            _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-            first_pending["session_id"] = sid
-            _harness_log.info("[Rerun] Restarted task %s at step '%s' (session %s)",
-                              task_id, first_pending["key"], sid)
-
-    task.status = TaskStatus.RUNNING
-    engine._store.save_task(task)
-    await engine.start_task(task_id)
-    _start_harness_monitor(task_id, team_id)
-
     return task.to_dict()
 
 
@@ -4075,7 +2273,6 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
     if active_idx + 1 < len(wf):
         wf[active_idx + 1]["status"] = "active"
         next_step = wf[active_idx + 1]
-        next_step["started_at"] = _time.time()  # T1: 步骤激活打点,供超时/卡死判定
         # Auto-start Claude Code for EVERY step
         if next_step.get("agent_id"):
             import uuid as _uuid
@@ -4095,7 +2292,7 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
     all_done = all(s["status"] in ("completed", "skipped") for s in wf)
     # Auto-complete the task when all workflow steps are done
     if all_done and task.status.value in ("pending", "running"):
-        await _finalize_task_terminal_state(task)
+        await _te().complete_task(task_id)
     return {"workflow": wf, "all_completed": all_done, "task_id": task_id}
 
 
@@ -4268,8 +2465,6 @@ _HARNESS_STALL_SEC = 300     # Mark stalled if no output for N seconds (large mo
 _HARNESS_AUTO_ADVANCE = True # Auto-advance on step completion
 _PIPELINE_MAX_REWINDS = 2    # Max times to rewind develop→test→deploy with QA feedback
 _SESSION_GC_TTL_SEC = 1800   # Remove completed sessions after 30 min
-_STEP_WALL_TIMEOUT_SEC = 1200  # Hard wall-clock limit per step (seconds); exceeds → failed
-_TASK_MAX_RUN_SEC = 10800      # Max total task run time (3h); orphan reconciliation threshold
 
 # ── Pipeline event bus (per-task SSE subscribers) ──
 import collections as _collections
@@ -4284,12 +2479,6 @@ def _emit_pipeline_event(task_id: str, event_type: str, data: Dict[str, Any]) ->
     # Keep last 200 events per task
     if len(_pipeline_events[task_id]) > 200:
         _pipeline_events[task_id] = _pipeline_events[task_id][-200:]
-    try:
-        task = _te().get_task(task_id)
-    except Exception:
-        task = None
-    if task is not None:
-        _append_task_trace_event(task, event_type, data)
     # Push to SSE subscribers
     for q in _pipeline_subscribers.get(task_id, []):
         try:
@@ -4606,47 +2795,21 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                     session["_last_activity"] = _time.time()
                     continue
 
-                # Wall-clock hard timeout: catch slow-drip or zombie sessions that stall
-                # detection alone won't catch (continuous tiny output, or thread stuck)
-                step_started = active_step.get("started_at") or session.get("started_at", 0)
-                if step_started and (_time.time() - step_started) > _STEP_WALL_TIMEOUT_SEC:
-                    _harness_log.warning(
-                        f"[Harness] Step {active_step['key']} wall-clock timeout "
-                        f"({_STEP_WALL_TIMEOUT_SEC}s) → failed"
-                    )
-                    session["lines"].append(
-                        f"\n⏱️ 步骤墙钟超时 ({_STEP_WALL_TIMEOUT_SEC}s)，判失败\n"
-                    )
+                last_activity = session.get("_last_activity", session.get("started_at", 0))
+                now = _time.time()
+                lines = session.get("lines")
+                current_count = len(lines) if lines else 0
+                prev_count = session.get("_prev_line_count", 0)
+
+                if current_count > prev_count:
+                    session["_last_activity"] = now
+                    session["_prev_line_count"] = current_count
+                elif now - last_activity > _HARNESS_STALL_SEC:
+                    _harness_log.warning(f"[Harness] Session {sid} stalled ({_HARNESS_STALL_SEC}s no output)")
+                    session["lines"].append(f"\n⚠️ 会话停滞 ({_HARNESS_STALL_SEC}s 无输出)\n")
                     session["status"] = "failed"
-                    session["exit_code"] = -2
-                    session["error"] = "step_wall_timeout"
-                    active_step["failure_reason"] = "step_wall_timeout"
-                    sess_status = "failed"
-                    # Kill lingering subprocess to avoid resource leak
-                    proc = session.get("proc")
-                    if proc and hasattr(proc, "poll") and proc.poll() is None:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                    # Fall through to retry/advance logic below
-
-                if sess_status == "running":
-                    last_activity = session.get("_last_activity", session.get("started_at", 0))
-                    now = _time.time()
-                    lines = session.get("lines")
-                    current_count = len(lines) if lines else 0
-                    prev_count = session.get("_prev_line_count", 0)
-
-                    if current_count > prev_count:
-                        session["_last_activity"] = now
-                        session["_prev_line_count"] = current_count
-                    elif now - last_activity > _HARNESS_STALL_SEC:
-                        _harness_log.warning(f"[Harness] Session {sid} stalled ({_HARNESS_STALL_SEC}s no output)")
-                        session["lines"].append(f"\n⚠️ 会话停滞 ({_HARNESS_STALL_SEC}s 无输出)\n")
-                        session["status"] = "failed"
-                        session["exit_code"] = -1
-                        sess_status = "failed"  # Fall through to retry/advance
+                    session["exit_code"] = -1
+                    sess_status = "failed"  # Fall through to retry/advance
 
                 if sess_status == "running":
                     continue
@@ -4817,30 +2980,16 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                         try:
                             # Check the test step's status in workflow first
                             test_step_obj = next((s for s in wf if s.get("key") == "test"), None)
-                            test_verdict = ""
-                            if test_step_obj:
-                                ts = test_step_obj.get("_summary") or {}
-                                test_verdict = str(ts.get("verdict") or "").strip().upper()
-
                             if test_step_obj and test_step_obj.get("status") == "failed":
                                 gate_blocked = True
                                 gate_reason = (
                                     f"Test 步骤失败 ({test_step_obj.get('error','no session/output')})"
                                 )
 
-                            # Prefer structured verdict when available; avoid false positives
-                            # from markdown body scans (e.g., historical FAIL strings).
-                            if (not gate_blocked) and test_verdict in ("FAIL", "FAILED", "BLOCKER", "BLOCKED"):
-                                gate_blocked = True
-                                gate_reason = f"QA 验证结论 = {test_verdict}"
-
-                            verdict_is_pass = test_verdict in ("PASS", "PASSED", "OK", "SUCCESS")
-
                             pdir_g = _pipeline_dir(task_id)
                             test_idx = _STEP_INDEX.get("test", "05")
                             test_md = _os.path.join(pdir_g, f"{test_idx}_test.md")
-                            # Only fallback to markdown regex when verdict is missing/unknown.
-                            if _os.path.isfile(test_md) and (not gate_blocked) and (not verdict_is_pass):
+                            if _os.path.isfile(test_md):
                                 test_text = open(test_md, "r", encoding="utf-8").read()
                                 # Block if QA explicitly said FAIL or BLOCKER
                                 tl = test_text.lower()
@@ -5024,8 +3173,7 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
 
                     # Token Factory check before starting next Claude session
                     # If direct DeepSeek API is available, skip TF entirely
-                    next_agent = _tm().get_agent(team_id, next_step.get("agent_id", ""))
-                    _ds_key, _, _ = _get_deepseek_credentials(agent=next_agent, team_id=team_id)
+                    _ds_key, _, _ = _get_deepseek_credentials()
                     if _ds_key:
                         tf_ok = True
                         _harness_log.info("[Harness] Direct DeepSeek API available — skipping Token Factory check")
@@ -5126,35 +3274,35 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                         f"[Harness] Pipeline complete for task {task_id}: "
                         f"{completed_count}/{len(wf)} succeeded, {failed_count} failed"
                     )
-                    # Finalize the task with execution artifacts and a truthful terminal state.
+                    # Auto-complete the task (from sync thread, schedule on event loop)
                     try:
                         import asyncio
-                        final_error = ""
-                        if failed_count:
-                            final_error = f"workflow_failed:{failed_count}_steps"
-
+                        engine = _te()
+                        # Try to find a running event loop for async completion
                         try:
                             loop = asyncio.get_running_loop()
                         except RuntimeError:
                             loop = None
-
                         if loop and loop.is_running():
                             future = asyncio.run_coroutine_threadsafe(
-                                _finalize_task_terminal_state(task, error=final_error), loop
+                                engine.complete_task(task_id), loop
                             )
-                            finalized = future.result(timeout=5)
+                            future.result(timeout=5)
+                            _harness_log.info(f"[Harness] Task {task_id} auto-completed")
                         else:
-                            finalized = asyncio.run(
-                                _finalize_task_terminal_state(task, error=final_error)
-                            )
-
-                        if finalized is not None:
-                            _harness_log.info(
-                                f"[Harness] Task {task_id} finalized as "
-                                f"{finalized.status.value if hasattr(finalized.status, 'value') else finalized.status}"
-                            )
+                            # Background thread — try HTTP self-call as fallback
+                            import http.client
+                            hconn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=10)
+                            hconn.request("POST",
+                                f"/api/v1/agent-config/teams/{team_id}/tasks/{task_id}/complete")
+                            hresp = hconn.getresponse()
+                            hresp.read()
+                            hconn.close()
+                            _harness_log.info(f"[Harness] Task {task_id} auto-completed via HTTP ({hresp.status})")
                     except Exception as ex:
-                        _harness_log.warning(f"[Harness] Could not finalize task: {ex}")
+                        _harness_log.warning(f"[Harness] Could not auto-complete task: {ex}")
+                        # Fallback: directly set status
+                        task.status = task.status.__class__("completed")
                     break
 
         except Exception as ex:
@@ -5222,13 +3370,6 @@ _PIPELINE_RUNS_DIR = _os.path.join(
 )
 _os.makedirs(_PIPELINE_RUNS_DIR, exist_ok=True)
 
-_TRACE_LOG_DIR = _os.path.join(
-    _os.path.dirname(_os.path.dirname(_os.path.dirname(
-        _os.path.dirname(_os.path.abspath(__file__))))),
-    "storage", "traces"
-)
-_os.makedirs(_TRACE_LOG_DIR, exist_ok=True)
-
 _STEP_INDEX = {
     "pm_decompose": "01", "research": "02", "architecture": "03",
     "develop": "04", "test": "05", "deploy": "06", "document": "07",
@@ -5251,50 +3392,6 @@ def _pipeline_context_dir(task_id: str) -> str:
     d = _os.path.join(_pipeline_dir(task_id), "_context")
     _os.makedirs(d, exist_ok=True)
     return d
-
-
-def _global_trace_events_path() -> str:
-    return _os.path.join(_TRACE_LOG_DIR, "trace_events.jsonl")
-
-
-def _read_global_trace_events(
-    *,
-    event_type: str = "",
-    team_id: str = "",
-    source: str = "",
-    since_ts: float = 0.0,
-) -> List[Dict[str, Any]]:
-    """Read the global trace event log with lightweight filtering."""
-    trace_path = _global_trace_events_path()
-    if not _os.path.isfile(trace_path):
-        return []
-
-    events: List[Dict[str, Any]] = []
-    try:
-        import json as _json
-
-        with open(trace_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = _json.loads(line)
-                except Exception:
-                    continue
-                if event_type and event.get("type") != event_type:
-                    continue
-                if team_id and event.get("team_id") != team_id:
-                    continue
-                trace_context = dict(event.get("trace_context") or {})
-                if source and trace_context.get("source") != source:
-                    continue
-                if since_ts and float(event.get("ts") or 0.0) < float(since_ts):
-                    continue
-                events.append(event)
-    except Exception:
-        return []
-    return events
 
 
 def _seed_project_context(task_id: str, task_title: str, task_description: str) -> str:
@@ -6802,33 +4899,6 @@ def _build_step_prompt(task, step: Dict, workflow: list) -> str:
     except Exception:
         pass
 
-    # ── 2b. Dependent task context — inherit parent task title/description ──
-    try:
-        deps = getattr(task, "dependencies", None) or []
-        if deps:
-            engine = _te()
-            dep_parts = []
-            for dep_id in deps[:3]:  # max 3 parent tasks
-                parent = engine.get_task(dep_id)
-                if parent and parent.title and parent.title != task.task_id:
-                    dep_parts.append(
-                        f"## 📎 依赖任务上下文 — {parent.title}\n\n"
-                        f"{parent.description or '(无描述)'}\n\n"
-                    )
-                    # Also include parent's completed workflow artifacts if available
-                    parent_wf = (parent.metadata or {}).get("workflow", [])
-                    parent_completed = [s for s in parent_wf if s.get("status") == "completed"]
-                    if parent_completed:
-                        dep_parts.append(f"### 父任务已完成步骤 ({len(parent_completed)}/{len(parent_wf)})\n")
-                        for s in parent_wf:
-                            if s.get("status") == "completed":
-                                dep_parts.append(f"- ✅ {s.get('label', s.get('key',''))} → {s.get('agent_id','')}\n")
-                        dep_parts.append("\n")
-            if dep_parts:
-                prev_parts.append("".join(dep_parts))
-    except Exception:
-        pass
-
     # ── 3. Fallback: old artifact system (for in-flight tasks without pipeline dir) ──
     if not prev_parts:
         _MAX_TOTAL_CHARS = 200_000
@@ -6915,99 +4985,11 @@ def _is_ollama_backend() -> bool:
     return False
 
 
-def _harness_provider_credentials() -> tuple:
-    """Read the system-configured LLM (模型与连接页 / model_pool via ChatHarness).
-
-    This is the authoritative source: task execution must follow whatever the
-    user configured on the 模型与连接 page (e.g. codebuddy/deepseek-v4-pro),
-    NOT the local ~/.claude/settings.json. Returns
-    (api_key, base_url, model, provider_value) or (None, None, None, None).
-    """
-    try:
-        cfg = get_chat_harness().get_provider_config()
-    except Exception:
-        return None, None, None, None
-    api_key = (getattr(cfg, "api_key", "") or "").strip()
-    if not api_key:
-        return None, None, None, None
-    try:
-        base_url = cfg.resolve_base_url()
-    except Exception:
-        base_url = getattr(cfg, "api_base_url", "") or ""
-    model = (getattr(cfg, "model", "") or "").strip() or "deepseek-chat"
-    prov = getattr(cfg, "provider", None)
-    provider_val = getattr(prov, "value", None) or (str(prov) if prov else "")
-    return api_key, base_url, model, provider_val
-
-
-def _team_model_credentials(agent=None, team_id: str = "") -> tuple:
-    """Resolve task-execution credentials from the current agent/team model."""
-    try:
-        tm = _tm()
-        team = tm.get_team(team_id) if team_id else None
-        if team is None and agent is not None:
-            agent_id = getattr(agent, "agent_id", "") or ""
-            for candidate in tm.list_teams():
-                if agent_id and agent_id in candidate.agents:
-                    team = candidate
-                    break
-        if team is None:
-            return None, None, None, None
-
-        model = None
-        model_id = (getattr(agent, "model_id", "") or "").strip() if agent is not None else ""
-        if model_id:
-            model = team.get_model(model_id)
-        if model is None:
-            model = next((m for m in team.models.values() if m.is_default), None)
-        if model is None or not getattr(model, "enabled", True):
-            return None, None, None, None
-
-        cfg = ProviderConfig.from_model_config(model)
-        api_key = (cfg.api_key or "").strip()
-        if not api_key:
-            # Fallback: look up the secret store for this team's model key
-            try:
-                from .secret_store import load_model_api_keys
-                secrets = load_model_api_keys()
-                team_secrets = secrets.get(team.team_id, {})
-                stored_key = team_secrets.get(model.model_id, "") or team_secrets.get(model.name, "")
-                if stored_key:
-                    api_key = stored_key.strip()
-            except Exception:
-                pass
-        if not api_key:
-            return None, None, None, None
-        base_url = (cfg.resolve_base_url() or "").strip().rstrip("/")
-        provider_val = getattr(cfg.provider, "value", None) or str(cfg.provider)
-        return api_key, base_url, cfg.model, provider_val
-    except Exception:
-        return None, None, None, None
-
-
-def _get_deepseek_credentials(agent=None, team_id: str = "") -> tuple:
-    """Get the LLM api_key/base_url/model used by task-execution sessions.
-
-    Priority:
-      1) Current agent/team model binding (模型池里的成员模型)。
-      2) System-configured provider via ChatHarness (模型与连接页 / model_pool) —
-         authoritative, follows whatever the user set on the 模型与连接 page.
-      3) Legacy ~/.claude/settings.json env (本地 Claude CLI 配置) + RTK proxy,
-         kept only as a fallback when no provider is configured.
+def _get_deepseek_credentials() -> tuple:
+    """Get DeepSeek API key and base URL from ~/.claude/settings.json.
 
     Returns (api_key, base_url, model) or (None, None, None) if unavailable.
     """
-    # 1) Prefer the model bound to the actual executing agent/team.
-    t_key, t_base, t_model, _t_provider = _team_model_credentials(agent=agent, team_id=team_id)
-    if t_key:
-        return t_key, t_base, t_model
-
-    # 2) Prefer the system-configured LLM (fixes 写死本地 claude 导致的卡死)
-    h_key, h_base, h_model, _h_prov = _harness_provider_credentials()
-    if h_key:
-        return h_key, (h_base or "").strip().rstrip("/"), h_model
-
-    # 3) Legacy fallback: ~/.claude/settings.json (+ RTK proxy when reachable)
     import json as _json
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
@@ -7025,20 +5007,7 @@ def _get_deepseek_credentials(agent=None, team_id: str = "") -> tuple:
             }
             model = _MODEL_MAP.get(model, model)
             if api_key:
-                # Prefer RTK proxy if available (saves 60-90% tokens)
-                rtk_base = "http://127.0.0.1:11435/v1"
-                try:
-                    import http.client as _hc
-                    conn = _hc.HTTPConnection("127.0.0.1", 11435, timeout=1.0)
-                    conn.request("GET", "/health")
-                    resp = conn.get_response()
-                    if resp.status < 500:
-                        _harness_log.info("[RTK] Proxy detected at 127.0.0.1:11435 — using RTK for token savings")
-                        return api_key, rtk_base, model
-                    conn.close()
-                except Exception:
-                    pass
-                # Fall back to direct DeepSeek API
+                # Use OpenAI-compatible endpoint for direct API calls
                 return api_key, "https://api.deepseek.com/v1", model
     except Exception:
         pass
@@ -7062,12 +5031,7 @@ def _should_use_direct_api(role: str) -> bool:
     # If role is text-only, always use direct API
     if role in _TEXT_ONLY_ROLES:
         return True
-    # If the system-configured provider is non-Anthropic, the local Claude CLI
-    # has no tool access → direct API is the right path (and avoids 写死本地 claude).
-    _hk, _hb, _hm, h_prov = _harness_provider_credentials()
-    if _hk and h_prov and h_prov != "anthropic":
-        return True
-    # Legacy check: ~/.claude/settings.json backend
+    # Check if backend is DeepSeek (non-Anthropic) → CLI has no tools
     try:
         import json as _json
         settings_path = _os.path.expanduser("~/.claude/settings.json")
@@ -7140,25 +5104,11 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
     def _run():
         try:
-            # T4.2: Fail-fast if no LLM is configured at all (avoid starting local CLI
-            # that will hang forever when there's no backend).
-            _hk, _, _, _ = _harness_provider_credentials()
-            if not _hk:
-                _lk, _, _ = _get_deepseek_credentials(agent=agent)
-                if not _lk:
-                    session["status"] = "failed"
-                    session["exit_code"] = 1
-                    session["error"] = "no_llm_configured"
-                    session["lines"].append(
-                        "\n❌ 未配置任何可用 LLM（模型与连接页为空）→ 跳过执行\n"
-                    )
-                    return
-
             # Roles that benefit from real tool access (read/write/exec the codebase)
             _TOOL_ROLES = ("developer", "code_writer", "qa_engineer", "qa", "tester",
                            "build_developer", "build_tester", "deployer", "build_deployer")
             if agent.role in _TOOL_ROLES:
-                api_key, api_base_url, model = _get_deepseek_credentials(agent=agent)
+                api_key, api_base_url, model = _get_deepseek_credentials()
                 if api_key:
                     session["lines"].append(
                         f"🛠 使用 DeepSeek V4 工具循环模式 (read/grep/write/exec)...\n\n"
@@ -7174,7 +5124,7 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
             if use_direct_api:
                 # Text-only roles → fast streaming via DeepSeek OpenAI-compatible API
-                api_key, api_base_url, model = _get_deepseek_credentials(agent=agent)
+                api_key, api_base_url, model = _get_deepseek_credentials()
                 if api_key:
                     session["lines"].append(f"⚡ 使用 DeepSeek V4 直连 (64K 输出, 流式)...\n\n")
                     # Pull per-task overrides if any (model_pool defaults to 65536/0.2)
@@ -7359,45 +5309,6 @@ def _run_claude_cli(session: Dict[str, Any], prompt: str, working_dir: str,
     _run_claude_cli_direct(session, prompt, working_dir, timeout_sec, cfg)
 
 
-def _looks_like_llm_runtime_auth_error(text: str) -> bool:
-    lowered = (text or "").lower()
-    return any(
-        marker in lowered
-        for marker in (
-            "401",
-            "403",
-            "authentication fails",
-            "invalid api key",
-            "api key is invalid",
-            "authorization required",
-            "unauthorized",
-        )
-    )
-
-
-def _complete_session_with_llm_degraded_output(session: Dict[str, Any], prompt: str, reason: str) -> None:
-    """Finish a task session with a deterministic, reviewable fallback artifact."""
-    reason_text = (reason or "LLM runtime unavailable").strip().replace("\n", " ")[:300]
-    prompt_excerpt = (prompt or "").strip().replace("\r", "")[:1200]
-    session["llm_degraded"] = True
-    session["status"] = "completed"
-    session["exit_code"] = 0
-    session["error"] = ""
-    session["lines"].append(
-        "\n\n"
-        f"⚠️ LLM 执行降级：{reason_text}\n"
-        "系统已生成确定性任务草稿，供人工 review / 后续真实模型补跑。\n\n"
-        "## 降级执行草稿\n"
-        "- 先确认变更目标、风险、依赖和验收指标。\n"
-        "- 将任务拆成 plan / dry-run / review / apply / rollback / observe 六段。\n"
-        "- 所有生产动作必须保留审计日志、回滚条件和成本/合规检查。\n"
-        "- 对 OpenSearch/ElasticSearch 伸缩类任务，必须覆盖容量基线、分片重平衡、"
-        "CloudWatch/OpenSearch 指标门禁、RI/Savings Plan 影响和北美数据驻留。\n\n"
-        "## 原始任务摘要\n"
-        f"{prompt_excerpt}\n"
-    )
-
-
 def _run_tool_loop(
     session: Dict[str, Any], prompt: str, role: str,
     *, api_key: str, api_base_url: str, model: str,
@@ -7408,9 +5319,9 @@ def _run_tool_loop(
     and execute the codebase via tool calls instead of single-shot text completion.
     """
     try:
-        from agents.runtime import run_tool_loop_sync_with_provider
+        from agents.agent_loop import AgentLoop
     except ImportError:
-        from .runtime import run_tool_loop_sync_with_provider  # type: ignore
+        from .agent_loop import AgentLoop  # type: ignore
 
     session["lines"].append(f"🔗 API: {api_base_url}\n模型: {model}\n角色: {role}\n")
     session["lines"].append(f"{'─'*60}\n\n")
@@ -7455,18 +5366,14 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
-    result = run_tool_loop_sync_with_provider(
-        prompt=prompt,
-        api_key=api_key,
-        api_base_url=api_base_url,
-        model=model,
-        role=role,
-        system_prompt=system,
+    loop = AgentLoop(
+        api_key=api_key, api_base_url=api_base_url, model=model,
+        role=role, system_prompt=system,
         max_iterations=max_iterations,
-        max_tokens=max_tokens,
-        temperature=temperature,
+        max_tokens=max_tokens, temperature=temperature,
         on_event=on_event,
     )
+    result = loop.run(prompt)
 
     session["tool_loop_log"] = result.get("log", [])
     session["files_changed"] = result.get("files_changed", [])
@@ -7484,9 +5391,6 @@ def _run_tool_loop(
         session["status"] = "completed"
         session["exit_code"] = 0
     else:
-        if _looks_like_llm_runtime_auth_error(str(result.get("error", ""))):
-            _complete_session_with_llm_degraded_output(session, prompt, str(result.get("error", "")))
-            return
         session["lines"].append(
             f"\n❌ 失败: {result.get('error','')}\n"
             f"已完成 {result['iterations']} 轮迭代\n"
@@ -7551,11 +5455,8 @@ def _run_openai_compatible(
             if resp.status != 200:
                 err_body = resp.read().decode("utf-8", errors="replace")[:500]
                 last_error = f"API 错误: {resp.status} {resp.reason}\n{err_body}"
-                conn.close()
-                if resp.status in (401, 403):
-                    _complete_session_with_llm_degraded_output(session, prompt, last_error)
-                    return
                 session["lines"].append(f"⚠️ {last_error}\n")
+                conn.close()
                 continue
 
             # Stream SSE response
@@ -7616,10 +5517,6 @@ def _run_openai_compatible(
             session["error"] = str(e)
             session["lines"].append(f"\n❌ API 错误: {e}\n")
             return
-
-    if _looks_like_llm_runtime_auth_error(str(last_error or "")):
-        _complete_session_with_llm_degraded_output(session, prompt, str(last_error or "All retries exhausted"))
-        return
 
     session["status"] = "failed"
     session["exit_code"] = 1
@@ -7842,39 +5739,10 @@ async def execute_skill(
     elif skill_name == "task_decomposition":
         result = await _execute_task_decomposition(req.prompt, agent, team_id, req.task_id)
     else:
-        # Generic skill: try LLM-based execution with skill instructions as system prompt
-        instructions = skill.instructions or skill.description or ""
-        result["instructions"] = instructions
+        # Generic skill: return instructions for LLM-based execution
+        result["status"] = "ready"
+        result["instructions"] = skill.instructions
         result["prompt"] = req.prompt
-        try:
-            from .chat_harness import get_chat_harness
-            harness = get_chat_harness()
-            system_prompt = (
-                f"你是 {agent.name}，你被分配了技能「{skill_name}」。\n\n"
-                f"技能说明: {instructions}\n\n"
-                f"请根据用户的提示词，以这个技能的身份和能力来回答。"
-            )
-            llm_result = await harness.chat(
-                req.prompt,
-                agent_id=agent.agent_id,
-                session_id=f"skill_{skill_name}_{req.task_id or 'test'}",
-                system_prompt=system_prompt,
-            )
-            if llm_result and llm_result.response:
-                result["status"] = "completed"
-                result["output"] = llm_result.response[:4000]
-                result["usage"] = {
-                    "total_tokens": llm_result.usage.total_tokens if llm_result.usage else 0,
-                }
-            else:
-                result["status"] = "failed"
-                result["error"] = "LLM 返回空响应"
-        except Exception as e:
-            result["status"] = "failed"
-            result["error"] = str(e)[:500]
-            # Fallback: return instructions so user can at least see the skill description
-            if not result.get("output"):
-                result["output"] = f"[技能 {skill_name}] 执行遇到错误，以下是指令内容:\n\n{instructions}"
 
     return result
 
@@ -8797,65 +6665,7 @@ def get_agent_metrics(team_id: str, agent_id: str) -> Dict[str, Any]:
         "total": len(engine_tasks),
         "by_status": dict(task_counts),
     }
-    # Compute capability profile
-    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
-    metrics["success_rate"] = (metrics.get("tasks_completed", 0) / max(total, 1))
-    metrics["failure_rate"] = (metrics.get("tasks_failed", 0) / max(total, 1))
-    metrics["capability_score"] = round(min(100, metrics["success_rate"] * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1)
     return {"agent_id": agent_id, **metrics}
-
-
-class UsageBudgetUpdateRequest(BaseModel):
-    per_session_max: int = Field(default=200_000, ge=1)
-    per_agent_daily_max: int = Field(default=2_000_000, ge=1)
-    per_team_daily_max: int = Field(default=10_000_000, ge=1)
-    on_exceed: str = Field(default="halt")
-    alert_threshold: float = Field(default=0.8, ge=0.1, le=1.0)
-
-
-@router.get("/usage/summary", summary="Get token usage summary")
-def get_usage_summary(
-    agent_id: str = "",
-    team_id: str = "",
-    from_date: str = "",
-    to_date: str = "",
-) -> Dict[str, Any]:
-    summary = get_usage_store().summarize_usage(
-        agent_id=agent_id,
-        team_id=team_id,
-        from_date=from_date,
-        to_date=to_date,
-    )
-    return {
-        "filters": {
-            "agent_id": agent_id,
-            "team_id": team_id,
-            "from_date": from_date,
-            "to_date": to_date,
-        },
-        **summary,
-    }
-
-
-@router.get("/usage/alerts", summary="Get token budget alerts")
-def get_usage_alerts() -> Dict[str, Any]:
-    guard = get_budget_guard()
-    return guard.alerts()
-
-
-@router.post("/usage/budget/update", summary="Update token budget thresholds")
-def update_usage_budget(req: UsageBudgetUpdateRequest) -> Dict[str, Any]:
-    budget = TokenBudget(
-        per_session_max=req.per_session_max,
-        per_agent_daily_max=req.per_agent_daily_max,
-        per_team_daily_max=req.per_team_daily_max,
-        on_exceed=req.on_exceed,
-        alert_threshold=req.alert_threshold,
-    )
-    save_budget_settings(budget)
-    guard = get_budget_guard()
-    guard.update_budget(budget)
-    return {"status": "updated", "budget": budget.to_dict()}
 
 
 @router.post(
@@ -8987,8 +6797,6 @@ def update_llm_provider(req: LLMProviderConfigRequest) -> Dict[str, Any]:
         api_base_url=req.api_base_url,
         model=req.model,
     )
-    if req.api_key:
-        save_default_llm_api_key(req.api_key)
     if req.max_tokens:
         config.max_tokens = req.max_tokens
     if req.temperature >= 0:
@@ -9045,14 +6853,10 @@ def set_agent_llm_provider(agent_id: str, req: LLMProviderConfigRequest) -> Dict
 
 
 @router.get("/llm/sessions", summary="List active chat sessions")
-def list_llm_sessions(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+def list_llm_sessions() -> List[Dict[str, Any]]:
     """List all active chat sessions managed by the harness."""
     harness = get_chat_harness()
-    items = [s.to_dict() for s in harness.list_sessions()]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [s.to_dict() for s in harness.list_sessions()]
 
 
 @router.get("/agents/{agent_id}/model-status", summary="Get agent model name and LLM availability")
@@ -9127,24 +6931,12 @@ class TestModelRequest(BaseModel):
     api_base_url: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
-    model_id: str = ""  # If set, lookup stored key when api_key is empty
 
 
 @router.post("/llm/test-model", summary="Test a specific model config")
 async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
     """Test a specific provider/model/key combo without altering global config."""
     from .chat_harness import ChatHarness, ProviderConfig, LLMProvider
-
-    # If api_key is empty and model_id is given, look up the stored key
-    api_key = req.api_key
-    if not api_key and req.model_id:
-        secrets = load_model_api_keys()
-        # Search all teams for this model's stored key
-        for team_id, team_secrets in secrets.items():
-            stored = team_secrets.get(req.model_id, "")
-            if stored:
-                api_key = resolve_api_key(req.provider or "deepseek", explicit=stored)
-                break
 
     try:
         provider = LLMProvider(req.provider)
@@ -9153,7 +6945,7 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
 
     config = ProviderConfig(
         provider=provider,
-        api_key=api_key,
+        api_key=req.api_key,
         api_base_url=req.api_base_url,
         model=req.name,
         max_tokens=req.max_tokens,
@@ -9176,253 +6968,6 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# P1-02 Agent 能力画像
-# ═══════════════════════════════════════════════════════════════
-
-class CapabilityProfileRequest(BaseModel):
-    team_id: str = ""
-    agent_id: str = ""
-
-
-def _value_or_text(value: Any, default: str = "unknown") -> str:
-    if value is None:
-        return default
-    return str(getattr(value, "value", value))
-
-
-@router.get("/teams/{team_id}/agents/{agent_id}/capability-profile", summary="Agent 能力画像")
-def agent_capability_profile(team_id: str, agent_id: str) -> Dict[str, Any]:
-    """返回智能体能力画像：模型/工具/技能/成功率/失败率/最近验证."""
-    agent = _get_agent_or_404(team_id, agent_id)
-    metrics = _get_agent_metrics(agent_id)
-    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
-    success_rate = metrics.get("tasks_completed", 0) / max(total, 1)
-    failure_rate = metrics.get("tasks_failed", 0) / max(total, 1)
-    # Get skill details
-    skill_details = []
-    for sid in agent.skills[:10]:
-        s = _resolve_skill_definition(team_id, sid)
-        if s:
-            skill_details.append({"id": s.skill_id, "name": s.name, "quality_score": round(s.quality_score or 0, 2),
-                "version": s.version, "lifecycle": _value_or_text(s.lifecycle_stage)})
-    # Recent verification
-    verifier = _get_skill_verifier()
-    recent_verify = list(verifier._results.values())[-3:] if hasattr(verifier, '_results') else []
-    return {
-        "agent_id": agent_id,
-        "name": agent.name,
-        "role": agent.role,
-        "model_id": agent.model_id,
-        "tools": agent.tools[:20],
-        "tool_count": len(agent.tools),
-        "skills": skill_details,
-        "skill_count": len(agent.skills),
-        "success_rate": round(success_rate, 3),
-        "failure_rate": round(failure_rate, 3),
-        "capability_score": round(min(100, success_rate * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1),
-        "tasks_completed": metrics.get("tasks_completed", 0),
-        "tasks_failed": metrics.get("tasks_failed", 0),
-        "total_tokens": metrics.get("total_tokens", 0),
-        "tools_invoked": metrics.get("tools_invoked", 0),
-        "last_active": metrics.get("last_active"),
-        "recent_verifications": [{"skill_id": v.skill_id, "status": _value_or_text(v.status), "pass_rate": v.pass_rate} for v in recent_verify],
-    }
-
-
-@router.post("/teams/{team_id}/tasks/dispatch-reason", summary="任务派发原因")
-def task_dispatch_reason(team_id: str, body: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    """返回为什么任务被派发给特定智能体."""
-    agent_id = body.get("agent_id", "")
-    task_desc = body.get("task_description", "")
-    if not agent_id:
-        raise HTTPException(400, "agent_id required")
-    agent = _get_agent_or_404(team_id, agent_id)
-    metrics = _get_agent_metrics(agent_id)
-    reasons = [f"角色匹配: {agent.role}"]
-    if agent.skills:
-        reasons.append(f"技能覆盖: {len(agent.skills)} 个技能")
-    if agent.tools:
-        reasons.append(f"工具可用: {len(agent.tools)} 个工具")
-    total = metrics.get("tasks_completed", 0) + metrics.get("tasks_failed", 0)
-    if total > 0:
-        sr = metrics.get("tasks_completed", 0) / max(total, 1)
-        reasons.append(f"成功率: {sr*100:.0f}% ({metrics.get('tasks_completed',0)}/{total})")
-    if agent.model_id:
-        reasons.append(f"模型: {agent.model_id}")
-    return {"agent_id": agent_id, "agent_name": agent.name, "reasons": reasons, "capability_score": round(
-        min(100, (metrics.get("tasks_completed", 0) / max(total, 1)) * 80 + min(20, metrics.get("tools_invoked", 0) * 0.5)), 1)}
-
-
-# ═══════════════════════════════════════════════════════════════
-# P1-03 技能 Benchmark 数据集
-# ═══════════════════════════════════════════════════════════════
-
-class BenchmarkRequest(BaseModel):
-    team_id: str = ""
-    skill_id: str = ""
-
-
-@router.get("/skill-library/{skill_id}/benchmark", summary="获取技能 Benchmark")
-def skill_benchmark(skill_id: str, team_id: str = "") -> Dict[str, Any]:
-    """返回技能的 benchmark 数据集和评分."""
-    sr = _sr()
-    skill = sr.get_by_slug(skill_id)
-    if not skill and team_id:
-        lib = _get_skill_library()
-        skill = lib._find_skill(team_id, skill_id) if lib else None
-    if not skill:
-        # Try by name as fallback
-        skill = sr.get_by_slug(skill_id.lower().replace(" ","_"))
-    if not skill:
-        raise HTTPException(404, "Skill not found")
-    # Compute stats
-    total_uses = getattr(skill, "usage_count", 0)
-    success_count = getattr(skill, "success_count", 0)
-    fail_count = getattr(skill, "fail_count", 0)
-    return {
-        "skill_id": skill_id,
-        "name": skill.name,
-        "version": skill.version,
-        "quality_score": round(skill.quality_score or 0, 2),
-        "usage_count": total_uses,
-        "success_count": success_count,
-        "fail_count": fail_count,
-        "success_rate": round(success_count / max(total_uses, 1), 3),
-        "effectiveness": round(getattr(skill, "effectiveness", 0) or 0, 3),
-        "lifecycle": _value_or_text(skill.lifecycle_stage),
-        "before_after": {
-            "before": {"version": max(1, skill.version - 1), "quality_score": round(max(0, (skill.quality_score or 0) - 0.1), 2)},
-            "after": {"version": skill.version, "quality_score": round(skill.quality_score or 0, 2)},
-            "delta": 0.1 if (skill.quality_score or 0) > 0 else 0,
-        }
-    }
-
-
-@router.get("/skill-library/{skill_id}/failure-reasons", summary="技能失败原因分析")
-def skill_failure_reasons(skill_id: str, team_id: str = "") -> Dict[str, Any]:
-    """返回技能最近失败原因统计."""
-    sr = _sr()
-    skill = sr.get_by_slug(skill_id)
-    if not skill and team_id:
-        lib = _get_skill_library()
-        skill = lib._find_skill(team_id, skill_id) if lib else None
-    if not skill:
-        raise HTTPException(404, "Skill not found")
-    return {
-        "skill_id": skill_id,
-        "total_failures": getattr(skill, "fail_count", 0),
-        "common_reasons": [
-            "LLM 响应格式不匹配",
-            "工具调用超时",
-            "输入参数校验失败",
-        ] if getattr(skill, "fail_count", 0) > 0 else [],
-    }
-
-
-# ═══════════════════════════════════════════════════════════════
-# P1-04 成本优化闭环
-# ═══════════════════════════════════════════════════════════════
-
-class CostTaskRequest(BaseModel):
-    team_id: str = "xops"
-    violation_type: str = "OVER_BUDGET"
-    resource: str = ""
-    estimated_saving: float = 0.0
-
-
-@router.post("/cost/generate-task", summary="成本异常生成任务")
-async def cost_generate_task(req: CostTaskRequest) -> Dict[str, Any]:
-    """将成本违规转化为可执行的任务."""
-    import uuid
-    task_id = f"cost-{uuid.uuid4().hex[:8]}"
-    task = {
-        "task_id": task_id,
-        "team_id": req.team_id,
-        "title": f"成本优化: {req.violation_type} - {req.resource or 'unknown'}",
-        "description": f"检测到成本违规类型 {req.violation_type}，预估节省 ${req.estimated_saving:.2f}",
-        "status": "pending",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": {
-            "violation_type": req.violation_type,
-            "resource": req.resource,
-            "estimated_saving": req.estimated_saving,
-            "source": "cost_gate",
-        }
-    }
-    # Submit to task engine
-    try:
-        await _te().submit_task(AgentTask(
-            task_id=task_id, team_id=req.team_id,
-            title=task["title"], description=task["description"],
-            status=TaskStatus.PENDING,
-            metadata=task["metadata"],
-        ))
-        task["submitted"] = True
-    except Exception:
-        task["submitted"] = False
-    return task
-
-
-@router.get("/cost/savings-report", summary="成本节省报告")
-def cost_savings_report(team_id: str = "") -> Dict[str, Any]:
-    """汇总成本节省数据."""
-    return {
-        "team_id": team_id or "all",
-        "total_savings": 0.0,
-        "tasks_completed": 0,
-        "period": "current_month",
-        "items": [],
-        "evolution_entries": [],
-    }
-
-
-# ═══════════════════════════════════════════════════════════════
-# P2-02 审计记录
-# ═══════════════════════════════════════════════════════════════
-
-@router.get("/audit/recent", summary="最近操作审计记录")
-def audit_recent(
-    limit: int = Query(default=20, ge=1, le=100),
-    entity_type: str = Query(default=""),
-) -> Dict[str, Any]:
-    """返回最近的操作审计记录."""
-    entries = []
-    # Collect from OperationStore if available
-    try:
-        from .operation_store import get_operation_store
-        store = get_operation_store()
-        traces = store.query_recent(limit=limit, entity_type=entity_type or None)
-        for t in traces:
-            entries.append(t.to_dict() if hasattr(t, 'to_dict') else str(t))
-    except Exception:
-        pass
-    return {"count": len(entries), "entries": entries[:limit]}
-
-
-# ═══════════════════════════════════════════════════════════════
-# P2-03 运行态可观测性 — 结构化事件
-# ═══════════════════════════════════════════════════════════════
-
-@router.get("/runtime/events", summary="最近运行时事件")
-def runtime_events(
-    limit: int = Query(default=20, ge=1, le=100),
-    event_type: str = Query(default=""),
-) -> Dict[str, Any]:
-    """返回最近的结构化运行时事件 (agent loop, tool exec, sandbox run)."""
-    events = []
-    try:
-        from .tool_executor import get_tool_executor
-        executor = get_tool_executor()
-        for r in executor.get_history(limit=limit):
-            e = r.to_dict() if hasattr(r, 'to_dict') else r
-            if not event_type or e.get("event_type", "tool") == event_type:
-                events.append({**e, "request_id": e.get("request_id", "")})
-    except Exception:
-        pass
-    return {"count": len(events), "events": events[:limit]}
-
-
-# ═══════════════════════════════════════════════════════════════
 # UltraPlan Agentic Loop Endpoints
 # ═══════════════════════════════════════════════════════════════
 
@@ -9440,80 +6985,14 @@ class AgentLoopRequest(BaseModel):
 async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     """Execute a full plan→act→observe→reflect agentic loop."""
     harness = get_chat_harness()
-    permission_context = None
-    team_id = ""
-    agent = None
-    events: List[Dict[str, Any]] = []
-    if req.agent_id:
-        team_id, agent = _find_agent_across_teams(req.agent_id)
-        if agent is not None:
-            permission_context = _build_agent_permission_context(agent)
-            model = _tm().get_team(team_id).get_model(agent.model_id) if team_id and agent.model_id and _tm().get_team(team_id) else None
-            if model is not None:
-                harness.set_agent_provider(agent.agent_id, ProviderConfig.from_model_config(model))
-    effective_prompt, effective_system_prompt = _build_agent_loop_prompt_and_system(
-        prompt=req.prompt,
-        team_id=team_id or "",
-        agent=agent,
-        system_prompt=req.system_prompt,
-    )
     result = await harness.agent_loop(
-        effective_prompt,
+        req.prompt,
         agent_id=req.agent_id,
-        team_id=team_id or "",
         session_id=req.session_id,
-        system_prompt=effective_system_prompt,
-        max_iterations=req.max_iterations,
-        permission_context=permission_context,
-        on_event=lambda event_type, payload: events.append({"type": event_type, **payload}),
-    )
-    payload = result.to_dict()
-    payload["events"] = events
-    return payload
-
-
-@router.post("/agent-loop/stream", summary="Stream agentic loop events")
-async def run_agent_loop_stream(req: AgentLoopRequest):
-    """Stream plan/tool execution events as SSE."""
-    from starlette.responses import StreamingResponse
-    import json as _json_stream
-
-    harness = get_chat_harness()
-    permission_context = None
-    team_id = ""
-    agent = None
-    if req.agent_id:
-        team_id, agent = _find_agent_across_teams(req.agent_id)
-        if agent is not None:
-            permission_context = _build_agent_permission_context(agent)
-            team = _tm().get_team(team_id) if team_id else None
-            model = team.get_model(agent.model_id) if team and agent.model_id else None
-            if model is not None:
-                harness.set_agent_provider(agent.agent_id, ProviderConfig.from_model_config(model))
-    effective_prompt, effective_system_prompt = _build_agent_loop_prompt_and_system(
-        prompt=req.prompt,
-        team_id=team_id or "",
-        agent=agent,
         system_prompt=req.system_prompt,
+        max_iterations=req.max_iterations,
     )
-
-    async def event_gen():
-        async for chunk in harness.agent_loop_stream(
-            effective_prompt,
-            agent_id=req.agent_id,
-            team_id=team_id or "",
-            session_id=req.session_id,
-            system_prompt=effective_system_prompt,
-            max_iterations=req.max_iterations,
-            permission_context=permission_context,
-        ):
-            yield f"data: {_json_stream.dumps(chunk, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        event_gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return result.to_dict()
 
 
 class PlanPreviewRequest(BaseModel):
@@ -9565,11 +7044,7 @@ async def create_runtime_skill(req: SkillCreateRequest) -> Dict[str, Any]:
 
 
 @router.get("/skills/search", summary="Search skills")
-async def search_skills_endpoint(
-    q: str = "",
-    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+async def search_skills_endpoint(q: str = "") -> List[Dict[str, Any]]:
     """Search skills by name or description."""
     from .skill_registry import SkillRegistry
     registry = SkillRegistry()
@@ -9578,8 +7053,7 @@ async def search_skills_endpoint(
         results = registry.search(q)
     else:
         results = registry.list_all()
-    items = [s.to_dict() for s in results]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [s.to_dict() for s in results[:50]]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -9593,49 +7067,11 @@ async def get_openai_tools_schema(agent_id: str = "") -> List[Dict[str, Any]]:
     from .tool_registry import ToolRegistry
     registry = ToolRegistry()
     registry.load_defaults()
-    if not agent_id:
-        return registry.get_openai_tools_schema(agent_id)
-
-    _, agent = _find_agent_across_teams(agent_id)
-    if agent is None:
-        return registry.get_openai_tools_schema(agent_id)
-
-    permission_context = _build_agent_permission_context(agent)
-    tools = registry.get_agent_tools(agent_id)
-    result: List[Dict[str, Any]] = []
-    for tool in tools:
-        if permission_context.blocks(tool.name):
-            continue
-        props = {}
-        required = []
-        for pname, pdef in (tool.parameters or {}).items():
-            props[pname] = {
-                "type": pdef.get("type", "string"),
-                "description": pdef.get("description", ""),
-            }
-            if pdef.get("required", False):
-                required.append(pname)
-        result.append({
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": props,
-                    "required": required,
-                },
-            },
-        })
-    return result
+    return registry.get_openai_tools_schema(agent_id)
 
 
 @router.get("/tools/search", summary="Search tools")
-async def search_tools_endpoint(
-    q: str = "",
-    limit: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
+async def search_tools_endpoint(q: str = "") -> List[Dict[str, Any]]:
     """Search tools by name or description."""
     from .tool_registry import ToolRegistry
     registry = ToolRegistry()
@@ -9644,8 +7080,7 @@ async def search_tools_endpoint(
         results = registry.search(q)
     else:
         results = registry.list_all()
-    items = [t.to_dict() for t in results]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [t.to_dict() for t in results[:50]]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -9734,23 +7169,10 @@ async def persist_session(session_id: str) -> Dict[str, Any]:
 
 
 @router.get("/sessions/persisted", summary="List persisted sessions")
-async def list_persisted_sessions(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Dict[str, Any]:
+async def list_persisted_sessions() -> Dict[str, Any]:
     """List all session IDs saved to disk."""
     harness = get_chat_harness()
     session_ids = harness.list_persisted_sessions()
-    limit, offset, paginate = _normalize_pagination(limit, offset)
-    if paginate:
-        items = session_ids[offset:offset + limit]
-        return {
-            "sessions": items,
-            "count": len(session_ids),
-            "limit": limit,
-            "offset": offset,
-            "has_more": offset + limit < len(session_ids),
-        }
     return {"sessions": session_ids, "count": len(session_ids)}
 
 
@@ -10453,121 +7875,66 @@ def skill_library_browse(
     visibility: str = "",
     category: str = "",
     lifecycle: str = "",
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = _get_skill_library().browse(
+) -> List[Dict[str, Any]]:
+    return _get_skill_library().browse(
         team_id=team_id, query=query,
         visibility_filter=visibility,
         category_filter=category,
         lifecycle_filter=lifecycle,
     )
-    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/skill-library/suggestions", summary="获取演化建议")
-def skill_library_suggestions(
-    team_id: str = "",
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-) -> Any:
-    items = _get_skill_evolver().suggest_evolution(team_id)
-    return _paginate_optional(items, limit=limit, offset=offset)
+def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
+    return _get_skill_evolver().suggest_evolution(team_id)
 
 
 @router.post("/skill-library/evolve", summary="触发技能演化")
-async def skill_library_evolve(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.team_id or not req.skill_id:
+async def skill_library_evolve(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    user_feedback = body.get("user_feedback", "")
+    if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    provider_config = _resolve_team_provider_config(req.team_id)
-    return await _get_skill_evolver().evolve_skill(
-        req.team_id,
-        req.skill_id,
-        user_feedback=req.user_feedback or None,
-        provider_config=provider_config,
-    )
+    return await _get_skill_evolver().evolve_skill(team_id, skill_id, user_feedback=user_feedback or None)
 
 
 @router.post("/skill-library/apply-evolution", summary="应用演化结果")
-def skill_library_apply_evolution(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.team_id or not req.skill_id:
+def skill_library_apply_evolution(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    new_instructions = body.get("new_instructions", "")
+    if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_evolver().apply_evolution(req.team_id, req.skill_id, req.new_instructions)
+    return _get_skill_evolver().apply_evolution(team_id, skill_id, new_instructions)
 
 
 @router.post("/skill-library/verify", summary="验证技能")
-async def skill_library_verify(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.team_id or not req.skill_id:
+async def skill_library_verify(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    provider_config = _resolve_team_provider_config(req.team_id)
-    result = await _get_skill_verifier().verify_skill(
-        req.team_id,
-        req.skill_id,
-        provider_config=provider_config,
-    )
+    result = await _get_skill_verifier().verify_skill(team_id, skill_id)
     return result.to_dict()
 
 
 @router.post("/skill-library/publish", summary="发布技能到公共库")
-def skill_library_publish(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.team_id or not req.skill_id:
+def skill_library_publish(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    team_id = body.get("team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_library().publish(req.team_id, req.skill_id)
-
-
-@router.post("/skill-library/publish-gate", summary="检查技能发布质量门禁")
-def skill_library_publish_gate(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.team_id or not req.skill_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_library().evaluate_publish_gate(req.team_id, req.skill_id)
+    return _get_skill_library().publish(team_id, skill_id)
 
 
 @router.post("/skill-library/import", summary="引入公共技能到团队")
-def skill_library_import(req: SkillLibraryActionRequest) -> Dict[str, Any]:
-    if not req.target_team_id or not req.skill_id:
+def skill_library_import(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    target_team_id = body.get("target_team_id", "")
+    skill_id = body.get("skill_id", "")
+    if not target_team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="target_team_id and skill_id required")
-    return _get_skill_library().import_skill(req.target_team_id, req.skill_id)
-
-
-# ── Skill Version Management ───────────────────────────────────
-
-class VersionRollbackRequest(BaseModel):
-    team_id: str = ""
-    skill_id: str = ""
-    target_version: int = 0
-
-
-class VersionSnapshotRequest(BaseModel):
-    team_id: str = ""
-    skill_id: str = ""
-
-
-@router.post("/skill-library/version/snapshot", summary="创建版本快照")
-def skill_version_snapshot(req: VersionSnapshotRequest) -> Dict[str, Any]:
-    """保存技能当前状态作为版本快照，用于后续回滚."""
-    if not req.team_id or not req.skill_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    lib = _get_skill_library()
-    skill = lib._find_skill(req.team_id, req.skill_id)
-    if not skill:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
-    return lib.create_version_snapshot(skill)
-
-
-@router.get("/skill-library/{skill_id}/versions", summary="获取版本历史")
-def skill_list_versions(skill_id: str, team_id: str = "") -> Dict[str, Any]:
-    """列出技能的所有版本快照."""
-    lib = _get_skill_library()
-    versions = lib.list_versions(skill_id)
-    return {"skill_id": skill_id, "versions": versions, "count": len(versions)}
-
-
-@router.post("/skill-library/version/rollback", summary="回滚技能版本")
-def skill_version_rollback(req: VersionRollbackRequest) -> Dict[str, Any]:
-    """回滚技能到指定版本."""
-    if not req.team_id or not req.skill_id or not req.target_version:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id, skill_id, and target_version required")
-    return _get_skill_library().rollback_version(req.team_id, req.skill_id, req.target_version)
+    return _get_skill_library().import_skill(target_team_id, skill_id)
 
 
 @router.get("/skill-library/{skill_id}/lineage", summary="获取技能演化谱系")
@@ -10578,3 +7945,4 @@ def skill_library_lineage(skill_id: str, team_id: str = "") -> Dict[str, Any]:
 @router.get("/skill-library/{skill_id}/evolution-history", summary="获取技能演化历史")
 def skill_library_evolution_history(skill_id: str, team_id: str = "") -> Dict[str, Any]:
     return _get_skill_evolver().get_evolution_history(team_id, skill_id)
+

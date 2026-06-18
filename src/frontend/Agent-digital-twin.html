@@ -96,6 +96,7 @@ body {
 
 /* 阶段三：导演台 */
 .director-panel{background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;max-width:320px;}
+#trial-director-panel{position:absolute;top:14px;left:14px;z-index:22;width:300px;max-height:calc(100% - 28px);overflow-y:auto;margin-top:0;}
 .dp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
 .dp-title{font-size:13px;font-weight:700;color:var(--text);}
 .dp-status-badge{font-size:10px;color:var(--green);font-family:monospace;}
@@ -807,7 +808,10 @@ body {
           
           <div class="env-reward-float" id="env-reward-float" style="display:none">
             <div class="erf-title">实时收益</div>
-          
+            <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
+            <svg class="erf-mini-chart" viewBox="0 0 160 28"><polyline id="erf-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"/></svg>
+          </div>
+
           <div id="trial-director-panel" class="director-panel">
             <div class="dp-header"><span class="dp-title">🎬 试炼导演台</span><span class="dp-header-status"><button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button><span class="dp-status-badge" id="dp-status-badge">● 就绪</span></span></div>
             <div class="dp-section"><label class="dp-label">团队</label><select id="dp-team-select" class="dp-select" onchange="onDirectorTeamChange(this.value)"><option value="">— 选择团队 —</option><option value="build-system">Build System</option><option value="ai-programming">AI 编程团队</option><option value="cloudops">公有云 xOPs</option></select></div>
@@ -840,11 +844,7 @@ body {
               </div>
             </div>
           </div>
-        
-            <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
-            <svg class="erf-mini-chart" viewBox="0 0 160 28"><polyline id="erf-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"/></svg>
-          </div>
-          <div style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
+          <div style="position:absolute;bottom:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
             <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
             <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
           </div>

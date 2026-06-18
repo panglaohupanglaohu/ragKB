@@ -81,6 +81,48 @@
   border-color: var(--koke);
   color: var(--koke);
 }
+
+/* Keep modal tabs and usage actions visible on constrained widths */
+.modal-tabs-bar {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  row-gap: 4px;
+  overflow-x: auto;
+}
+
+.modal-tabs-bar .modal-tab {
+  flex-shrink: 0;
+}
+
+#tab-usage .usage-top-bar {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#tab-usage .usage-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+#tab-usage .usage-chat-head {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#tab-usage .usage-chat-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+@media (max-width: 960px) {
+  #tab-usage .usage-top-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
 .topbar-ws__right .team-chips__more {
   font-size: 10px;
   padding: 3px 8px;

@@ -400,12 +400,17 @@ async def startup():
         _target_team = os.environ.get("AG_TEAM_ID", "").strip()
 
         _team_manager = TeamManager()
-        if not _target_team or _target_team == "build_system":
+        # 工厂团队只在磁盘上「尚未存在」时用于首次播种(seed)。
+        # 若磁盘已持久化该团队(含萃取/注入的技能、绑定关系等演化状态)，则以磁盘为准，
+        # 不能用代码里的空骨架团队覆盖，否则每次重启都会清空技能(数据丢失)。
+        if (not _target_team or _target_team == "build_system") \
+                and "build_system" not in _team_manager._teams:
             build_team_obj = create_build_team()
             _team_manager._teams[build_team_obj.team_id] = build_team_obj
 
         # AI 编程团队
-        if not _target_team or _target_team == "ai_coding":
+        if (not _target_team or _target_team == "ai_coding") \
+                and "ai_coding" not in _team_manager._teams:
             try:
                 from agents.teams.ai_coding_team import create_ai_coding_team
                 ai_coding_obj = create_ai_coding_team()
@@ -414,7 +419,8 @@ async def startup():
                 logger.warning(f"⚠️ AI Coding team not loaded: {e}")
 
         # Energy team
-        if not _target_team or _target_team == "energy":
+        if (not _target_team or _target_team == "energy") \
+                and "energy_first_principle" not in _team_manager._teams:
             try:
                 from agents.teams.energy_team import create_energy_team
                 energy_team_obj = create_energy_team()
@@ -423,7 +429,8 @@ async def startup():
                 logger.warning(f"⚠️ Energy team not loaded: {e}")
 
         # 公有云 xOPs 团队 (optional)
-        if not _target_team or _target_team == "xops":
+        if (not _target_team or _target_team == "xops") \
+                and "d083a568" not in _team_manager._teams:
             try:
                 from agents.teams.xops_team import create_xops_team
                 xops_team_obj = create_xops_team()
@@ -436,11 +443,12 @@ async def startup():
             try:
                 from agents.teams.cloud_ops_team import create_cloud_ops_team
                 cloud_ops_obj = create_cloud_ops_team()
-                _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
-                logger.info(
-                    f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
-                    f"— {len(cloud_ops_obj.agents)} agents"
-                )
+                if cloud_ops_obj.team_id not in _team_manager._teams:
+                    _team_manager._teams[cloud_ops_obj.team_id] = cloud_ops_obj
+                    logger.info(
+                        f"✅ Cloud Ops team registered: {cloud_ops_obj.team_id} "
+                        f"— {len(cloud_ops_obj.agents)} agents"
+                    )
             except Exception as e:
                 logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
 

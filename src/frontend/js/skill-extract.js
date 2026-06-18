@@ -33,6 +33,7 @@ let currentFilter = '';
 let selectedItemId = null;
 let allSkills = [];
 let sseSource = null;
+let currentExtractSourceMeta = null;
 
 // CSRF token cache — fetched once, reused for all state-changing requests
 var _csrfToken_sk = '';
@@ -187,6 +188,11 @@ async function loadTeams() {
       document.getElementById('source-text').value = src.source_text || '';
       document.getElementById('source-title').value = src.source_title || '';
       document.getElementById('source-type').value = src.source_type || 'chat';
+      currentExtractSourceMeta = {
+        source_plaza_id: src.source_plaza_id || '',
+        source_discussion_id: src.source_discussion_id || '',
+        source_output_id: src.source_output_id || '',
+      };
       renderPlazaSourceMeta(src);
       document.getElementById('knowledge-input-section').classList.remove('collapsed');
       setTimeout(() => startExtraction(), 500);
@@ -195,6 +201,7 @@ async function loadTeams() {
     document.getElementById('source-text').value = decodeURIComponent(params.get('source_text'));
     document.getElementById('source-title').value = decodeURIComponent(params.get('source_title') || '');
     document.getElementById('source-type').value = params.get('source_type') || 'chat';
+    currentExtractSourceMeta = null;
     document.getElementById('knowledge-input-section').classList.remove('collapsed');
     setTimeout(() => startExtraction(), 500);
   }
@@ -470,14 +477,35 @@ async function loadQueue() {
   if (items) { queueItems = items; renderQueue(); }
 }
 
+function _isCurrentSourceItem(item) {
+  if (!currentExtractSourceMeta) return true;
+  const wantPlaza = String(currentExtractSourceMeta.source_plaza_id || '').trim();
+  const wantDisc = String(currentExtractSourceMeta.source_discussion_id || '').trim();
+  const wantOutput = String(currentExtractSourceMeta.source_output_id || '').trim();
+  if (!wantPlaza && !wantDisc && !wantOutput) return true;
+
+  const meta = (item && typeof item === 'object' && item.source_meta && typeof item.source_meta === 'object')
+    ? item.source_meta
+    : {};
+  const gotPlaza = String(meta.source_plaza_id || '').trim();
+  const gotDisc = String(meta.source_discussion_id || '').trim();
+  const gotOutput = String(meta.source_output_id || '').trim();
+
+  if (wantPlaza && gotPlaza !== wantPlaza) return false;
+  if (wantDisc && gotDisc !== wantDisc) return false;
+  if (wantOutput && gotOutput !== wantOutput) return false;
+  return true;
+}
+
 function renderQueue() {
   const el = document.getElementById('queue-list');
-  let filtered = queueItems;
+  let filtered = queueItems.filter(_isCurrentSourceItem);
   if (currentFilter) filtered = filtered.filter(i => i.status === currentFilter);
 
   if (!filtered.length) {
+    const scoped = !!(currentExtractSourceMeta && (currentExtractSourceMeta.source_plaza_id || currentExtractSourceMeta.source_discussion_id || currentExtractSourceMeta.source_output_id));
     el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:oklch(0.4 0.005 110);font-size:12px">
-      暂无${currentFilter ? '此状态的' : ''}萃取项目</div>`;
+      ${scoped ? '当前讨论来源暂无' : '暂无'}${currentFilter ? '此状态的' : ''}萃取项目</div>`;
     return;
   }
 
@@ -529,13 +557,17 @@ window.startExtraction = async function() {
 
   const title = document.getElementById('source-title').value.trim();
   const type = document.getElementById('source-type').value;
+  const body = { source_text: text, source_title: title, source_type: type };
+  if (currentExtractSourceMeta && (currentExtractSourceMeta.source_plaza_id || currentExtractSourceMeta.source_discussion_id || currentExtractSourceMeta.source_output_id)) {
+    body.source_meta = currentExtractSourceMeta;
+  }
 
   document.getElementById('btn-extract').disabled = true;
   document.getElementById('btn-extract').textContent = '萃取中…';
 
   const result = await api(`/teams/${currentTeamId}/skill-extract/start`, {
     method: 'POST',
-    body: JSON.stringify({ source_text: text, source_title: title, source_type: type }),
+    body: JSON.stringify(body),
   });
 
   document.getElementById('btn-extract').disabled = false;
@@ -1015,6 +1047,31 @@ function escHtml(s) {
 }
 
 window.refreshUsageTab = function() { loadUsageTab(); showToast('🔄 已刷新'); };
+
+// ── Inject current skill to a selected agent directly from the detail modal ──
+window.injectSkillToAgent = async function() {
+  const item = queueItems.find(q => q.item_id === selectedItemId);
+  if (!item) { showToast('请先选择技能项目'); return; }
+  const skillId = resolveSkillId(item);
+  if (!skillId) {
+    showToast('该技能尚未入库，请先点「特质/公共/储备技能」批准后再注入');
+    return;
+  }
+  const agentSel = document.getElementById('approve-agent-select');
+  const agentId = agentSel?.value;
+  if (!agentId) {
+    showToast('请先在上方下拉框中选择要注入的智能体');
+    agentSel?.focus();
+    return;
+  }
+  const data = await routerApi('/assign', {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: agentId, team_id: currentTeamId || 'default', skill_ids: [skillId] }),
+  });
+  if (!data) return;
+  const profMsg = (data.results || []).some(r => r.proficiency_boosted) ? '，熟练度已提升' : '';
+  showToast(`⚡ 已将「${item.draft_name || skillId}」注入 ${agentId}${profMsg}`);
+};
 
 window.showUsageCompare = function() {
   const panel = document.getElementById('usage-compare-panel');

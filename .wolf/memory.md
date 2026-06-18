@@ -153,3 +153,8 @@
 - 关联: bug-027。
 
 - 2026-06-18 docs 签名治理:总规则 docs/SIGNING_RULE.md + 校验器 check-docs-signoff.cjs(selftest 5/5,全量 0 FAIL/29 WARN);ponytail 一行注入(copilot-instructions L19 + AGENTS.md §5);用户选 WARN-only、不挂钩子
+- 2026-06-18 skill-extract 跨议题误去重修复: 去重从 source_text 前2000字改为 source_meta(plaza/discussion/output)+全文SHA-256；API start 支持 source_meta 透传，skill-extract.js 自动带来源元数据；不同议题不再误命中“该文本已萃取过”。(bug-028)
+- 2026-06-18 skill-extract 删除后复活修复: delete_item 增加来源墓碑(source_key+全文sha256)并持久化；start_extraction 命中墓碑时不再入队，仅返回 dedup_skipped/rejected，避免“右侧删了再萃取又出现”。(bug-029)
+- 2026-06-18 skill-extract fallback 议题化: LLM 不可用时不再输出固定ES/Terraform/成本模板，改为根据 source_title+source_text 关键词动态生成候选，避免跨议题同名误导。(bug-030)
+- 2026-06-18 skill-extract 队列来源隔离: 从议事厅跳转时，右侧队列按 currentExtractSourceMeta 过滤，只显示当前讨论来源的项目，不再混入历史旧议题。(bug-031)
+- 2026-06-18 skill-extract 详情弹窗按钮缺失修复: 按钮并非 JS 隐藏，而是 modal tab/usage action 的 flex 单行裁切；在 skill-extract.html 增加稳定 class 并在 skill-extract.css 增加 wrap/overflow 响应式规则，确保“展示对比/刷新/快捷建议”可见。(bug-032)

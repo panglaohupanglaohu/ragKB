@@ -1,5 +1,63 @@
 [
   {
+    "id": "bug-036",
+    "timestamp": "2026-06-18T10:30:00.000000",
+    "error_message": "数字孪生「环境空间」试炼导演台(含 自动运行/单步/停止演练/运行开发流程仿真 按钮)时有时无，且菜单在 3D 窗口内显示不全被裁剪",
+    "file": "src/frontend/Agent-digital-twin.html",
+    "root_cause": "DOM 嵌套错误：整个 #trial-director-panel(试炼导演台) 被误嵌在 #env-reward-float 内部。env-reward-float 默认 display:none，只有试炼产生收益数据时 showRewardFloat() 才显示，所以导演台按钮跟着收益卡的可见性走——收益卡出现才显示，故「有时能弹出有时不能」。同时 .director-panel 无 max-height/overflow，且 env-3d-container 有 overflow:hidden，导致菜单超出被裁剪。",
+    "fix": "把 #trial-director-panel 从 env-reward-float 中提出来作为兄弟节点(env-3d-container 直接子级)，与导演台无关的 showRewardFloat 只操作 env-reward-float 故安全。给 #trial-director-panel 加 position:absolute;top:14px;left:14px;max-height:calc(100% - 28px);overflow-y:auto 使其常驻可见且可滚动不裁剪；拖拽提示移到 bottom-left 避免遮挡。验证：HTML 无错误，DOM 平衡。",
+    "related_bugs": [],
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "dom-nesting",
+      "director-panel",
+      "css-overflow",
+      "ui-regression"
+    ]
+  },
+  {
+    "id": "bug-035",
+    "timestamp": "2026-06-18T09:55:00.000000",
+    "error_message": "Agent 技能 Tab「团队可用技能 (0)」——没有可绑定技能可选；且用户反馈绑定提示门禁、解绑报 409",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "ag-skills 渲染只拉 /teams/{tid}/skills(团队本地，仅2个且都已绑定)，没有把全局内置技能库 GET /api/v1/agent-config/skills(43个) 纳入「可绑定」列表，导致可绑定为0。门禁/409 提示则是浏览器仍在跑重启前的旧缓存 JS(togAgentSkill 旧版含 409「门禁拦截」分支)，新版已无该逻辑(后端 PUT skills 无门禁、不返 409)，硬刷新即消失。",
+    "fix": "ag-skills 改为 Promise.all 同时拉团队技能+全局技能库，把未绑定且不在团队列表的内置技能作为「可绑定技能」列出(标 🌐 技能库)；内置技能在 agent.skills 按 name 存储，故绑定标识 bind_id 用 name 保证解绑/识别一致。验证：可绑定 43 个，已绑定的 code_implementation/debugging 等正确排除。",
+    "related_bugs": [
+      "bug-033",
+      "bug-034"
+    ],
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skill-bind",
+      "skill-registry",
+      "stale-js-cache",
+      "409"
+    ]
+  },
+  {
+    "id": "bug-034",
+    "timestamp": "2026-06-18T09:35:00.000000",
+    "error_message": "前端「技能」Tab 显示团队/智能体技能为空（重启后萃取与注入的技能消失），但磁盘 storage/teams/teams.json 仍有数据",
+    "file": "src/backend/main.py",
+    "root_cause": "启动序列里 TeamManager() 已从磁盘加载 build_system/ai_coding（含萃取的 team.skills 与注入到 agent.skills 的技能），但随后无条件用 create_build_team()/create_ai_coding_team() 等工厂函数生成的空骨架团队覆盖 _team_manager._teams[team_id]，把磁盘上的演化状态清空（团队技能→0，Developer 技能 8→4）。a7c36670(AWS) 因无工厂函数、纯磁盘加载所以幸存。且一旦任何技能操作触发 _persist() 会把清空后的状态写回磁盘=永久数据丢失（定时炸弹）。",
+    "fix": "工厂团队改为「仅在磁盘尚未存在该 team_id 时才 seed」：每个 create_*_team 注入前加 `and \"<team_id>\" not in _team_manager._teams` 守卫，cloud_ops 用 `cloud_ops_obj.team_id not in ...`。磁盘优先，重启不再清空。验证：重启后 build_system team skills=2、Developer skills=8。",
+    "related_bugs": [
+      "bug-032",
+      "bug-033"
+    ],
+    "tags": [
+      "backend",
+      "startup",
+      "data-loss",
+      "team-manager",
+      "factory-overwrite",
+      "skills",
+      "persistence"
+    ]
+  },
+  {
     "id": "bug-plaza-modal-hidden",
     "timestamp": "2026-06-16T13:30:00.000000",
     "error_message": "议事广场删除按钮只弹出蒙版看不到确认框；新建广场按钮点击也只显示蒙版无内容",
@@ -463,5 +521,125 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-06-18T02:25:00.000000"
+  },
+  {
+    "id": "bug-028",
+    "timestamp": "2026-06-18T16:20:00.000000",
+    "error_message": "技能萃取在不同讨论议题下误报“该文本已萃取过”，并重复返回同一技能候选",
+    "file": "src/backend/agents/skill_extractor.py, src/backend/agents/api.py, src/frontend/js/skill-extract.js",
+    "root_cause": "去重逻辑仅比较 source_text 前 2000 字符，且未携带 source_plaza_id/source_discussion_id/source_output_id 上下文；当不同讨论文本前缀相同或长文本前 2000 字重合时被误判为同源，直接返回旧队列项，前端看到跨议题重复技能。",
+    "fix": "将去重改为“全文 SHA-256 + 来源签名”策略：优先用 source_meta( plaza/discussion/output )比对，同步比对全文哈希；缺少来源签名时退化为同 type+title+全文哈希。API start 路由支持 source_meta 透传，前端 skill-extract 在 Plaza 跳转萃取时携带 source_meta。",
+    "tags": [
+      "frontend",
+      "backend",
+      "skill-extract",
+      "dedup",
+      "discussion-id",
+      "plaza",
+      "false-positive"
+    ],
+    "related_bugs": [
+      "bug-009"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T16:20:00.000000"
+  },
+  {
+    "id": "bug-029",
+    "timestamp": "2026-06-18T16:40:00.000000",
+    "error_message": "技能审核队列中手动删除后，从议事厅再次点击萃取会把同来源候选重新生成（技能‘复活’）",
+    "file": "src/backend/agents/skill_extractor.py",
+    "root_cause": "delete_item 仅删除队列项，没有保存‘已删除来源’状态；start_extraction 不知道该来源曾被人工删除，因此同来源再次触发时会重新入队生成。",
+    "fix": "增加 deleted source tombstone 机制：按 source_key(source_type/plaza/discussion/output)+全文sha256 生成来源指纹；delete_item 时写入墓碑并持久化；start_extraction 命中墓碑则返回 dedup_skipped/REJECTED，不再自动入队复活。",
+    "tags": [
+      "backend",
+      "skill-extract",
+      "delete",
+      "tombstone",
+      "dedup",
+      "queue"
+    ],
+    "related_bugs": [
+      "bug-028"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T16:40:00.000000"
+  },
+  {
+    "id": "bug-030",
+    "timestamp": "2026-06-18T17:05:00.000000",
+    "error_message": "不同议题点击萃取仍出现同一批技能候选（看起来像萃取到了其他议题）",
+    "file": "src/backend/agents/skill_extractor.py",
+    "root_cause": "LLM 不可用/解析失败时，_fallback_skill_specs 使用固定写死模板（ES容量、Terraform、成本治理等），导致任何议题都会产出相同候选名称，用户感知为‘还是其他议题的’。",
+    "fix": "将 fallback 候选改为 topic-aware：基于 source_title + source_text 提取关键词，动态生成需求拆解/实施路径/验收闭环三类技能，不再输出固定跨议题模板。",
+    "tags": [
+      "backend",
+      "skill-extract",
+      "fallback",
+      "llm-unavailable",
+      "topic-aware",
+      "ux"
+    ],
+    "related_bugs": [
+      "bug-028",
+      "bug-029"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T17:05:00.000000"
+  },
+  {
+    "id": "bug-031",
+    "timestamp": "2026-06-18T17:25:00.000000",
+    "error_message": "从议事厅跳转萃取后，右侧审核队列仍混入历史旧议题候选，用户误以为‘又萃取成其他议题’",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "队列渲染默认展示团队全部历史项；历史项大量缺失 source_meta，且名称与当前议题不一致，视觉上像当前萃取结果被污染。",
+    "fix": "新增来源作用域过滤：当存在 currentExtractSourceMeta(plaza/discussion/output) 时，renderQueue 仅显示匹配 source_meta 的项目；空列表文案改为‘当前讨论来源暂无…’。",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "queue",
+      "source-scope",
+      "ux"
+    ],
+    "related_bugs": [
+      "bug-028",
+      "bug-029",
+      "bug-030"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T17:25:00.000000"
+  },
+  {
+    "id": "bug-032",
+    "timestamp": "2026-06-18T07:55:31.000000",
+    "error_message": "技能详情弹窗“效果”页部分按钮在中等宽度下不显示（展示对比/刷新及快捷按钮被裁切）",
+    "file": "src/frontend/skill-extract.html, src/frontend/css/skill-extract.css",
+    "root_cause": "按钮本身存在且 JS 未隐藏，但详情弹窗 tab 条和 usage 头部动作区使用单行 flex，空间不足时发生裁切/挤压，导致用户看到‘按钮没展示出来’。",
+    "fix": "给相关区域加稳定 class 并补响应式规则：modal tab 条允许 wrap + 横向滚动，usage 头部与快捷按钮区允许换行，在 <=960px 时动作区占满并左对齐，保证按钮始终可见。",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "modal",
+      "css",
+      "responsive",
+      "button-visibility"
+    ],
+    "related_bugs": [
+      "bug-031"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T07:55:31.000000"
+  },
+  {
+    "id": "bug-033",
+    "timestamp": "2026-06-18T08:30:00.000000",
+    "error_message": "智能体技能页点击「解绑」提示「绑定失败 HTTP 404」；点击「绑定」提示「被门禁拦截」",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "togAgentSkill 所有错误分支都写死'绑定失败'，解绑操作也用同一文案；409 分支硬写'被门禁拦截/技能未通过验证'，但 PUT /agents/{id}/skills 后端没有 gate check，该文案完全误导用户。另外 URL 中 aid 未做 encodeURIComponent，agent_id 含特殊字符时导致 404。",
+    "fix": "1) 引入 action 变量（bind?'绑定':'解绑'），所有 toast 使用 action 变量；2) 合并 4xx/5xx 到统一错误分支，读取 body.detail 显示真实后端错误，不再特判 409 为'门禁'；3) URL 中 aid 改为 encodeURIComponent(aid) 防止特殊字符 404。",
+    "tags": ["frontend", "agent-detail", "skill-bind", "toast-message", "url-encoding"],
+    "related_bugs": ["bug-017"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T08:30:00.000000"
   }
 ]
