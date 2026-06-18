@@ -3,26 +3,52 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>成本治理工作台 - AgentsGroup2026</title>
+  <title>演进式成本优化 - AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/topbar-ws.css">
   <link rel="stylesheet" href="/css/cost-dashboard.css">
+  <style>
+    /* 演进概览 + 棘轮样式（从 system-evolution 移植） */
+    .ev-ratchet-flow{display:flex;align-items:center;gap:0;padding:16px 0;overflow-x:auto}
+    .ev-ratchet-node{display:flex;flex-direction:column;align-items:center;min-width:90px}
+    .ev-ratchet-dot{width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;border:2px solid var(--groove,var(--line));background:var(--panel2,#21272D);transition:.35s;border-radius:50%}
+    .ev-ratchet-dot.active{border-color:var(--lime);box-shadow:0 0 0 3px rgba(107,196,127,0.20);animation:ev-pulse 2s ease-in-out infinite}
+    .ev-ratchet-dot.done{border-color:var(--lime);background:rgba(107,196,127,0.12);color:var(--lime)}
+    @keyframes ev-pulse{0%,100%{box-shadow:0 0 0 3px rgba(107,196,127,0.20)}50%{box-shadow:0 0 0 5px rgba(107,196,127,0.30)}}
+    .ev-ratchet-label{font-size:11px;color:var(--dim);margin-top:6px;text-align:center;font-weight:500}
+    .ev-ratchet-connector{flex:1;min-width:20px;height:2px;background:var(--line);margin:0 4px;position:relative;top:-20px}
+    .ev-ratchet-connector.done{background:var(--lime)}
+    .ev-stat-card{background:var(--panel2,#21272D);border:1px solid var(--line);padding:14px;border-radius:0}
+    .ev-stat-card .label{font-size:11px;color:var(--dim);margin-bottom:4px}
+    .ev-stat-card .value{font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text)}
+    .ev-heritage-item{padding:10px 12px;background:var(--panel2,#21272D);border-left:2px solid var(--lime);margin-bottom:6px;font-size:12px}
+    .ev-heritage-item .h-title{font-weight:600;color:var(--text)}
+    .ev-heritage-item .h-meta{font-size:11px;color:var(--dim);margin-top:2px}
+    .ev-panel{background:var(--panel,#1a1f24);border:1px solid var(--line);border-radius:0;padding:16px;margin-bottom:16px}
+    .ev-panel h3{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text)}
+    .ev-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:12px}
+    .ev-action-bar{display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel,#1a1f24);flex-wrap:wrap}
+    .ev-action-bar .btn{font-size:12px;padding:6px 14px}
+    .main-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
+    @media(max-width:1200px){.main-split{grid-template-columns:1fr}}
+    .token-suggest{padding:10px 12px;background:rgba(53,200,255,0.04);border-left:2px solid var(--cyan-s);margin-bottom:6px;font-size:12px}
+    .token-suggest b{color:var(--cyan-s)}
+  </style>
 </head>
 <body class="cost-page">
   <!-- Wabi-Sabi Topbar -->
   <header class="topbar-ws">
     <div class="topbar-ws__left">
-      <h1>成本治理工作台</h1>
+      <h1>演进式成本优化</h1>
     </div>
     <nav class="topbar-ws__nav" aria-label="主导航">
       <a href="/agent-team-config.html">智能体团队</a>
       <a href="/plaza.html">议事广场</a>
       <a href="/skill-extract.html">技能萃取/赋予</a>
       <a href="/Agent-digital-twin.html">数字孪生</a>
-      <a href="/system-evolution.html">系统演进</a>
-      <span class="cur">成本监控</span>
+      <span class="cur">演进式成本优化</span>
     </nav>
     <div class="topbar-ws__right">
       <div class="topbar-ws__user">
@@ -33,12 +59,21 @@
     </div>
   </header>
 
+  <!-- 治理动作上移到顶部操作栏 -->
+  <div class="ev-action-bar">
+    <button class="btn cost-btn cost-btn--primary" onclick="evaluateCostGate()">🚦 成本门禁评估</button>
+    <button class="btn cost-btn" onclick="generateGovernanceGoals()">🎯 生成治理目标</button>
+    <button class="btn cost-btn" onclick="runSustainabilityCheck()">📈 可持续性检查</button>
+    <button class="btn cost-btn cost-btn--ghost" onclick="runCycleOnRatchet()">▶ 运行棘轮演进周期</button>
+    <button class="btn cost-btn cost-btn--ghost" onclick="runAuditOnly()">🔍 仅审查</button>
+  </div>
+
   <div class="cost-dashboard">
-    <!-- ============== Cost Header (replaces inline styles) ============== -->
+    <!-- Cost Header -->
     <div class="cost-header">
       <div class="cost-header__lead">
-        <div class="cost-header__eyebrow">FinOps Control Tower</div>
-        <p>把 OpenCost、Cost Gate、任务派发串成可以执行的 FinOps 闭环</p>
+        <div class="cost-header__eyebrow">Token 最小化 · 棘轮演进 · 治理闭环</div>
+        <p>通过 skill 萃取、skill 路由、Agent 协同，让系统完成业务场景任务时耗费的 token 最少</p>
       </div>
       <div class="cost-status">
         <div class="cost-status__group">
@@ -56,7 +91,7 @@
 
     <div id="dashboard-alert" class="dashboard-alert"></div>
 
-    <!-- ============== Filter Bar ============== -->
+    <!-- Filter Bar -->
     <div class="filter-bar">
       <label>聚合维度
         <select id="filter-aggregation" onchange="refreshDashboard()">
@@ -86,125 +121,171 @@
       <label style="align-self:flex-end">
         <button class="btn cost-btn cost-btn--ghost" onclick="resetFilters()">重置筛选</button>
       </label>
-      <label class="budget-label" id="budget-wrap" style="align-self:flex-end">
-        <span class="budget-pill" id="budget-pill" style="display:none">
-          预算 <strong id="budget-pill-value">$0</strong>
-          <button class="budget-clear" id="budget-clear" title="清除预算">×</button>
-        </span>
-        <span class="budget-input-wrap" id="budget-input-wrap">
-          <span class="budget-input-prefix">$</span>
-          <input class="budget-input" type="number" id="budget-input" placeholder="月度预算" min="0" step="0.01">
-          <button class="cost-btn cost-btn--ghost cost-btn--sm" id="budget-set">设置</button>
-        </span>
-      </label>
     </div>
 
-    <!-- ============== KPI Hero ============== -->
-    <section class="kpi-hero" id="kpi-hero">
-      <div class="kpi-hero__skeleton">
-        <div class="kpi-card kpi-card--skeleton"></div>
-        <div class="kpi-card kpi-card--skeleton"></div>
-        <div class="kpi-card kpi-card--skeleton"></div>
-        <div class="kpi-card kpi-card--skeleton"></div>
-      </div>
-    </section>
+    <!-- 左右分栏：左侧成本监控，右侧演进概览+棘轮 -->
+    <div class="main-split">
+      <!-- ============== 左侧：成本监控 ============== -->
+      <div class="cost-left">
+        <!-- KPI Hero -->
+        <section class="kpi-hero" id="kpi-hero">
+          <div class="kpi-hero__skeleton">
+            <div class="kpi-card kpi-card--skeleton"></div>
+            <div class="kpi-card kpi-card--skeleton"></div>
+            <div class="kpi-card kpi-card--skeleton"></div>
+            <div class="kpi-card kpi-card--skeleton"></div>
+          </div>
+        </section>
 
-    <!-- ============== Token Efficiency View ============== -->
-    <section class="panel panel--efficiency" style="margin-bottom:24px">
-      <header class="panel__head panel__head--row">
-        <div>
-          <h3>效率视角</h3>
-          <p class="panel__sub">按 score / 1k tokens 排名，联动 sustainability 等级</p>
-        </div>
-        <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEfficiencyView()">刷新效率</button>
-      </header>
-      <div id="efficiency-panel">
-        <div class="loading-state"><div class="spinner"></div></div>
-      </div>
-    </section>
-
-    <!-- ============== Workbench: 2 charts + governance ============== -->
-    <section class="workbench-grid">
-      <div class="charts-grid">
-        <div class="panel panel--chart">
-          <header class="panel__head">
+        <!-- Token Efficiency View -->
+        <section class="panel panel--efficiency" style="margin-bottom:16px">
+          <header class="panel__head panel__head--row">
             <div>
-              <h3>成本构成 Top 10</h3>
-              <p class="panel__sub">按当前聚合维度的最大成本单元</p>
+              <h3>效率视角</h3>
+              <p class="panel__sub">按 score / 1k tokens 排名，联动 sustainability 等级</p>
             </div>
-            <div class="panel__legend">
-              <span class="legend-dot legend-dot--accent"></span>当前主导成本
-            </div>
+            <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEfficiencyView()">刷新效率</button>
           </header>
-          <div class="chart-container" id="breakdown-chart">
+          <div id="efficiency-panel">
             <div class="loading-state"><div class="spinner"></div></div>
           </div>
-        </div>
+        </section>
 
-        <div class="panel panel--chart">
-          <header class="panel__head">
-            <div>
-              <h3>成本趋势</h3>
-              <p class="panel__sub" id="trends-sub">—</p>
+        <!-- Charts -->
+        <section class="workbench-grid">
+          <div class="charts-grid">
+            <div class="panel panel--chart">
+              <header class="panel__head">
+                <div>
+                  <h3>成本构成 Top 10</h3>
+                  <p class="panel__sub">按当前聚合维度的最大成本单元</p>
+                </div>
+              </header>
+              <div class="chart-container" id="breakdown-chart">
+                <div class="loading-state"><div class="spinner"></div></div>
+              </div>
             </div>
-            <div class="panel__legend">
-              <span class="legend-dot legend-dot--success"></span>总成本曲线
+
+            <div class="panel panel--chart">
+              <header class="panel__head">
+                <div>
+                  <h3>成本趋势</h3>
+                  <p class="panel__sub" id="trends-sub">—</p>
+                </div>
+              </header>
+              <div class="chart-container" id="trends-chart">
+                <div class="loading-state"><div class="spinner"></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Pod 成本明细 -->
+        <section class="panel panel--table" style="margin-bottom:16px">
+          <header class="panel__head panel__head--row">
+            <div>
+              <h3>Pod 成本明细 <span class="panel__count" id="pod-count"></span></h3>
+              <p class="panel__sub">按"总计"降序，最多展示前 50 条</p>
             </div>
           </header>
-          <div class="chart-container" id="trends-chart">
+          <div class="table-wrap">
+            <table class="data-table" id="pods-table">
+              <thead>
+                <tr>
+                  <th>Pod</th><th>命名空间</th><th>服务</th><th>环境</th><th>团队</th>
+                  <th class="num">CPU</th><th class="num">内存</th><th class="num">网络</th><th class="num">总计</th><th>动作</th>
+                </tr>
+              </thead>
+              <tbody id="pods-tbody">
+                <tr><td colspan="10" class="loading-state"><div class="spinner" style="margin:20px auto"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Token 优化建议 -->
+        <section class="ev-panel">
+          <h3>💡 Token 优化建议</h3>
+          <div id="token-hotspots">
             <div class="loading-state"><div class="spinner"></div></div>
           </div>
-        </div>
+          <div id="skill-suggestions" style="margin-top:12px"></div>
+        </section>
       </div>
 
-      <aside class="panel panel--governance">
-        <header class="panel__head">
-          <div>
-            <h3>治理动作</h3>
-            <p class="panel__sub">一键把异常成本接入任务/议事厅/演进</p>
+      <!-- ============== 右侧：演进概览 + 棘轮 ============== -->
+      <div class="cost-right">
+        <!-- 演进概览 -->
+        <div class="ev-panel">
+          <h3>演进概览</h3>
+          <!-- 合规评级 -->
+          <div id="ov-rating" class="ev-card-grid"></div>
+          <!-- 演进统计 -->
+          <div id="ov-stats" class="ev-card-grid"></div>
+        </div>
+
+        <!-- 棘轮迷你流程 -->
+        <div class="ev-panel">
+          <h3>🔄 达尔文棘轮 — 演进周期</h3>
+          <div id="ov-ratchet" class="ev-ratchet-flow"></div>
+          <div id="ov-cycle-log" style="display:none;font-size:12px;color:var(--dim);margin-top:8px"></div>
+          <!-- 最近演进条目 -->
+          <div style="margin-top:16px">
+            <h3 style="font-size:13px">最近演进条目</h3>
+            <div id="ov-items"></div>
           </div>
-        </header>
-        <div class="governance-stack" id="governance-panel">
-          <div class="loading-state"><div class="spinner"></div></div>
         </div>
-      </aside>
-    </section>
 
-    <!-- ============== Pod 成本明细 ============== -->
-    <section class="panel panel--table" style="margin-bottom:24px">
-      <header class="panel__head panel__head--row">
-        <div>
-          <h3>Pod 成本明细 <span class="panel__count" id="pod-count"></span></h3>
-          <p class="panel__sub">按"总计"降序，最多展示前 50 条</p>
+        <!-- 达尔文棘轮详情 -->
+        <div class="ev-panel">
+          <h3>达尔文棘轮 — 不可逆演进</h3>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:12px;line-height:1.6">
+            棘轮机制确保系统只能向前演进，永不回退。每次通过验证的改进都被锁定为「遗产」，形成 append-only 不可变记录。
+          </p>
+          <!-- 5步闭环 -->
+          <div class="ev-ratchet-flow" id="ratchet-flow">
+            <div class="ev-ratchet-node">
+              <div class="ev-ratchet-dot" id="r-audit">审</div>
+              <div class="ev-ratchet-label">① 审查</div>
+            </div>
+            <div class="ev-ratchet-connector" id="rc-1"></div>
+            <div class="ev-ratchet-node">
+              <div class="ev-ratchet-dot" id="r-dispatch">派</div>
+              <div class="ev-ratchet-label">② 派发</div>
+            </div>
+            <div class="ev-ratchet-connector" id="rc-2"></div>
+            <div class="ev-ratchet-node">
+              <div class="ev-ratchet-dot" id="r-verify">验</div>
+              <div class="ev-ratchet-label">③ 验证</div>
+            </div>
+            <div class="ev-ratchet-connector" id="rc-3"></div>
+            <div class="ev-ratchet-node">
+              <div class="ev-ratchet-dot" id="r-close">闭</div>
+              <div class="ev-ratchet-label">④ 关闭</div>
+            </div>
+            <div class="ev-ratchet-connector" id="rc-4"></div>
+            <div class="ev-ratchet-node">
+              <div class="ev-ratchet-dot" id="r-lock">🔒</div>
+              <div class="ev-ratchet-label">⑤ 锁定</div>
+            </div>
+          </div>
+          <div id="ratchet-log" style="display:none;font-size:12px;color:var(--dim);margin-top:8px"></div>
         </div>
-        <div class="panel__legend">
-          <span class="legend-dot legend-dot--accent"></span>高占用 ·
-          <span class="legend-dot legend-dot--warning"></span>中占用 ·
-          <span class="legend-dot legend-dot--success"></span>健康
+
+        <!-- 全局棘轮指标 -->
+        <div class="ev-panel">
+          <h3>全局棘轮指标 <span id="ratchet-ledger-count" style="font-size:12px;color:var(--lime);float:right"></span></h3>
+          <div id="ratchet-ledger-metrics"></div>
         </div>
-      </header>
-      <div class="table-wrap">
-        <table class="data-table" id="pods-table">
-          <thead>
-            <tr>
-              <th>Pod</th>
-              <th>命名空间</th>
-              <th>服务</th>
-              <th>环境</th>
-              <th>团队</th>
-              <th class="num">CPU</th>
-              <th class="num">内存</th>
-              <th class="num">网络</th>
-              <th class="num">总计</th>
-              <th>动作</th>
-            </tr>
-          </thead>
-          <tbody id="pods-tbody">
-            <tr><td colspan="10" class="loading-state"><div class="spinner" style="margin:20px auto"></div></td></tr>
-          </tbody>
-        </table>
+
+        <!-- 遗产账本 -->
+        <div class="ev-panel">
+          <h3>📜 遗产账本 <span id="heritage-count" style="font-size:12px;color:var(--lime);float:right"></span></h3>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:8px">不可变、仅追加。每条记录代表一次被验证锁定的系统改进。</p>
+          <div id="heritage-list"></div>
+        </div>
       </div>
-    </section>
+    </div>
 
     <footer class="cost-footer">
       <span id="last-refresh">-</span>
@@ -219,6 +300,7 @@
   <script src="/js/api.js"></script>
   <script src="/js/evidence-runs.js"></script>
   <script src="/js/cost-dashboard.js"></script>
+  <script src="/js/system-evolution.js"></script>
   <script>
     // Populate topbar user from localStorage
     (function () {
@@ -227,7 +309,6 @@
       var avEl = document.getElementById('topbar-avatar');
       if (nameEl) nameEl.textContent = u;
       if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
-      // Provide logout if global-nav.js hasn't loaded
       if (!window._agLogout) {
         window._agLogout = function () {
           if (window.api && window.api.logout) {
@@ -242,6 +323,42 @@
         };
       }
     })();
+
+    // 加载演进概览和棘轮数据
+    function loadEvolutionPanels() {
+      if (typeof loadOverview === 'function') loadOverview();
+      if (typeof loadRatchetMetrics === 'function') loadRatchetMetrics();
+      if (typeof loadHeritageLedger === 'function') loadHeritageLedger();
+    }
+
+    // Token 优化建议
+    async function loadTokenOptimization() {
+      try {
+        const resp = await fetch('/api/v1/cost/by-team');
+        const data = await resp.json();
+        const teams = (data.teams || []).sort((a, b) => (b.tokens || 0) - (a.tokens || 0)).slice(0, 5);
+        const el = document.getElementById('token-hotspots');
+        if (!teams.length) {
+          el.innerHTML = '<p style="color:var(--dim);font-size:12px">暂无 token 消耗数据</p>';
+          return;
+        }
+        el.innerHTML = teams.map((t, i) => 
+          '<div class="token-suggest">' +
+          '<b>#' + (i+1) + ' ' + (t.name || t.team_id) + '</b> — ' +
+          (t.tokens || 0).toLocaleString() + ' tokens' +
+          (i < 3 ? ' · 建议萃取技能减少重复 LLM 调用' : ' · 建议优化 skill 路由') +
+          '</div>'
+        ).join('');
+      } catch(e) {
+        document.getElementById('token-hotspots').innerHTML = '<p style="color:var(--dim);font-size:12px">加载失败: ' + e.message + '</p>';
+      }
+    }
+
+    // 页面加载完成后启动
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(loadEvolutionPanels, 500);
+      setTimeout(loadTokenOptimization, 1000);
+    });
   </script>
 </body>
 </html>

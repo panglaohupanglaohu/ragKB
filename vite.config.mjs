@@ -29,7 +29,6 @@ export default defineConfig({
         agentTeamConfig: page('agent-team-config.html'),
         tasks: page('tasks.html'),
         plaza: page('plaza.html'),
-        systemEvolution: page('system-evolution.html'),
         skillExtract: page('skill-extract.html'),
         extractionPipeline: page('extraction-pipeline.html'),
         agentDigitalTwin: page('Agent-digital-twin.html'),

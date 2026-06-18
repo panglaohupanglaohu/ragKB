@@ -12,8 +12,7 @@
     { id: 'plaza',        label: '议事广场',   href: '/plaza.html' },
     { id: 'skill-extract', label: '技能萃取/赋予', href: '/skill-extract.html' },
     { id: 'digital-twin',  label: '数字孪生',   href: '/Agent-digital-twin.html' },
-    { id: 'evolution',     label: '系统演进',   href: '/system-evolution.html' },
-    { id: 'cost',          label: '💰 成本监控', href: '/cost-dashboard.html' },
+    { id: 'cost',          label: '💰 演进式成本优化', href: '/cost-dashboard.html' },
   ];
 
   var script = document.querySelector('script[data-page]');
