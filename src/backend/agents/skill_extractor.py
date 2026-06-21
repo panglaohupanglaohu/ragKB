@@ -640,7 +640,18 @@ class SkillExtractorEngine:
         })
 
         # Fire async LLM pre-fill (non-blocking)
-        task = asyncio.create_task(self._llm_prefill(item))
+        # P7: 包裹 token_scope，使萃取 LLM token 归因到 run_id
+        from .token_context import token_scope, new_run_id
+        extract_run_id = new_run_id("extract")
+        item.source_meta = {**(item.source_meta or {}), "token_run_id": extract_run_id}
+        self._persist_queue(team_id)
+
+        async def _prefill_with_scope():
+            with token_scope(run_id=extract_run_id, phase="extract",
+                             team_id=team_id, skill_id=item.draft_slug or ""):
+                await self._llm_prefill(item)
+
+        task = asyncio.create_task(_prefill_with_scope())
         def _on_prefill_done(t):
             if t.cancelled():
                 return

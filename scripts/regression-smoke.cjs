@@ -4,6 +4,7 @@
  */
 const { chromium } = require('playwright');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const BASE = 'http://127.0.0.1:8080';
 const USER = `regr_${Date.now()}`;
@@ -18,6 +19,16 @@ function log(test, status, detail) {
 }
 
 (async () => {
+  // ═══ 0. 离线对账自检 (零 token、不需后端/浏览器) ═══
+  try {
+    execSync(`python3 ${path.join(__dirname, 'offline_reconcile_check.py')} --quiet --window 7d`, { stdio: 'pipe' });
+    log('🧮 离线对账自检 (C1/C2/C3+合并)', 'PASS', '账本恒等一致');
+  } catch (e) {
+    const out = ((e.stdout && e.stdout.toString()) || '') + ((e.stderr && e.stderr.toString()) || '');
+    const tail = out.trim().split('\n').filter(Boolean).slice(-3).join(' | ');
+    log('🧮 离线对账自检 (C1/C2/C3+合并)', 'FAIL', tail || (e.message || 'check failed'));
+  }
+
   const browser = await chromium.launch({ headless: true });
 
   // ═══ 1. Register & Login ═══
@@ -399,6 +410,37 @@ function log(test, status, detail) {
   } else {
     log('🚨 Console Errors', 'PASS', '0 errors');
   }
+
+  // ═══ 21. Token 路由 smoke（P6）═══
+  try {
+    const ts1 = await page.request.get(`${BASE}/api/v1/cost/tokens/summary?group_by=team&window=24h`);
+    const td1 = await ts1.json();
+    log('💰 Token summary', ts1.ok() && td1.source === 'token' ? 'PASS' : 'FAIL', `source=${td1.source}`);
+  } catch(e) { log('💰 Token summary', 'FAIL', e.message); }
+
+  try {
+    const ts2 = await page.request.get(`${BASE}/api/v1/cost/tokens/by-team?window=24h`);
+    log('💰 Token by-team', ts2.ok() ? 'PASS' : 'FAIL', `status=${ts2.status()}`);
+  } catch(e) { log('💰 Token by-team', 'FAIL', e.message); }
+
+  try {
+    const ts3 = await page.request.get(`${BASE}/api/v1/cost-gate/token/stats`);
+    log('💰 Token gate stats', ts3.ok() ? 'PASS' : 'FAIL', `status=${ts3.status()}`);
+  } catch(e) { log('💰 Token gate stats', 'FAIL', e.message); }
+
+  try {
+    const ts4 = await page.request.post(`${BASE}/api/v1/cost-gate/token/evaluate`, {
+      data: { inline: { total: 50000, score: 2 }, budget: { min_efficiency: 1.0 } }
+    });
+    const td4 = await ts4.json();
+    log('💰 Token gate evaluate', ts4.ok() && td4.decision === 'block' ? 'PASS' : 'FAIL', `decision=${td4.decision}`);
+  } catch(e) { log('💰 Token gate evaluate', 'FAIL', e.message); }
+
+  try {
+    const ts5 = await page.request.get(`${BASE}/api/v1/cost/report?window=24h`);
+    const td5 = await ts5.json();
+    log('💰 Cost report', ts5.ok() && td5.reconciliation ? 'PASS' : 'FAIL', `consistent=${td5.reconciliation && td5.reconciliation.consistent}`);
+  } catch(e) { log('💰 Cost report', 'FAIL', e.message); }
 
   // ═══ Summary ═══
   const passCount = results.filter(r => r.status === 'PASS').length;

@@ -47,12 +47,14 @@ def _mk_skill():
 async def test_evolve_skill_returns_draft_contract():
     lib = FakeLibrary(_mk_skill())
     evolver = SkillEvolver(skill_library=lib)
-    # 无 chat_harness：improved_instructions 回退为原指令，但结构必须完整
+    # 无 chat_harness：应返回 llm_degraded 错误，不静默回退原指令
     res = await evolver.evolve_skill("team", "sk-x")
     assert res.get("status") == "evolved_draft"
+    assert res.get("error") == "llm_degraded"
+    assert res.get("llm_degraded") is True
     assert "original_instructions" in res
-    assert "improved_instructions" in res
-    assert res["new_version"] == 2
+    assert res.get("improved_instructions") is None
+    assert "error_detail" in res
 
 
 @pytest.mark.asyncio

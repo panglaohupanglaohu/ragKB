@@ -1149,6 +1149,10 @@ const RatchetAnimator = {
   }
 };
 
+// 顶层 const 不会挂到 window；成本页(cost-dashboard.html)用 window.RatchetAnimator 守卫，
+// 不导出会导致「运行棘轮周期 / 仅审查」点击静默无反应。显式挂到 window。
+if (typeof window !== 'undefined') window.RatchetAnimator = RatchetAnimator;
+
 // Shared ratchet flow builder
 function buildRatchetFlow() {
   // The Ratchet panel flow is in HTML, just returns

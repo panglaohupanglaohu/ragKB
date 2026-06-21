@@ -730,6 +730,16 @@ body.cost-page {
   width: 100%;
   font-family: inherit;
 }
+/* 顶部按钮要求输入时，闪烁高亮团队选择框 */
+.action-box select.cost-input-flash {
+  border-color: var(--koke);
+  animation: cost-input-flash 1.6s ease-out;
+}
+@keyframes cost-input-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(107, 196, 127, 0); }
+  20% { box-shadow: 0 0 0 4px rgba(107, 196, 127, 0.35); }
+  60% { box-shadow: 0 0 0 4px rgba(107, 196, 127, 0.18); }
+}
 .action-buttons {
   display: flex;
   gap: 8px;

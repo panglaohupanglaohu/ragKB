@@ -91,12 +91,16 @@ class SkillEvolver:
             evidence_text += f"\n用户反馈: {user_feedback}\n"
 
         # LLM improve
-        improved_instructions = skill.instructions  # fallback
+        improved_instructions = None
         llm_degraded = False
+        llm_error_detail = ""
         prompt_text = f"请改进以下技能指令，使其更有效。\n\n{evidence_text}"
         if user_feedback:
             prompt_text = f"请根据以下用户反馈改进技能指令：\n\n用户反馈: {user_feedback}\n\n{evidence_text}"
-        if self._chat_harness:
+        if not self._chat_harness:
+            llm_degraded = True
+            llm_error_detail = "LLM 服务未初始化，无法生成技能演化建议。请检查后端 LLM 配置（API Key / 模型池设置）。"
+        else:
             try:
                 result = await self._chat_harness.chat(
                     prompt=prompt_text,
@@ -108,14 +112,32 @@ class SkillEvolver:
                 if result and getattr(result, 'response', None):
                     candidate = result.response
                     if self._is_unusable_evolution_text(candidate):
-                        improved_instructions = self._deterministic_improvement(skill)
                         llm_degraded = True
+                        llm_error_detail = "LLM 返回了不可用的回退文本（可能是 LLM 未连接或 API Key 无效），未能生成真正的演化建议。"
                     else:
                         improved_instructions = candidate
+                else:
+                    llm_degraded = True
+                    llm_error_detail = "LLM 返回空响应，未能生成演化建议。"
             except Exception as e:
                 logger.error("LLM evolve failed: %s", e)
-                improved_instructions = self._deterministic_improvement(skill)
                 llm_degraded = True
+                llm_error_detail = f"LLM 调用失败 ({type(e).__name__})，无法生成演化建议。请检查 LLM 连接。"
+
+        if llm_degraded:
+            logger.warning("Skill evolution degraded for %s: %s", skill_id, llm_error_detail)
+            return {
+                "status": "evolved_draft",
+                "error": "llm_degraded",
+                "error_detail": llm_error_detail,
+                "skill_id": skill_id,
+                "original_version": skill.version,
+                "new_version": skill.version + 1,
+                "original_instructions": skill.instructions,
+                "improved_instructions": None,
+                "evidence_count": len(evidence),
+                "llm_degraded": True,
+            }
 
         # Create evolved version (as draft for review)
         return {
@@ -126,7 +148,7 @@ class SkillEvolver:
             "original_instructions": skill.instructions,
             "improved_instructions": improved_instructions,
             "evidence_count": len(evidence),
-            "llm_degraded": llm_degraded,
+            "llm_degraded": False,
         }
 
     def apply_evolution(self, team_id: str, skill_id: str, new_instructions: str) -> Dict[str, Any]:

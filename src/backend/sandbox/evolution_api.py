@@ -117,6 +117,10 @@ def _trial_ids_for(team_id: str, scenario_id: str) -> List[str]:
 @router.post("/runs")
 async def start_evolution_run(req: StartEvolutionRequest) -> Dict[str, Any]:
     """B-3.1: 创建进化运行（后台执行）."""
+    # team_id 规范化 + 校验：必须匹配已存在团队（防幻影团队，如 build-system）
+    from .trial_api import resolve_team_id
+    req.team_id = resolve_team_id(req.team_id)
+
     bridge = get_evolution_bridge()
     bridge._event_callback = _emit  # 接入 SSE 事件
 

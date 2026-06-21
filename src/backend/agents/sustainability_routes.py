@@ -77,13 +77,26 @@ async def evaluate_single_team(team_id: str) -> Dict[str, Any]:
 
 @router.get("/group")
 async def evaluate_all_teams() -> Dict[str, Any]:
-    """全部已知团队的组评估（TeamManager/trial/proficiency/CostAggregator 汇总）."""
+    """全部已知团队的组评估（TeamManager/trial/proficiency/CostAggregator 汇总）.
+
+    P8R.4: 每个 team 注入 lever_cost（两杠杆拆分）+ efficiency_formula。
+    """
     team_ids = await list_known_team_ids()
     if not team_ids:
         return {"teams": [], "ranking": [], "group_sustainability": 0,
                 "note": "暂无团队或 trial/cost 数据"}
     usages = [await collect_team_usage_async(tid) for tid in team_ids]
-    return evaluate_group(usages)
+    result = evaluate_group(usages)
+    # P8R.4: 注入两杠杆拆分 + 公式
+    try:
+        from .token_ledger import LEDGER
+        for team in result.get("teams", []):
+            tid = team.get("team_id", "")
+            team["lever_cost"] = LEDGER.lever_split(tid, "7d")
+            team["efficiency_formula"] = "token_efficiency = total_score / (tokens_consumed / 1000)"
+    except Exception as e:
+        logger.debug(f"lever_cost 注入失败: {e}")
+    return result
 
 
 @router.post("/weekly-plaza-topics")

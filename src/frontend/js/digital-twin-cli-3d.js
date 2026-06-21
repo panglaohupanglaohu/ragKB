@@ -995,6 +995,37 @@ window._dt3dHandoff=function(fromName,toName,taskLabel,color){
   },800);
 };
 
+// ── 奖励浮卡：在「对应 agent」头顶弹出 +value，上升淡出（直观，居中投射到该 agent）──
+window._dt3dRewardPop=function(agentName, reward, idx){
+  if(!initialized || !agentMeshes.length) return;
+  let fig = agentName ? agentMeshes.find(m=>m.userData.label===agentName) : null;
+  if(!fig && typeof idx==='number') fig = agentMeshes[idx % agentMeshes.length];
+  if(!fig) fig = agentMeshes[Math.floor(Math.random()*agentMeshes.length)];
+  const r = Number(reward)||0;
+  const positive = r>=0;
+  const mag = Math.min(Math.abs(r),1);
+  const hex = positive ? (mag>0.4?'#34d399':'#a3e635') : '#f87171';
+  const txt = (positive?'+':'')+r.toFixed(2);
+  const tex = new THREE.CanvasTexture(makeColorLabel(txt,hex)); tex.minFilter=THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+  const baseY = fig.position.y + 2.6;
+  sp.position.set(fig.position.x, baseY, fig.position.z);
+  const s = 1.1 + mag*0.9; sp.scale.set(1.7*s,0.5*s,1);
+  scene.add(sp);
+  // 头顶脉冲，强化「这次奖励属于这个 agent」
+  _pulseQueue.push({mesh:fig, start:clock.getElapsedTime(), dur:1.0, type:'body'});
+  if(fig.userData.glowRing) _pulseQueue.push({mesh:fig.userData.glowRing, start:clock.getElapsedTime(), dur:1.4});
+  // 自包含上升+淡出（不依赖主循环）
+  const t0 = performance.now();
+  (function _anim(){
+    const k = (performance.now()-t0)/1300;
+    if(k>=1){ scene.remove(sp); try{sp.material.map.dispose();sp.material.dispose();}catch(e){} return; }
+    sp.position.y = baseY + k*1.8;
+    sp.material.opacity = 1 - k*k;
+    requestAnimationFrame(_anim);
+  })();
+};
+
 // ══════════════════════════════════════════════════
 // 动画循环
 // ── 仿真运行时场景地面脉冲环 ──

@@ -26,6 +26,7 @@ from .plaza import (
     Plaza, PlazaMessage, SeatTier, PRESET_TOPICS,
 )
 from .plaza_store import PlazaStore
+from .token_context import token_scope
 
 logger = logging.getLogger(__name__)
 
@@ -924,58 +925,67 @@ class PlazaEngine:
     ) -> str:
         if time.monotonic() < self._llm_degraded_until:
             return self._build_fallback_agent_content(participant, prompt)
-        last_error = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                result = await asyncio.wait_for(
-                    self._chat_fn(
-                        prompt,
-                        agent_id=participant.agent_id,
-                        system_prompt=self._build_agent_system_prompt(participant),
-                    ),
-                    timeout=_LLM_CALL_TIMEOUT,
-                )
-                if result and result.response:
-                    if self._is_unusable_llm_text(result.response):
-                        logger.warning(
-                            "Agent %s received provider fallback text; using deterministic content",
-                            participant.agent_id,
-                        )
-                        self._mark_llm_degraded()
-                        return self._build_fallback_agent_content(participant, prompt)
-                    return result.response
-                last_error = Exception("empty response")
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
-                )
-                if isinstance(e, asyncio.TimeoutError):
-                    self._mark_llm_degraded()
-                    self._escalate_failure(
-                        participant,
-                        prompt,
-                        e,
-                        plaza_id=plaza_id,
-                        discussion_id=discussion_id,
-                        discussion_topic=discussion_topic,
-                        round_number=round_number,
+        # 包 token_scope：广场发言的 LLM token 归因到 phase=plaza + 本次讨论的 run_id。
+        # discussion_id 作 run_id 种子，同一讨论的多次发言/重试落到同一 run，便于聚合。
+        plaza_run_id = f"plaza_{discussion_id}" if discussion_id else "plaza"
+        with token_scope(
+            run_id=plaza_run_id,
+            phase="plaza",
+            team_id=participant.team_id,
+            agent_id=participant.agent_id,
+        ):
+            last_error = None
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    result = await asyncio.wait_for(
+                        self._chat_fn(
+                            prompt,
+                            agent_id=participant.agent_id,
+                            system_prompt=self._build_agent_system_prompt(participant),
+                        ),
+                        timeout=_LLM_CALL_TIMEOUT,
                     )
-                    return self._build_fallback_agent_content(participant, prompt)
-            if attempt < _MAX_RETRIES - 1:
-                await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+                    if result and result.response:
+                        if self._is_unusable_llm_text(result.response):
+                            logger.warning(
+                                "Agent %s received provider fallback text; using deterministic content",
+                                participant.agent_id,
+                            )
+                            self._mark_llm_degraded()
+                            return self._build_fallback_agent_content(participant, prompt)
+                        return result.response
+                    last_error = Exception("empty response")
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
+                    )
+                    if isinstance(e, asyncio.TimeoutError):
+                        self._mark_llm_degraded()
+                        self._escalate_failure(
+                            participant,
+                            prompt,
+                            e,
+                            plaza_id=plaza_id,
+                            discussion_id=discussion_id,
+                            discussion_topic=discussion_topic,
+                            round_number=round_number,
+                        )
+                        return self._build_fallback_agent_content(participant, prompt)
+                if attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
 
-        # All retries exhausted — escalate
-        self._escalate_failure(
-            participant,
-            prompt,
-            last_error,
-            plaza_id=plaza_id,
-            discussion_id=discussion_id,
-            discussion_topic=discussion_topic,
-            round_number=round_number,
-        )
-        return f"[{participant.agent_name} 暂时离线]"
+            # All retries exhausted — escalate
+            self._escalate_failure(
+                participant,
+                prompt,
+                last_error,
+                plaza_id=plaza_id,
+                discussion_id=discussion_id,
+                discussion_topic=discussion_topic,
+                round_number=round_number,
+            )
+            return f"[{participant.agent_name} 暂时离线]"
 
     def _escalate_failure(
         self,

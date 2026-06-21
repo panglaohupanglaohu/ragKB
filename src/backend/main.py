@@ -567,6 +567,14 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ Cost Gate API failed: {e}")
 
+        # 4f-bis+. Token Budget Gate API (Token 语义版 Cost Gate — 北极星)
+        try:
+            from agents.token_gate_routes import router as token_gate_router
+            app.include_router(token_gate_router)
+            logger.info("✅ Token Budget Gate API mounted (/api/v1/cost-gate/token/*)")
+        except Exception as e:
+            logger.warning(f"⚠️ Token Budget Gate API failed: {e}")
+
         # 4f-bis. Token Factory API (LLM inference health & management)
         try:
             from token_factory import router as tf_router

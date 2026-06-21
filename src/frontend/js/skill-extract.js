@@ -179,6 +179,9 @@ async function loadTeams() {
     selectTeamChip(container.querySelector(`[data-tid="${first.team_id}"]`), first.team_id);
   }
 
+  // 若来自成本治理 skill_extraction 杠杆，高亮/列出重复技能
+  setTimeout(maybeHighlightRedundantSkills, 600);
+
   // Pre-fill source text from URL params or sessionStorage (for plaza jump)
   const storedSource = sessionStorage.getItem('extract_source');
   if (storedSource) {
@@ -227,8 +230,8 @@ window.selectTeamChip = function(el, teamId) {
 function renderTeamChips() {
   const container = document.getElementById('team-chips');
   const activeIds = window._activeTeamIds || [];
-  // 折叠策略: 最多展示 2 个 chip + "+N" 按钮
-  const MAX_VISIBLE = 2;
+  // 平铺展示: 全部直接可见，不折叠
+  const MAX_VISIBLE = activeIds.length;
   const visible = activeIds.slice(0, MAX_VISIBLE);
   const hidden = activeIds.length - visible.length;
   const chips = visible.map(tid => {
@@ -818,6 +821,66 @@ function loadEvolveTab() {
   loadEvolveSuggestions();
 }
 
+// 从成本治理「skill_extraction 杠杆」跳转而来（?focus=redundant）：列出/高亮重复(冗余)技能，提示合并或固化以省 token
+async function maybeHighlightRedundantSkills() {
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.get('focus') !== 'redundant') return;
+    const team = params.get('team_id') || currentTeamId || '';
+    const data = await api(`/skill-library/duplicates?team_id=${encodeURIComponent(team)}`);
+    const dups = (data && data.duplicates) || [];
+    const ids = (data && data.skill_ids) || [];
+    let banner = document.getElementById('redundant-focus-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'redundant-focus-banner';
+      banner.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9999;max-width:680px;width:92%;background:rgba(20,24,33,.97);border:1px solid #d4a72c;border-radius:10px;padding:12px 16px;color:#eee;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.5)';
+      document.body.appendChild(banner);
+    }
+    const esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+    const close = '<span style="float:right;cursor:pointer;color:#aaa" onclick="this.closest(\'#redundant-focus-banner\').remove()">✕</span>';
+    if (!dups.length) {
+      banner.innerHTML = '<b style="color:#d4a72c">成本治理 · skill_extraction 杠杆</b>' + close +
+        '<br>未检测到明显重复技能（相似度≥0.85）。建议把<b>重复出现的意图</b>萃取为新 skill，命中后同意图任务 token 下降。';
+    } else {
+      window._redundantTeam = team;
+      const rows = dups.slice(0, 8).map(function (d) {
+        const a = d.skill_a.skill_id, b = d.skill_b.skill_id;
+        return '<li style="margin-bottom:3px"><b>' + esc(d.skill_a.name) + '</b> ⇄ <b>' + esc(d.skill_b.name) + '</b> · ' + Math.round((d.similarity || 0) * 100) + '%'
+          + ' <button onclick="mergeDup(\'' + esc(a) + '\',\'' + esc(b) + '\')" style="margin-left:6px;font-size:11px;padding:1px 8px;border:1px solid #d4a72c;background:transparent;color:#d4a72c;border-radius:4px;cursor:pointer">合并</button></li>';
+      }).join('');
+      banner.innerHTML = '<b style="color:#d4a72c">成本治理 · 检测到 ' + dups.length + ' 对重复技能（合并/去重可省 token）</b>' + close +
+        '<ul style="margin:8px 0 0;padding-left:18px;line-height:1.7">' + rows + '</ul>';
+    }
+    // best-effort：等水晶加载后高亮第一个重复技能
+    if (ids.length && typeof highlightExistingCrystal === 'function') {
+      let tries = 0;
+      const t = setInterval(function () {
+        tries++;
+        if ((typeof skillNodes !== 'undefined' && skillNodes.length) || tries > 20) {
+          clearInterval(t);
+          try { highlightExistingCrystal(ids[0]); } catch (e) {}
+        }
+      }, 500);
+    }
+  } catch (e) { console.error('redundant focus failed', e); }
+}
+
+// 9.6: 一键合并重复技能 → 技能减少 → 路由更易命中 → 同意图 token 下降
+async function mergeDup(a, b) {
+  try {
+    const team = window._redundantTeam || currentTeamId || '';
+    const r = await api(`/skill-library/merge`, { method: 'POST', body: JSON.stringify({ team_id: team, skill_ids: [a, b], strategy: 'keep_longest' }) });
+    if (r && !r.error) {
+      if (window.showToast) showToast('✅ 已合并重复技能 → 路由更易命中 → token 下降');
+      maybeHighlightRedundantSkills();
+      if (typeof loadSkillTree === 'function') loadSkillTree();
+    } else {
+      if (window.showToast) showToast('合并失败: ' + ((r && r.error) || 'unknown'));
+    }
+  } catch (e) { if (window.showToast) showToast('合并失败: ' + (e.message || '')); }
+}
+
 async function loadEvolveSuggestions() {
   const data = await listApi(`/skill-library/suggestions?team_id=${encodeURIComponent(currentTeamId)}`);
   const el = document.getElementById('evolve-suggestions');
@@ -845,7 +908,20 @@ window.triggerEvolve = async function() {
       method: 'POST',
       body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
     });
-    if (!result || result.error) { showToast('演化失败: ' + (result?.error || 'unknown')); return; }
+    if (!result || result.error) {
+      const msg = result?.error === 'llm_degraded'
+        ? '演化失败: ' + (result.error_detail || 'LLM 服务不可用')
+        : '演化失败: ' + (result?.error || 'unknown');
+      showToast(msg);
+      // 如果有原始指令但无改进指令，显示提示
+      if (result?.error === 'llm_degraded') {
+        const diffEl = document.getElementById('evolve-diff');
+        diffEl.style.display = 'block';
+        document.getElementById('evolve-old').textContent = result.original_instructions || '';
+        document.getElementById('evolve-new').textContent = '⚠️ ' + (result.error_detail || 'LLM 不可用，无法生成演化建议');
+      }
+      return;
+    }
     _evolveCache = result;
     const diffEl = document.getElementById('evolve-diff');
     diffEl.style.display = 'block';

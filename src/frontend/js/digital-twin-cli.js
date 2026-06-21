@@ -1654,7 +1654,9 @@ function secsRefreshTaskDropdown(){
 }
 
 async function secsDevWorkflow(){
-  if(_secsSimRunning) return;
+  // 运行中再次点击 = 停止：置停止标志，让 _secsRunStep / 各循环尽快退出到 finalize
+  if(_secsSimRunning){ window._secsDevStop = true; if(window.toast) toast('⏹ 正在停止仿真...'); return; }
+  window._secsDevStop = false;
   const teamId = document.getElementById('secs-team-select')?.value;
   const taskId = document.getElementById('secs-task-select')?.value;
   if(!teamId){ toast('请先选择团队', 'error'); return; }
@@ -1683,7 +1685,8 @@ async function secsDevWorkflow(){
   }
 
   const btn = document.getElementById('secs-dev-btn');
-  if(btn){ btn.disabled=true; btn.textContent='⏳ 仿真进行中...'; btn.style.opacity='0.6'; }
+  // 运行中按钮可点击 = 停止（点击再次进入 secsDevWorkflow → 置停止标志）
+  if(btn){ btn.disabled=false; btn.textContent='⏹ 停止仿真'; btn.style.opacity='1'; }
 
   // 清除旧屏幕内容
   if(window._dt3dClearScreens) window._dt3dClearScreens();
@@ -1943,6 +1946,7 @@ async function secsDevWorkflow(){
       await new Promise(r=>setTimeout(r,800));
       // 每位逐一发言 (围坐轮转)
       for(let si=0; si<speakers.length; si++){
+        if(window._secsDevStop) break;
         const sp = speakers[si];
         if(syncEl) syncEl.innerHTML = `<span style="color:${sp.color}">◇ ${esc(sp.agent)} 发言中...</span>`;
         // 从PM到发言者画线
@@ -2003,6 +2007,7 @@ async function secsDevWorkflow(){
     // 红蓝交替对抗
     const maxRounds = Math.max(redTeam.length, blueTeam.length);
     for(let rd=0; rd<maxRounds; rd++){
+      if(window._secsDevStop) break;
       // 红队出场
       if(rd < redTeam.length){
         const red = redTeam[rd];
@@ -2080,6 +2085,7 @@ async function secsDevWorkflow(){
       if(window._dt3dOverview) window._dt3dOverview();
       await new Promise(r=>setTimeout(r,500));
       for(let ei=0; ei<extractors.length; ei++){
+        if(window._secsDevStop) break;
         if(window._dt3dHandoff) window._dt3dHandoff(steps[0].agent, extractors[ei].agent, '萃取任务', '#34d399');
         await new Promise(r=>setTimeout(r,300));
       }
@@ -2133,6 +2139,7 @@ async function secsDevWorkflow(){
       await new Promise(r=>setTimeout(r,600));
       // 发射检索线
       for(let si=0; si<searchers.length; si++){
+        if(window._secsDevStop) break;
         const s = searchers[si];
         if(window._dt3dHandoff) window._dt3dHandoff(coordinator.agent, s.agent, '检索#'+(si+1), '#a78bfa');
         await new Promise(r=>setTimeout(r,300));
@@ -2180,6 +2187,7 @@ async function secsDevWorkflow(){
     if(syncEl) syncEl.innerHTML = `<span style="color:var(--dim)">◌ 安静复盘中... (慢节奏)</span>`;
     // 顺序执行但速度慢1.5x, 每步之间有呼吸间隔
     for(let i=0; i<steps.length; i++){
+      if(window._secsDevStop) break;
       const step = steps[i];
       const stepStart = Date.now();
       try {
@@ -2222,6 +2230,7 @@ async function secsDevWorkflow(){
       // 逐条发射handoff线 (间隔300ms, 每条不同颜色)
       const parallelColors = ['#a78bfa','#60a5fa','#f472b6','#fbbf24','#34d399'];
       for(let pi=0; pi<parallelSteps.length; pi++){
+        if(window._secsDevStop) break;
         const s = parallelSteps[pi];
         const c = parallelColors[pi % parallelColors.length];
         if(window._dt3dHandoff) window._dt3dHandoff(steps[0].agent, s.agent, '→'+s.agent, c);
@@ -2335,10 +2344,12 @@ async function secsDevWorkflow(){
 
   if(btn){ btn.disabled=false; btn.textContent=(_roomTaskConfig[window._currentRoomId||'workshop']||_roomTaskConfig.workshop).btnText; btn.style.opacity='1'; }
   _secsSimRunning = false;
+  if(window._secsDevStop){ window._secsDevStop = false; if(window.toast) toast('⏹ 仿真已停止'); }
 }
 
 // ── 单步执行helper (What-if/演化精炼 共用) ──
 async function _secsRunStep(step, i, steps, simLog){
+  if(window._secsDevStop) return;  // 停止仿真：跳过该步动画，让流程尽快走到 finalize
   const stepStart = Date.now();
   try {
     const syncEl = document.getElementById('secs-sync-status');

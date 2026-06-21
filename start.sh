@@ -13,6 +13,15 @@ USE_SYSTEM_NPM=0
 echo "🚀 AgentsGroup2026 Starting..."
 echo ""
 
+# 启用版本化 git pre-commit 钩子（一次性、幂等）：提交前跑离线对账自检（零 token）
+if [ -d ".githooks" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+    if [ "$(git config --get core.hooksPath 2>/dev/null || true)" != ".githooks" ]; then
+        git config core.hooksPath .githooks 2>/dev/null \
+            && echo "🪝 已启用 git pre-commit 钩子 (core.hooksPath=.githooks)，提交前自动对账" \
+            && echo ""
+    fi
+fi
+
 # Check Python
 if ! command -v python3 &> /dev/null; then
     echo "❌ Python3 not found. Please install Python 3.11+"
@@ -134,6 +143,21 @@ else
     echo "   Frontend toolchain: bundled Codex node"
 fi
 echo ""
+
+# 离线对账自检（零 LLM、零 token：仅读本地 usage.db + 跑技能合并 fixture）
+# 不阻断启动：发现不一致只告警；首次运行无 usage.db 时跳过。
+if [ -f "storage/usage.db" ]; then
+    echo "🧮 离线对账自检 (C1/C2/C3 + 合并，零 token)..."
+    if "${RUNTIME_PY}" scripts/offline_reconcile_check.py --quiet --window 7d; then
+        echo "   ✅ 账本对账一致"
+    else
+        echo "   ⚠️  对账自检发现不一致（不阻断启动，详情见上方 FAIL 项 / 可手动跑 scripts/offline_reconcile_check.py 排查）"
+    fi
+    echo ""
+else
+    echo "🧮 离线对账自检：跳过（storage/usage.db 尚未生成，首次运行属正常）"
+    echo ""
+fi
 
 # Local development admin bootstrap. Production deployments should set
 # ADMIN_PASSWORD explicitly instead of relying on this quick-start helper.

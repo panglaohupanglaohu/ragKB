@@ -86,6 +86,10 @@ def evaluate_team(usage: TeamUsage) -> Dict[str, Any]:
     # 核心指标
     if tokens > 0:
         token_efficiency = total_score / (tokens / 1000.0)
+        if total_score <= 0 and data_quality == "measured":
+            # 有 token 消耗但无演练分数 → 标记为 "token_only"
+            data_quality = "token_only"
+            token_efficiency = 0.0
     else:
         token_efficiency = 0.0
 
@@ -107,7 +111,34 @@ def evaluate_team(usage: TeamUsage) -> Dict[str, Any]:
     sustainability_score = round(0.5 * efficiency_norm + 0.3 * trend + 0.2 * headroom, 4)
     grade = next(g for bound, g in GRADE_BOUNDS if sustainability_score >= bound)
 
+    # P4: 仅 token 数据（无演练分数）→ 中性评级，不按 D 处理
+    if data_quality == "token_only":
+        grade = "—"
+        token_efficiency = 0.0
+
+    # 无任何数据（0 token + 无演练）→ 中性评级
+    if tokens <= 0 and not usage.trials:
+        grade = "—"
+        data_quality = "no_data"
+
     recommendations = _build_recommendations(usage, token_efficiency, headroom, tokens)
+
+    # token_only 专项建议
+    if data_quality == "token_only":
+        recommendations = [{
+            "type": "run_drill",
+            "detail": f"团队有 {tokens:.0f} tokens 消耗但无演练评分数据。"
+                      f"建议在数字孪生页面创建并运行试炼（确保 LLM 模式开启），"
+                      f"完成后点击「评分」生成五维分数，效率视角将自动计算 score/1k tokens。",
+        }] + recommendations
+
+    # no_data 专项建议
+    if data_quality == "no_data":
+        recommendations = [{
+            "type": "no_data",
+            "detail": "团队暂无 token 消耗和演练数据。先在数字孪生页面运行试炼，"
+                      "或在议事广场/技能萃取页面触发 LLM 调用以产生 token 归因数据。",
+        }]
 
     return {
         "team_id": usage.team_id,
@@ -238,22 +269,33 @@ def collect_team_usage(team_id: str) -> TeamUsage:
     except Exception as e:
         logger.debug(f"trial 数据不可用: {e}")
 
-    # 真实成本（消耗侧）— GP1-4: 对接 budget.UsageStore（sqlite token 记账），取近 7 天
+    # 真实成本（消耗侧）— P4: 切换到 TokenLedger（直接从 usage.db 聚合）
     try:
-        from datetime import datetime, timedelta, timezone
-        from .budget.store import get_usage_store
-        store = get_usage_store()
-        total = 0
-        today = datetime.now(timezone.utc).date()
-        for d in range(7):
-            date_str = (today - timedelta(days=d)).isoformat()
-            total += int(store.get_team_daily_total(team_id, date_str) or 0)
-        if total > 0:
-            usage.tokens_consumed = float(total)
+        from .token_ledger import LEDGER
+        by_team = LEDGER.by_team("7d")
+        team_data = next((t for t in by_team if t.get("team_id") == team_id), None)
+        if team_data and team_data.get("total", 0) > 0:
+            usage.tokens_consumed = float(team_data["total"])
             usage.data_quality = "measured"
-            usage.data_sources["usage_store"] = "measured"
+            usage.data_sources["token_ledger"] = "measured"
     except Exception as e:
-        logger.debug(f"budget UsageStore 不可用，回退估算: {e}")
+        logger.debug(f"TokenLedger 不可用，回退估算: {e}")
+        # 旧路径兜底
+        try:
+            from datetime import datetime, timedelta, timezone
+            from .budget.store import get_usage_store
+            store = get_usage_store()
+            total = 0
+            today = datetime.now(timezone.utc).date()
+            for d in range(7):
+                date_str = (today - timedelta(days=d)).isoformat()
+                total += int(store.get_team_daily_total(team_id, date_str) or 0)
+            if total > 0:
+                usage.tokens_consumed = float(total)
+                usage.data_quality = "measured"
+                usage.data_sources["usage_store"] = "measured"
+        except Exception as e2:
+            logger.debug(f"budget UsageStore 也不可用: {e2}")
 
     # skill 统计
     try:
@@ -268,6 +310,23 @@ def collect_team_usage(team_id: str) -> TeamUsage:
         pass
 
     _enrich_team_profile(usage)
+
+    # P10.4: derived score — 让纯任务团队也有非零效率
+    total_score = sum(float(t.get("total_score", 0)) for t in usage.trials)
+    if total_score <= 0:
+        derived = 0.0
+        try:
+            from .cost_targets import get_target_store
+            achieved = sum(1 for t in get_target_store().list_targets("achieved")
+                           if t.scope == "team" and t.ref_id == team_id)
+            derived = min(achieved * 1.0, 5.0)
+        except Exception:
+            pass
+        if derived > 0:
+            usage.trials.append({"trial_id": "_derived", "total_score": derived,
+                                 "tokens": 0, "_derived": True})
+            usage.data_sources["derived_score"] = "derived"
+
     return usage
 
 
@@ -365,4 +424,13 @@ async def list_known_team_ids() -> List[str]:
         )
     except Exception as e:
         logger.debug(f"cost_aggregator 团队列表不可用: {e}")
+    # P4: 从 TokenLedger 补全有 token 消耗的团队
+    try:
+        from .token_ledger import LEDGER
+        for item in LEDGER.by_team("7d"):
+            tid = (item.get("team_id") or "").strip()
+            if tid:  # 过滤空 team_id（旧调用未归因）
+                teams.add(tid)
+    except Exception:
+        pass
     return sorted(teams)

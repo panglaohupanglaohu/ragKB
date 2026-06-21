@@ -870,6 +870,13 @@ async function setModelDefault(mid){
     toast('设为默认失败' + (msg ? ': '+msg : ''));
   }
 }
+// ── 浏览器本地保存密钥（用户勾选「记住密钥」时启用）──
+function _modelKeyLS(mid){ return 'ag_modelkey_'+(tid||'')+'_'+(mid||''); }
+function _getRememberedKey(mid){ try{ return localStorage.getItem(_modelKeyLS(mid))||''; }catch(e){ return ''; } }
+function _setRememberedKey(mid, key){ try{ if(key) localStorage.setItem(_modelKeyLS(mid), key); else localStorage.removeItem(_modelKeyLS(mid)); }catch(e){} }
+// 测试/保存时取实际密钥：优先输入框，其次浏览器记住的密钥
+function _effectiveKey(mid){ return (el('em-key').value||'').trim() || _getRememberedKey(mid); }
+
 async function openEditModel(mid){
   agRuntime.editModelId=mid;
   const models=await apiList(`${A}/teams/${tid}/models`,200,0);
@@ -878,9 +885,11 @@ async function openEditModel(mid){
   el('em-name').value=m.name||'';
   el('em-tok').value=m.max_tokens||8192;
   el('em-temp').value=m.temperature??0.7;
-  // Show placeholder if key is stored, clear field otherwise
-  el('em-key').value='';
-  el('em-key').placeholder=m.has_api_key?'已配置 (留空则沿用已保存的密钥)':'输入 API Key';
+  // 若此浏览器记住过密钥，自动填入；否则留空（沿用后端已存密钥）
+  const remembered=_getRememberedKey(mid);
+  el('em-key').value=remembered||'';
+  el('em-key').placeholder=(m.has_api_key||remembered)?'已配置 (留空则沿用已保存的密钥)':'输入 API Key';
+  const rememberBox=el('em-remember'); if(rememberBox) rememberBox.checked=!!remembered;
   el('em-url').value=m.api_base_url||'';
   el('em-def').value=m.is_default?'true':'false';
   el('em-title').textContent=`✏️ 编辑模型 — ${mid}`;
@@ -924,17 +933,26 @@ async function submitAddModel(){
 }
 async function submitEditModel(){
   if(!agRuntime.editModelId)return;
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:el('em-key').value,api_base_url:el('em-url').value};
+  const mid=agRuntime.editModelId;
+  const remember=!!(el('em-remember')&&el('em-remember').checked);
+  // 实际密钥：输入框优先，否则用浏览器记住的密钥（保证保存/测试都带真实 key）
+  const effKey=_effectiveKey(mid);
+  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:effKey,api_base_url:el('em-url').value};
   if(!body.name){toast('模型名称不能为空');return}
-  const r=await api(`${A}/teams/${tid}/models/${agRuntime.editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(r){toast('模型已更新');closeModal('modal-edit-model');loadModels();if(body.is_default){loadSbAgents();if(aid)loadAgent()}}else toast('更新失败')
+  // 勾选「记住密钥」→ 存浏览器；取消勾选→ 清除
+  _setRememberedKey(mid, remember ? effKey : '');
+  const r=await api(`${A}/teams/${tid}/models/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r){toast(remember&&effKey?'模型已更新（密钥已记住到浏览器）':'模型已更新');closeModal('modal-edit-model');loadModels();if(body.is_default){loadSbAgents();if(aid)loadAgent()}}else toast('更新失败')
 }
 async function testModelInEdit(){
   const rb=el('em-test-result');rb.classList.remove('hidden');
   rb.style.background='rgba(232,240,250,0.7)';rb.style.color='var(--muted)';
   rb.innerHTML='⏳ 正在测试连接...';
   const btn=el('em-test-btn');btn.disabled=true;
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:el('em-key').value,api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,model_id:agRuntime.editModelId};
+  const mid=agRuntime.editModelId;
+  // 测试用实际密钥：输入框 → 浏览器记住的密钥 → （后端再兜底已存密钥）
+  const effKey=_effectiveKey(mid);
+  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:effKey,api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,team_id:tid,model_id:mid};
   const r=await api(`${A}/llm/test-model`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   btn.disabled=false;
   if(!r){rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';rb.innerHTML='❌ 请求失败，请检查后端是否运行';return}
@@ -943,9 +961,12 @@ async function testModelInEdit(){
     rb.innerHTML=`✅ 连接成功 — 模型: ${escapeHtml(r.model)} · 延迟: ${r.latency_ms?.toFixed(0)||'?'}ms<div style="margin-top:8px;padding:10px;background:rgba(232,240,250,0.6);border-radius:6px;color:var(--text);font-size:12px">${escapeHtml(r.response)}</div>`;
     // Auto-save after successful test
     if(agRuntime.editModelId){
+      const remember=!!(el('em-remember')&&el('em-remember').checked);
+      // 测试成功 → 勾选则把这把可用密钥记到浏览器，下次自动填入
+      _setRememberedKey(mid, remember ? body.api_key : '');
       const sb={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:body.api_key,api_base_url:el('em-url').value};
-      const sr=await api(`${A}/teams/${tid}/models/${agRuntime.editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
-      if(sr){rb.innerHTML+='<div style="margin-top:8px;color:var(--lime);font-size:12px">💾 配置已自动保存</div>';loadModels();if(sb.is_default){loadSbAgents();if(aid)loadAgent()}}
+      const sr=await api(`${A}/teams/${tid}/models/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
+      if(sr){rb.innerHTML+='<div style="margin-top:8px;color:var(--lime);font-size:12px">💾 配置已自动保存'+(remember&&body.api_key?'（密钥已记住到此浏览器）':'')+'</div>';loadModels();if(sb.is_default){loadSbAgents();if(aid)loadAgent()}}
     }
   } else {
     rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';

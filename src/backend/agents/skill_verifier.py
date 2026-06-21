@@ -49,6 +49,11 @@ class VerificationResult:
     artifact_dir: str = ""
     evidence_run_id: str = ""
     verification_evidence: Dict[str, Any] = field(default_factory=dict)
+    # P4.1: Token Gate 字段
+    tokens_consumed: int = 0
+    run_id: str = ""
+    gate: Dict[str, Any] = field(default_factory=dict)
+    requires_review: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -72,6 +77,10 @@ class VerificationResult:
             "artifact_dir": self.artifact_dir,
             "evidence_run_id": self.evidence_run_id,
             "verification_evidence": self.verification_evidence,
+            "tokens_consumed": self.tokens_consumed,
+            "run_id": self.run_id,
+            "gate": self.gate,
+            "requires_review": self.requires_review,
         }
 
 
@@ -85,7 +94,19 @@ class SkillVerifier:
         self._process_log: List[Dict[str, Any]] = []  # 透明化执行日志
 
     async def verify_skill(self, team_id: str, skill_id: str, provider_config=None) -> VerificationResult:
-        """验证技能: 生成测试材料 → 沙箱执行验证脚本 → 评估 pass_rate."""
+        """验证技能: 生成测试材料 → 沙箱执行验证脚本 → 评估 pass_rate.
+
+        P4: 包裹 token_scope，使 _generate_tests 的 LLM token 归因到 run_id。
+        """
+        from .token_context import token_scope, new_run_id
+        run_id = new_run_id("skill_verify")
+        with token_scope(run_id=run_id, phase="skill_verify",
+                         skill_id=skill_id, team_id=team_id,
+                         agent_id=getattr(skill, 'owner_agent', '') if 'skill' in dir() else ''):
+            return await self._verify_skill_impl(team_id, skill_id, provider_config, run_id)
+
+    async def _verify_skill_impl(self, team_id: str, skill_id: str, provider_config=None, run_id: str = "") -> VerificationResult:
+        """验证技能实现（由 verify_skill 调用，在 token_scope 内执行）。"""
         self._process_log = []
         result = VerificationResult(skill_id=skill_id, status="testing")
         result.process_log = self._process_log
@@ -176,6 +197,46 @@ class SkillVerifier:
             else:
                 result.error_detail = f"通过率 {result.pass_rate*100:.0f}% 低于 70% 阈值"
             self._process_log.append({"step": "done", "msg": f"验证失败 — {result.error_detail}"})
+
+        # P4.1: Token Gate 闸门 — verified→granted 前评估本次 run 的 token 合规
+        gate_report: Dict[str, Any] = {}
+        if run_id and result.status == "verified":
+            try:
+                from .token_ledger import LEDGER
+                from .token_policy import ENGINE, TokenBudget
+                run_data = LEDGER.run(run_id)
+                result.tokens_consumed = run_data.get("total", 0)
+                result.run_id = run_id
+                # 技能验证默认预算：max_tokens=20000, min_efficiency=0.0（不强制效率）
+                budget = TokenBudget(max_tokens=20000, min_efficiency=0.0)
+                gate_report = ENGINE.evaluate(run_data, budget)
+                result.gate = gate_report
+                decision = gate_report.get("decision", "pass")
+                if decision == "block":
+                    # block 拦截授予：降级为 failed，不进入 granted
+                    result.status = "failed"
+                    result.error_detail = (
+                        f"Token Gate 拦截 (block): {gate_report.get('violations', [])}. "
+                        f"tokens={run_data.get('total', 0)}"
+                    )
+                    skill.lifecycle_stage = SkillLifecycleStage.VERIFIED  # 保留 verified 但不进 granted
+                    self._skill_library._persist_skill(skill, team_id)
+                    self._process_log.append({
+                        "step": "gate_block", "msg": f"Token Gate 拦截授予: {gate_report}",
+                    })
+                elif decision == "warn":
+                    # warn 允许授予但标记需人工复核
+                    result.requires_review = True
+                    self._process_log.append({
+                        "step": "gate_warn", "msg": f"Token Gate 警告但允许授予: {gate_report}",
+                    })
+                else:
+                    self._process_log.append({
+                        "step": "gate_pass", "msg": f"Token Gate 通过: {gate_report}",
+                    })
+            except Exception as ge:
+                logger.warning("Token Gate 评估失败（不阻断授予）: %s", ge)
+                self._process_log.append({"step": "gate_skip", "msg": f"Gate 评估跳过: {ge}"})
 
         result.evidence_run_id = await self._record_evidence_run(team_id, skill, result, evidence)
         if result.evidence_run_id:

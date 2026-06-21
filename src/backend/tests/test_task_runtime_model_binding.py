@@ -207,5 +207,6 @@ async def test_skill_evolver_replaces_llm_fallback_with_cost_ri_instructions():
     )
 
     assert result["llm_degraded"] is True
-    assert "AWS Reserved Instance" in result["improved_instructions"]
-    assert "当前 LLM 未连接" not in result["improved_instructions"]
+    assert result.get("error") == "llm_degraded"
+    assert result.get("improved_instructions") is None
+    assert "LLM 返回了不可用的回退文本" in result.get("error_detail", "")

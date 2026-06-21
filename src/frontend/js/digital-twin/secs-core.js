@@ -851,6 +851,13 @@
     var sid = _sx.sessionId;
     _logConsole('▶ 开始自动运行... session=' + sid.slice(0,8), 'info');
 
+    // [fix] 确保 SSE 步进流已连接，否则后端在跑、控制台却「没动静」（步进日志全来自 SSE）。
+    // 经导演台/其它路径创建的 session 不一定连过 SSE；这里幂等补连。
+    if (!_sx.esrc || _sx.esrc.readyState === EventSource.CLOSED) {
+      _sseReconnectDelay = 1000;
+      _connectSSE();
+    }
+
     try {
       var rr = await fetch(SECS+'/sessions/'+encodeURIComponent(sid)+'/run', { method:'POST', signal:_sx._abortCtrl.signal });
       _sx._abortCtrl = null;
@@ -1192,21 +1199,12 @@
           ar2.forEach(function(r){ r.style.boxShadow = '0 0 20px rgba(248,113,113,0.15)'; setTimeout(function(){ r.style.boxShadow=''; }, 800); });
         }
       }
-      // 弹幕气泡
+      // 奖励直观展示：在「对应 agent」头顶弹出 +value（替代随机弹幕/连线）
       emitStepBarrage(d);
       // 收益浮动卡实时更新
       if (reward !== undefined && reward !== null) { showRewardFloat(true); updateErfValue(reward); }
-      // 单步连线：如果有多个agent action，画连线
-      if (d.agent_actions && Object.keys(d.agent_actions).length > 1) {
-        var container = document.getElementById('env-3d-container');
-        if(container){
-          drawLinkageLine(
-            {x:container.clientWidth*0.2, y:100},
-            {x:container.clientWidth*0.7, y:200+(Math.random()*150)},
-            'var(--cyan)', ''
-          );
-        }
-      }
+      // SECS 流水线阶段随步进推进（L1→L2→L3→L4 循环），不再固定停在 L2
+      _advancePipelineStage(_sx.steps);
       break;
 
     case 'complete':
@@ -2032,26 +2030,48 @@
     setTimeout(function() { if(b.parentNode)b.parentNode.removeChild(b); }, 2600);
   }
 
-  // 从step事件中提取关键决策信息，弹幕展示
+  // 奖励直观展示：在「对应 agent」头顶弹出 +value 浮卡（3D，上升淡出），居中投射到该 agent。
+  // 取代旧的随机位置弹幕 + 随机虚线（看不懂）。
   function emitStepBarrage(stepData) {
     var actions = stepData.agent_actions || {};
     var roles = stepData.agent_roles || {};
+    var sr = stepData.step_rewards || {};
+    var gReward = stepData.global_reward;
     var keys = Object.keys(actions);
     if (!keys.length) return;
-    // 取第一个action作为主要弹幕内容
-    var aid = keys[0];
-    var name = roles[aid]||aid.slice(0,6);
-    var action = actions[aid];
-    var reward = stepData.global_reward;
-    var rewardStr = reward !== undefined ? ' | +' + Number(reward).toFixed(3) : '';
-    var text = name + ': ' + action + rewardStr;
-    var canvas = document.getElementById('env-3d-canvas');
+    if (typeof window._dt3dRewardPop === 'function') {
+      keys.slice(0, 8).forEach(function (aid, i) {
+        var rw = (sr[aid] !== undefined && sr[aid] !== null) ? sr[aid] : gReward;
+        window._dt3dRewardPop(roles[aid] || '', rw, i);
+      });
+      return;
+    }
+    // 回退（3D 未就绪）：在画面中心上方弹一条，不再随机散落
     var container = document.getElementById('env-3d-container');
     if (!container) return;
-    var bx = container.clientWidth*0.15 + Math.random()*container.clientWidth*0.5;
-    var by = 60 + Math.random()*200;
-    showBarrageBubble(text, bx, by, reward>=0?'var(--green)':'var(--red)');
+    var aid0 = keys[0];
+    var text = (roles[aid0] || aid0.slice(0, 6)) + ' +' + Number(gReward || 0).toFixed(2);
+    showBarrageBubble(text, container.clientWidth * 0.5 - 60, 70, gReward >= 0 ? 'var(--green)' : 'var(--red)');
   }
+
+  // SECS 流水线阶段推进：L1→L2→L3→L4 随步进循环高亮（原 HTML 固定停在 L2）
+  function _advancePipelineStage(step) {
+    var layers = ['L1', 'L2', 'L3', 'L4'];
+    var active = layers[((step || 1) - 1) % 4];
+    layers.forEach(function (L) {
+      var node = document.getElementById('spipe-' + L);
+      var dot = document.getElementById('spipe-dot-' + L);
+      if (!node) return;
+      var on = (L === active);
+      node.style.border = '1px solid ' + (on ? 'var(--cyan)' : 'var(--border)');
+      node.style.background = on ? 'var(--cyan-dim)' : 'transparent';
+      node.classList.toggle('pipeline-node--active', on);
+      var numSpan = node.querySelector('span[style*="font-weight:700"]');
+      if (numSpan) numSpan.style.color = on ? 'var(--cyan)' : 'var(--muted)';
+      if (dot) dot.style.background = on ? 'var(--cyan)' : 'var(--dim)';
+    });
+  }
+  window._advancePipelineStage = _advancePipelineStage;
 
   // ══════════════════════════════════════════════════════════════
   // P2: 单步逻辑连线可视化
@@ -2291,6 +2311,33 @@
     loadRuntimeStatus();
     loadSecsStats();
     loadExerciseHistory();
+    _applyUrlTeamParam();      // 跳转带 ?team= 时自动选中演练团队
   });
+
+  // 跳转携带 ?team=build_system（来自成本治理/效率视角链接）→ 自动选中该演练团队。
+  // 否则演练无 _selectedTeamId → 要么提示「请先选择演练团队」中止，要么以空团队跑
+  // → world 无 agent → twin=0 → reward 恒 0。
+  async function _applyUrlTeamParam() {
+    try {
+      var p = new URLSearchParams(location.search);
+      var tid = p.get('team') || p.get('team_id');
+      if (!tid) return;
+      if (!_teamTreeData.length) {
+        var r = await fetch('/api/v1/agent-config/teams-tree?limit=50');
+        var data = await r.json();
+        _teamTreeData = Array.isArray(data) ? data : (data.items || data.teams || []);
+      }
+      var team = _teamTreeData.find(function (t) { return t.team_id === tid; });
+      var name = team ? (team.name || tid) : tid;
+      if (typeof window.sexySelectTeam === 'function') {
+        window.sexySelectTeam(tid, name);
+      }
+      // 强制重建 3D 房间，确保选中团队的 agent 在演练 3D 窗口里渲染出来
+      // （buildRoom 在 _currentRoomId 为空时不会自动重建 → 议事厅 0 agent）
+      setTimeout(function () {
+        if (window._dt3dBuildRoom) window._dt3dBuildRoom(window._currentRoomId || 'council');
+      }, 500);
+    } catch (e) { /* non-critical */ }
+  }
 
 })();

@@ -20,6 +20,7 @@
     health: null,
     gateHealth: null,
     gateStats: null,
+    tokenOverview: null,
     filters: {},
     prevTotal: null,         // QoQ: previous refresh total (session)
     prevPeriodTotal: null,   // QoQ: previous comparable period (24h/7d/30d shifted back)
@@ -126,12 +127,25 @@
 
   /* ─────────────── filter & payload helpers ─────────────── */
   function getFilters() {
-    return {
-      aggregation: ($('filter-aggregation') && $('filter-aggregation').value) || 'team',
+    var agg = ($('filter-aggregation') && $('filter-aggregation').value) || 'team';
+    var lastVal = (($('filter-service') && $('filter-service').value) || '').trim();
+    var env = ($('filter-environment') && $('filter-environment').value) || '';
+    var filters = {
+      aggregation: agg,
       window: ($('filter-window') && $('filter-window').value) || '24h',
-      environment: ($('filter-environment') && $('filter-environment').value) || '',
-      service: (($('filter-service') && $('filter-service').value) || '').trim(),
+      environment: env,
+      service: '',
+      team: '',
     };
+    // Map the fourth filter value to the correct API parameter based on aggregation dimension
+    if (agg === 'service') filters.service = lastVal;
+    else if (agg === 'team') filters.team = lastVal;
+    else if (agg === 'environment') {
+      // When aggregation is environment, the fourth filter IS the environment filter;
+      // the dedicated env dropdown becomes redundant/ignored
+      filters.environment = lastVal;
+    }
+    return filters;
   }
   function queryString(params) {
     var query = new URLSearchParams();
@@ -187,89 +201,139 @@
   function renderKpiHero() {
     var host = $('kpi-hero');
     if (!host) return;
+
+    // P1: 优先使用 Token 数据（北极星）
+    var tok = state.tokenOverview;
+    var tokSummary = tok && tok.summary;
+    var tokByTeam = (tok && tok.by_team) || [];
+    var tokByPhase = (tok && tok.by_phase) || {};
+
+    if (tokSummary && tokSummary.total > 0) {
+      // team_id ↔ 名称映射；并把筛选值（可能是名称或 id）解析为 team_id
+      var nameById = {}, idByName = {};
+      (state.teams || []).forEach(function (t) {
+        nameById[t.team_id] = t.name || t.team_id;
+        if (t.name) idByName[t.name.toLowerCase()] = t.team_id;
+      });
+      var teamLabel = function (id) { return nameById[id] || id || '—'; };
+      var filterTeam = (state.filters && state.filters.team) || '';
+      var filterTeamId = filterTeam ? (idByName[filterTeam.toLowerCase()] || filterTeam) : '';
+
+      // 选中团队 → 把 KPI 限定到该团队；未选 → 全部
+      var scoped = filterTeamId ? tokByTeam.filter(function (t) { return t.team_id === filterTeamId; }) : tokByTeam;
+      var totalTokens = filterTeamId
+        ? scoped.reduce(function (s, t) { return s + (t.total || 0); }, 0)
+        : tokSummary.total;
+      var totalCalls = filterTeamId
+        ? scoped.reduce(function (s, t) { return s + (t.calls || 0); }, 0)
+        : tokSummary.calls;
+      var delta = (state.prevTotal != null && state.prevTotal > 0)
+        ? (totalTokens - state.prevTotal) / state.prevTotal : null;
+      state.prevTotal = totalTokens;
+
+      // 第二卡：选中团队时显示「当前团队」，否则显示全局「最贵团队」（均用名称，不显示原始 id）
+      var topTeam = filterTeamId
+        ? (scoped[0] || { team_id: filterTeamId, total: 0, calls: 0 })
+        : (tokByTeam.find(function (t) { return t && t.team_id; }) || null);
+      var teamCard2Label = filterTeamId ? '当前团队' : '最贵团队';
+      var teamCount = filterTeamId ? 1 : tokByTeam.length;
+
+      // 第三卡 sub：阶段分布（说明这是 token 按阶段拆分，不是团队数的细分）
+      var phaseText = '阶段 ' + (Object.keys(tokByPhase).map(function (k) {
+        return k + ':' + compactNumber(tokByPhase[k].total || tokByPhase[k]);
+      }).join(' · ') || '无');
+
+      // 9.3: 棘轮累计锁定（KPI④ 反馈）
+      var locked = (state.ratchet && state.ratchet.metrics) || [];
+      var lockedCount = locked.length;
+      var bestGen = locked.reduce(function (m, x) { return Math.max(m, x.generation || 0); }, 0);
+
+      host.innerHTML =
+        '<div class="kpi-hero__skeleton">' +
+        kpiCardHtml({
+          kind: 'hero',
+          icon: heroIcon('wallet'),
+          label: filterTeamId ? ('窗口 Token · ' + teamLabel(filterTeamId)) : '窗口总 Token',
+          value: compactNumber(totalTokens),
+          sub: windowLabel(state.filters.window) + ' · ' + compactNumber(totalCalls) + ' 次调用',
+          delta: delta != null ? { value: delta, format: 'pct' } : null,
+          deltaLabel: 'vs 上次刷新',
+        }) +
+        kpiCardHtml({
+          kind: topTeam && topTeam.total > 10000 ? 'warning' : 'standard',
+          icon: heroIcon('team'),
+          label: teamCard2Label,
+          value: topTeam ? teamLabel(topTeam.team_id) : '—',
+          sub: topTeam ? compactNumber(topTeam.total) + ' tokens · ' + compactNumber(topTeam.calls) + ' 调用' : '等待数据',
+        }) +
+        kpiCardHtml({
+          kind: 'standard',
+          icon: heroIcon('grid'),
+          label: filterTeamId ? '团队（已筛选）' : '团队数',
+          value: compactNumber(teamCount),
+          sub: phaseText,
+        }) +
+        kpiCardHtml({
+          kind: lockedCount ? 'success' : 'muted',
+          icon: heroIcon('lock'),
+          label: '棘轮已锁定',
+          value: lockedCount ? (lockedCount + ' 项') : '—',
+          sub: lockedCount ? ('最高 gen ' + bestGen + ' · 只进不退') : '达成目标后自动锁定',
+        }) +
+        '</div>';
+      setHtml('summary-grid', host.innerHTML);
+      return;
+    }
+
+    // 回退：OpenCost 基础设施成本（无 Token 数据时）
     var summary = state.summary && state.summary.summary;
     if (!summary) {
-      host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无成本摘要</div></div>';
+      host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无 Token 消耗数据</div><div style="font-size:12px;color:var(--dim);margin-top:4px">Agent 调用 LLM 后将自动产生 Token 记录</div></div>';
       setHtml('summary-grid', host.innerHTML);
       return;
     }
 
     var totalCost = Number(summary.total_cost || 0);
-    // Note: backend has no /previous-period endpoint, so the delta is "vs last refresh"
-    // (which still detects sudden cost spikes between auto-refreshes).
     var delta = (state.prevTotal != null && state.prevTotal > 0)
       ? (totalCost - state.prevTotal) / state.prevTotal : null;
     state.prevTotal = totalCost;
 
-    // Budget burn rate (per-team / per-month). If budget set and current cost exceeds prorated share → critical
-    var budget = state.budget;
-    var heroKind = totalCost > 5 ? 'critical' : totalCost > 1 ? 'warning' : 'success';
-    var budgetWarn = null;
-    if (budget && budget.monthly > 0) {
-      // Crude prorate: assume window cost * 30d / windowDays is the monthly burn
-      var windowDays = (state.filters.window === '24h' ? 1 : state.filters.window === '7d' ? 7 : 30);
-      var monthlyBurn = totalCost * (30 / Math.max(1, windowDays));
-      var ratio = monthlyBurn / budget.monthly;
-      if (ratio >= 1) { heroKind = 'critical'; budgetWarn = { ratio: ratio, monthlyBurn: monthlyBurn }; }
-      else if (ratio >= 0.8) { heroKind = heroKind === 'critical' ? 'critical' : 'warning'; budgetWarn = { ratio: ratio, monthlyBurn: monthlyBurn }; }
-    }
-
     var podCount = Number(summary.pod_count || summary.total_pods || 0);
     var containerCount = Number(summary.container_count || 0);
     var serviceCount = Number(summary.service_count || (summary.by_service || []).length);
-    var envCount = Number(summary.environment_count || (summary.by_environment || []).length);
     var teamCount = Number(summary.team_count || (summary.by_team || []).length);
-    var topTeam = maxCost(summary.by_team);
-    var topTeamValue = topTeam > 0 ? topTeam : null;
-
-    // Per-pod avg cost
-    var avgCost = podCount > 0 ? totalCost / podCount : 0;
-
-    // Hero sub: delta label (vs last refresh) + budget pill if applicable
-    var deltaLabel = 'vs 上次刷新';
-    var heroSub = windowLabel(state.filters.window) + ' · ' + compactNumber(podCount) + ' 个 Pod';
-    var heroBudgetPill = '';
-    if (budgetWarn) {
-      heroBudgetPill = ' · <span class="kpi-card__pill kpi-card__pill--' +
-        (heroKind === 'critical' ? 'alert' : 'warn') + '">' +
-        '预算燃烧 ' + (budgetWarn.ratio * 100).toFixed(0) + '%' +
-        (budgetWarn.ratio >= 1 ? ' · 已超预算' : '') +
-        '</span>';
-    }
 
     host.innerHTML =
       '<div class="kpi-hero__skeleton">' +
       kpiCardHtml({
-        kind: heroKind === 'success' ? 'hero' : (heroKind === 'critical' ? 'critical' : 'warning'),
+        kind: 'muted',
         icon: heroIcon('wallet'),
-        label: '总成本',
+        label: '基础设施成本（OpenCost）',
         value: money(totalCost),
-        sub: heroSub,
-        subExtra: heroBudgetPill,
+        sub: windowLabel(state.filters.window) + ' · ' + compactNumber(podCount) + ' 个 Pod',
         delta: delta != null ? { value: delta, format: 'pct' } : null,
-        deltaLabel: deltaLabel,
-        spark: buildSparkFromSummary(summary),
+        deltaLabel: 'vs 上次刷新',
       }) +
       kpiCardHtml({
-        kind: 'standard',
+        kind: 'muted',
         icon: heroIcon('pod'),
         label: '活跃 Pod',
         value: compactNumber(podCount),
-        sub: '容器 ' + compactNumber(containerCount) + ' · 均摊 ' + money(avgCost) + '/Pod',
+        sub: '容器 ' + compactNumber(containerCount),
       }) +
       kpiCardHtml({
-        kind: 'standard',
+        kind: 'muted',
         icon: heroIcon('grid'),
         label: '服务 × 环境',
         value: compactNumber(serviceCount),
-        sub: '环境 ' + compactNumber(envCount) + ' · 团队 ' + compactNumber(teamCount),
+        sub: '团队 ' + compactNumber(teamCount),
       }) +
       kpiCardHtml({
-        kind: topTeamValue != null && topTeamValue > 1 ? 'warning' : 'muted',
+        kind: 'muted',
         icon: heroIcon('team'),
-        label: 'Top 团队',
-        value: money(topTeamValue || 0),
-        sub: teamCount > 0 ? (teamCount + ' 个团队贡献成本') : '等待团队归因数据',
+        label: '提示',
+        value: '等待 Token',
+        sub: 'Agent 调用 LLM 后显示 Token 成本',
       }) +
       '</div>';
     setHtml('summary-grid', host.innerHTML);
@@ -442,33 +506,29 @@
     var container = $('breakdown-chart');
     if (!container) return;
     if (!items || !items.length) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>该维度下暂无数据</div></div>';
+      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>该维度下暂无 Token 数据</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生 LLM 调用</div></div>';
       return;
     }
-    var filtered = items.filter(function (item) {
-      return item.value !== '(unknown)' && item.value !== 'unknown';
-    });
-    if (!filtered.length) filtered = items.slice();
-
-    var sorted = filtered.slice().sort(function (a, b) {
-      return Number(b.total_cost || 0) - Number(a.total_cost || 0);
+    // P8.1: 字段从 OpenCost {value, total_cost} 改为 Token {key, total}
+    var sorted = items.slice().sort(function (a, b) {
+      return Number(b.total || 0) - Number(a.total || 0);
     }).slice(0, 10);
-    var grand = sorted.reduce(function (s, x) { return s + Number(x.total_cost || 0); }, 0);
-    var max = Math.max.apply(null, sorted.map(function (item) { return Number(item.total_cost || 0); }).concat([0.0001]));
+    var grand = sorted.reduce(function (s, x) { return s + Number(x.total || 0); }, 0);
+    var max = Math.max.apply(null, sorted.map(function (item) { return Number(item.total || 0); }).concat([0.0001]));
 
     var rows = sorted.map(function (item, idx) {
-      var v = Number(item.total_cost || 0);
+      var v = Number(item.total || 0);
       var pct = (v / max) * 100;
       var share = grand > 0 ? (v / grand) * 100 : 0;
       var tier = idx === 0 ? 'accent' : (v / max > 0.6 ? 'warning' : '');
       return [
         '<li class="hbar-item ' + (tier ? 'hbar-item--' + tier : '') + (idx === 0 ? ' hbar-item--top' : '') + '">',
         '  <div class="hbar-rank">#' + (idx + 1).toString().padStart(2, '0') + '</div>',
-        '  <div class="hbar-label" title="' + esc(item.value || '?') + '">' + esc(item.value || '?') + '</div>',
+        '  <div class="hbar-label" title="' + esc(item.key || '?') + '">' + esc(item.key || '?') + '</div>',
         '  <div class="hbar-track">',
         '    <div class="hbar-fill" style="width:' + pct.toFixed(1) + '%"></div>',
         '  </div>',
-        '  <div class="hbar-value">' + money(v) + '<span class="hbar-pct">' + share.toFixed(1) + '%</span></div>',
+        '  <div class="hbar-value">' + compactNumber(v) + ' tokens<span class="hbar-pct">' + share.toFixed(1) + '%</span></div>',
         '</li>',
       ].join('');
     }).join('');
@@ -481,14 +541,21 @@
     var container = $('trends-chart');
     var sub = $('trends-sub');
     if (!container) return;
-    var series = Array.isArray(seriesList) && seriesList.length ? seriesList[0] : null;
+    // P8.2: Token trend 返回 {points, total, ...}，不是数组
+    var series = null;
+    if (seriesList && Array.isArray(seriesList) && seriesList.length) {
+      series = seriesList[0];
+    } else if (seriesList && seriesList.points) {
+      series = seriesList;
+    }
     if (!series || !series.points || series.points.length < 1) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>趋势数据不足</div><div style="font-size:12px;color:var(--dim);margin-top:4px">需要 OpenCost 返回至少一个时间点</div></div>';
+      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>窗口内暂无 Token 消耗</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生调用</div></div>';
       if (sub) sub.textContent = '—';
       return;
     }
     var points = series.points;
-    var values = points.map(function (p) { return Number(p.cost || 0); });
+    // P8.2: point.total 替代 point.cost
+    var values = points.map(function (p) { return Number(p.total || 0); });
     var total = Number(series.total || values.reduce(function (s, v) { return s + v; }, 0));
 
     // Linear forecast for next 3 points (only when we have ≥3 real points)
@@ -507,10 +574,10 @@
         var dir = fcDelta > 0.001 ? '↑' : (fcDelta < -0.001 ? '↓' : '→');
         var cls = fcDelta > 0.05 ? 'fc-up' : (fcDelta < -0.05 ? 'fc-down' : 'fc-flat');
         fcText = ' · 预测 ' + dir + ' <span class="fc-pill fc-pill--' + cls + '">' +
-                 money(fcEndValue) + ' (' + (fcDelta * 100).toFixed(1) + '%)</span>';
+                 compactNumber(fcEndValue) + ' tokens (' + (fcDelta * 100).toFixed(1) + '%)</span>';
       }
       sub.innerHTML = esc(series.dimension || 'series') + ' · ' +
-        esc(series.value || '-') + ' · 总计 ' + money(total) + fcText;
+        esc(series.value || '-') + ' · 总计 ' + compactNumber(total) + ' tokens' + fcText;
     }
 
     var html = lineChartSvg(points, values, max, min, forecast);
@@ -684,38 +751,32 @@
   function renderPodsTable(pods) {
     var tbody = $('pods-tbody');
     if (!tbody) return;
+    // P8.3: Token 消耗明细（替代 Pod 明细）
     if (!pods || !pods.length) {
-      tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="icon">∅</div><div>暂无 Pod 成本明细</div><div style="font-size:12px;color:var(--dim);margin-top:4px">等待 OpenCost 数据采集或调整筛选条件</div></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">∅</div><div>暂无 Token 消耗明细</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生 LLM 调用</div></div></td></tr>';
       setText('pod-count', '');
       return;
     }
-    var sorted = pods.slice().sort(function (a, b) { return Number(b.total_cost || 0) - Number(a.total_cost || 0); });
-    var max = Math.max.apply(null, sorted.map(function (p) { return Number(p.total_cost || 0); }).concat([0.0001]));
+    var sorted = pods.slice().sort(function (a, b) { return Number(b.total || 0) - Number(a.total || 0); });
+    var max = Math.max.apply(null, sorted.map(function (p) { return Number(p.total || 0); }).concat([0.0001]));
 
-    setText('pod-count', '(共 ' + pods.length + ' 个 · 显示前 50)');
+    setText('pod-count', '(共 ' + pods.length + ' 条)');
 
-    tbody.innerHTML = sorted.slice(0, 50).map(function (pod, index) {
-      var v = Number(pod.total_cost || 0);
+    tbody.innerHTML = sorted.slice(0, 50).map(function (row, index) {
+      var v = Number(row.total || 0);
       var barW = (v / max) * 100;
       var tier = v / max > 0.6 ? 'row--accent' : v / max > 0.3 ? 'row--warning' : '';
-      var envClass = (pod.environment || 'unknown').toLowerCase();
-      var idx = sorted.indexOf(pod);
+      var rid = esc(row.run_id || '?');
+      var ts = row.ts ? new Date(Number(row.ts)).toLocaleString('zh-CN') : '-';
       return [
         '<tr class="' + tier + '">',
-        '  <td class="col-pod" title="' + esc(pod.pod || '?') + '">' + esc(pod.pod || '?') + '</td>',
-        '  <td>' + esc(pod.namespace || 'default') + '</td>',
-        '  <td><strong>' + esc(pod.service || '-') + '</strong></td>',
-        '  <td><span class="pill ' + esc(envClass || 'unknown') + '">' + esc(pod.environment || '-') + '</span></td>',
-        '  <td>' + esc(pod.team || '-') + '</td>',
-        '  <td class="num">' + money(pod.cpu_cost) + '</td>',
-        '  <td class="num">' + money(pod.ram_cost) + '</td>',
-        '  <td class="num">' + money(pod.network_cost) + '</td>',
-        '  <td class="num col-total"><span class="col-total-bar"><i style="width:' + barW.toFixed(1) + '%"></i></span>' + money(pod.total_cost) + '</td>',
-        '  <td><div class="row-actions">',
-        '    <button class="icon-btn" title="创建任务" onclick="createOptimizationTask(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>',
-        '    <button class="icon-btn" title="创建 Plaza 话题" onclick="createPlazaTopic(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>',
-        '    <button class="icon-btn icon-btn--accent" title="生成标签补丁" onclick="generateLabelPatch(\'pod\',' + idx + ')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>',
-        '  </div></td>',
+        '  <td class="col-pod" title="' + rid + '">' + rid.slice(0, 16) + '</td>',
+        '  <td><span class="pill">' + esc(row.phase || 'task') + '</span></td>',
+        '  <td>' + esc(row.team_id || '-') + '</td>',
+        '  <td>' + esc(row.skill_id || '-') + '</td>',
+        '  <td class="num">' + (row.calls || 0) + '</td>',
+        '  <td class="num col-total"><span class="col-total-bar"><i style="width:' + barW.toFixed(1) + '%"></i></span>' + compactNumber(v) + ' tokens</td>',
+        '  <td style="font-size:11px;color:var(--dim)">' + ts + '</td>',
         '</tr>',
       ].join('');
     }).join('');
@@ -725,17 +786,44 @@
   function renderGovernance() {
     var panel = $('governance-panel');
     if (!panel) return;
+    var summaryResp = state.summary || {};
     var health = state.health || {};
-    var gate = state.gateHealth || {};
     var stats = state.gateStats || {};
-    var top = state.breakdown[0] || null;
-    var topLabel = top ? (top.dimension || state.filters.aggregation || 'cost') + ': ' + (top.value || '-') : '暂无异常目标';
-    var topCost = top ? money(top.total_cost) : '-';
+    var filters = state.filters || {};
+    var agg = filters.aggregation || 'team';
 
-    var gateStatus = gate.status || gate.decision || '未知';
-    var gateStatusClass = gateStatus === 'ok' || gateStatus === 'allow' || gateStatus === 'pass' ? 'ok' : (gateStatus === 'block' || gateStatus === 'blocked' ? 'alert' : 'warn');
-    var dataAge = Number(health.data_age_seconds || health.data_freshness_seconds || 0);
+    // 治理目标联动筛选条件：优先展示当前选中的维度值
+    // P8R.3: 改用 token breakdown 字段 {key, total}
+    // 治理/棘轮目标必须是「已归因」团队——空 team_id 会被渲染成「(未归因)」，
+    // 它若被选为目标，运行棘轮周期会 POST team_id='' → 后端 400 → 静默无反应。
+    var isAttributed = function (b) { return b && b.key && b.key !== '(未归因)'; };
+    var attributed = (state.breakdown || []).filter(isAttributed);
+    var topTarget = null;
+    if (agg === 'team' && filters.team) {
+      topTarget = state.breakdown.find(function (b) { return (b.key || '') === filters.team; }) || attributed[0] || null;
+    } else if (agg === 'service' && filters.service) {
+      topTarget = state.breakdown.find(function (b) { return (b.key || '') === filters.service; }) || attributed[0] || null;
+    } else if (agg === 'environment' && filters.environment) {
+      topTarget = state.breakdown.find(function (b) { return (b.key || '') === filters.environment; }) || attributed[0] || null;
+    } else {
+      topTarget = attributed[0] || null;
+    }
+    var topLabel = topTarget ? (agg + ': ' + (topTarget.key || '-'))
+      : (state.breakdown && state.breakdown.length ? '仅有未归因消耗（先让调用带上 team_id）' : '暂无异常目标');
+    var topCost = topTarget ? (compactNumber(topTarget.total || 0) + ' tokens') : '-';
+    // P8R.3: 赋值 governanceTarget 供棘轮/派发共用（仅取已归因目标，避免空 team_id）
+    state.governanceTarget = (topTarget && isAttributed(topTarget))
+      ? { team_id: topTarget.key, total: topTarget.total, lever: '', lever_split: null }
+      : null;
+
+    // 指派团队联动
+    var selectedTeam = filters.team || filters.service || '';
+    var teamOptionsHtml = teamOptionsHtmlWithSelected(selectedTeam);
+
+    var dataAge = Number(summaryResp.data_freshness_seconds || health.data_age_seconds || health.data_freshness_seconds || 0);
     var dataAgeClass = dataAge <= 120 ? 'ok' : dataAge <= 600 ? 'warn' : 'alert';
+    var dataAgeText = dataAge <= 60 ? '刚刚' : dataAge <= 3600 ? Math.floor(dataAge / 60) + ' 分钟前' : dataAge <= 86400 ? Math.floor(dataAge / 3600) + ' 小时前' : Math.floor(dataAge / 86400) + ' 天前';
+
     var blocked = Number(stats.blocked || stats.block || 0);
     var passed = Number(stats.passed || stats.pass || 0);
     var warned = Number(stats.warned || stats.warn || 0);
@@ -744,35 +832,31 @@
 
     panel.innerHTML = [
       '<div class="governance-status">',
-      '  <div class="gov-stat">',
-      '    <div class="gov-stat__label"><span class="status-dot ' + (health.status === 'ok' ? 'healthy' : 'unhealthy') + ' pulse"></span>OpenCost</div>',
-      '    <div class="gov-stat__value ' + (health.status === 'ok' ? 'gov-stat__value--ok' : 'gov-stat__value--alert') + '">' + esc(health.status || 'unknown') + '</div>',
-      '  </div>',
+      // 数据新鲜度
       '  <div class="gov-stat">',
       '    <div class="gov-stat__label">数据新鲜度</div>',
-      '    <div class="gov-stat__value gov-stat__value--' + dataAgeClass + '">' + dataAge + 's</div>',
+      '    <div class="gov-stat__value gov-stat__value--' + dataAgeClass + '">' + esc(dataAgeText) + '</div>',
       '  </div>',
+      // Gate 拦截率
       '  <div class="gov-stat">',
-      '    <div class="gov-stat__label">Cost Gate</div>',
-      '    <div class="gov-stat__value gov-stat__value--' + gateStatusClass + '">' + esc(gateStatus) + '</div>',
-      '  </div>',
-      '  <div class="gov-stat">',
-      '    <div class="gov-stat__label">拦截率</div>',
+      '    <div class="gov-stat__label">Gate 拦截率</div>',
       '    <div class="gov-stat__value ' + (blockRate > 20 ? 'gov-stat__value--alert' : blockRate > 5 ? 'gov-stat__value--warn' : 'gov-stat__value--ok') + '">' + blockRate.toFixed(1) + '%</div>',
       '  </div>',
+      // Gate 通行/阻断统计
+      '  <div class="gov-stat">',
+      '    <div class="gov-stat__label">Gate 统计</div>',
+      '    <div class="gov-stat__value" style="font-size:12px;color:var(--sumi)"><span style="color:var(--koke)">' + compactNumber(passed) + ' 通</span> · <span style="color:var(--kitsune)">' + compactNumber(warned) + ' 警</span> · <span style="color:var(--shu)">' + compactNumber(blocked) + ' 阻</span></div>',
+      '  </div>',
       '</div>',
-
-      '<div class="governance-row"><span>Gate 统计</span><strong>通 ' + compactNumber(passed) + ' · 警 ' + compactNumber(warned) + ' · 阻断 ' + compactNumber(blocked) + '</strong></div>',
 
       '<div class="action-box">',
       '  <div class="action-box__title">⚡ 当前治理目标</div>',
       '  <div class="action-box__target">' + esc(topLabel) + '<span class="action-box__target-cost">' + esc(topCost) + '</span></div>',
-      '  <label>指派团队<select id="cost-action-team">' + teamOptionsHtml() + '</select></label>',
+      '  <label>指派团队<select id="cost-action-team">' + teamOptionsHtml + '</select></label>',
       '  <div class="action-buttons">',
       '    <button class="btn cost-btn cost-btn--accent cost-btn--sm" onclick="createOptimizationTask(\'breakdown\',0)">创建优化任务</button>',
       '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="createPlazaTopic(\'breakdown\',0)">创建 Plaza 话题</button>',
       '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="generateLabelPatch(\'pod\',0)">标签补丁</button>',
-      '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="runCostGateSelfCheck()">Gate 自检</button>',
       '  </div>',
       '  <div class="action-result" id="cost-action-result"></div>',
       '</div>',
@@ -789,34 +873,58 @@
       host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无可持续性评估数据</div></div>';
       return;
     }
+    // Build team_id → team_name map from state.teams for display consistency
+    var teamNameMap = {};
+    if (Array.isArray(state.teams)) {
+      state.teams.forEach(function (t) { teamNameMap[t.team_id] = t.name || t.team_id; });
+    }
+    function teamLabel(tid) { return teamNameMap[tid] || tid; }
+
     var rows = teams.map(function (team, index) {
       var grade = team.grade || '-';
+      // P8R.4: 效率公式 tooltip
+      var formulaTitle = 'score ' + (team.total_score || 0) + ' ÷ (tokens ' + (team.tokens_consumed || 0) + '/1k) = ' + Number(team.token_efficiency || 0).toFixed(4);
+      var dqText = esc(team.data_quality || '-');
+      var twinLink = '/Agent-digital-twin.html?team=' + encodeURIComponent(team.team_id || '');
+      if (team.data_quality === 'token_only') dqText += ' · 有消耗无评分 → <a href="' + twinLink + '" style="color:var(--koke);text-decoration:none">去数字孪生跑评分试炼▸</a>';
+      if (team.data_quality === 'no_data') dqText += ' · 暂无数据 → <a href="' + twinLink + '" style="color:var(--koke);text-decoration:none">先跑一次试炼▸</a>';
+      // P8R.4: 两杠杆占比条
+      var lc = team.lever_cost || { skill_pct: 0, collab_pct: 0, skill: 0, collab: 0, other: 0 };
+      var leverBar = '<div class="lever-bar" title="Skill杠杆 ' + compactNumber(lc.skill || 0) + ' / 协作 ' + compactNumber(lc.collab || 0) + '" style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:2px">'
+        + '<i style="width:' + (lc.skill_pct * 100).toFixed(0) + '%;background:var(--koke);display:block"></i>'
+        + '<i style="width:' + (lc.collab_pct * 100).toFixed(0) + '%;background:var(--kitsune);display:block"></i>'
+        + '</div>';
       return [
-        '<div class="efficiency-row">',
+        '<div class="efficiency-row" title="' + esc(formulaTitle) + '">',
         '  <div class="efficiency-rank">#' + String(index + 1).padStart(2, '0') + '</div>',
-        '  <div class="efficiency-team"><b>' + esc(team.team_id || '-') + '</b><span>' + esc(team.data_quality || '-') + ' · ' + compactNumber(team.tokens_consumed || 0) + ' tokens</span></div>',
-        '  <div class="efficiency-score">' + Number(team.token_efficiency || 0).toFixed(4) + '</div>',
+        '  <div class="efficiency-team"><b>' + esc(teamLabel(team.team_id)) + '</b><span>' + dqText + ' · ' + compactNumber(team.tokens_consumed || 0) + ' tokens</span>' + leverBar + '</div>',
+        '  <div class="efficiency-score" title="' + esc(formulaTitle) + '">' + Number(team.token_efficiency || 0).toFixed(4) + '</div>',
         '  <div class="efficiency-grade efficiency-grade--' + esc(grade) + '">' + esc(grade) + '</div>',
         '</div>',
       ].join('');
     }).join('');
     var reallocations = asItems(payload, 'reallocations');
-    var recs = teams.filter(function (t) { return t.grade === 'C' || t.grade === 'D'; }).slice(0, 3);
+    var recs = teams.filter(function (t) { return t.grade === 'C' || t.grade === 'D'; });
+    // 9.8: 说明 score 来源，避免把「未跑评分→效率0」误读为低效
+    var allZeroEff = teams.every(function (t) { return !Number(t.token_efficiency || 0); });
+    var scoreNote = '<div style="font-size:11px;color:var(--sumi-3);margin-bottom:8px;line-height:1.5">效率 = score ÷ (tokens/1k)，<b>score 来自数字孪生「评分试炼」</b>。'
+      + (allZeroEff ? '当前所有团队尚无评分 → 效率显示 0（<b>不代表低效</b>）。去 <a href="/Agent-digital-twin.html" style="color:var(--koke)">数字孪生</a> 跑一次评分试炼即可解锁。' : '未跑评分的团队显示为 0。') + '</div>';
     host.innerHTML = [
+      scoreNote,
       '<div class="efficiency-grid">',
       '  <div class="efficiency-list">' + rows + '</div>',
       '  <aside class="efficiency-side">',
       '    <h4>资源再分配</h4>',
       reallocations.length
-        ? reallocations.slice(0, 3).map(function (r) {
-            return '<p><b>' + esc(r.from_team) + '</b> → <b>' + esc(r.to_team) + '</b> · ' + compactNumber(r.tokens) + ' tokens</p>';
+        ? reallocations.slice(0, 5).map(function (r) {
+            return '<p><b>' + esc(teamLabel(r.from_team)) + '</b> → <b>' + esc(teamLabel(r.to_team)) + '</b> · ' + compactNumber(r.tokens) + ' tokens</p>';
           }).join('')
         : '<p>暂无再分配建议</p>',
       '    <h4 style="margin-top:14px">待整改团队</h4>',
       recs.length
         ? recs.map(function (t) {
             var first = (t.recommendations || [])[0] || {};
-            return '<p><b>' + esc(t.team_id) + '</b> · ' + esc(t.grade) + ' · ' + esc(first.detail || '等待建议') + '</p>';
+            return '<p><b>' + esc(teamLabel(t.team_id)) + '</b> · ' + esc(t.grade) + ' · ' + esc(first.detail || '等待建议') + '</p>';
           }).join('')
         : '<p>当前无 C/D 级团队</p>',
       '  </aside>',
@@ -840,6 +948,14 @@
     if (!state.teams.length) return '<option value="">加载团队中...</option>';
     return state.teams.map(function (team) {
       return '<option value="' + esc(team.team_id) + '"' + (team.preferred ? ' selected' : '') + '>' + esc(team.name || team.team_id) + '</option>';
+    }).join('');
+  }
+
+  function teamOptionsHtmlWithSelected(selectedTeamId) {
+    if (!state.teams.length) return '<option value="">加载团队中...</option>';
+    return state.teams.map(function (team) {
+      var sel = (team.team_id === selectedTeamId || team.name === selectedTeamId) ? ' selected' : '';
+      return '<option value="' + esc(team.team_id) + '"' + sel + '>' + esc(team.name || team.team_id) + '</option>';
     }).join('');
   }
 
@@ -910,6 +1026,7 @@
       window: state.filters.window,
       environment: state.filters.environment,
       service: state.filters.service,
+      team: state.filters.team,
     };
     var summaryQuery = queryString(Object.assign({ aggregation: state.filters.aggregation }, common));
     var breakdownQuery = queryString(common);
@@ -917,15 +1034,27 @@
     var podQuery = queryString(Object.assign({}, common, { limit: 100 }));
 
     try {
+      // P8.1-8.3: 成本构成/趋势/明细主源切 Token
+      var tokenDim = (state.filters.aggregation === 'service') ? 'team' : state.filters.aggregation;
+      if (tokenDim !== 'team' && tokenDim !== 'skill' && tokenDim !== 'phase') tokenDim = 'team';
+      // P8R.9: 24h 窗口按小时分桶，否则按天
+      var trendBucket = (state.filters.window || '').endsWith('h') ? 'hour' : 'day';
       var responses = await Promise.all([
         requestJson(COST_API + '/health'),
         requestJson(GATE_API + '/health'),
         requestJson(GATE_API + '/stats'),
         requestJson(COST_API + '/summary?' + summaryQuery),
-        requestJson(COST_API + '/by-' + state.filters.aggregation + '?' + breakdownQuery),
-        requestJson(COST_API + '/trends?' + trendQuery),
-        requestJson(COST_API + '/pods?' + podQuery),
+        // P8.1: 成本构成 → Token breakdown
+        // P10.1: 透传 team_id 筛选
+        var teamFilter = state.filters.team ? '&team_id=' + encodeURIComponent(state.filters.team) : '';
+        requestJson(COST_API + '/tokens/breakdown?dim=' + tokenDim + '&window=' + state.filters.window + teamFilter),
+        // P8.2: 成本趋势 → Token trend
+        requestJson(COST_API + '/tokens/trend?window=' + state.filters.window + '&bucket=' + trendBucket + teamFilter),
+        // P8.3: 成本明细 → Token detail
+        requestJson(COST_API + '/tokens/detail?group=run&window=' + state.filters.window + '&limit=50' + teamFilter),
         requestJson(SUSTAINABILITY_API + '/group'),
+        // P1: Token 数据源（北极星）
+        requestJson(COST_API + '/tokens/overview?window=' + state.filters.window),
         state.teams.length ? Promise.resolve(null) : loadTeams(),
       ]);
 
@@ -933,14 +1062,25 @@
       state.gateHealth = responses[1];
       state.gateStats = responses[2];
       state.summary = responses[3];
-      state.breakdown = asItems(responses[4], 'items');
-      state.trends = normalizeTrends(responses[5]);
-      state.pods = normalizePods(responses[6]);
+      state.breakdown = responses[4] || [];      // P8.1: [{key,total,calls}]
+      state.trends = responses[5] || null;        // P8.2: {points,total,...}
+      state.pods = responses[6] || [];            // P8.3: [{run_id,phase,total,...}]
       state.sustainability = responses[7];
+      state.tokenOverview = responses[8] || null;
+      // P8R.2: 赋值 tokenByTeam 供棘轮/治理面板使用
+      state.tokenByTeam = (state.tokenOverview && state.tokenOverview.by_team) || [];
+      // 9.3: 拉棘轮累计锁定，供 KPI④ 反馈
+      try { state.ratchet = await requestJson(COST_API + '/tokens/ratchet'); } catch (e) { state.ratchet = state.ratchet || null; }
+      // populateLastFilter after ALL state is assigned so fallbacks work
+      // Note: state.summary is CostDashboardResponse; the inner .summary is CostSummary with by_team/by_service
+      populateLastFilter(state.summary && state.summary.summary);
 
+      // P1: OpenCost 无数据时降级为中性提示（不显示红条）
       if (!state.summary && !state.breakdown.length && !state.trends.length && !state.pods.length) {
-        showAlert('成本接口暂时没有返回可用数据，请检查 OpenCost、登录状态或后端日志');
-        toast('暂无成本数据', { kind: 'warn', title: '数据缺失' });
+        // 仅在 Token 也无数据时才提示
+        if (!state.tokenOverview || !state.tokenOverview.summary || !state.tokenOverview.summary.total) {
+          showAlert('基础设施成本（OpenCost）未接入（可选）— Token 成本为北极星指标');
+        }
       }
 
       updateStatus(state.summary);
@@ -958,6 +1098,79 @@
     }
   }
 
+  function populateLastFilter(summary) {
+    var sel = $('filter-service');
+    if (!sel) return;
+    var labelEl = $('filter-last-label');
+    var agg = (state.filters && state.filters.aggregation) || ($('filter-aggregation') && $('filter-aggregation').value) || 'team';
+    var currentVal = sel.value;
+
+    // Determine label text and items source
+    var labelText = '服务';
+    var items = [];
+    if (agg === 'service') {
+      labelText = '服务';
+      if (summary && Array.isArray(summary.by_service)) {
+        items = summary.by_service.map(function (s) { return s.value; });
+      }
+    } else if (agg === 'team') {
+      labelText = '团队';
+      if (summary && Array.isArray(summary.by_team)) {
+        items = summary.by_team.map(function (t) { return t.value; });
+      }
+      // Fallback: from pods
+      if (!items.length && Array.isArray(state.pods)) {
+        var seen = {};
+        state.pods.forEach(function (p) {
+          var t = (p.team || '').trim();
+          if (t && !seen[t]) { seen[t] = true; items.push(t); }
+        });
+      }
+      // Fallback: from state.teams
+      if (!items.length && Array.isArray(state.teams)) {
+        items = state.teams.map(function (t) { return t.name || t.team_id; });
+      }
+    } else if (agg === 'environment') {
+      labelText = '环境';
+      if (summary && Array.isArray(summary.by_environment)) {
+        items = summary.by_environment.map(function (e) { return e.value; });
+      }
+      // Fallback: from pods
+      if (!items.length && Array.isArray(state.pods)) {
+        var seen2 = {};
+        state.pods.forEach(function (p) {
+          var env = (p.environment || '').trim();
+          if (env && !seen2[env]) { seen2[env] = true; items.push(env); }
+        });
+      }
+    }
+
+    // Update fourth column label
+    if (labelEl) labelEl.textContent = labelText;
+
+    // Toggle third column (环境): hide when aggregation=environment (redundant)
+    var envLabel = $('filter-env-label');
+    if (envLabel) {
+      if (agg === 'environment') {
+        envLabel.style.display = 'none';
+        if ($('filter-environment')) $('filter-environment').value = '';
+      } else {
+        envLabel.style.display = '';
+      }
+    }
+    if (!items.length) return; // no data yet, keep default
+
+    items.sort(function (a, b) { return a.localeCompare(b); });
+    sel.innerHTML = '<option value="">全部</option>' +
+      items.map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+
+    // Restore previous selection if still available
+    if (currentVal) {
+      var exists = items.indexOf(currentVal) >= 0;
+      sel.value = exists ? currentVal : '';
+    }
+  }
+
   function resetFilters() {
     if ($('filter-aggregation')) $('filter-aggregation').value = 'team';
     if ($('filter-window')) $('filter-window').value = '24h';
@@ -968,45 +1181,100 @@
 
   function targetFromSource(source, index) {
     if (source === 'pod') {
-      // Index refers to sorted order in renderPodsTable, so re-derive by total_cost
-      var sorted = state.pods.slice().sort(function (a, b) { return Number(b.total_cost || 0) - Number(a.total_cost || 0); });
+      // P8.3: pods is now token detail rows [{run_id, total, ...}]
+      var sorted = state.pods.slice().sort(function (a, b) { return Number(b.total || 0) - Number(a.total || 0); });
       return sorted[index || 0] || null;
     }
     return state.breakdown[index || 0] || null;
   }
 
+  // P8R.5: 杠杆建议
+  function leverActionHint(lever, split) {
+    split = split || { skill_pct: 0, collab_pct: 0, skill: 0, collab: 0 };
+    return lever === 'skill_extraction'
+      ? '协作杠杆占 ' + (split.collab_pct * 100).toFixed(0) + '%，建议把重复意图萃取为已验证 skill（技能萃取页），命中后 task 段 token 应下降'
+      : 'Skill 杠杆占 ' + (split.skill_pct * 100).toFixed(0) + '%，建议优化 Agent 路由/减少无效往返（议事广场复盘），drill/plaza 段 token 应下降';
+  }
+
   function targetLabel(target) {
     if (!target) return '成本异常';
-    if (target.pod) return 'Pod ' + target.pod;
-    return (target.dimension || state.filters.aggregation || 'cost') + ' ' + (target.value || '');
+    if (target.run_id) return 'Run ' + (target.run_id || '').slice(0, 8);
+    // P8R.3: token breakdown 字段 {key, total}
+    return (state.filters.aggregation || 'cost') + ' ' + (target.key || '');
+  }
+
+  // 当顶部操作栏按钮所需的输入位于下方「治理动作」面板时，滚动过去并高亮提示。
+  function revealGovernanceAction(message, focusTeam) {
+    var panel = document.querySelector('.panel--governance');
+    if (panel && typeof panel.scrollIntoView === 'function') {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    if (message) setText('cost-action-result', message);
+    if (focusTeam) {
+      var teamSelect = $('cost-action-team');
+      if (teamSelect) {
+        setTimeout(function () {
+          try { teamSelect.focus(); } catch (e) {}
+          teamSelect.classList.add('cost-input-flash');
+          setTimeout(function () { teamSelect.classList.remove('cost-input-flash'); }, 1600);
+        }, 360);
+      }
+    }
+  }
+
+  // 9.1: 复用该团队已有 active 目标，否则按当前消耗自动建一个 tokens_per_goal 目标
+  async function ensureTargetForTeam(teamId, gov) {
+    try {
+      var list = await requestJson(COST_API + '/targets?status=active');
+      var hit = (list || []).find(function (t) { return t.scope === 'team' && t.ref_id === teamId; });
+      if (hit) return hit.id;
+      // 用「平均每调用 token」当前值的 0.7 作为目标（9.2 口径），baseline 由后端自动取
+      var byTeam = (state.tokenByTeam || []).find(function (t) { return t.team_id === teamId; });
+      var perCall = (byTeam && byTeam.calls) ? Math.round(byTeam.total / byTeam.calls) : 0;
+      var r = await requestJson(COST_API + '/targets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'team', ref_id: teamId, metric: 'tokens_per_goal',
+          target: perCall ? Math.round(perCall * 0.7) : 0,
+          lever: (gov && gov.lever) || 'skill_extraction',
+        }),
+      });
+      return (r && r.id) || '';
+    } catch (e) { return ''; }
   }
 
   async function createOptimizationTask(source, index) {
-    var result = $('cost-action-result');
     var teamSelect = $('cost-action-team');
     var teamId = teamSelect ? teamSelect.value : '';
     if (!teamId) {
-      if (result) result.textContent = '没有可用团队，无法创建任务';
-      toast('请先选择团队', { kind: 'warn' });
+      revealGovernanceAction('请在下方「治理动作」面板选择指派团队后再创建任务', true);
+      toast('请在下方治理动作面板选择团队', { kind: 'warn' });
       return null;
     }
     var target = targetFromSource(source, index);
     if (!target) {
-      if (result) result.textContent = '没有可用成本目标';
-      toast('没有可用成本目标', { kind: 'warn' });
+      revealGovernanceAction('暂无可用 Token 成本目标 — 请先产生 LLM 调用', false);
+      toast('暂无可用成本目标，请先刷新成本数据', { kind: 'warn' });
       return null;
     }
+    var result = $('cost-action-result');
     if (result) result.textContent = '正在创建优化任务...';
 
-    var title = '成本优化: ' + targetLabel(target);
+    // P8R.5: 带杠杆建议
+    var leverHint = leverActionHint(state.governanceTarget && state.governanceTarget.lever, state.governanceTarget && state.governanceTarget.lever_split);
+    var title = 'Token 成本优化: ' + targetLabel(target);
     var description = [
       '来源: cost-dashboard',
       '治理目标: ' + targetLabel(target),
-      '当前成本: ' + money(target.total_cost),
+      '当前消耗: ' + compactNumber(target.total || 0) + ' tokens',
       '筛选窗口: ' + (state.filters.window || '24h'),
+      leverHint ? '' : '',
+      leverHint || '',
       '',
-      '请分析资源利用率、标签归因、预算影响和可回滚优化方案。完成后回写成本变化、验证证据和后续演进建议。',
+      '请分析该团队的 Token 消耗分布，按上述杠杆方向制定优化方案。完成后回写 token 变化、验证证据和后续演进建议。',
     ].join('\n');
+    // 9.1: 确保有 target_id，任务完成时后端 CostTargetTracker 据此复测目标进度
+    var targetId = await ensureTargetForTeam(teamId, state.governanceTarget);
     var payload = {
       title: title,
       description: description,
@@ -1016,6 +1284,7 @@
         evidence_type: 'cost_anomaly',
         cost_filters: state.filters,
         cost_target: target,
+        target_id: targetId || '',
         suggested_followups: ['cost_gate', 'plaza_discussion', 'evolution_item'],
       },
     };
@@ -1027,8 +1296,12 @@
         body: JSON.stringify(payload),
       });
       if (created && created.task_id) {
-        if (result) result.textContent = '已创建任务 ' + created.task_id;
-        toast('任务 ' + created.task_id + ' 已创建', { kind: 'success', title: '已派发' });
+        if (result) {
+          result.innerHTML = '已派发任务 <a href="/agent-team-config.html?team=' + encodeURIComponent(teamId) + '" style="color:var(--koke)">查看团队任务▸</a> · ' + esc(created.task_id)
+            + (targetId ? '<br><span style="font-size:11px;color:var(--sumi-3)">已绑定目标 ' + esc(targetId) + '，任务完成将自动复测进度</span>' : '');
+        }
+        toast('任务 ' + created.task_id + ' 已派发', { kind: 'success', title: '已派发' });
+        if (window.loadTargets) loadTargets();
         return created;
       }
       if (result) result.textContent = '创建任务失败，请查看后端日志或 request_id';
@@ -1063,13 +1336,13 @@
   }
 
   async function createPlazaTopic(source, index) {
-    var result = $('cost-action-result');
     var target = targetFromSource(source, index);
     if (!target) {
-      if (result) result.textContent = '没有可用成本目标，无法创建 Plaza 话题';
-      toast('没有可用成本目标', { kind: 'warn' });
+      revealGovernanceAction('暂无可用 Token 成本目标 — 无法创建 Plaza 话题', false);
+      toast('暂无可用成本目标，请先刷新成本数据', { kind: 'warn' });
       return null;
     }
+    var result = $('cost-action-result');
     if (result) result.textContent = '正在创建 Plaza 话题...';
 
     var plaza = await ensureCostPlaza();
@@ -1079,19 +1352,17 @@
       return null;
     }
 
-    var topic = '成本治理: ' + targetLabel(target);
+    // P8R.5: 带杠杆建议
+    var leverHint = leverActionHint(state.governanceTarget && state.governanceTarget.lever, state.governanceTarget && state.governanceTarget.lever_split);
+    var topic = 'Token 成本治理: ' + targetLabel(target);
     var description = [
       '来源: cost-dashboard',
       '治理目标: ' + targetLabel(target),
-      '当前成本: ' + money(target.total_cost),
+      '当前消耗: ' + compactNumber(target.total || 0) + ' tokens',
       '筛选窗口: ' + (state.filters.window || '24h'),
-      '筛选环境: ' + (state.filters.environment || '全部'),
-      '筛选服务: ' + (state.filters.service || '全部'),
+      leverHint || '',
       '',
-      '请从成本归因、资源规格、标签修复、预算风险、可回滚优化方案和是否需要生成 EvolutionItem 六个角度讨论。',
-      '',
-      '原始目标:',
-      JSON.stringify(target, null, 2),
+      '请从 Token 消耗归因、杠杆优化方向、可回滚优化方案和是否需要生成 EvolutionItem 角度讨论。',
     ].join('\n');
 
     try {
@@ -1108,7 +1379,9 @@
       });
       if (discussion && discussion.id) {
         if (result) {
-          result.innerHTML = '已创建 Plaza 话题 <a href="/plaza.html" style="color:var(--koke)">打开议事厅</a> · ' + esc(discussion.id);
+          // 深链到话题所在的「成本治理议事厅」+ 具体讨论，否则 plaza.html 默认打开别的厅，看不到刚建的话题
+          var deepLink = '/plaza.html?plaza_id=' + encodeURIComponent(plaza.id) + '&discussion_id=' + encodeURIComponent(discussion.id);
+          result.innerHTML = '已在「' + esc(plaza.name || '成本治理议事厅') + '」创建话题 <a href="' + deepLink + '" style="color:var(--koke)">打开该话题▸</a> · ' + esc(discussion.id);
         }
         toast('Plaza 话题已创建', { kind: 'success', title: '已发起' });
         return { plaza: plaza, discussion: discussion };
@@ -1125,42 +1398,48 @@
 
   async function runCostGateSelfCheck() {
     var result = $('cost-action-result');
-    if (result) result.textContent = '正在运行 Cost Gate 自检...';
-    var plan = {
-      resource_changes: [{
-        address: 'aws_instance.cost_dashboard_sample',
-        type: 'aws_instance',
-        name: 'cost_dashboard_sample',
-        provider_name: 'aws',
-        change: { actions: ['create'] },
-        values: { instance_type: 'p4d.24xlarge', count: 2, tags: {} },
-      }],
-    };
+    if (result) result.textContent = '正在运行 Token Gate 自检...';
     try {
-      var report = await requestJson(GATE_API + '/evaluate', {
+      // P2: 改调 Token Gate，用当前 Top 团队最近一次 run 或 inline 拼数据
+      var tokOverview = state.tokenOverview;
+      var topTeam = (tokOverview && tokOverview.by_team && tokOverview.by_team[0]) || null;
+      var inlineData = null;
+      var runId = '';
+      if (topTeam) {
+        inlineData = { total: topTeam.total || 0, calls: topTeam.calls || 0, score: 0 };
+      } else {
+        inlineData = { total: 0, calls: 0, score: 0 };
+      }
+      var report = await requestJson(GATE_API + '/token/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          plan: plan,
-          project_id: 'cost-dashboard-self-check',
-          metadata: { source: 'cost-dashboard', purpose: 'ui_self_check' },
+          inline: inlineData,
+          run_id: runId || undefined,
+          budget: { min_efficiency: 1.0, max_tokens: 100000 },
         }),
       });
       if (report) {
+        var decision = report.decision || '-';
+        var violations = (report.violations || []).length;
+        var eff = report.efficiency != null ? report.efficiency.toFixed(4) : '—';
         if (result) {
-          result.innerHTML = 'Gate 决策: <strong>' + esc(report.decision || '-') + '</strong> · 违规 ' + compactNumber((report.violations || []).length || report.violations_count || 0);
+          var icon = decision === 'pass' ? '✅' : decision === 'warn' ? '⚠️' : '🚫';
+          result.innerHTML = icon + ' Token Gate: <strong>' + esc(decision) + '</strong> · 效率 ' + eff + ' · 违规 ' + compactNumber(violations);
         }
-        state.gateStats = await requestJson(GATE_API + '/stats');
-        renderGovernance();
-        toast('Gate 决策: ' + (report.decision || '-'), { kind: report.decision === 'block' ? 'warn' : 'success', title: '自检完成' });
+        // 更新 Gate 统计
+        var tokStats = await requestJson(GATE_API + '/token/stats');
+        if (tokStats) { state.gateStats = tokStats; renderGovernance(); }
+        var kind = decision === 'block' ? 'warn' : 'success';
+        toast('Token Gate: ' + decision + ' · 效率 ' + eff, { kind: kind, title: '自检完成' });
         return report;
       }
-      if (result) result.textContent = 'Cost Gate 自检失败，请查看后端日志或 request_id';
-      toast('Cost Gate 自检失败', { kind: 'error' });
+      if (result) result.textContent = 'Token Gate 自检失败，API 无返回数据';
+      toast('Token Gate 自检失败', { kind: 'error' });
       return null;
     } catch (e) {
-      if (result) result.textContent = 'Cost Gate 自检失败: ' + e.message;
-      toast('Cost Gate 自检失败: ' + e.message, { kind: 'error' });
+      if (result) result.textContent = 'Token Gate 自检失败: ' + e.message;
+      toast('Token Gate 自检失败: ' + e.message, { kind: 'error' });
       return null;
     }
   }
@@ -1229,7 +1508,275 @@
     setInterval(function () {
       if (!document.hidden) refreshDashboard();
     }, 60000);
+
+    // P10.5: 轮询目标进度变化（30s），有变化则刷新目标卡 + KPI
+    setInterval(function () {
+      if (document.hidden) return;
+      fetch(COST_API + '/targets/changed', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.items) return;
+          var changed = d.items.some(function (it) {
+            return it.status === 'achieved' || (it.progress !== undefined && it.progress >= 1.0);
+          });
+          if (changed) {
+            if (window.loadTargets) loadTargets();
+            renderKpiHero();
+          }
+        })
+        .catch(function () {});
+    }, 30000);
+
+    // 9.4: 从数字孪生评分后跳回 ?refresh=efficiency → 自动刷新效率视角，免手点
+    if (params.get('refresh') === 'efficiency') {
+      setTimeout(function () { if (typeof loadEfficiencyView === 'function') loadEfficiencyView(); }, 800);
+      history.replaceState({}, '', location.pathname);
+    }
   }
+
+  // 「如何推进」引导文案：按 metric/杠杆给出可点击的下一步
+  function targetHowto(t) {
+    var ref = encodeURIComponent(t.ref_id || '');
+    if (t.metric === 'score_per_1k') {
+      return '推进：去 <a href="/Agent-digital-twin.html?team=' + ref + '" style="color:var(--koke)">数字孪生</a> 为该团队跑「评分试炼」提高 score/1k → 回来点「刷新效率」→ 棘轮可锁定';
+    }
+    // tokens_per_goal
+    return t.lever === 'collaboration_routing'
+      ? '推进：去 <a href="/plaza.html" style="color:var(--koke)">议事广场</a> 复盘协作/优化 Agent 路由，减少无效往返 → 同意图 token 下降'
+      : '推进：去 <a href="/skill-extract.html?team_id=' + ref + '&focus=redundant" style="color:var(--koke)">技能萃取</a> 把重复意图固化为已验证 skill，复跑同意图命中 skill → token 下降';
+  }
+
+  // ═══ P5.2: Token 优化目标管理 ═══
+  async function loadTargets() {
+    var el = document.getElementById('target-list');
+    if (!el) return;
+    try {
+      var resp = await fetch(COST_API + '/targets', { credentials: 'same-origin' });
+      if (!resp.ok) { el.innerHTML = '<p style="color:var(--dim);font-size:12px">目标加载失败</p>'; return; }
+      var targets = await resp.json();
+      if (!targets || !targets.length) {
+        el.innerHTML = '<p style="color:var(--sumi-3);font-size:12px;padding:8px 0">暂无目标 — 点击「+ 设定目标」创建第一个 token 优化目标</p>';
+        return;
+      }
+      var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+      var html = targets.map(function (t) {
+        var pct = Math.round((t.progress || 0) * 100);
+        var barColor = pct >= 100 ? 'var(--koke)' : pct >= 50 ? 'var(--kitsune)' : 'var(--shu)';
+        return '<div style="padding:10px 12px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:8px;margin-bottom:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-weight:600;font-size:12px">' + esc(t.scope) + ': ' + esc(t.ref_id || '—') + '</span>' +
+          '<span style="font-size:10px;color:var(--sumi-3)">杠杆: ' + esc(t.lever) + '</span>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--sumi-3);margin-bottom:4px">' +
+          '<span>baseline ' + (t.baseline || 0).toFixed(1) + '</span>' +
+          '<span>→ target ' + (t.target || 0).toFixed(1) + '</span>' +
+          '<span style="margin-left:auto;color:' + barColor + ';font-weight:600">' + pct + '%</span>' +
+          '</div>' +
+          '<div style="height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden">' +
+          '<div style="height:100%;width:' + Math.max(0, Math.min(100, pct)) + '%;background:' + barColor + ';transition:width .3s"></div>' +
+          '</div>' +
+          // 「如何推进」引导：按 metric/杠杆给出明确下一步动作 + 链接
+          '<div style="font-size:10px;color:var(--kitsune);margin-top:6px;line-height:1.5">' + targetHowto(t) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;margin-top:6px">' +
+          '<span style="font-size:10px;color:var(--sumi-3)">metric: ' + esc(t.metric) + ' · ' + esc(t.status) + '</span>' +
+          '<button class="btn cost-btn cost-btn--ghost" style="font-size:9px;padding:2px 8px" onclick="deleteTarget(\'' + esc(t.id) + '\')">删除</button>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+      el.innerHTML = html;
+    } catch (e) {
+      el.innerHTML = '<p style="color:var(--dim);font-size:12px">目标加载失败: ' + (e.message || '') + '</p>';
+    }
+  }
+
+  async function createTokenTarget() {
+    var body = {
+      scope: document.getElementById('tgt-scope').value || 'team',
+      ref_id: document.getElementById('tgt-ref').value || 'default',
+      metric: document.getElementById('tgt-metric').value || 'score_per_1k',
+      target: parseFloat(document.getElementById('tgt-value').value) || 0,
+      lever: document.getElementById('tgt-lever').value || 'skill_extraction',
+    };
+    if (!body.ref_id || body.target <= 0) {
+      toast('请填写目标 ID 和目标值');
+      return;
+    }
+    try {
+      var resp = await fetch(COST_API + '/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'same-origin',
+      });
+      if (!resp.ok) {
+        var err = await resp.json().catch(function () { return {}; });
+        toast('创建失败: ' + (err.detail || resp.status));
+        return;
+      }
+      toast('✅ 目标已创建');
+      toggleTargetForm();
+      loadTargets();
+    } catch (e) {
+      toast('创建失败: ' + (e.message || ''));
+    }
+  }
+
+  async function deleteTarget(tid) {
+    if (!confirm('删除目标 ' + tid + '？')) return;
+    try {
+      await fetch(COST_API + '/targets/' + encodeURIComponent(tid), {
+        method: 'DELETE', credentials: 'same-origin',
+      });
+      toast('已删除');
+      loadTargets();
+    } catch (e) { toast('删除失败: ' + (e.message || '')); }
+  }
+
+  function toggleTargetForm() {
+    var el = document.getElementById('target-form');
+    if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+    // 展开时填充下拉选项
+    if (el && el.style.display !== 'none') {
+      populateTargetRefOptions();
+    }
+  }
+
+  // 根据范围（团队/技能）动态填充目标 ID 下拉
+  async function populateTargetRefOptions() {
+    var sel = document.getElementById('tgt-ref');
+    var scopeEl = document.getElementById('tgt-scope');
+    if (!sel || !scopeEl) return;
+    var scope = scopeEl.value || 'team';
+    sel.innerHTML = '<option value="">加载中...</option>';
+    try {
+      if (scope === 'team') {
+        // 从 state.teams 或 token by-team 获取团队列表
+        var teams = [];
+        if (Array.isArray(state.teams) && state.teams.length) {
+          teams = state.teams.map(function (t) { return { id: t.team_id, name: t.name || t.team_id, tokens: 0 }; });
+        }
+        // 补充从 token overview 获取的团队
+        try {
+          var resp = await fetch(COST_API + '/tokens/by-team?window=7d', { credentials: 'same-origin' });
+          if (resp.ok) {
+            var tokTeams = await resp.json();
+            (tokTeams || []).forEach(function (t) {
+              if (t.team_id && !teams.some(function (x) { return x.id === t.team_id; })) {
+                teams.push({ id: t.team_id, name: t.team_id, tokens: t.total || 0 });
+              }
+            });
+          }
+        } catch (e) { /* ignore */ }
+        if (!teams.length) {
+          sel.innerHTML = '<option value="">暂无团队数据</option>';
+          return;
+        }
+        sel.innerHTML = teams.map(function (t) {
+          return '<option value="' + esc(t.id) + '">' + esc(t.name) + (t.tokens ? ' (' + compactNumber(t.tokens) + ' tokens)' : '') + '</option>';
+        }).join('');
+      } else {
+        // 从 token by-skill 获取技能列表
+        var resp2 = await fetch(COST_API + '/tokens/by-skill?window=7d', { credentials: 'same-origin' });
+        var skills = [];
+        if (resp2.ok) {
+          skills = await resp2.json();
+        }
+        if (!skills || !skills.length) {
+          sel.innerHTML = '<option value="">暂无技能 token 数据</option>';
+          return;
+        }
+        sel.innerHTML = skills.map(function (s) {
+          return '<option value="' + esc(s.skill_id) + '">' + esc(s.skill_id) + ' (' + compactNumber(s.total || 0) + ' tokens)</option>';
+        }).join('');
+      }
+    } catch (e) {
+      sel.innerHTML = '<option value="">加载失败</option>';
+    }
+  }
+
+  // ═══ P5.3: 生成成本报告 ═══
+  async function generateCostReport() {
+    var btn = document.getElementById('report-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 生成中...'; }
+    try {
+      var win = state.window || '24h';
+      var resp = await fetch(COST_API + '/report?window=' + encodeURIComponent(win), { credentials: 'same-origin' });
+      if (!resp.ok) { toast('报告生成失败: HTTP ' + resp.status); return; }
+      var r = await resp.json();
+      renderReportPanel(r);
+    } catch (e) {
+      toast('报告生成失败: ' + (e.message || ''));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '📊 生成报告'; }
+    }
+  }
+
+  function renderReportPanel(r) {
+    var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+    var consistent = r.reconciliation && r.reconciliation.consistent;
+    var bannerColor = consistent ? 'var(--koke)' : 'var(--shu)';
+    var bannerText = consistent ? '✅ 账对上 (phase_sum == team_sum)' : '❌ 不一致 (phase_sum != team_sum)';
+
+    var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">' +
+      '<div style="background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:12px;max-width:900px;width:92%;max-height:85vh;overflow-y:auto;padding:20px 24px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+      '<h3 style="margin:0">📊 Token 成本报告 <span style="font-size:12px;color:var(--sumi-3);font-weight:400">· ' + esc(r.window || '') + '</span></h3>' +
+      '<button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="this.closest(\'div[style*=fixed]\').remove()">关闭</button>' +
+      '</div>' +
+      '<div style="padding:8px 12px;background:' + bannerColor + '20;border:1px solid ' + bannerColor + '60;border-radius:6px;margin-bottom:14px;font-size:12px;color:' + bannerColor + '">' + bannerText + '</div>';
+
+    // ① 消耗（by_phase）
+    var byPhase = r.totals && r.totals.by_phase || r.by_phase || {};
+    var phaseItems = Object.keys(byPhase).map(function (k) {
+      var v = byPhase[k];
+      var total = typeof v === 'object' ? (v.total || 0) : v;
+      return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--ob-border)">' +
+        '<span>' + esc(k) + '</span><span style="font-family:monospace">' + Number(total).toLocaleString() + ' tokens</span></div>';
+    }).join('');
+    html += '<h4 style="font-size:13px;margin:12px 0 6px">① 消耗（按阶段）</h4>' +
+      (phaseItems || '<p style="color:var(--sumi-3);font-size:12px">暂无数据</p>');
+
+    // ② 优化对比（targets）
+    var targets = r.targets || [];
+    html += '<h4 style="font-size:13px;margin:14px 0 6px">② 优化对比（目标进度）</h4>';
+    if (targets.length) {
+      html += targets.map(function (t) {
+        var pct = Math.round((t.progress || 0) * 100);
+        var saved = ((t.baseline || 0) - (t.current || 0)).toFixed(1);
+        return '<div style="padding:6px 0;font-size:12px;border-bottom:1px solid var(--ob-border)">' +
+          '<div style="display:flex;justify-content:space-between"><span>' + esc(t.scope) + ': ' + esc(t.ref_id) + '</span><span>' + pct + '%</span></div>' +
+          '<span style="color:var(--sumi-3);font-size:11px">baseline ' + (t.baseline || 0).toFixed(1) + ' → current ' + (t.current || 0).toFixed(1) + ' (target ' + (t.target || 0).toFixed(1) + ') · 节省 ' + saved + '</span>' +
+          '</div>';
+      }).join('');
+    } else {
+      html += '<p style="color:var(--sumi-3);font-size:12px">暂无目标</p>';
+    }
+
+    // ③ 锁定（ratchet）
+    var locked = r.ratchet_locked || [];
+    html += '<h4 style="font-size:13px;margin:14px 0 6px">③ 锁定（棘轮累计节省）</h4>';
+    if (locked.length) {
+      html += locked.map(function (l) {
+        return '<div style="padding:6px 0;font-size:12px;border-bottom:1px solid var(--ob-border);display:flex;justify-content:space-between">' +
+          '<span>' + esc(l.metric_key) + '</span><span style="font-family:monospace;color:var(--koke)">gen ' + l.generation + ' · ' + Number(l.value).toFixed(4) + '</span></div>';
+      }).join('');
+    } else {
+      html += '<p style="color:var(--sumi-3);font-size:12px">暂无锁定记录</p>';
+    }
+
+    html += '</div></div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    document.body.appendChild(div.firstChild);
+  }
+
+  // 暴露给 inline HTML 调用
+  window.toggleTargetForm = toggleTargetForm;
+  window.createTokenTarget = createTokenTarget;
+  window.deleteTarget = deleteTarget;
+  window.loadTargets = loadTargets;
+  window.generateCostReport = generateCostReport;
+  window.populateTargetRefOptions = populateTargetRefOptions;
 
   window.CostDashboard = {
     state: state,
@@ -1248,6 +1795,10 @@
     createPlazaTopic: createPlazaTopic,
     runCostGateSelfCheck: runCostGateSelfCheck,
     generateLabelPatch: generateLabelPatch,
+    loadTargets: loadTargets,
+    createTokenTarget: createTokenTarget,
+    toggleTargetForm: toggleTargetForm,
+    generateCostReport: generateCostReport,
   };
 
   if (!window.__AG_COST_DASHBOARD_NO_INIT__) {

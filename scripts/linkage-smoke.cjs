@@ -164,6 +164,27 @@ async function openPage(browser, url, waitMs = 4000) {
 
   await browser.close();
 
+  // ═══════ L4: Token 路由 smoke（P6）═══════
+  console.log('\n── L4 Token 路由 smoke ──');
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      const r1 = await page.request.get(`${BASE}/api/v1/cost/tokens/summary?group_by=phase`);
+      const d1 = await r1.json();
+      log('L4 token summary', r1.ok() && d1.source === 'token' ? 'PASS' : 'FAIL', `source=${d1.source}`);
+    } catch(e) { log('L4 token summary', 'FAIL', e.message); }
+    try {
+      const r2 = await page.request.get(`${BASE}/api/v1/cost-gate/token/health`);
+      log('L4 token gate health', r2.ok() ? 'PASS' : 'FAIL', `status=${r2.status()}`);
+    } catch(e) { log('L4 token gate health', 'FAIL', e.message); }
+    try {
+      const r3 = await page.request.get(`${BASE}/api/v1/cost/targets`);
+      log('L4 cost targets', r3.ok() ? 'PASS' : 'FAIL', `status=${r3.status()}`);
+    } catch(e) { log('L4 cost targets', 'FAIL', e.message); }
+    await ctx.close();
+  }
+
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const passed = results.filter(r => r.status === 'PASS').length;
   const failed = results.filter(r => r.status === 'FAIL').length;

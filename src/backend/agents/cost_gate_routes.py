@@ -157,13 +157,22 @@ async def _record_cost_gate_evidence(report, request: TerraformPlanEvaluationReq
 async def cost_gate_health():
     """Health check endpoint for CI/CD pipeline integration.
 
-    Returns:
-        Status of the cost gate channel and basic metrics.
+    P2.2: 默认 token 语义，附带 terraform (legacy) 健康状态。
     """
+    # Token gate health（北极星）
+    token_health = {"status": "healthy", "engine": "token_budget"}
+    try:
+        from .token_gate_routes import _stats as _tok_stats
+        token_health["token_stats"] = dict(_tok_stats)
+    except Exception:
+        pass
+
+    # Terraform gate health (legacy)
+    tf_health: Dict[str, Any] = {"status": "unavailable"}
     try:
         gate = _get_cost_gate()
         status = gate.get_status()
-        return {
+        tf_health = {
             "status": "healthy",
             "channel": status["name"],
             "version": status["version"],
@@ -172,11 +181,19 @@ async def cost_gate_health():
             "uptime_seconds": status["uptime_seconds"],
         }
     except Exception as e:
-        logger.error("Cost gate health check failed: %s", e)
-        raise HTTPException(status_code=503, detail=f"Cost gate unavailable: {e}")
+        logger.debug("Terraform cost gate unavailable: %s", e)
+        tf_health = {"status": "unavailable", "reason": str(e)[:120]}
+
+    return {
+        "status": token_health["status"],
+        "default_semantics": "token",
+        "token": token_health,
+        "terraform": tf_health,
+    }
 
 
 @cost_gate_router.post("/evaluate")
+@cost_gate_router.post("/terraform/evaluate")
 async def evaluate_terraform_plan(request: TerraformPlanEvaluationRequest):
     """Evaluate a terraform plan against cost policies.
 
@@ -402,11 +419,30 @@ async def get_report(report_id: str):
 async def get_stats():
     """Get evaluation statistics.
 
-    Returns:
-        Evaluation stats (total, passed, warned, blocked)
+    P2.2: 默认返回 token gate 统计（北极星），附带 terraform legacy 统计。
     """
-    gate = _get_cost_gate()
-    return gate.get_stats()
+    # Token gate stats（北极星）
+    token_stats: Dict[str, Any] = {}
+    try:
+        from .token_gate_routes import _stats as _tok_stats
+        token_stats = dict(_tok_stats)
+    except Exception:
+        pass
+
+    # Terraform gate stats (legacy)
+    tf_stats: Dict[str, Any] = {}
+    try:
+        gate = _get_cost_gate()
+        tf_stats = gate.get_stats()
+    except Exception as e:
+        logger.debug("Terraform cost gate stats unavailable: %s", e)
+        tf_stats = {"error": str(e)[:120]}
+
+    return {
+        "default_semantics": "token",
+        "token": token_stats,
+        "terraform": tf_stats,
+    }
 
 
 @cost_gate_router.post("/stats/reset")

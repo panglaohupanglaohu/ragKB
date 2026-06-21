@@ -29,6 +29,43 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/twin-trials", tags=["twin-trials"])
 
+
+def resolve_team_id(team_id: str) -> str:
+    """规范化并校验 team_id：必须匹配一个已存在团队，否则 400。
+
+    防止误写（如 build-system vs build_system）产生「幻影团队」。
+    容忍连字符/下划线差异、按团队名称匹配；team_manager 未就绪时放行（不误伤）。
+    """
+    tid = (team_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="team_id 不能为空")
+    try:
+        from agents.api import _team_manager
+    except Exception:
+        return tid
+    if _team_manager is None:
+        return tid  # 团队管理未初始化时不阻断
+    teams = list(_team_manager.list_teams())
+    ids = {t.team_id for t in teams}
+    if not ids:
+        return tid
+    if tid in ids:
+        return tid
+    # 连字符 ↔ 下划线 归一
+    norm = tid.replace("-", "_")
+    if norm in ids:
+        logger.info("team_id 归一: %s → %s", tid, norm)
+        return norm
+    # 按团队名称（大小写不敏感）匹配
+    by_name = {(getattr(t, "name", "") or "").strip().lower(): t.team_id for t in teams}
+    if tid.lower() in by_name:
+        return by_name[tid.lower()]
+    raise HTTPException(
+        status_code=400,
+        detail=f"未知团队 '{team_id}'：请从已存在团队中选择（可用: {sorted(ids)}），"
+               f"以避免产生幻影团队",
+    )
+
 # ── 持久化存储 (由 TrialStore 管理，内存 dict 作为热缓存) ──
 
 _trials: Dict[str, Trial] = {}
@@ -53,6 +90,8 @@ class CreateTrialRequest(BaseModel):
     parent_trial_id: str = ""
     # 全局 G3-2: 技能路由策略 ("" | proficiency_first | affinity_first | round_robin | cost_aware)
     routing_strategy: str = ""
+    # P7: 是否启用 LLM 决策模式（默认 True — 演练应走 LLM 产生 token 归因）
+    use_llm: bool = True
 
 
 class ForkBranchRequest(BaseModel):
@@ -365,6 +404,9 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {req.mode}")
 
+    # team_id 规范化 + 校验：必须匹配已存在团队（防幻影团队，如 build-system）
+    req.team_id = resolve_team_id(req.team_id)
+
     import datetime as _dt
 
     # v4 B-2.1: 场景实例化（有 scenario_id 时编译场景世界）
@@ -433,6 +475,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
             speed_factor=float(req.acceleration),
             parallel_branches=req.parallel_branches,
             trigger_description=req.scenario or req.task_goal.get("description", ""),
+            use_llm=req.use_llm,
         )
         session_id = sec_session.session_id
         # 全局 G3-2: 路由策略下发到 session
@@ -446,6 +489,34 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         sec_session.branch_id = baseline.id
         sec_session.trial_id = trial.id
         trial.total_sessions = 1
+
+        # [fix] 把团队的真实 agents 同步到世界状态。
+        # 否则 take_snapshot() 无 agent → _spawn_twins 返回 0 个 twin → 每步 step_rewards 为空
+        # → global_reward 恒为 0.0、Agent数=0、综合评分为 —。无 scenario 的「工作坊演化」尤其会踩到。
+        try:
+            from agents.api import _team_manager as _tm_ref
+            team_obj = _tm_ref.get_team(req.team_id) if _tm_ref else None
+            if team_obj is not None:
+                _team_agents = (team_obj.agents.values()
+                                if isinstance(getattr(team_obj, "agents", None), dict)
+                                else (getattr(team_obj, "agents", []) or []))
+                _agents_payload = [{
+                    "id": getattr(a, "agent_id", "") or getattr(a, "name", ""),
+                    "name": getattr(a, "name", "") or getattr(a, "agent_id", ""),
+                    "role": getattr(a, "role", "general"),
+                    "state": "idle",
+                    "skills": list(getattr(a, "skills", []) or []),
+                    "tools": list(getattr(a, "tools", []) or []),
+                } for a in _team_agents]
+                _agents_payload = [a for a in _agents_payload if a["id"]]
+                if _agents_payload:
+                    orch.world_state.sync_agents_from_team({"agents": _agents_payload})
+                    logger.info("🌍 已同步 %d 个 agents 到世界状态 (team=%s)",
+                                len(_agents_payload), req.team_id)
+                else:
+                    logger.warning("团队 %s 无可同步 agents → 仿真将无 twin（reward 恒 0）", req.team_id)
+        except Exception as e:
+            logger.warning("同步团队 agents 到世界状态失败: %s", e)
 
         # v4 B-2.1: 场景世界注入 — 任务流/资源/约束/混沌剧本/熟练度先验
         if compiled is not None and scenario_spec is not None:
@@ -1214,9 +1285,10 @@ async def stream_trial_events(
         for evt in events:
             if branch_id and evt.branch_id != branch_id:
                 continue
-            yield f"data: {json.dumps({'event_id': evt.event_id, 'type': evt.event_type.value,
-                                           'branch_id': evt.branch_id, 'session_id': evt.session_id,
-                                           'data': evt.data, 'timestamp': evt.timestamp})}\n\n"
+            _payload = json.dumps({'event_id': evt.event_id, 'type': evt.event_type.value,
+                                   'branch_id': evt.branch_id, 'session_id': evt.session_id,
+                                   'data': evt.data, 'timestamp': evt.timestamp})
+            yield f"data: {_payload}\n\n"
 
         # 保持连接，等待新事件
         last_count = len(events)
@@ -1228,9 +1300,10 @@ async def stream_trial_events(
                 for evt in current[last_count:]:
                     if branch_id and evt.branch_id != branch_id:
                         continue
-                    yield f"data: {json.dumps({'event_id': evt.event_id, 'type': evt.event_type.value,
-                                               'branch_id': evt.branch_id, 'session_id': evt.session_id,
-                                               'data': evt.data, 'timestamp': evt.timestamp})}\n\n"
+                    _payload = json.dumps({'event_id': evt.event_id, 'type': evt.event_type.value,
+                                           'branch_id': evt.branch_id, 'session_id': evt.session_id,
+                                           'data': evt.data, 'timestamp': evt.timestamp})
+                    yield f"data: {_payload}\n\n"
                 last_count = len(current)
             await asyncio.sleep(0.3)
 

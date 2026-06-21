@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# LEGACY: Terraform 资源成本策略，与 Token 北极星无关，仅 CI 兼容保留。
+# 新的 Token 成本门控请见 token_policy.py + token_gate_routes.py。
 """Cost Policy Engine — Terraform resource cost evaluation rules.
 
 Defines:

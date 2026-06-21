@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from .models import (
@@ -86,7 +86,7 @@ _API_KEYS_PATH = _mp_os.path.join(_CONFIG_DIR, ".api_keys.json")
 
 
 def _save_model_pool() -> None:
-    """Persist model pool: config to model_pool.json, secrets to .api_keys.json."""
+    """Persist model pool: config to model_pool.json, secrets to .api_keys.json (encrypted)."""
     if _team_manager is None:
         return
     data: Dict[str, Any] = {}
@@ -115,21 +115,36 @@ def _save_model_pool() -> None:
         _mp_os.makedirs(_CONFIG_DIR, exist_ok=True)
         with open(_MODEL_POOL_PATH, "w", encoding="utf-8") as f:
             _mp_json.dump(data, f, ensure_ascii=False, indent=2)
-        with open(_API_KEYS_PATH, "w", encoding="utf-8") as f:
-            _mp_json.dump(secrets, f, ensure_ascii=False, indent=2)
+        # 用 secret_store 加密保存 API keys
+        try:
+            from .secret_store import save_model_api_keys
+            save_model_api_keys(secrets)
+        except Exception:
+            # Fallback: 明文写入（向后兼容）
+            with open(_API_KEYS_PATH, "w", encoding="utf-8") as f:
+                _mp_json.dump(secrets, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
 
 def _load_api_keys() -> Dict[str, Dict[str, str]]:
-    """Load API keys from .api_keys.json (gitignored secrets file)."""
-    if not _mp_os.path.isfile(_API_KEYS_PATH):
-        return {}
+    """Load API keys from .api_keys.json (encrypted via secret_store)."""
     try:
-        with open(_API_KEYS_PATH, "r", encoding="utf-8") as f:
-            return _mp_json.load(f)
+        from .secret_store import load_model_api_keys
+        return load_model_api_keys()
     except Exception:
-        return {}
+        # Fallback: legacy plaintext read
+        if not _mp_os.path.isfile(_API_KEYS_PATH):
+            return {}
+        try:
+            with open(_API_KEYS_PATH, "r", encoding="utf-8") as f:
+                data = _mp_json.load(f)
+            # 如果是加密格式，无法解密（secret_store 不可用），返回空
+            if isinstance(data, dict) and data.get("__encrypted__"):
+                return {}
+            return data
+        except Exception:
+            return {}
 
 
 def _load_model_pool(tm: TeamManager) -> None:
@@ -200,12 +215,31 @@ def _get_skill_registry() -> SkillRegistry:
 
 
 def _init_harness_from_teams(tm: TeamManager) -> None:
-    """On startup, push the first team's default model into the chat harness."""
+    """On startup, push the first team's default model (with api_key) into the chat harness.
+
+    遍历所有团队，找到第一个有 api_key 的 default 模型并同步到全局 harness。
+    如果没有 default 模型有 key，回退到任意有 key 的模型。
+    """
     try:
         harness = get_chat_harness()
+        # 第一轮：找有 key 的 default 模型
         for team in tm.list_teams():
             for m in team.models.values():
                 if m.is_default and m.api_key:
+                    harness.update_default_provider(
+                        provider=m.provider,
+                        api_key=m.api_key,
+                        api_base_url=m.api_base_url,
+                        model=m.name,
+                    )
+                    cfg = harness.get_provider_config()
+                    cfg.max_tokens = m.max_tokens
+                    cfg.temperature = m.temperature
+                    return
+        # 第二轮：回退到任意有 key 的模型
+        for team in tm.list_teams():
+            for m in team.models.values():
+                if m.api_key:
                     harness.update_default_provider(
                         provider=m.provider,
                         api_key=m.api_key,
@@ -244,6 +278,13 @@ def _init_skill_library_chain(tm: TeamManager, sr: SkillRegistry) -> None:
 
         tracker = get_skill_tracker()
         tracker._skill_library = lib
+
+        # 9.1: 任务完成 → 复测成本目标进度（带 target_id 的派发任务闭环）
+        try:
+            from .cost_target_tracker import get_cost_target_tracker
+            get_cost_target_tracker()
+        except Exception as _e:
+            _sl_logger.warning("⚠️ CostTargetTracker init failed: %s", _e)
 
         _sl_logger.info("✅ Skill library chain initialized (library→evolver→verifier→tracker)")
     except Exception as e:
@@ -481,6 +522,27 @@ def update_model(team_id: str, model_id: str, req: CreateModelRequest) -> Dict[s
     # Sync to chat harness
     _sync_default_model_to_harness(team)
     _save_model_pool()
+    # P6: 如果是 default 模型且有 key，也持久化到 settings.json
+    if req.is_default and req.api_key:
+        try:
+            import json as _json
+            import os as _os
+            _settings_path = _os.path.join(_CONFIG_DIR, "settings.json")
+            with open(_settings_path, "r", encoding="utf-8") as f:
+                settings = _json.load(f)
+            llm = settings.setdefault("llm", {})
+            llm["provider"] = req.provider
+            llm["api_key"] = req.api_key
+            if req.api_base_url:
+                llm["api_base_url"] = req.api_base_url
+            llm["model"] = req.name
+            llm["max_tokens"] = req.max_tokens
+            llm["temperature"] = req.temperature
+            with open(_settings_path, "w", encoding="utf-8") as f:
+                _json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return model.to_dict()
     return model.to_dict()
 
 
@@ -1585,6 +1647,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     result = await harness.chat(
         content,
         agent_id=agent.agent_id,
+        team_id=team_id,  # 归因：任务执行 token 落到团队（否则全部 team_id='' → 未归因）
         session_id=session_id,
         system_prompt=system_prompt,
         tools=tools_for_llm,
@@ -1604,6 +1667,7 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
         followup = await harness.chat(
             f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
             agent_id=agent.agent_id,
+            team_id=team_id,  # 归因：工具回执后续调用同样落团队
             session_id=session_id,
             system_prompt=system_prompt,
         )
@@ -5841,6 +5905,139 @@ async def get_task_tool_traces(task_id: str) -> Dict[str, Any]:
     return {"task_id": task_id, "traces": traces, "count": len(traces)}
 
 
+# ══════════════════════════════════════════════════════════════════
+# Trace Summaries & Events (任务追踪面板数据源)
+# ══════════════════════════════════════════════════════════════════
+
+
+def _build_trace_context(task) -> Dict[str, Any]:
+    """从 task metadata 提取 trace_context。"""
+    meta = task.metadata or {}
+    return {
+        "source": meta.get("source", "manual"),
+        "discussion_id": meta.get("discussion_id", ""),
+        "plaza_id": meta.get("plaza_id", ""),
+        "pipeline_dir": meta.get("pipeline_dir", ""),
+    }
+
+
+@router.get("/traces/recent", summary="Recent trace summaries")
+def get_recent_trace_summaries(
+    limit: int = Query(default=20, ge=1, le=500),
+    team_id: str = Query(default=""),
+    source: str = Query(default=""),
+) -> Dict[str, Any]:
+    """返回最近的任务追踪摘要（按时间倒序）。"""
+    engine = _te()
+    all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
+    # 过滤
+    filtered = []
+    for t in all_tasks:
+        if team_id and t.team_id != team_id:
+            continue
+        meta = t.metadata or {}
+        if source and meta.get("source", "manual") != source:
+            continue
+        filtered.append(t)
+    # 按 created_at 倒序
+    filtered.sort(key=lambda t: getattr(t, "created_at", ""), reverse=True)
+    filtered = filtered[:limit]
+    traces = []
+    for t in filtered:
+        meta = t.metadata or {}
+        wf = meta.get("workflow", [])
+        completed = sum(1 for s in wf if s.get("status") == "completed")
+        failed = sum(1 for s in wf if s.get("status") == "failed")
+        traces.append({
+            "task_id": t.task_id,
+            "team_id": t.team_id,
+            "title": t.title,
+            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+            "source": meta.get("source", "manual"),
+            "trace_context": _build_trace_context(t),
+            "workflow_steps": len(wf),
+            "completed_steps": completed,
+            "failed_steps": failed,
+            "created_at": getattr(t, "created_at", ""),
+        })
+    return {"count": len(traces), "traces": traces}
+
+
+@router.get("/traces/recent-events", summary="Recent trace events")
+def get_recent_trace_events(
+    limit: int = Query(default=50, ge=1, le=500),
+    team_id: str = Query(default=""),
+    source: str = Query(default=""),
+    event_type: str = Query(default=""),
+) -> Dict[str, Any]:
+    """返回最近的管道事件（按时间倒序）。"""
+    engine = _te()
+    all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
+    # 建 task_id → (team_id, source) 映射
+    task_map = {}
+    for t in all_tasks:
+        meta = t.metadata or {}
+        task_map[t.task_id] = {
+            "team_id": t.team_id,
+            "source": meta.get("source", "manual"),
+            "discussion_id": meta.get("discussion_id", ""),
+            "plaza_id": meta.get("plaza_id", ""),
+            "title": t.title,
+        }
+    # 从 _pipeline_events 收集事件
+    events = []
+    for task_id, evts in _pipeline_events.items():
+        info = task_map.get(task_id, {})
+        if team_id and info.get("team_id") != team_id:
+            continue
+        if source and info.get("source") != source:
+            continue
+        for evt in evts:
+            if event_type and evt.get("type") != event_type:
+                continue
+            events.append({
+                "task_id": task_id,
+                "team_id": info.get("team_id", ""),
+                "title": info.get("title", ""),
+                "type": evt.get("type", ""),
+                "ts": evt.get("ts", 0),
+                "trace_context": {
+                    "source": info.get("source", "manual"),
+                    "discussion_id": info.get("discussion_id", ""),
+                    "plaza_id": info.get("plaza_id", ""),
+                },
+                "data": {k: v for k, v in evt.items() if k not in ("type", "ts")},
+            })
+    # 按 ts 倒序
+    events.sort(key=lambda e: e.get("ts", 0), reverse=True)
+    events = events[:limit]
+    return {"count": len(events), "events": events}
+
+
+@router.get("/traces/export", summary="Export trace data as NDJSON")
+def export_traces(
+    team_id: str = Query(default=""),
+    source: str = Query(default=""),
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    """导出追踪数据为 NDJSON 流。"""
+    import json as _json
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        # summaries
+        summaries = get_recent_trace_summaries(limit=limit, team_id=team_id, source=source)
+        for t in summaries["traces"]:
+            yield _json.dumps({"kind": "summary", **t}, ensure_ascii=False) + "\n"
+        # events
+        events = get_recent_trace_events(limit=limit * 5, team_id=team_id, source=source)
+        for e in events["events"]:
+            yield _json.dumps({"kind": "event", **e}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson",
+                             headers={"Content-Disposition": "attachment; filename=traces.ndjson"})
+
+
 @router.post(
     "/claude-sessions/{session_id}/stop",
     summary="Stop a running Claude Code session",
@@ -6823,6 +7020,30 @@ def update_llm_provider(req: LLMProviderConfigRequest) -> Dict[str, Any]:
                     break
     except Exception:
         pass
+    # P6: 同时持久化到 settings.json 的 llm 段，确保重启后 from_settings_file 能读到
+    if req.api_key:
+        try:
+            import json as _json
+            import os as _os
+            _settings_path = _os.path.join(_CONFIG_DIR, "settings.json")
+            with open(_settings_path, "r", encoding="utf-8") as f:
+                settings = _json.load(f)
+            llm = settings.setdefault("llm", {})
+            if req.provider:
+                llm["provider"] = req.provider
+            llm["api_key"] = req.api_key
+            if req.api_base_url:
+                llm["api_base_url"] = req.api_base_url
+            if req.model and any(c.isalpha() for c in req.model):
+                llm["model"] = req.model
+            if req.max_tokens:
+                llm["max_tokens"] = req.max_tokens
+            if req.temperature >= 0:
+                llm["temperature"] = req.temperature
+            with open(_settings_path, "w", encoding="utf-8") as f:
+                _json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
     return {
         "status": "updated",
         "provider": harness.get_provider_info(),
@@ -6931,23 +7152,44 @@ class TestModelRequest(BaseModel):
     api_base_url: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
+    # 当 api_key 留空时，用 (team_id, model_id) 回退到已保存的密钥（“留空不修改”语义）
+    team_id: str = ""
+    model_id: str = ""
 
 
 @router.post("/llm/test-model", summary="Test a specific model config")
 async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
-    """Test a specific provider/model/key combo without altering global config."""
+    """Test a specific provider/model/key combo without altering global config.
+
+    若请求未带 api_key（编辑框“留空不修改”），回退到已保存的团队模型密钥，
+    使重新登录后无需重新输入即可测试连接。base_url/name/provider 同样在留空时回退。
+    """
     from .chat_harness import ChatHarness, ProviderConfig, LLMProvider
 
+    # 留空回退：从已保存的团队模型取密钥与其余配置
+    api_key = req.api_key
+    provider_name = req.provider
+    name = req.name
+    api_base_url = req.api_base_url
+    if not api_key and req.team_id and req.model_id and _team_manager is not None:
+        stored = _team_manager.get_team(req.team_id)
+        stored_model = stored.get_model(req.model_id) if stored else None
+        if stored_model is not None:
+            api_key = stored_model.api_key or api_key
+            provider_name = provider_name or stored_model.provider
+            name = name or stored_model.name
+            api_base_url = api_base_url or stored_model.api_base_url
+
     try:
-        provider = LLMProvider(req.provider)
+        provider = LLMProvider(provider_name)
     except ValueError:
         provider = LLMProvider.DEEPSEEK
 
     config = ProviderConfig(
         provider=provider,
-        api_key=req.api_key,
-        api_base_url=req.api_base_url,
-        model=req.name,
+        api_key=api_key,
+        api_base_url=api_base_url,
+        model=name,
         max_tokens=req.max_tokens,
         temperature=req.temperature,
     )
@@ -7887,6 +8129,36 @@ def skill_library_browse(
 @router.get("/skill-library/suggestions", summary="获取演化建议")
 def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
     return _get_skill_evolver().suggest_evolution(team_id)
+
+
+@router.get("/skill-library/duplicates", summary="检测重复/冗余技能（供成本治理 skill_extraction 杠杆高亮）")
+def skill_library_duplicates(threshold: float = 0.85, team_id: str = "") -> Dict[str, Any]:
+    """跨团队文本相似度检测重复技能；team_id 给定时只保留与该团队相关的对。
+
+    返回 {duplicates: [...], skill_ids: [...]}；前端用 skill_ids 高亮对应水晶。
+    """
+    dups = _get_skill_library().find_duplicates(threshold=threshold)
+    if team_id:
+        dups = [d for d in dups
+                if d.get("skill_a", {}).get("team") == team_id
+                or d.get("skill_b", {}).get("team") == team_id]
+    skill_ids = sorted({sid for d in dups for sid in
+                        (d.get("skill_a", {}).get("skill_id"), d.get("skill_b", {}).get("skill_id")) if sid})
+    return {"duplicates": dups, "skill_ids": skill_ids, "count": len(dups)}
+
+
+@router.post("/skill-library/merge", summary="合并重复技能（9.6 一键去重以省 token）")
+def skill_library_merge(body: Dict[str, Any] = {}) -> Dict[str, Any]:
+    """合并 2+ 个重复技能为一个，保留最优 instructions。
+
+    body: {team_id, skill_ids:[a,b,...], strategy?='keep_longest'}
+    """
+    team_id = body.get("team_id", "")
+    skill_ids = body.get("skill_ids", []) or []
+    strategy = body.get("strategy", "keep_longest")
+    if len(skill_ids) < 2:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="need >=2 skill_ids")
+    return _get_skill_evolver().merge_skills(team_id, skill_ids, strategy)
 
 
 @router.post("/skill-library/evolve", summary="触发技能演化")

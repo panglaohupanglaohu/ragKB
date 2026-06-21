@@ -75,7 +75,7 @@
     "codebuddy": {
       "model_id": "codebuddy",
       "provider": "codebuddy",
-      "name": "deepseek-v4-pro",
+      "name": "deepseek-v4-flash",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
@@ -120,14 +120,16 @@
   "a7c36670": {
     "0f136344": {
       "model_id": "0f136344",
-      "provider": "codebuddy",
+      "provider": "deepseek",
       "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://copilot.tencent.com/v2"
+      "api_base_url": "https://api.deepseek.com"
     }
-  }
+  },
+  "934b6b3d": {},
+  "5b1ac4d0": {}
 }

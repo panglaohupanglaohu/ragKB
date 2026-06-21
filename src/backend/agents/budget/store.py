@@ -35,7 +35,11 @@ class UsageStore:
                     total_tokens INTEGER,
                     model TEXT,
                     cost_usd REAL,
-                    date TEXT
+                    date TEXT,
+                    phase TEXT DEFAULT 'task',
+                    skill_id TEXT DEFAULT '',
+                    scenario_id TEXT DEFAULT '',
+                    run_id TEXT DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_log(session_id);
                 CREATE INDEX IF NOT EXISTS idx_usage_agent_date ON usage_log(agent_id, date);
@@ -55,6 +59,19 @@ class UsageStore:
                 CREATE INDEX IF NOT EXISTS idx_budget_events_date ON budget_events(date);
                 """
             )
+            self._migrate(conn)
+
+    def _migrate(self, conn) -> None:
+        """幂等迁移：旧库补归因列 + 索引。"""
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)")}
+        for col in ("phase", "skill_id", "scenario_id", "run_id"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE usage_log ADD COLUMN {col} TEXT DEFAULT ''")
+        if "phase" not in cols:
+            conn.execute("UPDATE usage_log SET phase = 'task' WHERE phase IS NULL OR phase = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_run ON usage_log(run_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_phase_date ON usage_log(phase, date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_skill_date ON usage_log(skill_id, date)")
 
     def record_usage(self, record: UsageRecord) -> None:
         with self._connect() as conn:
@@ -62,8 +79,9 @@ class UsageStore:
                 """
                 INSERT INTO usage_log (
                     timestamp, session_id, agent_id, team_id,
-                    input_tokens, output_tokens, total_tokens, model, cost_usd, date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    input_tokens, output_tokens, total_tokens, model, cost_usd, date,
+                    phase, skill_id, scenario_id, run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.timestamp,
@@ -76,6 +94,10 @@ class UsageStore:
                     record.model,
                     record.cost_usd,
                     record.date,
+                    record.phase,
+                    record.skill_id,
+                    record.scenario_id,
+                    record.run_id,
                 ),
             )
 

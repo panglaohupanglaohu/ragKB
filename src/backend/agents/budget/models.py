@@ -33,6 +33,11 @@ class UsageRecord:
     output_tokens: int = 0
     total_tokens: int = 0
     cost_usd: float = 0.0
+    # Token 归因字段（P1 新增）
+    phase: str = "task"          # skill_verify | drill | plaza | task | extract
+    skill_id: str = ""
+    scenario_id: str = ""
+    run_id: str = ""
     timestamp: float = field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
 
     @property

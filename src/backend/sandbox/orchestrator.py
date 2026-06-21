@@ -95,20 +95,25 @@ class SECSOrchestrator:
             logger.info("📏 SECS 切换到规则决策模式")
 
     def _llm_decision_wrapper(self, twin, world, all_twins):
-        """同步包装异步 LLM 决策 (兼容同步调用场景)."""
+        """同步包装异步 LLM 决策 (兼容同步调用场景).
+
+        P4 修复: ThreadPoolExecutor 不会自动传播 contextvar，
+        必须显式 copy_context() 跨线程透传 token_scope，
+        否则孪生 LLM 决策的 token 归因全部丢失。
+        """
         import asyncio
+        import contextvars
+        import concurrent.futures
+        ctx = contextvars.copy_context()  # 捕获主线程的 token_scope
+        def _run():
+            return ctx.run(asyncio.run, llm_decision(twin, world, all_twins))
         try:
             loop = asyncio.get_running_loop()
-            # 如果已在事件循环中，创建 task 并发执行
-            import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(
-                    asyncio.run, llm_decision(twin, world, all_twins)
-                )
+                future = pool.submit(_run)
                 return future.result(timeout=10)
         except RuntimeError:
-            # 没有运行中的事件循环
-            return asyncio.run(llm_decision(twin, world, all_twins))
+            return ctx.run(asyncio.run, llm_decision(twin, world, all_twins))
 
     def get_session(self, session_id: str) -> Optional[SandboxSession]:
         """获取会话."""
@@ -224,6 +229,7 @@ class SECSOrchestrator:
 
         流程: 快照 → 仿真 → 评估 → 对齐 → 输出
 
+        P4: 包裹 token_scope，使孪生演练的 LLM token 归因到 run_id。
         容错保证: 无论评估/对齐是否成功，session 状态都不会卡在 EVALUATING。
 
         Returns:
@@ -233,18 +239,67 @@ class SECSOrchestrator:
         if not session:
             return {"error": "session_not_found"}
 
-        try:
-            # Step 1: 执行仿真
-            session = await self.twin_loop.run_simulation(session_id)
+        # P4: 注入 token 归因上下文
+        from agents.token_context import token_scope, new_run_id
+        run_id = new_run_id("drill")
+        session._token_run_id = run_id  # 附着到 session 供后续查询
 
-            # Step 2: 对齐（包含评估 + 演化循环 + SOP提取）
-            alignment_result = await self.aligner.align_session(session)
+        try:
+            with token_scope(run_id=run_id, phase="drill",
+                             scenario_id=session_id, team_id=session.team_id):
+                # Step 1: 执行仿真
+                session = await self.twin_loop.run_simulation(session_id)
+
+                # 检查是否被用户中断（stop_event / pause）
+                if session.status != SandboxStatus.RUNNING:
+                    # 被 stop/pause 中断 → 跳过后续对齐，直接返回
+                    logger.info("⏹ 仿真被中断 (status=%s)，跳过对齐与 Gate", session.status.value)
+                    return {
+                        "session_id": session.session_id,
+                        "status": session.status.value,
+                        "total_steps": session.total_steps_executed,
+                        "alignment": None,
+                        "token_run_id": run_id,
+                        "interrupted": True,
+                    }
+
+                # Step 2: 对齐（包含评估 + 演化循环 + SOP提取）
+                alignment_result = await self.aligner.align_session(session)
+
+            # P4.2: passed→ratchet-lock 前调 Token Gate
+            gate_report: Dict[str, Any] = {}
+            ratchet_locked = False
+            try:
+                from agents.token_ledger import LEDGER
+                from agents.token_policy import ENGINE, TokenBudget
+                run_data = LEDGER.run(run_id)
+                # 孪生演练默认预算：max_tokens=100000, min_efficiency=0.0
+                budget = TokenBudget(max_tokens=100000, min_efficiency=0.0)
+                gate_report = ENGINE.evaluate(run_data, budget)
+                decision = gate_report.get("decision", "pass")
+                if decision == "block":
+                    # block 不锁定棘轮 — 记录原因但流程继续
+                    logger.warning(
+                        "🚫 Drill run %s Token Gate BLOCK — 棘轮锁定被拦截: %s",
+                        run_id, gate_report.get("violations", []),
+                    )
+                elif decision == "warn":
+                    logger.info("⚠️ Drill run %s Token Gate WARN: %s", run_id, gate_report)
+                else:
+                    ratchet_locked = True
+                    # P4.3: 达标 token 节省 push ratchet（只进不退）
+                    self._push_drill_ratchet(session, run_data, gate_report)
+            except Exception as ge:
+                logger.warning("Drill Token Gate 评估失败（不阻断）: %s", ge)
 
             return {
                 "session_id": session.session_id,
                 "status": session.status.value,
                 "total_steps": session.total_steps_executed,
                 "alignment": alignment_result,
+                "token_run_id": run_id,
+                "gate": gate_report,
+                "ratchet_locked": ratchet_locked,
             }
 
         except Exception as e:
@@ -253,9 +308,45 @@ class SECSOrchestrator:
             if session.status == SandboxStatus.EVALUATING:
                 session.status = SandboxStatus.COMPLETED
                 logger.info(f"🔄 状态回退: EVALUATING → COMPLETED (因异常)")
-            return {"error": str(e), "session_id": session_id, "status": session.status.value}
+            return {"error": str(e), "session_id": session_id, "status": session.status.value, "token_run_id": run_id}
 
     # ── 策略注入 ────────────────────────────────────────────────
+
+    def _push_drill_ratchet(self, session, run_data: Dict[str, Any], gate_report: Dict[str, Any]) -> None:
+        """P4.3: 达标的 token 效率推进 cost_efficiency:{team_id} 棘轮（只进不退）.
+
+        metric = score / max(tokens/1000, 1e-6)
+        """
+        try:
+            from agents.ratchet_ledger import get_ratchet_ledger
+            team_id = getattr(session, "team_id", "") or "default"
+            tokens = float(run_data.get("total", 0) or 0)
+            # 从 session 的 evaluation 取 score
+            score = 0.0
+            eval_data = getattr(session, "evaluation", {}) or {}
+            if isinstance(eval_data, dict):
+                score = float(eval_data.get("total_score", 0) or 0)
+            if tokens <= 0:
+                return
+            efficiency = score / max(tokens / 1000.0, 1e-6)
+            ratchet = get_ratchet_ledger()
+            result = ratchet.advance(
+                f"cost_efficiency:{team_id}",
+                efficiency,
+                evidence={
+                    "run_id": run_data.get("run_id", ""),
+                    "tokens": tokens,
+                    "score": score,
+                    "gate": gate_report.get("decision", "pass"),
+                    "scenario_id": getattr(session, "session_id", ""),
+                },
+            )
+            logger.info(
+                "🔒 Drill ratchet push cost_efficiency:%s → %.4f (advanced=%s)",
+                team_id, efficiency, result.get("advanced"),
+            )
+        except Exception as e:
+            logger.warning("Drill ratchet push 失败（非致命）: %s", e)
 
     async def inject_strategy(self, session_id: str) -> Dict[str, Any]:
         """注入最优策略到真实环境."""

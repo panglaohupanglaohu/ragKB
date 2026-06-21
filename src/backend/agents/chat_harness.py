@@ -44,6 +44,7 @@ from .execution_registry import (
 )
 from .budget import UsageRecord, get_budget_guard
 from .secret_store import load_default_llm_api_key, resolve_api_key
+from .token_context import get_token_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -1012,16 +1013,21 @@ class ChatHarness:
             output_tokens=raw_usage.get("completion_tokens", 0),
             total_tokens=raw_usage.get("total_tokens", 0),
         )
+        _ctx = get_token_ctx()
         budget_guard.record_usage(
             UsageRecord(
                 session_id=session.session_id,
-                agent_id=agent_id,
-                team_id=team_id,
+                agent_id=agent_id or _ctx.get("agent_id", ""),
+                team_id=team_id or _ctx.get("team_id", ""),
                 model=model,
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 total_tokens=usage.total_tokens,
                 cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
+                phase=_ctx.get("phase", "task"),
+                skill_id=_ctx.get("skill_id", ""),
+                scenario_id=_ctx.get("scenario_id", ""),
+                run_id=_ctx.get("run_id", ""),
             )
         )
         session.total_usage = session.total_usage.add(
@@ -1089,16 +1095,21 @@ class ChatHarness:
                         stop_reason = "tool_result"
                     second_usage = second_raw.get("usage", {})
                     second_total = second_usage.get("total_tokens", 0)
+                    _ctx2 = get_token_ctx()
                     budget_guard.record_usage(
                         UsageRecord(
                             session_id=session.session_id,
-                            agent_id=agent_id,
-                            team_id=team_id,
+                            agent_id=agent_id or _ctx2.get("agent_id", ""),
+                            team_id=team_id or _ctx2.get("team_id", ""),
                             model=model,
                             input_tokens=second_usage.get("prompt_tokens", 0),
                             output_tokens=second_usage.get("completion_tokens", 0),
                             total_tokens=second_total,
                             cost_usd=self._estimate_cost_usd(model, second_total),
+                            phase=_ctx2.get("phase", "task"),
+                            skill_id=_ctx2.get("skill_id", ""),
+                            scenario_id=_ctx2.get("scenario_id", ""),
+                            run_id=_ctx2.get("run_id", ""),
                         )
                     )
                     usage = usage.add(
@@ -1210,16 +1221,21 @@ class ChatHarness:
             total_tokens=total_tokens,
         )
         if usage.total_tokens:
+            _ctx3 = get_token_ctx()
             budget_guard.record_usage(
                 UsageRecord(
                     session_id=session.session_id,
-                    agent_id=agent_id,
-                    team_id=team_id,
+                    agent_id=agent_id or _ctx3.get("agent_id", ""),
+                    team_id=team_id or _ctx3.get("team_id", ""),
                     model=model,
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                     total_tokens=usage.total_tokens,
                     cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
+                    phase=_ctx3.get("phase", "task"),
+                    skill_id=_ctx3.get("skill_id", ""),
+                    scenario_id=_ctx3.get("scenario_id", ""),
+                    run_id=_ctx3.get("run_id", ""),
                 )
             )
             session.total_usage = session.total_usage.add(

@@ -1383,6 +1383,34 @@ npm run dev
 |------|------|------|
 | `POST` | `/api/v1/tts` | 文本转语音（返回 MP3/WAV） |
 
+### Token 成本与 Gate（北极星）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/v1/cost/summary?source=token` | Token 汇总（默认 source=token；source=infra 走 OpenCost） |
+| `GET` | `/api/v1/cost/tokens/summary?group_by=team\|skill\|phase` | Token 按维度聚合 |
+| `GET` | `/api/v1/cost/tokens/by-team` | 按团队聚合 Token |
+| `GET` | `/api/v1/cost/tokens/by-skill` | 按技能聚合 Token |
+| `GET` | `/api/v1/cost/tokens/run/{run_id}` | 按 run 归因查询（含 by_phase/by_agent） |
+| `GET` | `/api/v1/cost/tokens/overview` | Token 全局概览 |
+| `POST` | `/api/v1/cost-gate/token/evaluate` | Token 预算门控评估 |
+| `GET` | `/api/v1/cost-gate/token/stats` | Token Gate 统计 |
+| `GET` | `/api/v1/cost-gate/token/history` | Token Gate 历史 |
+| `POST` | `/api/v1/cost-gate/terraform/evaluate` | Terraform 资源成本评估（legacy） |
+| `POST` | `/api/v1/cost/targets` | 创建 Token 优化目标 |
+| `GET` | `/api/v1/cost/targets` | 列出目标 |
+| `GET` | `/api/v1/cost/targets/{id}/progress` | 目标进度 |
+| `DELETE` | `/api/v1/cost/targets/{id}` | 删除目标 |
+| `GET` | `/api/v1/cost/report?window=24h&team=` | 生成成本报告（消耗+目标+棘轮+对账） |
+| `GET` | `/api/v1/cost/tokens/breakdown?dim=team\|skill\|phase` | 成本构成（柱状图） |
+| `GET` | `/api/v1/cost/tokens/trend?bucket=day\|hour` | 成本趋势（折线） |
+| `GET` | `/api/v1/cost/tokens/detail?group=run\|call` | 成本明细（按 run/调用，可下钻） |
+| `GET` | `/api/v1/cost/tokens/lever-split?team_id=` | Skill 杠杆 vs 协作杠杆 token 拆分 |
+| `GET` | `/api/v1/cost/tokens/ratchet` | cost_efficiency 棘轮当前代数 |
+| `POST` | `/api/v1/cost/tokens/ratchet/advance` | 成本页触发棘轮推进（实测效率） |
+| `GET` | `/api/v1/skill-library/duplicates?team_id=` | 检测重复/冗余技能 |
+| `POST` | `/api/v1/skill-library/merge` | 合并重复技能（去重省 token） |
+
 ---
 
 ## 项目结构
@@ -1421,6 +1449,13 @@ AgentsGroup2026/
 │   │   │   ├── skill_indexer.py     # 技能索引器
 │   │   │   ├── skill_querier.py     # 技能查询器
 │   │   │   ├── skill_extractor.py   # LLM 技能提取器
+│   │   │   ├── token_context.py     # 进程内 Token 归因上下文（contextvar）
+│   │   │   ├── token_ledger.py      # TokenLedger 聚合层（单一读出端）
+│   │   │   ├── token_policy.py      # TokenBudgetEngine 策略引擎（5 种违规）
+│   │   │   ├── token_gate_routes.py # Token Gate REST 端点
+│   │   │   ├── cost_targets.py      # Token 优化目标存储
+│   │   │   ├── cost_report.py       # 成本报告聚合（消耗+目标+棘轮+对账）
+│   │   │   ├── ratchet_ledger.py    # 正向棘轮账本（只进不退）
 │   │   │   ├── similarity_engine.py # 多策略相似度引擎
 │   │   │   ├── knowledge_base.py    # TF-IDF 知识库
 │   │   │   ├── merge_engine.py      # 合并聚类引擎
@@ -1543,6 +1578,26 @@ AgentsGroup2026/
 ---
 
 ## 更新日志
+
+### 2026-06-20 — 演进式成本优化「全闭环」打通 + 真实使用硬化
+
+以「Token 最少」为北极星，把**度量 → 派发 → 执行降本 → 回流 → 棘轮锁定**整条后半环接通，并修掉一批真实使用中暴露的问题（详见 `docs/全局重构plan.md` / `docs/全局重构todos.md`（含 Phase 8/8.R/9/10）与 `.wolf/buglog.json` bug-034~049）。
+
+闭环主干（Phase 8/8.R/9）：
+
+- **Token 归因单一事实源**：进程内 `token_scope`（contextvars）按 `run_id/phase/skill_id/team_id` 归因，落 `usage.db`；`TokenLedger` 聚合出团队/技能/阶段/趋势/明细/run。**任务与对话调用现已带 `team_id` 归因**（不再大面积「未归因」）。
+- **成本页五菜单全部走 Token**：成本构成 / 趋势 / 明细 / 效率视角（含 `score÷(tokens/1k)` 公式与 **Skill / 协作两杠杆**占比条）/ 达尔文棘轮。
+- **统一目标闭环**：设 Token 目标（`tokens_per_goal` 改为「平均每调用 token」，解「目标永远 0%」）→ 派发任务**携带 `target_id`** → 任务完成由 `CostTargetTracker` 自动复测进度 → 达标自动推进 `cost_efficiency:{team}` 棘轮（只进不退）→ KPI④「棘轮已锁定」+ 报告对账可见。
+- **派发可执行**：去技能萃取（`/skill-library/duplicates` 高亮重复技能 + `/skill-library/merge` 一键合并）、去议事广场（深链到话题）、去数字孪生（评分试炼解锁效率）。
+
+真实使用硬化（Phase 9.x，bug-034~049）：
+
+- 编辑模型「测试连接」留空回退已存密钥 + 浏览器「💾 记住密钥」；棘轮按钮 `RatchetAnimator` 导出修复。
+- **数字孪生 drill reward 恒 0 的根因 = 创建试炼时未把团队 agent 同步进世界 → 0 twin**；已在 `create_trial` 中 `sync_agents_from_team` 修复，配合 `?team=` 自动选中，drill 产出真实 reward / 综合评分喂给效率与棘轮。3D 奖励改为「投射到对应 agent 头顶的 +value 浮卡」、流水线随步进推进、房间仿真可「⏹ 停止」。
+- KPI 随团队筛选缩放并显示团队名；离线移除外链 Google Fonts（消除超时报错）。
+- **`team_id` 规范化校验**：创建试炼 / 进化时校验 team_id 必须匹配已存在团队（`build-system`→`build_system` 自动归一，未知团队 400），并清理了历史幻影团队数据。
+
+待办（Phase 10）：筛选透传到构成/趋势/明细、历史未归因回填、存量目标 baseline 迁移、score 来源扩展、目标进度实时回流、3D/合并/Demo 联机验收、回归脚本补新端点。
 
 ### 2026-06-12 — v4 数字孪生：场景化演练 × 技能进化闭环
 

@@ -1,0 +1,31 @@
+#!/bin/bash
+# AgentsGroup2026 · pre-commit 钩子
+# 提交前跑「离线对账自检」(C1/C2/C3 + 技能合并)，零 LLM、零 token、纯本地。
+# 只在「真有不一致」时拦截提交；环境/数据未就绪时一律跳过（不打扰）。
+#
+# 启用一次即可： git config core.hooksPath .githooks
+# 临时绕过：     SKIP_OFFLINE_CHECK=1 git commit ...   或   git commit --no-verify
+set -u
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+# 显式跳过
+[ "${SKIP_OFFLINE_CHECK:-}" = "1" ] && exit 0
+
+# 环境/数据未就绪 → 跳过（钩子是便利而非硬门禁，不拦没装依赖的提交）
+command -v python3 >/dev/null 2>&1 || { echo "ℹ️  pre-commit: 无 python3，跳过离线对账自检"; exit 0; }
+[ -f storage/usage.db ] || { echo "ℹ️  pre-commit: 无 storage/usage.db，跳过离线对账自检（属正常）"; exit 0; }
+python3 -c "import sys; sys.path.insert(0,'src/backend'); import agents.token_ledger" >/dev/null 2>&1 \
+  || { echo "ℹ️  pre-commit: 后端依赖未就绪，跳过离线对账自检（可先 bash start.sh 装依赖）"; exit 0; }
+
+echo "🧮 pre-commit: 离线对账自检 (C1/C2/C3+合并，零 token)..."
+if python3 scripts/offline_reconcile_check.py --quiet --window 7d; then
+  echo "   ✅ 账本对账一致，放行提交"
+  exit 0
+fi
+
+echo "   ❌ 对账自检失败 —— 已拦截本次提交。"
+echo "      排查:  python3 scripts/offline_reconcile_check.py"
+echo "      绕过(不推荐):  git commit --no-verify   或   SKIP_OFFLINE_CHECK=1 git commit ..."
+exit 1

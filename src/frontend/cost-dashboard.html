@@ -10,31 +10,69 @@
   <link rel="stylesheet" href="/css/topbar-ws.css">
   <link rel="stylesheet" href="/css/cost-dashboard.css">
   <style>
-    /* 演进概览 + 棘轮样式（从 system-evolution 移植） */
-    .ev-ratchet-flow{display:flex;align-items:center;gap:0;padding:16px 0;overflow-x:auto}
-    .ev-ratchet-node{display:flex;flex-direction:column;align-items:center;min-width:90px}
-    .ev-ratchet-dot{width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;border:2px solid var(--groove,var(--line));background:var(--panel2,#21272D);transition:.35s;border-radius:50%}
-    .ev-ratchet-dot.active{border-color:var(--lime);box-shadow:0 0 0 3px rgba(107,196,127,0.20);animation:ev-pulse 2s ease-in-out infinite}
-    .ev-ratchet-dot.done{border-color:var(--lime);background:rgba(107,196,127,0.12);color:var(--lime)}
-    @keyframes ev-pulse{0%,100%{box-shadow:0 0 0 3px rgba(107,196,127,0.20)}50%{box-shadow:0 0 0 5px rgba(107,196,127,0.30)}}
-    .ev-ratchet-label{font-size:11px;color:var(--dim);margin-top:6px;text-align:center;font-weight:500}
-    .ev-ratchet-connector{flex:1;min-width:20px;height:2px;background:var(--line);margin:0 4px;position:relative;top:-20px}
-    .ev-ratchet-connector.done{background:var(--lime)}
-    .ev-stat-card{background:var(--panel2,#21272D);border:1px solid var(--line);padding:14px;border-radius:0}
-    .ev-stat-card .label{font-size:11px;color:var(--dim);margin-bottom:4px}
-    .ev-stat-card .value{font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text)}
-    .ev-heritage-item{padding:10px 12px;background:var(--panel2,#21272D);border-left:2px solid var(--lime);margin-bottom:6px;font-size:12px}
-    .ev-heritage-item .h-title{font-weight:600;color:var(--text)}
-    .ev-heritage-item .h-meta{font-size:11px;color:var(--dim);margin-top:2px}
-    .ev-panel{background:var(--panel,#1a1f24);border:1px solid var(--line);border-radius:0;padding:16px;margin-bottom:16px}
-    .ev-panel h3{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text)}
-    .ev-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:12px}
-    .ev-action-bar{display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel,#1a1f24);flex-wrap:wrap}
-    .ev-action-bar .btn{font-size:12px;padding:6px 14px}
-    .main-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
-    @media(max-width:1200px){.main-split{grid-template-columns:1fr}}
-    .token-suggest{padding:10px 12px;background:rgba(53,200,255,0.04);border-left:2px solid var(--cyan-s);margin-bottom:6px;font-size:12px}
-    .token-suggest b{color:var(--cyan-s)}
+    /* ── 演进 / 棘轮 / Token 视角 — 对齐 cost-dashboard 设计系统 ── */
+    .ev-action-bar{display:flex;gap:10px;flex-wrap:wrap;max-width:1480px;margin:18px auto 0;padding:0 32px}
+    .ev-action-bar .cost-btn{font-size:12px}
+
+    .ev-band{display:grid;grid-template-columns:1.05fr 0.95fr;gap:20px;margin-bottom:24px}
+    @media(max-width:1100px){.ev-band{grid-template-columns:1fr}}
+
+    .ev-tag{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--kitsune);background:var(--ob-bg-section);border:1px solid var(--ob-border);padding:2px 9px;border-radius:999px;line-height:1.6}
+
+    /* 演进概览：统计卡 */
+    .ev-overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .ev-stat-card{background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:10px;padding:14px}
+    .ev-stat-card .label{font-size:11px;color:var(--sumi-3);margin-bottom:6px}
+    .ev-stat-card .value{font-size:22px;font-weight:700;font-family:var(--ob-font-mono,'JetBrains Mono',monospace);color:var(--sumi)}
+    .ev-stat-card.clickable{cursor:pointer;transition:background .2s;position:relative}
+    .ev-stat-card.clickable:hover{background:var(--ob-bg-hover,var(--ob-bg-section));border-color:var(--kitsune)}
+    .ev-stat-card.clickable .expand-hint{font-size:10px;color:var(--sumi-3);margin-top:4px}
+    .ev-stat-card .expand-arrow{float:right;font-size:10px;color:var(--sumi-3);margin-top:2px;transition:transform .25s}
+    .ev-stat-card.open .expand-arrow{transform:rotate(180deg)}
+    /* 展开详情区域 */
+    .ev-detail-panel{grid-column:span 2;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:8px;padding:0;overflow:hidden;display:none;margin-top:-4px}
+    .ev-detail-panel.show{display:block}
+    .ev-detail-panel__head{padding:10px 14px;background:var(--ob-bg);border-bottom:1px solid var(--ob-border);font-size:11px;color:var(--sumi-3);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+    .ev-detail-panel__body{max-height:260px;overflow-y:auto;padding:6px 0}
+    .ev-detail-item{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 14px;font-size:11px;border-bottom:1px solid var(--ob-border);line-height:1.4}
+    .ev-detail-item:last-child{border-bottom:none}
+    .ev-detail-item .name{font-weight:600;color:var(--sumi);flex:1;margin-right:8px}
+    .ev-detail-item .meta{color:var(--sumi-3);white-space:nowrap;font-size:10px}
+    .ev-severity-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:middle}
+    .ev-severity-high{background:var(--shu)}
+    .ev-severity-medium{background:var(--kitsune)}
+    .ev-severity-low{background:var(--koke)}
+
+    /* 合规评级仪表 */
+    .ev-gauge-card{grid-column:span 2;display:flex;align-items:center;gap:18px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:10px;padding:16px 18px}
+    .ev-gauge{position:relative;width:76px;height:76px;flex-shrink:0}
+    .ev-gauge svg{width:76px;height:76px}
+    .ev-gauge__grade{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:27px;font-weight:800;font-family:var(--ob-font-mono,monospace)}
+    .ev-gauge-card .g-label{font-size:11px;color:var(--sumi-3);margin-bottom:3px}
+    .ev-gauge-card .g-score{font-size:22px;font-weight:700;font-family:var(--ob-font-mono,monospace)}
+    .ev-gauge-card .g-desc{font-size:11px;color:var(--sumi-3);margin-top:4px;line-height:1.5}
+    .ev-muted{font-size:12px;color:var(--sumi-3);padding:12px 0}
+
+    /* 达尔文棘轮流程 */
+    .ev-ratchet-flow{display:flex;align-items:flex-start;gap:0;padding:8px 0 4px;overflow-x:auto}
+    .ev-ratchet-node{display:flex;flex-direction:column;align-items:center;min-width:78px}
+    .ev-ratchet-dot{width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;border:2px solid var(--ob-border);background:var(--ob-bg-section);color:var(--sumi-2);transition:.35s;border-radius:50%}
+    .ev-ratchet-dot.active{border-color:var(--koke);color:var(--koke);box-shadow:0 0 0 3px rgba(107,196,127,.18);animation:ev-pulse 2s ease-in-out infinite}
+    .ev-ratchet-dot.done{border-color:var(--koke);background:rgba(107,196,127,.12);color:var(--koke)}
+    .ev-ratchet-dot.failed{border-color:var(--shu);color:var(--shu)}
+    @keyframes ev-pulse{0%,100%{box-shadow:0 0 0 3px rgba(107,196,127,.18)}50%{box-shadow:0 0 0 6px rgba(107,196,127,.28)}}
+    .ev-ratchet-label{font-size:11px;color:var(--sumi-3);margin-top:8px;text-align:center;font-weight:500}
+    .ev-ratchet-connector{flex:1;min-width:18px;height:2px;background:var(--ob-border);margin:21px 3px 0;border-radius:2px;transition:.35s}
+    .ev-ratchet-connector.done{background:var(--koke)}
+
+    .ev-cycle-log{font-size:12px;margin-top:12px;line-height:1.7}
+    .ev-cycle-log .run{color:var(--sumi-3)}
+    .ev-cycle-log .ok{color:var(--koke)}
+    .ev-cycle-log .err{color:var(--shu)}
+
+    /* Token 优化建议 */
+    .token-suggest{padding:11px 13px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-left:3px solid var(--kitsune);border-radius:8px;margin-bottom:8px;font-size:12px;color:var(--sumi-2);line-height:1.5}
+    .token-suggest b{color:var(--sumi)}
   </style>
 </head>
 <body class="cost-page">
@@ -59,13 +97,11 @@
     </div>
   </header>
 
-  <!-- 治理动作上移到顶部操作栏 -->
+  <!-- 顶部操作栏：仅全局关键操作（Gate自检 + 棘轮周期 + 报告）-->
   <div class="ev-action-bar">
     <button class="btn cost-btn cost-btn--primary" onclick="runCostGateSelfCheck()">🚦 Cost Gate 自检</button>
-    <button class="btn cost-btn" onclick="createOptimizationTask('breakdown',0)">⚡ 创建优化任务</button>
-    <button class="btn cost-btn" onclick="createPlazaTopic('breakdown',0)">📋 创建 Plaza 话题</button>
     <button class="btn cost-btn cost-btn--ghost" onclick="runCycleOnRatchet()">▶ 运行棘轮演进周期</button>
-    <button class="btn cost-btn cost-btn--ghost" onclick="runAuditOnly()">🔍 仅审查</button>
+    <button class="btn cost-btn cost-btn--ghost" onclick="generateCostReport()" id="report-btn">📊 生成报告</button>
   </div>
 
   <div class="cost-dashboard">
@@ -89,15 +125,15 @@
       </div>
     </div>
 
-    <div id="dashboard-alert" class="dashboard-alert"></div>
-
     <!-- Filter Bar -->
     <div class="filter-bar">
       <label>聚合维度
         <select id="filter-aggregation" onchange="refreshDashboard()">
-          <option value="service">按服务</option>
-          <option value="environment">按环境</option>
           <option value="team">按团队</option>
+          <option value="skill">按技能</option>
+          <option value="phase">按阶段</option>
+          <option value="service">按服务(Infra)</option>
+          <option value="environment">按环境(Infra)</option>
         </select>
       </label>
       <label>时间窗口
@@ -107,7 +143,7 @@
           <option value="30d">最近 30 天</option>
         </select>
       </label>
-      <label>环境
+      <label id="filter-env-label">环境
         <select id="filter-environment" onchange="refreshDashboard()">
           <option value="">全部</option>
           <option value="production">production</option>
@@ -115,190 +151,210 @@
           <option value="development">development</option>
         </select>
       </label>
-      <label>服务
-        <input type="text" id="filter-service" placeholder="输入服务名..." onchange="refreshDashboard()">
+      <label><span id="filter-last-label">服务</span>
+        <select id="filter-service" onchange="refreshDashboard()">
+          <option value="">全部</option>
+        </select>
       </label>
       <label style="align-self:flex-end">
         <button class="btn cost-btn cost-btn--ghost" onclick="resetFilters()">重置筛选</button>
       </label>
     </div>
 
-    <!-- 左右分栏：左侧成本监控，右侧演进概览+棘轮 -->
-    <div class="main-split">
-      <!-- ============== 左侧：成本监控 ============== -->
-      <div class="cost-left">
-        <!-- KPI Hero -->
-        <section class="kpi-hero" id="kpi-hero">
-          <div class="kpi-hero__skeleton">
-            <div class="kpi-card kpi-card--skeleton"></div>
-            <div class="kpi-card kpi-card--skeleton"></div>
-            <div class="kpi-card kpi-card--skeleton"></div>
-            <div class="kpi-card kpi-card--skeleton"></div>
-          </div>
-        </section>
-
-        <!-- Token Efficiency View -->
-        <section class="panel panel--efficiency" style="margin-bottom:16px">
-          <header class="panel__head panel__head--row">
-            <div>
-              <h3>效率视角</h3>
-              <p class="panel__sub">按 score / 1k tokens 排名，联动 sustainability 等级</p>
-            </div>
-            <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEfficiencyView()">刷新效率</button>
-          </header>
-          <div id="efficiency-panel">
-            <div class="loading-state"><div class="spinner"></div></div>
-          </div>
-        </section>
-
-        <!-- Charts -->
-        <section class="workbench-grid">
-          <div class="charts-grid">
-            <div class="panel panel--chart">
-              <header class="panel__head">
-                <div>
-                  <h3>成本构成 Top 10</h3>
-                  <p class="panel__sub">按当前聚合维度的最大成本单元</p>
-                </div>
-              </header>
-              <div class="chart-container" id="breakdown-chart">
-                <div class="loading-state"><div class="spinner"></div></div>
-              </div>
-            </div>
-
-            <div class="panel panel--chart">
-              <header class="panel__head">
-                <div>
-                  <h3>成本趋势</h3>
-                  <p class="panel__sub" id="trends-sub">—</p>
-                </div>
-              </header>
-              <div class="chart-container" id="trends-chart">
-                <div class="loading-state"><div class="spinner"></div></div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Pod 成本明细 -->
-        <section class="panel panel--table" style="margin-bottom:16px">
-          <header class="panel__head panel__head--row">
-            <div>
-              <h3>Pod 成本明细 <span class="panel__count" id="pod-count"></span></h3>
-              <p class="panel__sub">按"总计"降序，最多展示前 50 条</p>
-            </div>
-          </header>
-          <div class="table-wrap">
-            <table class="data-table" id="pods-table">
-              <thead>
-                <tr>
-                  <th>Pod</th><th>命名空间</th><th>服务</th><th>环境</th><th>团队</th>
-                  <th class="num">CPU</th><th class="num">内存</th><th class="num">网络</th><th class="num">总计</th><th>动作</th>
-                </tr>
-              </thead>
-              <tbody id="pods-tbody">
-                <tr><td colspan="10" class="loading-state"><div class="spinner" style="margin:20px auto"></div></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <!-- Token 优化建议 -->
-        <section class="ev-panel">
-          <h3>💡 Token 优化建议</h3>
-          <div id="token-hotspots">
-            <div class="loading-state"><div class="spinner"></div></div>
-          </div>
-          <div id="skill-suggestions" style="margin-top:12px"></div>
-        </section>
-
-        <!-- 治理动作面板（原有 governance-panel，保留完整渲染） -->
-        <aside class="panel panel--governance">
-          <header class="panel__head">
-            <div>
-              <h3>治理动作</h3>
-              <p class="panel__sub">OpenCost 状态 · Cost Gate · 当前治理目标</p>
-            </div>
-          </header>
-          <div class="governance-stack" id="governance-panel">
-            <div class="loading-state"><div class="spinner"></div></div>
-          </div>
-        </aside>
+    <!-- 治理动作（详情）-->
+    <aside class="panel panel--governance" style="margin-bottom:24px">
+      <header class="panel__head">
+        <div>
+          <h3>治理动作</h3>
+          <p class="panel__sub">OpenCost 状态 · Cost Gate · 当前治理目标</p>
+        </div>
+      </header>
+      <div class="governance-stack" id="governance-panel">
+        <div class="loading-state"><div class="spinner"></div></div>
       </div>
+    </aside>
 
-      <!-- ============== 右侧：演进概览 + 棘轮 ============== -->
-      <div class="cost-right">
-        <!-- 演进概览 -->
-        <div class="ev-panel">
-          <h3>演进概览</h3>
-          <!-- 合规评级 -->
-          <div id="ov-rating" class="ev-card-grid"></div>
-          <!-- 演进统计 -->
-          <div id="ov-stats" class="ev-card-grid"></div>
+    <!-- Token 优化目标（P5.2）-->
+    <section class="panel" style="margin-bottom:24px">
+      <header class="panel__head panel__head--row">
+        <div>
+          <h3>🎯 Token 优化目标 <span class="ev-tag">成本页方向盘</span></h3>
+          <p class="panel__sub">设定团队/技能的 token 目标，按杠杆（skill 萃取 / 协同路由）推动下降</p>
         </div>
-
-        <!-- 棘轮迷你流程 -->
-        <div class="ev-panel">
-          <h3>🔄 达尔文棘轮 — 演进周期</h3>
-          <div id="ov-ratchet" class="ev-ratchet-flow"></div>
-          <div id="ov-cycle-log" style="display:none;font-size:12px;color:var(--dim);margin-top:8px"></div>
-          <!-- 最近演进条目 -->
-          <div style="margin-top:16px">
-            <h3 style="font-size:13px">最近演进条目</h3>
-            <div id="ov-items"></div>
-          </div>
+        <button class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="toggleTargetForm()">+ 设定目标</button>
+      </header>
+      <div id="target-form" style="display:none;padding:14px 16px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:8px;margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+          <label style="font-size:11px;color:var(--sumi-3)">范围
+            <select id="tgt-scope" onchange="populateTargetRefOptions()" style="width:100%">
+              <option value="team">团队</option>
+              <option value="skill">技能</option>
+            </select>
+          </label>
+          <label style="font-size:11px;color:var(--sumi-3)">目标 ID（团队/技能）
+            <select id="tgt-ref" style="width:100%;font-size:12px">
+              <option value="">加载中...</option>
+            </select>
+          </label>
+          <label style="font-size:11px;color:var(--sumi-3)">指标
+            <select id="tgt-metric" style="width:100%">
+              <option value="tokens_per_goal">tokens_per_goal</option>
+              <option value="score_per_1k">score_per_1k</option>
+            </select>
+          </label>
+          <label style="font-size:11px;color:var(--sumi-3)">目标值
+            <input id="tgt-value" type="number" step="0.1" placeholder="如 3.0" style="width:100%;font-size:12px">
+          </label>
+          <label style="font-size:11px;color:var(--sumi-3)">杠杆
+            <select id="tgt-lever" style="width:100%">
+              <option value="skill_extraction">skill 萃取</option>
+              <option value="collaboration_routing">协同路由</option>
+            </select>
+          </label>
         </div>
-
-        <!-- 达尔文棘轮详情 -->
-        <div class="ev-panel">
-          <h3>达尔文棘轮 — 不可逆演进</h3>
-          <p style="font-size:12px;color:var(--dim);margin-bottom:12px;line-height:1.6">
-            棘轮机制确保系统只能向前演进，永不回退。每次通过验证的改进都被锁定为「遗产」，形成 append-only 不可变记录。
-          </p>
-          <!-- 5步闭环 -->
-          <div class="ev-ratchet-flow" id="ratchet-flow">
-            <div class="ev-ratchet-node">
-              <div class="ev-ratchet-dot" id="r-audit">审</div>
-              <div class="ev-ratchet-label">① 审查</div>
-            </div>
-            <div class="ev-ratchet-connector" id="rc-1"></div>
-            <div class="ev-ratchet-node">
-              <div class="ev-ratchet-dot" id="r-dispatch">派</div>
-              <div class="ev-ratchet-label">② 派发</div>
-            </div>
-            <div class="ev-ratchet-connector" id="rc-2"></div>
-            <div class="ev-ratchet-node">
-              <div class="ev-ratchet-dot" id="r-verify">验</div>
-              <div class="ev-ratchet-label">③ 验证</div>
-            </div>
-            <div class="ev-ratchet-connector" id="rc-3"></div>
-            <div class="ev-ratchet-node">
-              <div class="ev-ratchet-dot" id="r-close">闭</div>
-              <div class="ev-ratchet-label">④ 关闭</div>
-            </div>
-            <div class="ev-ratchet-connector" id="rc-4"></div>
-            <div class="ev-ratchet-node">
-              <div class="ev-ratchet-dot" id="r-lock">🔒</div>
-              <div class="ev-ratchet-label">⑤ 锁定</div>
-            </div>
-          </div>
-          <div id="ratchet-log" style="display:none;font-size:12px;color:var(--dim);margin-top:8px"></div>
-        </div>
-
-        <!-- 全局棘轮指标 -->
-        <div class="ev-panel">
-          <h3>全局棘轮指标 <span id="ratchet-ledger-count" style="font-size:12px;color:var(--lime);float:right"></span></h3>
-          <div id="ratchet-ledger-metrics"></div>
-        </div>
-
-        <!-- 遗产账本 -->
-        <div class="ev-panel">
-          <h3>📜 遗产账本 <span id="heritage-count" style="font-size:12px;color:var(--lime);float:right"></span></h3>
-          <p style="font-size:12px;color:var(--dim);margin-bottom:8px">不可变、仅追加。每条记录代表一次被验证锁定的系统改进。</p>
-          <div id="heritage-list"></div>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="toggleTargetForm()">取消</button>
+          <button class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="createTokenTarget()">创建目标</button>
         </div>
       </div>
+      <div id="target-list"><div class="loading-state"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- KPI 概览（成本摘要）-->
+    <section class="kpi-hero" id="kpi-hero">
+      <div class="kpi-hero__skeleton">
+        <div class="kpi-card kpi-card--skeleton"></div>
+        <div class="kpi-card kpi-card--skeleton"></div>
+        <div class="kpi-card kpi-card--skeleton"></div>
+        <div class="kpi-card kpi-card--skeleton"></div>
+      </div>
+    </section>
+
+    <!-- 演进健康：合规评级 + 棘轮演进周期 -->
+    <div class="ev-band">
+      <section class="panel">
+        <header class="panel__head">
+          <div>
+            <h3>演进 <span class="ev-tag">Token 视角</span></h3>
+            <p class="panel__sub">以审查 → 派发 → 验证 → 关闭 → 锁定的棘轮闭环衡量系统演进健康度</p>
+          </div>
+        </header>
+        <div id="ev-overview"><div class="loading-state"><div class="spinner"></div></div></div>
+      </section>
+
+      <section class="panel">
+        <header class="panel__head panel__head--row">
+          <div>
+            <h3>🔄 达尔文棘轮</h3>
+            <p class="panel__sub">只进不退 · 每次通过验证的改进被锁定为不可逆「遗产」</p>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="runCycleOnRatchet()" id="ratchet-run-btn">▶ 运行棘轮周期</button>
+            <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="runAuditOnly()">🔍 仅审查</button>
+          </div>
+        </header>
+        <div class="ev-ratchet-flow" id="ratchet-flow">
+          <div class="ev-ratchet-node" onclick="showRatchetStepDetail('audit')" title="点击查看审查详情">
+            <div class="ev-ratchet-dot" id="r-audit" style="cursor:pointer">审</div><div class="ev-ratchet-label">① 审查</div>
+          </div>
+          <div class="ev-ratchet-connector" id="rc-1"></div>
+          <div class="ev-ratchet-node" onclick="showRatchetStepDetail('dispatch')" title="点击查看派发详情">
+            <div class="ev-ratchet-dot" id="r-dispatch" style="cursor:pointer">派</div><div class="ev-ratchet-label">② 派发</div>
+          </div>
+          <div class="ev-ratchet-connector" id="rc-2"></div>
+          <div class="ev-ratchet-node" onclick="showRatchetStepDetail('verify')" title="点击查看验证详情">
+            <div class="ev-ratchet-dot" id="r-verify" style="cursor:pointer">验</div><div class="ev-ratchet-label">③ 验证</div>
+          </div>
+          <div class="ev-ratchet-connector" id="rc-3"></div>
+          <div class="ev-ratchet-node" onclick="showRatchetStepDetail('close')" title="点击查看关闭详情">
+            <div class="ev-ratchet-dot" id="r-close" style="cursor:pointer">闭</div><div class="ev-ratchet-label">④ 关闭</div>
+          </div>
+          <div class="ev-ratchet-connector" id="rc-4"></div>
+          <div class="ev-ratchet-node">
+            <div class="ev-ratchet-dot" id="r-lock">🔒</div><div class="ev-ratchet-label">⑤ 锁定</div>
+          </div>
+        </div>
+        <div id="ratchet-log" class="ev-cycle-log" style="display:none"></div>
+        <div id="ratchet-step-detail" style="display:none;margin-top:10px;padding:10px 12px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-radius:8px;font-size:11px;color:var(--sumi-2);line-height:1.5"></div>
+      </section>
     </div>
+
+    <!-- Token 效率视角（核心）-->
+    <section class="panel panel--efficiency" style="margin-bottom:24px">
+      <header class="panel__head panel__head--row">
+        <div>
+          <h3>效率视角 <span class="ev-tag">tokens / score</span></h3>
+          <p class="panel__sub">按 score / 1k tokens 排名，联动 sustainability 等级 — 识别高 token 低产出团队</p>
+        </div>
+        <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEfficiencyView()">刷新效率</button>
+      </header>
+      <div id="efficiency-panel">
+        <div class="loading-state"><div class="spinner"></div></div>
+      </div>
+    </section>
+
+    <!-- Token 优化建议（skill 萃取 / 路由）-->
+    <section class="panel" style="margin-bottom:24px">
+      <header class="panel__head">
+        <div>
+          <h3>💡 Token 优化建议 <span class="ev-tag">skill 萃取 · skill 路由</span></h3>
+          <p class="panel__sub">将重复 LLM 调用沉淀为可复用 skill，通过路由减少完成任务所需 token</p>
+        </div>
+      </header>
+      <div id="token-hotspots">
+        <div class="loading-state"><div class="spinner"></div></div>
+      </div>
+      <div id="skill-suggestions" style="margin-top:12px"></div>
+    </section>
+
+    <!-- 成本图表 -->
+    <section class="charts-grid" style="margin-bottom:24px">
+      <div class="panel panel--chart">
+        <header class="panel__head">
+          <div>
+            <h3>成本构成 Top 10 <span class="ev-tag">Token</span></h3>
+            <p class="panel__sub">按当前聚合维度（团队/技能/阶段）的最大 Token 消耗</p>
+          </div>
+        </header>
+        <div class="chart-container" id="breakdown-chart">
+          <div class="loading-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="panel panel--chart">
+        <header class="panel__head">
+          <div>
+            <h3>成本趋势 <span class="ev-tag">Token</span></h3>
+            <p class="panel__sub" id="trends-sub">—</p>
+          </div>
+        </header>
+        <div class="chart-container" id="trends-chart">
+          <div class="loading-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Token 消耗明细（P8.3: 替代 Pod 明细）-->
+    <section class="panel panel--table" style="margin-bottom:24px">
+      <header class="panel__head panel__head--row">
+        <div>
+          <h3>Token 消耗明细 <span class="panel__count" id="pod-count"></span></h3>
+          <p class="panel__sub">按 run_id 聚合，最多展示前 50 条</p>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table class="data-table" id="pods-table">
+          <thead>
+            <tr>
+              <th>Run ID</th><th>阶段</th><th>团队</th><th>技能</th>
+              <th class="num">调用次数</th><th class="num">总计</th><th>时间</th>
+            </tr>
+          </thead>
+          <tbody id="pods-tbody">
+            <tr><td colspan="7" class="loading-state"><div class="spinner" style="margin:20px auto"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <footer class="cost-footer">
       <span id="last-refresh">-</span>
@@ -337,12 +393,172 @@
       }
     })();
 
-    // 加载演进概览和棘轮数据
-    function loadEvolutionPanels() {
-      if (typeof loadOverview === 'function') loadOverview();
-      if (typeof loadRatchetMetrics === 'function') loadRatchetMetrics();
-      if (typeof loadHeritageLedger === 'function') loadHeritageLedger();
+    // 演进（Token 视角）— 审查规则 / 验证函数卡片可点击展开详情
+    async function renderEvOverview() {
+      const host = document.getElementById('ev-overview');
+      if (!host) return;
+      const esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+      const gradeColors = { A: '#6bc47f', B: '#7fb88a', C: '#d8a657', D: '#e0a062', E: '#e07070' };
+      const get = function (url) {
+        return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+      };
+      const results = await Promise.all([
+        get('/api/v1/agent-teams/evolution/summary'),
+        get('/api/v1/agent-teams/evolution/compliance-rating'),
+      ]);
+      const summary = results[0], compliance = results[1];
+      let html = '';
+      if (compliance) {
+        const g = compliance.grade || '?';
+        const s = Math.max(0, Math.min(100, Number(compliance.score == null ? 0 : compliance.score)));
+        const col = gradeColors[g] || '#9aa0a6';
+        const C = 2 * Math.PI * 30, dash = (s / 100) * C;
+        html += '<div class="ev-gauge-card">' +
+          '<div class="ev-gauge"><svg viewBox="0 0 76 76">' +
+          '<circle cx="38" cy="38" r="30" fill="none" stroke="var(--ob-border)" stroke-width="6"/>' +
+          '<circle cx="38" cy="38" r="30" fill="none" stroke="' + col + '" stroke-width="6" stroke-linecap="round" stroke-dasharray="' + dash.toFixed(1) + ' ' + C.toFixed(1) + '" transform="rotate(-90 38 38)"/>' +
+          '</svg><div class="ev-gauge__grade" style="color:' + col + '">' + esc(g) + '</div></div>' +
+          '<div><div class="g-label">演进合规评级 · 升级层级 ' + esc(compliance.escalation_tier || 'normal') + '</div>' +
+          '<div class="g-score" style="color:' + col + '">' + s + '<span style="font-size:13px;color:var(--sumi-3)">/100</span></div>' +
+          '<div class="g-desc">' + esc(compliance.description || '通过验证的改进被棘轮锁定，分数越高表示系统演进越健康') + '</div></div></div>';
+      }
+      if (summary) {
+        const rulesCnt = summary.audit_rules_count || 0;
+        const verifyCnt = summary.verify_tests_registered || 0;
+        const bs = summary.by_status || {};
+        const statusText = Object.keys(bs).map(function (k) { return esc(k) + ': ' + bs[k]; }).join(' · ') || '无进行中条目';
+        html +=
+          // 审查规则 — 可点击展开
+          '<div class="ev-stat-card clickable" data-detail="rules" id="ev-card-rules">' +
+            '<div class="expand-arrow">▼</div>' +
+            '<div class="label">审查规则</div>' +
+            '<div class="value">' + rulesCnt + '</div>' +
+            '<div class="expand-hint">点击展开规则列表</div>' +
+          '</div>' +
+          // 验证函数 — 可点击展开
+          '<div class="ev-stat-card clickable" data-detail="verify" id="ev-card-verify">' +
+            '<div class="expand-arrow">▼</div>' +
+            '<div class="label">验证函数</div>' +
+            '<div class="value">' + verifyCnt + '</div>' +
+            '<div class="expand-hint">点击展开注册函数</div>' +
+          '</div>' +
+          // 演进项 — 可点击展开列表
+          '<div class="ev-stat-card clickable" data-detail="items" id="ev-card-items" style="grid-column:span 2">' +
+            '<div class="expand-arrow">▼</div>' +
+            '<div class="label">演进项 · 共 ' + (summary.total_items || 0) + ' 项</div>' +
+            '<div class="value" style="font-size:13px;line-height:1.6">' + statusText + '</div>' +
+            '<div class="expand-hint">点击展开演进项列表</div>' +
+          '</div>';
+      }
+      host.innerHTML = html ? '<div class="ev-overview-grid">' + html + '</div><div class="ev-detail-panel" id="ev-detail-panel"></div>' : '<div class="ev-muted">演进暂不可用（演进接口未返回数据）</div>';
+
+      // Bind click handlers for expandable cards
+      var rulesCard = document.getElementById('ev-card-rules');
+      var verifyCard = document.getElementById('ev-card-verify');
+      var itemsCard = document.getElementById('ev-card-items');
+      if (rulesCard) rulesCard.addEventListener('click', function () { toggleEvDetail('rules'); });
+      if (verifyCard) verifyCard.addEventListener('click', function () { toggleEvDetail('verify'); });
+      if (itemsCard) itemsCard.addEventListener('click', function () { toggleEvDetail('items'); });
     }
+
+    // 切换演进详情面板的展开/收起
+    async function toggleEvDetail(type) {
+      var panel = document.getElementById('ev-detail-panel');
+      if (!panel) return;
+      var cardMap = { rules: 'ev-card-rules', verify: 'ev-card-verify', items: 'ev-card-items' };
+      var card = document.getElementById(cardMap[type] || '');
+      var isOpen = panel.classList.contains('show') && panel.dataset.active === type;
+
+      if (isOpen) {
+        // 收起
+        panel.classList.remove('show');
+        panel.dataset.active = '';
+        if (card) card.classList.remove('open');
+        return;
+      }
+
+      // 显示加载状态
+      if (card) card.classList.add('open');
+      panel.classList.add('show');
+      panel.dataset.active = type;
+      panel.innerHTML = '<div class="ev-detail-panel__body" style="padding:20px;text-align:center"><div class="spinner"></div></div>';
+
+      if (type === 'rules') {
+        var data = await (function () {
+          return fetch('/api/v1/agent-teams/evolution/rules?limit=100', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
+        })();
+        var items = (data && data.items) || [];
+        var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+        var severityCls = { high: 'ev-severity-high', medium: 'ev-severity-medium', low: 'ev-severity-low' };
+        if (!items.length) {
+          panel.innerHTML = '<div class="ev-detail-panel__head"><span>审查规则列表</span><span style="color:var(--sumi-3)">0 条</span></div><div class="ev-detail-panel__body" style="padding:14px;color:var(--sumi-3);font-size:11px">暂无审查规则数据</div>';
+          return;
+        }
+        panel.innerHTML =
+          '<div class="ev-detail-panel__head"><span>审查规则列表</span><span style="color:var(--sumi-3)">' + items.length + ' 条</span></div>' +
+          '<div class="ev-detail-panel__body">' +
+          items.map(function (r) {
+            var sev = (r.severity || 'medium').toLowerCase();
+            var dotCls = severityCls[sev] || 'ev-severity-medium';
+            return '<div class="ev-detail-item">' +
+              '<span><span class="ev-severity-dot ' + dotCls + '"></span><span class="name">' + esc(r.title || r.id) + '</span></span>' +
+              '<span class="meta">' + esc(r.domain || '') + ' · <span style="color:var(--kitsune)">' + esc(sev).toUpperCase() + '</span></span>' +
+              '</div>';
+          }).join('') +
+          '</div>';
+      } else if (type === 'verify') {
+        // 验证函数 — 从 evolution/status 获取 verify_registry 信息
+        var st = await (function () {
+          return fetch('/api/v1/agent-teams/evolution/status', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
+        })();
+        var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+        var verifyCount = (st && st.verify_tests_registered) || 0;
+        if (!verifyCount) {
+          panel.innerHTML = '<div class="ev-detail-panel__head"><span>验证函数注册表</span><span style="color:var(--sumi-3)">0 个</span></div><div class="ev-detail-panel__body" style="padding:14px;color:var(--sumi-3);font-size:11px">暂无注册的验证函数 — 在任务脚本中编写 <code>test_evo_*</code> 函数即可自动注册</div>';
+          return;
+        }
+        panel.innerHTML =
+          '<div class="ev-detail-panel__head"><span>验证函数注册表</span><span style="color:var(--sumi-3)">' + verifyCount + ' 个</span></div>' +
+          '<div class="ev-detail-panel__body">' +
+          '<div class="ev-detail-item"><span class="name">已验证</span><span class="meta">通过棘轮锁定验证的函数</span></div>' +
+          '<div class="ev-detail-item"><span style="color:var(--sumi-3);font-size:11px">调用 <code>/api/v1/agent-teams/evolution/items</code> 查看关联的演进项 → 验证函数映射</span></div>' +
+          '</div>';
+      } else if (type === 'items') {
+        // 演进项 — 从 evolution/items 获取完整列表
+        var itemData = await (function () {
+          return fetch('/api/v1/agent-teams/evolution/items?limit=100', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
+        })();
+        var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+        var items = (itemData && itemData.items) || [];
+        var total = (itemData && itemData.total) || items.length;
+        var statusIcon = { discovered: '🔍', in_progress: '⏳', completed: '✅', verified: '🔒', closed: '🏁', failed: '❌' };
+        if (!items.length) {
+          panel.innerHTML = '<div class="ev-detail-panel__head"><span>演进项列表</span><span style="color:var(--sumi-3)">0 项</span></div><div class="ev-detail-panel__body" style="padding:14px;color:var(--sumi-3);font-size:11px">暂无演进项 — 运行"仅审查"可生成演进项</div>';
+          return;
+        }
+        panel.innerHTML =
+          '<div class="ev-detail-panel__head"><span>演进项列表</span><span style="color:var(--sumi-3)">' + total + ' 项</span></div>' +
+          '<div class="ev-detail-panel__body">' +
+          items.map(function (item) {
+            var icon = statusIcon[item.status] || '📋';
+            var sev = (item.severity || '').toLowerCase();
+            var sevDot = sev === 'high' ? 'ev-severity-high' : sev === 'medium' ? 'ev-severity-medium' : 'ev-severity-low';
+            return '<div class="ev-detail-item">' +
+              '<span><span class="ev-severity-dot ' + sevDot + '"></span><span class="name">' + icon + ' ' + esc(item.title || item.id) + '</span></span>' +
+              '<span class="meta">' + esc(item.status || '') + '</span>' +
+              '</div>';
+          }).join('') +
+          '</div>';
+      }
+    }
+
+    function loadEvolutionPanels() { renderEvOverview(); }
 
     // Token 优化建议
     async function loadTokenOptimization() {
@@ -367,10 +583,167 @@
       }
     }
 
+    // ── P8.5: 棘轮状态加载（从 Token cost_efficiency 棘轮读取）──
+    async function loadRatchetStatus() {
+      try {
+        var resp = await fetch('/api/v1/cost/tokens/ratchet', { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        var r = await resp.json();
+        var metrics = r.metrics || [];
+        // 取 Top 团队
+        var team = '';
+        if (window.CostDashboard && window.CostDashboard.state && window.CostDashboard.state.tokenByTeam) {
+          team = (window.CostDashboard.state.tokenByTeam[0] || {}).team_id || '';
+        }
+        var cur = metrics.find(function(m) { return m.metric_key === 'cost_efficiency:' + team; });
+        // 节点状态：审=有 token 数据 / 派=有棘轮记录 / 验=gen>=1 / 闭=gen>=2 / 锁=有记录
+        setRatchetDot('r-audit', !!(window.CostDashboard && window.CostDashboard.state && window.CostDashboard.state.tokenByTeam && window.CostDashboard.state.tokenByTeam.length));
+        setRatchetDot('r-dispatch', !!cur);
+        setRatchetDot('r-verify', cur && cur.generation >= 1);
+        setRatchetDot('r-close', cur && cur.generation >= 2);
+        setRatchetDot('r-lock', !!cur);
+
+        // 渲染棘轮记录列表
+        var logEl = document.getElementById('ratchet-log');
+        if (logEl && metrics.length) {
+          logEl.style.display = '';
+          logEl.innerHTML = metrics.map(function(m) {
+            return '<div class="ok">' + esc(m.metric_key) + ' → gen ' + m.generation +
+              ' · eff=' + Number(m.value).toFixed(4) + ' · ' + esc(m.updated_at || '') + '</div>';
+          }).join('');
+        }
+      } catch (e) { /* 静默忽略 */ }
+    }
+
+    function setRatchetDot(id, done) {
+      var dot = document.getElementById(id);
+      if (!dot) return;
+      dot.className = 'ev-ratchet-dot' + (done ? ' done' : '');
+    }
+    function setRatchetConn(id, done) {
+      var c = document.getElementById(id);
+      if (c) c.className = 'ev-ratchet-connector' + (done ? ' done' : '');
+    }
+
+    // ── P8.5: 棘轮步骤详情（Token 棘轮语义）──
+    async function showRatchetStepDetail(step) {
+      var panel = document.getElementById('ratchet-step-detail');
+      if (!panel) return;
+      var steps = { audit: '审查', dispatch: '派发', verify: '验证', close: '关闭' };
+      var descs = {
+        audit: '读取本窗口实测 token 效率（score/1k tokens），识别 Top 团队',
+        dispatch: '对比当前 cost_efficiency:{team} 代数，确定是否可推进',
+        verify: 'Token Gate 评估：本次效率是否超过当前锁定值（含 tolerance）',
+        close: '调用 ratchet.advance 推进 cost_efficiency:{team}（只进不退）',
+      };
+      panel.style.display = 'block';
+      panel.innerHTML = '<strong>' + (steps[step] || step) + '阶段</strong> · ' + (descs[step] || '—');
+
+      if (step === 'audit') {
+        try {
+          var resp = await fetch('/api/v1/cost/tokens/ratchet', { credentials: 'same-origin' });
+          if (resp.ok) {
+            var r = await resp.json();
+            panel.innerHTML += '<br><span style="color:var(--koke)">当前 cost_efficiency 棘轮: ' + (r.total || 0) + ' 条</span>';
+          }
+        } catch(e) {}
+      }
+    }
+
+    // ── P8.5: 仅审查 ──
+    window.runAuditOnly = async function() {
+      if (window.RatchetAnimator) {
+        await window.RatchetAnimator.runCycle({
+          dotIds: ['r-audit'],
+          connIds: [],
+          lockId: null,
+          logEl: 'ratchet-log',
+          stepNames: ['审查'],
+          onComplete: function () { loadRatchetStatus(); },
+        });
+        toast('审查完成');
+      }
+    };
+
+    // ── P8.5: 棘轮周期 → 推进 cost_efficiency:{team} ──
+    window.runCycleOnRatchet = async function () {
+      if (!window.RatchetAnimator) return;
+      ['r-audit', 'r-dispatch', 'r-verify', 'r-close', 'r-lock'].forEach(function (id) {
+        setRatchetDot(id, false);
+      });
+      ['rc-1', 'rc-2', 'rc-3', 'rc-4'].forEach(function (id) {
+        setRatchetConn(id, false);
+      });
+
+      // 取 Top「已归因」团队（空 team_id / 未归因不能作为棘轮目标，否则后端 400）
+      var team = '';
+      if (window.CostDashboard && window.CostDashboard.state) {
+        var st = window.CostDashboard.state;
+        if (st.governanceTarget && st.governanceTarget.team_id) {
+          team = st.governanceTarget.team_id;
+        }
+        if (!team && Array.isArray(st.tokenByTeam)) {
+          var firstAttr = st.tokenByTeam.find(function (t) { return t && t.team_id && t.team_id !== '(未归因)'; });
+          if (firstAttr) team = firstAttr.team_id;
+        }
+      }
+      if (!team) {
+        var logEl0 = document.getElementById('ratchet-log');
+        if (logEl0) { logEl0.style.display = ''; logEl0.innerHTML = '<div class="err">⏸ 无可锁定目标：当前窗口只有「未归因」消耗。请让议事/萃取/演练调用带上 team_id（token_scope）后再运行棘轮。</div>'; }
+        return;
+      }
+
+      // ① 动画起步（审→派→验）
+      await window.RatchetAnimator.runCycle({
+        dotIds: ['r-audit', 'r-dispatch', 'r-verify'],
+        connIds: ['rc-1', 'rc-2', 'rc-3'],
+        lockId: null,
+        logEl: 'ratchet-log',
+        onComplete: async function () {
+          // ② 真正触发后端推进（闭→锁）
+          try {
+            var resp = await fetch('/api/v1/cost/tokens/ratchet/advance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ team_id: team, window: '7d' }),
+              credentials: 'same-origin',
+            });
+            var res = await resp.json();
+            var logEl2 = document.getElementById('ratchet-log');
+            if (logEl2) {
+              logEl2.style.display = '';
+              if (res.advanced) {
+                logEl2.innerHTML += '<div class="ok">' + (res.metric_key || '') + ' → gen ' + res.generation + ' (eff=' + Number(res.efficiency || 0).toFixed(4) + ')</div>';
+              } else if (res.reason === 'no_efficiency') {
+                // 无评分 → 引导用户去数字孪生跑评分试炼（这是棘轮无法推进的真正原因）
+                logEl2.innerHTML += '<div class="err">未推进：该团队本窗口有 token 消耗但无演练评分（score=0 → 效率=0）。'
+                  + '<a href="/Agent-digital-twin.html?team=' + encodeURIComponent(team) + '" style="color:var(--koke)">去数字孪生为「' + team + '」跑一次评分试炼▸</a>，评分后回来再运行棘轮即可锁定。</div>';
+              } else {
+                logEl2.innerHTML += '<div class="err">未推进：' + (res.reason || res.hint || 'held') + '</div>';
+              }
+            }
+            setRatchetDot('r-close', !!res.advanced);
+            setRatchetConn('rc-4', !!res.advanced);
+            // P8R.7: 只在真正推进时亮锁，held/退步不亮
+            setRatchetDot('r-lock', !!res.advanced);
+            await loadRatchetStatus();
+            // 9.3: 推进成功后刷新 KPI④「棘轮已锁定」
+            if (res.advanced && window.CostDashboard && window.CostDashboard.refreshDashboard) {
+              window.CostDashboard.refreshDashboard();
+            }
+          } catch(e) {
+            toast('棘轮推进失败: ' + (e.message || ''));
+          }
+        },
+      });
+    };
+
     // 页面加载完成后启动
     document.addEventListener('DOMContentLoaded', function() {
       setTimeout(loadEvolutionPanels, 500);
+      setTimeout(loadRatchetStatus, 800);
       setTimeout(loadTokenOptimization, 1000);
+      if (window.loadTargets) setTimeout(loadTargets, 1200);
     });
   </script>
 </body>
