@@ -1039,14 +1039,14 @@
       if (tokenDim !== 'team' && tokenDim !== 'skill' && tokenDim !== 'phase') tokenDim = 'team';
       // P8R.9: 24h 窗口按小时分桶，否则按天
       var trendBucket = (state.filters.window || '').endsWith('h') ? 'hour' : 'day';
+      // P10.1: 透传 team_id 筛选（必须在 Promise.all 数组之外声明）
+      var teamFilter = state.filters.team ? '&team_id=' + encodeURIComponent(state.filters.team) : '';
       var responses = await Promise.all([
         requestJson(COST_API + '/health'),
         requestJson(GATE_API + '/health'),
         requestJson(GATE_API + '/stats'),
         requestJson(COST_API + '/summary?' + summaryQuery),
-        // P8.1: 成本构成 → Token breakdown
-        // P10.1: 透传 team_id 筛选
-        var teamFilter = state.filters.team ? '&team_id=' + encodeURIComponent(state.filters.team) : '';
+        // P8.1: 成本构成 → Token breakdown（透传 team_id 筛选）
         requestJson(COST_API + '/tokens/breakdown?dim=' + tokenDim + '&window=' + state.filters.window + teamFilter),
         // P8.2: 成本趋势 → Token trend
         requestJson(COST_API + '/tokens/trend?window=' + state.filters.window + '&bucket=' + trendBucket + teamFilter),

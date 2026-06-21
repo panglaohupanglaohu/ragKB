@@ -963,5 +963,26 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-06-20T23:40:00.000000"
+  },
+  {
+    "id": "bug-051",
+    "timestamp": "2026-06-21T03:35:00.000000",
+    "error_message": "cost-dashboard.js:1049 Uncaught SyntaxError: Unexpected token 'var'；连带 runCostGateSelfCheck is not defined",
+    "file": "src/frontend/js/cost-dashboard.js::refreshDashboard",
+    "root_cause": "P10.1(team_id 透传)实现把 `var teamFilter = ...` 声明写在了 Promise.all([...]) 数组字面量内部，数组元素位置不能放语句声明 → 整个文件解析失败 → 所有函数(含 runCostGateSelfCheck)未定义，按钮 onclick 报 ReferenceError。",
+    "fix": "把 `var teamFilter = state.filters.team ? '&team_id='+encode(...) : ''` 移到 Promise.all 之前声明，数组内只保留各 requestJson 调用并拼接 teamFilter。node --check 通过；同时正确完成了 10.1 的筛选透传(breakdown/trend/detail 带 team_id)。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "syntax-error",
+      "promise-all",
+      "P10.1",
+      "team-filter"
+    ],
+    "related_bugs": [
+      "bug-047"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-21T03:35:00.000000"
   }
 ]
