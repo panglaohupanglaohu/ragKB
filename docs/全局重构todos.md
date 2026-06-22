@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="codebuddy" kind="llm" doc="todos" ts="2026-06-21T01:49:00Z" -->
+<!-- docs-signoff: author="codebuddy" kind="llm" doc="todos" ts="2026-06-22T02:46:05Z" -->
 
 # 全局重构 TODOS — 以「Token 最少」为北极星（交接级 · 事无巨细 + 真实代码锚点）
 
@@ -1396,3 +1396,151 @@ node scripts/check-docs-signoff.cjs   # 0 FAIL
 - **Phase 7 D2/D3 完整 Demo E2E**：同上，需运行环境 + LLM。
 - **10.6 视觉验收**：议事厅是否真的显示 N 个 agent、奖励浮卡是否浮在对应 agent 头顶、流水线高亮是否随步进移动、停止是否生效 —— 需浏览器人工目检（静态契约已过）。
 - **10.7 端到端 UI**：萃取页点「合并」→ 技能树技能数减少 —— 需浏览器（合并后端逻辑已单测通过）。
+
+---
+
+## Phase 11 · AWS 运维降本增效最佳实践 Case（4 步闭环实证 · 事无巨细 + 伪代码）
+
+> 北极星：用一条可复现链路证明「角色对齐 → 迭代萃取特有技能 → 孪生协作 → 真实降本锁棘轮」能拿到「脚本可断言」的降本增效最佳实践。AWS 只是团队的**业务域**，度量标准仍是 **Token**（G4 用 `tokens_per_goal` 降 20%）。
+> 设计与核查见 `docs/superpowers/specs/2026-06-22-phase11-aws-costdown-best-practice-design.md`（§7 已对照真实代码库修正）。与 `aws_ops_e2e_test.py`（功能验收）职责分离、互不污染。
+> **LLM 依赖**：必须真实 LLM，不降级（P0b 找不到可用模型即 FAIL）。
+>
+> **已核实可直接用的真实锚点**（勿臆造）：工具池有 `run_shell`/`run_python`/`read_file`/`search_files`/`delegate_task`/`send_message`/`broadcast`/`set_alarm`/`watch_file`/`schedule_task`（`tool_registry.py`）；团队工厂模式 `create_*_team()`（`teams/*.py`，已存在 `cloud_ops_team`/`xops_team`）；`aws_ops_e2e_test.py` 提供 `ApiClient`/`Runner`/`step`/`bootstrap_auth`/`find_codebuddy_model`/`cleanup_legacy_aws_e2e_teams`/`pick_by_keywords`；skill 三门禁路由 `/skill-library/{verify,evolve,apply-evolution,publish}`（`api.py:8164~8194`）；临时改技能 `PUT /teams/{tid}/agents/{aid}/skills`（`api.py:830`）；`resolve_team_id`（`trial_api.py`，防幻影团队 bug-049）。
+
+### 11.0 前置与定位
+- [ ] 确认与 `aws_ops_e2e_test.py` 职责分工：后者=功能验收(T0~T8)，本 Phase=降本增效**实证**，独立脚本不改它。
+- [ ] **先核查既有云运维团队**：读 `teams/cloud_ops_team.py`(`cloud-ops-team`)、`teams/xops_team.py`，二选一：
+  - (A) 既有角色/技能够用 → 给它补 ES 缩放领域技能，不新建团队；
+  - (B) 确需独立场景 → 新建 `aws_ops_team.py`，`team_id="aws-ops"`（与 `cloud-ops-team`/`xops-team` 不冲突）。**默认走 (B)**。
+- [ ] 新增文件清单：`teams/aws_ops_team.py`、`scripts/aws_ops_costdown_e2e.py`、`scripts/_aws_costdown_assertions.py`、`scripts/_aws_costdown_script_criteria.py`、`src/backend/tests/test_aws_ops_costdown.py`。
+
+### 11.1 G1 · AWS 运维团队静态模板与角色能力对齐
+- [ ] `src/backend/agents/teams/aws_ops_team.py`：6 角色 × **真实工具** + 新建领域 skill：
+  ```python
+  # 工具必须是 tool_registry 已注册的 name；领域 skill 由本模板新建
+  AWS_OPS_ROLES = [
+    # (role, agent_id, tools[已注册], skills[新建领域])
+    ("运维Leader",      "aws_lead",  ["run_shell","delegate_task"],        ["aws_es_scaling_orchestration"]),
+    ("上云架构师",      "aws_arch",  ["run_shell","read_file"],            ["aws_es_capacity_planning"]),
+    ("运维操作员",      "aws_oper",  ["run_shell","run_python"],           ["aws_cli_script_authoring"]),
+    ("巡检监控员",      "aws_mon",   ["run_shell","set_alarm","watch_file"],["monitor_alarms_setup"]),
+    ("成本优化成员",    "aws_cost",  ["run_shell","run_python"],           ["cost_ri_advisor"]),
+    ("北美AI项目运维员","aws_region",["run_shell","search_files"],         ["compliance_region_guard"]),
+  ]
+  def create_aws_ops_team() -> AgentTeam:
+      team = AgentTeam(team_id="aws-ops", name="AWS 运维团队", metadata={"team_type":"aws_ops"})
+      for role,aid,tools,skills in AWS_OPS_ROLES:
+          # 先校验每个 tool 都在 registry（杜绝绑不存在的工具）
+          for t in tools: assert tool_registry.get(t), f"未注册工具 {t}"
+          team.add_agent(AgentProfile(agent_id=aid, role=role, tools=tools, skills=skills, ...))
+      for role,aid,tools,skills in AWS_OPS_ROLES:   # 新建领域 skill 进库
+          for sk in skills: _ensure_domain_skill(sk, owner_agent=aid)
+      return team
+  ```
+- [ ] 在 team_store 注册工厂（与 `create_xops_team` 同处挂载）；脚本入口用 `resolve_team_id("aws-ops")` 防幻影。
+- [ ] **G1 断言**（`_aws_costdown_assertions.assert_g1`）：
+  ```python
+  agents = api.get(f"/teams/aws-ops/agents")
+  assert len(agents)==6
+  registered = {t["name"] for t in api.get("/tools")}     # 已注册工具集
+  for a in agents:
+      assert a["tools"] and a["skills"]                    # 非空
+      assert all(t["tool_id"] in registered for t in a["tools"])  # 工具真实存在
+      assert {t["tool_id"] for t in a["tools"]} == set(TEMPLATE[a["agent_id"]]["tools"])  # 与模板一致
+      assert {s["skill_id"] for s in a["skills"]} == set(TEMPLATE[a["agent_id"]]["skills"])
+  assert "aws-ops" not in {existing cloud-ops-team / xops-team 的 id}  # team_id 不冲突
+  ```
+
+### 11.2 G2-a · 脚本 criteria 评分函数（纯函数，离线单测）
+- [ ] `scripts/_aws_costdown_script_criteria.py`：
+  ```python
+  CRITERIA = [
+    ("instance_spec",  lambda s: re.search(r"describe-(elasticsearch-domain|domain-config)", s)),
+    ("apply_change",   lambda s: "update-elasticsearch-domain-config" in s and re.search(r"--(instance-type|instance-count|cluster-config)", s)),
+    ("state_poll",     lambda s: re.search(r"describe-domain", s) and re.search(r"\b(while|sleep)\b", s) and re.search(r"Processing|Active", s)),
+    ("monitor_alarm",  lambda s: "put-metric-alarm" in s),
+    ("rollback_cost",  lambda s: re.search(r"\bif\b.*\belse\b", s, re.S) and (re.search(r"backup|备份", s)) and ("aws pricing" in s or re.search(r"成本|cost", s))),
+  ]
+  def score_script(plan_content: str) -> dict:
+      hit = [k for k,f in CRITERIA if f(plan_content or "")]
+      missing = [k for k,_ in CRITERIA if k not in hit]
+      return {"score": len(hit), "missing": missing, "hit": hit}   # score 0~5
+  ```
+- [ ] 单测（`test_aws_ops_costdown.py`）：满分样本=5；各缺一项样本=4 且 missing 命中对应键；空串=0。**不依赖 LLM**。
+
+### 11.3 G2-b · Plaza 迭代式计划修订环（最多 3 轮）
+- [ ] 形态（按 spec §7.4 开放项决策）：**每轮新建/续跑 discussion，把上轮 `missing[]` 作为修订意见输入**（落地前核 `plaza_routes.py` 的多轮/续轮能力；不够则每轮新建 discussion 把 missing 拼进 topic/description）。
+  ```python
+  plan = plaza_run("实现 AWS ES 实例缩放的 shell+aws-cli 运维脚本", team="aws-ops")
+  for rnd in range(1,4):
+      sc = score_script(plan["content"])
+      record_round(rnd, sc["score"])                      # 迭代轨迹
+      if sc["score"]==5: break
+      revise = "上一版缺少：" + "、".join(sc["missing"]) + "。请补全这些点后给出完整脚本。"
+      plan = plaza_run(revise, team="aws-ops", prior=plan)  # 回灌修订
+  ```
+- [ ] **G2-b 断言**：最终轮 `score==5`；`rounds<=3`；轨迹 score 收敛不退（`scores[i] <= scores[i+1]` 或提前达标）。
+
+### 11.4 G2-c · 特有技能萃取 + 三道门禁
+- [ ] 达标轮 transcript → 萃取**特质技能** `aws_es_scaling_script_authoring`（trait，绑定运维Leader `aws_lead`）：
+  ```python
+  item = api.post(f"/teams/aws-ops/skill-extract/start", {...transcript...})  # 走萃取入口（含 token_scope phase=extract）
+  approve(item)
+  skill_id = item["skill_id"]
+  v = api.post("/skill-library/verify",  {"team_id":"aws-ops","skill_id":skill_id})   # 门1: 沙箱
+  e = api.post("/skill-library/evolve",  {"team_id":"aws-ops","skill_id":skill_id})   # 门2: 演进
+  api.post("/skill-library/apply-evolution", {...}); api.post("/skill-library/publish", {...})  # 应用+发布
+  ```
+- [ ] **G2-c 断言**：`verify.pass_rate>=0.7`；`evolve` 后 `version` +1；`publish` 成功；验证产出脚本 fragments 含 5 项 criteria（取数口径：读 `skill_verifier._run_sandbox_verification` 返回的 stdout/evidence，实施时核结构）。
+
+### 11.5 G3 · 数字孪生双路径协作数据
+- [ ] 派发最终计划为任务 → 建 sandbox session(`team=aws-ops, use_llm=true`) → 跑**自动运行**与**单步**两条路径：
+  ```python
+  sid = api.post("/sandbox/sessions", {"team_id":"aws-ops","mode":"what_if","use_llm":True})["session_id"]
+  api.post("/sandbox/llm-mode", {"enabled":True})
+  auto = api.post(f"/sandbox/sessions/{sid}/run")          # 自动
+  sid2 = api.post("/sandbox/sessions", {...})["session_id"]
+  for _ in range(6): api.post(f"/sandbox/sessions/{sid2}/step")  # 单步
+  ```
+- [ ] **G3 断言**（两条路径都满足）：`total_steps_executed>=5`；每步 `agent_actions` 非空；`messages` 随步递增；`agent_actions` 覆盖 **≥3 个不同 agent**；`global_reward` 曲线非空（非全 0，复用 bug-043 修复后 drill 有真实 reward 的前提）。
+
+### 11.6 G4 · Run A vs Run B 真实降本对比
+- [ ] **Run A 基线**（无特质技能对照组，用 `PUT /teams/aws-ops/agents/{aid}/skills` 临时解绑 `aws_es_scaling_script_authoring`）：
+  ```python
+  orig = snapshot_skills("aws-ops")                        # 备份以便恢复
+  unbind_skill("aws-ops","aws_lead","aws_es_scaling_script_authoring")
+  runA = run_es_task("aws-ops"); baseline = per_call(runA) # 每调用 token（9.2 口径）
+  tgt = api.post("/cost/targets", {"scope":"team","ref_id":"aws-ops","metric":"tokens_per_goal",
+                                   "target": round(baseline*0.8,2), "lever":"skill_extraction"})  # 降 20%
+  ```
+- [ ] **Run B 优化后**（注入特质技能 + 任务带 `metadata.target_id` 让 CostTargetTracker 自动复测）：
+  ```python
+  restore_skills("aws-ops", orig)                          # 恢复/注入特质技能
+  runB = run_es_task("aws-ops", metadata={"target_id": tgt["id"]})
+  current = per_call(runB)
+  ```
+- [ ] **G4 断言**：`current < tgt.target`（降幅≥20%）；`GET /cost/targets/{id}/progress` → `status=="achieved"`；`ledger.json` 出现/推进 `cost_efficiency:aws-ops`；成本页/报告可见该团队降幅。
+
+### 11.7 G4-b · 棘轮单调性复检（复用 Phase 7 C5）
+- [ ] 再跑一次**更差**的 run（重跑 Run A 基线或注入劣化技能）→ 断言 `cost_efficiency:aws-ops` 棘轮值**不下降**（只进不退）。
+
+### 11.8 主脚本编排与报告
+- [ ] `scripts/aws_ops_costdown_e2e.py`：18 个 step（P0/P0b/P0c → P1/P1b → P2..P2e → P3..P3c → P4..P4d → P5），**import 复用** `aws_ops_e2e_test` 的 `ApiClient`/`Runner`/`step`。
+- [ ] **P0b 找不到可用 LLM → 整个 case FAIL**（不降级）；其余 step 失败记 FAIL 但继续；末行 `COSTDOWN PASS: G1..G4 all green` 或 `COSTDOWN FAIL: <失败的 G>`。
+- [ ] 报告 `docs/reports/aws-ops-costdown-report.{md,json}`。
+
+### 11.9 离线单测（不依赖 LLM，可进 CI / pre-commit）
+- [ ] `src/backend/tests/test_aws_ops_costdown.py`：模板结构（6 角色、工具均已注册、team_id=aws-ops 不冲突）、`score_script`（满分/各缺一/空）、`_aws_costdown_assertions` 的纯函数分支。
+- [ ] 可接入 `scripts/offline_reconcile_check.py` 思路或 pytest；**不调 LLM**。
+
+### ✅ Phase 11 自检
+```bash
+# 离线（CI 可跑，零 token）
+python3 -m pytest src/backend/tests/test_aws_ops_costdown.py -q       # 模板/评分/断言 全绿
+# 联机（需真实 LLM）
+python3 scripts/aws_ops_costdown_e2e.py                               # 末行 COSTDOWN PASS: G1..G4 all green
+node scripts/check-docs-signoff.cjs                                  # 0 FAIL
+```
+
+> **依赖与边界**：复用 Phase 7(C2/C5 口径)/9.1(target_id+复测)/9.2(每调用 token)/10.1(team 透传)/bug-043(drill 真实 reward)/bug-049(resolve_team_id 防幻影)；**不改** 既有 Phase 代码；G4 若发现对账/棘轮 bug → 新开 buglog（不改本 Phase 设计）。
+> **实施前唯一开放项**：Plaza「修订意见回灌」机制（11.3）—— 核 `plaza_routes.py` 多轮能力，不够则每轮新建 discussion 把 `missing[]` 当输入。
