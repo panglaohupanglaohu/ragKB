@@ -851,7 +851,52 @@ async function testLLM(){
 }
 
 // ── Models ──
-async function loadModels(){const d=await apiList(`${A}/teams/${tid}/models`,200,0);hideViewLoading('view-models');const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
+async function loadModels(){
+  const d=await apiList(`${A}/teams/${tid}/models`,200,0);
+  hideViewLoading('view-models');
+  const tb=el('models-tb');
+  if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}
+  // 读当前全局模型（全系统统一使用的模型）
+  let g=null; try{ g=await api(`${A}/llm/global-model`); }catch(e){}
+  const gCur=(g&&g.enabled&&g.current)?g.current:null;
+  // 顶部横幅：当前全局模型 + 清除
+  const banner=el('global-model-banner');
+  if(banner){
+    banner.innerHTML = gCur
+      ? `🌐 全局模型：<b style="color:var(--lime)">${escapeHtml(gCur.name||gCur.model_id)}</b> <span style="color:var(--muted);font-size:11px">(${escapeHtml(gCur.team_id)}/${escapeHtml(gCur.model_id)}) · plaza/技能演进/棘轮/数字孪生 等所有 LLM 调用统一用它</span> <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;margin-left:8px" onclick="clearGlobalModel()">清除</button>`
+      : `🌐 全局模型：<span style="color:var(--muted)">未设置（各团队按各自默认模型）。点击任一模型「设为全局」即可全系统统一。</span>`;
+  }
+  tb.innerHTML=d.map(m=>{
+    const mid=m.model_id;
+    const isGlobal = gCur && gCur.team_id===tid && gCur.model_id===mid;
+    const globalCell = isGlobal
+      ? '<span style="color:var(--lime)">🌐 全局</span>'
+      : `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setGlobalModel('${mid}')">设为全局</button>`;
+    return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${(m.max_tokens||0).toLocaleString()}</td><td>${m.temperature??0.7}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px;align-items:center">${globalCell}<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`;
+  }).join('');
+}
+
+async function setGlobalModel(mid){
+  await _ensureCsrf();
+  const r=await (window._agFetch||fetch)(`${A}/llm/global-model`,{method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':_csrfToken||''},body:JSON.stringify({team_id:tid,model_id:mid})});
+  if(r&&r.ok){ toast(`已设为全局模型 ${mid} — 全系统 LLM 调用统一使用`); loadModels(); }
+  else {
+    let msg=''; try{msg=(await r.json()).detail||''}catch(e){}
+    // 路由级 404（FastAPI 默认 detail="Not Found"）=后端未加载该路由 → 多半是后端没重启
+    if(r&&r.status===404&&(msg==='Not Found'||!msg)){
+      toast('设为全局失败：后端缺少该接口（/llm/global-model），请重启后端服务后重试');
+    } else {
+      toast('设为全局失败'+(msg?': '+msg:''));
+    }
+  }
+}
+
+async function clearGlobalModel(){
+  await _ensureCsrf();
+  const r=await (window._agFetch||fetch)(`${A}/llm/global-model`,{method:'DELETE',headers:{'x-csrf-token':_csrfToken||''}});
+  if(r&&r.ok){ toast('已清除全局模型，回退各团队默认'); loadModels(); }
+  else toast('清除失败');
+}
 async function delModel(mid){if(!confirm('删除此模型？'))return;await csrfFetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
   await _ensureCsrf();

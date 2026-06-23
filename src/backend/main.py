@@ -452,6 +452,20 @@ async def startup():
             except Exception as e:
                 logger.warning(f"⚠️ Cloud Ops team not loaded: {e}")
 
+        # AWS 运维降本增效团队 (Phase 11 G1)
+        if not _target_team or _target_team == "aws_ops":
+            try:
+                from agents.teams.aws_ops_team import create_aws_ops_team, TEAM_ID as _AWS_OPS_TID
+                if _AWS_OPS_TID not in _team_manager._teams:
+                    aws_ops_obj = create_aws_ops_team()
+                    _team_manager._teams[aws_ops_obj.team_id] = aws_ops_obj
+                    logger.info(
+                        f"✅ AWS Ops team registered: {aws_ops_obj.team_id} "
+                        f"— {len(aws_ops_obj.agents)} agents"
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ AWS Ops team not loaded: {e}")
+
         if _target_team:
             logger.info("🎯 Team filter active: only team=%s loaded", _target_team)
 

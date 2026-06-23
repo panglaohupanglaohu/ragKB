@@ -1410,6 +1410,7 @@ npm run dev
 | `POST` | `/api/v1/cost/tokens/ratchet/advance` | 成本页触发棘轮推进（实测效率） |
 | `GET` | `/api/v1/skill-library/duplicates?team_id=` | 检测重复/冗余技能 |
 | `POST` | `/api/v1/skill-library/merge` | 合并重复技能（去重省 token） |
+| `GET/POST/DELETE` | `/api/v1/agent-config/llm/global-model` | 全局模型 override（全系统统一用该模型） |
 
 ---
 
@@ -1578,6 +1579,12 @@ AgentsGroup2026/
 ---
 
 ## 更新日志
+
+### 2026-06-22 — 全局模型 override + Phase 11 AWS 降本 case 设计
+
+- **全局模型 override（已实现）**：团队配置页「模型与连接」每行新增「设为全局」按钮。设为全局后，`ChatHarness._global_override` 压过 per-agent / per-team / default —— **plaza 讨论、技能演进、棘轮、数字孪生等所有走 harness 的 LLM 调用统一使用该模型**。路由 `GET/POST/DELETE /api/v1/agent-config/llm/global-model`，持久化到 `settings.json.global_model`，启动自动加载；顶部横幅显示当前全局模型并可一键清除（回退各团队默认）。
+- **Phase 11 · AWS 运维降本增效最佳实践 Case（设计完成，待实施）**：4 步闭环实证 G1 角色对齐 → G2 迭代萃取特有技能 → G3 孪生协作 → G4 真实降本锁棘轮，每步脚本可断言；AWS 为业务域、度量仍是 Token。设计已对照真实代码核查修正（工具绑定改用真实 tool、与既有 cloud-ops/xops 团队防冲突、过 `resolve_team_id` 防幻影团队）。见 `docs/superpowers/specs/2026-06-22-phase11-aws-costdown-best-practice-design.md` 与 `docs/全局重构todos.md` Phase 11。
+- **离线对账自检脚本**：`scripts/offline_reconcile_check.py`（C1/C2/C3 恒等式 + 报告对账 + 技能合并单测，零 token），已接入 `start.sh` 预检、`regression-smoke.cjs` 第 0 步、`.githooks/pre-commit`（提交前对账 + 前端 JS 语法检查）。
 
 ### 2026-06-20 — 演进式成本优化「全闭环」打通 + 真实使用硬化
 

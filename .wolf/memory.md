@@ -158,3 +158,4 @@
 - 2026-06-18 skill-extract fallback 议题化: LLM 不可用时不再输出固定ES/Terraform/成本模板，改为根据 source_title+source_text 关键词动态生成候选，避免跨议题同名误导。(bug-030)
 - 2026-06-18 skill-extract 队列来源隔离: 从议事厅跳转时，右侧队列按 currentExtractSourceMeta 过滤，只显示当前讨论来源的项目，不再混入历史旧议题。(bug-031)
 - 2026-06-18 skill-extract 详情弹窗按钮缺失修复: 按钮并非 JS 隐藏，而是 modal tab/usage action 的 flex 单行裁切；在 skill-extract.html 增加稳定 class 并在 skill-extract.css 增加 wrap/overflow 响应式规则，确保“展示对比/刷新/快捷建议”可见。(bug-032)
+- 2026-06-22T18:08:00Z | 全局重构收尾:实现10.6.1 ensureTeamPositioned + 10.9 regression测试补全 + 文档状态标记 | secs-core.js, regression-smoke.cjs, docs/全局重构todos.md | secs-core.js新增ensureTeamPositioned(teamId,team,fallbackRoom)在sexySelectTeam内调用;regression-smoke.cjs第21b节新增breakdown/trend/detail/lever-split/ratchet/targets/duplicates 7个测试;todos.md已标记项的[x]状态+签名时间戳更新;所有Python/JS编译通过+check-docs-signoff 0 FAIL | ~3k

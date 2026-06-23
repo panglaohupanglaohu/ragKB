@@ -111,8 +111,8 @@
     var icons = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️', warn:'⚠️' };
     var el = document.createElement('div');
     el.className = 'toast';
-    el.style.cssText = 'background:var(--panel2);border:1px solid '+(type==='error'||type==='warn'?'var(--red)':'var(--cyan)')+';color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,0.4);animation:toastIn 0.3s ease-out;margin-top:8px;pointer-events:auto';
-    el.innerHTML = '<span>'+(icons[type]||'')+'</span> <span>'+esc(msg)+'</span>';
+    el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;white-space:nowrap;width:max-content;max-width:90vw;writing-mode:horizontal-tb;background:var(--panel2);border:1px solid '+(type==='error'||type==='warn'?'var(--red)':'var(--cyan)')+';color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;line-height:1.4;box-shadow:0 4px 20px rgba(0,0,0,0.4);animation:toastIn 0.3s ease-out;pointer-events:auto';
+    el.innerHTML = '<span>'+(icons[type]||'')+'</span><span>'+esc(msg)+'</span>';
     container.appendChild(el);
     setTimeout(function(){ if(el.parentNode)el.parentNode.removeChild(el); }, 3500);
   }
@@ -417,6 +417,8 @@
   window.sexySelectTeam = function(teamId, teamName) {
     _selectedTeamId = teamId;
     _selectedTeamName = teamName;
+    // 暴露到 window，让 director.js（创建试炼）能读到当前选中的团队（_selectedTeamId 本是 IIFE 私有）
+    window._selectedTeamId = teamId; window._selectedTeamName = teamName;
     var btn = document.getElementById('secs-team-btn');
     var team = _teamTreeData.find(function(t){return t.team_id===teamId;});
     var agentCount = (team?.agents||[]).length;
@@ -454,8 +456,33 @@
       }
     }
 
+    // ── 10.6.1: 确保该团队所有 agent 在房间有位置（无则填充到当前房间）──
+    ensureTeamPositioned(teamId, team, window._currentRoomId || 'council');
+
     showToast('已选择团队: '+teamName+' ('+agentCount+' 智能体)', 'success');
   };
+
+  /** 10.6.1: 确保指定团队所有 agent 在 S.positions 中有位置映射。
+   *  若 agent 尚无 position，落入 fallbackRoom（默认议事厅）。
+   *  填充后自动重建 3D 房间以反映新位置。 */
+  function ensureTeamPositioned(teamId, team, fallbackRoom) {
+    if (!window.S || !window.S.positions) return;
+    team = team || _teamTreeData.find(function(t){return t.team_id===teamId;});
+    if (!team) return;
+    var ags = team.agents || [];
+    var changed = false;
+    ags.forEach(function(a){
+      if (!window.S.positions[a.agent_id]) {
+        window.S.positions[a.agent_id] = fallbackRoom;
+        changed = true;
+      }
+    });
+    if (changed && typeof window._dt3dBuildRoom === 'function') {
+      window._dt3dBuildRoom(fallbackRoom);
+    }
+    /* ponytail: 简化实现——所有无 position agent 落到同一房间。若需要按 role
+       分布式布局（如 leader→council, oper→workshop），可改为 role→room 映射表。 */
+  }
 
   async function loadSkillInjectOptions(teamId) {
     try {
@@ -484,6 +511,8 @@
     var teams = (window.S && window.S.teams) || [];
     var t = teams.find(function(x){ return x.id === teamId; });
     if (t) { name = t.name || teamId; agentCount = (t.agents || []).length; }
+    // 暴露到 window，供 director.js 创建试炼读取
+    window._selectedTeamId = teamId; window._selectedTeamName = name;
     _selectedTeamName = name;
     var btn = document.getElementById('secs-team-btn');
     if (btn) {
@@ -2312,7 +2341,23 @@
     loadSecsStats();
     loadExerciseHistory();
     _applyUrlTeamParam();      // 跳转带 ?team= 时自动选中演练团队
+    // Phase 12.F：导演台已在 HTML 中静态并入 SECS，无需运行时搬家。
+    // 仅需以 SECS radio 为模式唯一源 → 同步到 _DTS.selectedMode 并监听变化。
+    _syncModeFromSecs();
+    document.querySelectorAll('input[name="secs-mode"]').forEach(function (r) {
+      r.addEventListener('change', _syncModeFromSecs);
+    });
   });
+
+  // SECS radio(what_if/parallel/evolutionary) → director selectedMode(what_if/multi_branch/evolutionary)
+  function _syncModeFromSecs() {
+    try {
+      var r = document.querySelector('input[name="secs-mode"]:checked');
+      if (!r || !window._DTS) return;
+      var map = { what_if: 'what_if', parallel: 'multi_branch', evolutionary: 'evolutionary' };
+      window._DTS.selectedMode = map[r.value] || 'what_if';
+    } catch (e) { /* noop */ }
+  }
 
   // 跳转携带 ?team=build_system（来自成本治理/效率视角链接）→ 自动选中该演练团队。
   // 否则演练无 _selectedTeamId → 要么提示「请先选择演练团队」中止，要么以空团队跑
@@ -2339,5 +2384,8 @@
       }, 500);
     } catch (e) { /* non-critical */ }
   }
+
+  // 暴露实时控制台写入函数，让 director.js（创建试炼/评分/反哺等）能联动写入同一控制台
+  if (typeof window !== 'undefined') window._logConsole = _logConsole;
 
 })();

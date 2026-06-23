@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="GitHub Copilot" kind="llm" doc="plan" ts="2026-06-20T21:24:32Z" -->
+<!-- docs-signoff: author="GitHub Copilot" kind="llm" doc="plan" ts="2026-06-22T02:46:05Z" -->
 
 # 全局重构 PLAN — 以「Token 最少」为北极星的 Agent 团队效率系统
 
@@ -175,6 +175,8 @@ GET  /api/v1/cost/targets/{id}/progress
 - **Phase 9 · 闭环审计与「后半环」接通（已完成）**：把「派发 → 真正降 token → 回流到目标/KPI」接上：9.1 派发任务↔目标双向绑定 + `CostTargetTracker` 任务完成复测；9.2 `tokens_per_goal` 改「每调用 token」(解「目标永远 0%」)；9.3 KPI④改棘轮累计 + advance 后刷新；9.4 drill 回灌；9.6 重复技能 `duplicates`/`merge` 路由 + 一键合并；9.7 KPI 跳过未归因；9.8 score 来源说明；9.5 复用 `enterCostGov` 桥。详见 todos Phase 9。
 - **Phase 9.x · 真实使用 bug 修复（已完成，见 `.wolf/buglog.json` bug-034~049）**：测试连接留空回退已存密钥 + 浏览器「记住密钥」；`RatchetAnimator` window 导出（棘轮按钮静默无反应）；任务/对话 Token 归因到团队（`chat(team_id=...)`）；**孪生 drill reward 恒 0 根因 = `create_trial` 未 `sync_agents_from_team` → 0 twin**（已修）；团队 `?team=` 自动选中；SSE 步进补连；流水线阶段推进；3D 奖励浮卡（投射到对应 agent）；房间仿真停止控制；KPI 团队筛选 + 名称；外链 Google Fonts 移除（离线超时）；**`team_id` 规范化校验（防幻影团队，如 build-system）** + 幻影团队数据清理。
 - **Phase 10 · 收尾、硬化与未竟事项（待办）**：筛选透传到构成/趋势/明细、历史未归因回填/标注、`tokens_per_goal` 存量目标 baseline 迁移、score 来源扩展、目标进度实时回流、3D 可视化与合并/Demo 联机验收、回归脚本补新端点、历史 team_id 归一、`trial_api` 多行 f-string 3.11 兼容。详见 todos Phase 10。
+- **Phase 11 · AWS 运维降本增效最佳实践 Case（待实施）**：用一条可复现链路实证「角色对齐(G1) → 迭代萃取特有技能(G2) → 孪生协作(G3) → 真实降本锁棘轮(G4)」，每步脚本可断言；AWS 为业务域、度量仍是 Token。设计与代码核查见 `docs/superpowers/specs/2026-06-22-phase11-aws-costdown-best-practice-design.md`（§7 已对照代码修正：工具绑定用真实 tool、与既有 cloud-ops/xops 团队防冲突、过 `resolve_team_id`）。详见 todos Phase 11。
+- **全局模型 override（已实现）**：模型池每行「设为全局」→ `ChatHarness._global_override` 压过 per-agent/per-team/default；plaza 讨论 / 技能演进 / 棘轮 / 数字孪生 等所有走 harness 的 LLM 调用统一使用该模型。路由 `GET/POST/DELETE /api/v1/agent-config/llm/global-model`，持久化到 `settings.json.global_model`，启动自动加载。
 
 > 依赖顺序：P1 →（P2 ∥ P4）→ P5 → P6 → P7 → **P8 → P8.R → P9** →（P9.x bug 修复贯穿）→ **P10 收尾**。**本方案不采用 K8s**（原 Phase 3 已移除）；沙箱隔离沿用现有 Lite（默认）/Docker。
 >

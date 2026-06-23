@@ -984,5 +984,98 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-06-21T03:35:00.000000"
+  },
+  {
+    "id": "bug-052",
+    "timestamp": "2026-06-22T05:00:00.000000",
+    "error_message": "模型池「设为全局」点击报 设为全局失败: Not Found (HTTP 404, 请求ID ag-mqox4wsf-890pxswb)",
+    "file": "运行态(后端未重启) + src/frontend/js/agent-team-config.js(错误提示)",
+    "root_cause": "systematic-debugging 结论：前端解析到 {\"detail\":\"Not Found\"} —— 这是 FastAPI 对【未注册路由】的默认 404 体，不是业务 404(应为 '未找到该团队模型')。代码侧已核实无误：① api.py 仅一个 router=APIRouter(prefix=/api/v1/agent-config) (L69)，main.py include_router (L394/459)；② 3 个 /llm/global-model 路由(GET/POST/DELETE)经 AST 确认在模块顶层装饰在同一 router 上，与可用的 /llm/test-model 同源；③ 前端 tid 为模块级变量，loadModels 用它成功拉到模型列表，setGlobalModel 用同一 tid，team_id/model_id 一致且与 get_model 同一内存源。→ 真因=运行中的后端是在新增这些路由之前启动的，未重启，故路由不在运行态 app 中 → 路由级 404。非代码 bug。",
+    "fix": "① 重启后端使新路由生效(本质修复)；② 前端 setGlobalModel 错误分支识别 status==404 且 detail=='Not Found' → 明确提示『后端缺少该接口(/llm/global-model)，请重启后端服务后重试』，避免再被当成神秘 404。代码侧 AST/业务一致性均已离线验证；活体 HTTP 验证需运行中的后端(沙箱无 fastapi，无法起服务)。",
+    "tags": [
+      "frontend",
+      "backend",
+      "global-model",
+      "404",
+      "stale-server",
+      "not-restarted",
+      "systematic-debugging"
+    ],
+    "related_bugs": [
+      "bug-034"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T05:00:00.000000"
+  },
+  {
+    "id": "bug-053",
+    "timestamp": "2026-06-22T06:00:00.000000",
+    "error_message": "数字孪生「创建试炼」过程不在「实时控制台」联动显示（控制台只见模块加载行）",
+    "file": "src/frontend/js/digital-twin/secs-core.js + director.js",
+    "root_cause": "两段叠加：①createTrial 的开始/成功路径只 console.log('[DT]...')(浏览器控制台)，没调 _dtLogConsole 写页面控制台；②更关键：_logConsole 定义在 secs-core.js 的 IIFE 内、未暴露到 window，而 director.js 的 _dtLogConsole 用 `if(typeof _logConsole==='function')` 判定——跨 IIFE 取不到 → 恒 false → 连已有的 eval/feedback 日志也没真正写进 #live-console。",
+    "fix": "①secs-core.js IIFE 收尾处 `window._logConsole=_logConsole` 暴露写入函数；②director.js createTrial 开始处 _dtLogConsole('🧪 创建试炼·团队·模式·步数')、成功处 _dtLogConsole('✅ 试炼已创建·trial·session·就绪')。这样创建试炼与实时控制台联动，且 director 既有的评分/反哺/进化日志也一并恢复进页面控制台。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "live-console",
+      "iife-scope",
+      "linkage"
+    ],
+    "related_bugs": [
+      "bug-046"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T06:00:00.000000"
+  },
+  {
+    "id": "bug-054",
+    "timestamp": "2026-06-22T06:30:00.000000",
+    "error_message": "试炼导演台：选了团队仍卡在「创建中...」，按钮不复位",
+    "file": "src/frontend/js/digital-twin/director.js + secs-core.js",
+    "root_cause": "两个真bug：①transitionTrialStatus 合法转移表 creating 只允许 ['ready','failed']，没有 creating→idle；createTrial 在「无团队」分支调 transitionTrialStatus('creating','idle') 被判非法返回 false → 状态卡在 creating → 按钮永远「创建中」。②_selectedTeamId 是 secs-core IIFE 私有，未暴露 window；director.js 读 bare _selectedTeamId 恒 undefined → 即便在 SECS 选了团队，createTrial 的 tid 仍取不到 → 走「请先选择团队」。",
+    "fix": "①转移表 creating 增加 'idle'，无团队时能复位回「创建试炼」；②secs-core sexySelectTeam/secsSyncTeamFromLeft 赋值处同步 window._selectedTeamId/_selectedTeamName，让 director.js 能读到选中团队 → tid 正确解析、继续创建。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "state-machine",
+      "iife-scope",
+      "team-select"
+    ],
+    "related_bugs": [
+      "bug-053",
+      "bug-045"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T06:30:00.000000"
+  },
+  {
+    "id": "bug-055",
+    "error_message": "showToast 提示「已选择团队…」在 3D 窗口里渲染成一竖条（逐字换行），遮挡且难看",
+    "root_cause": "toast <div> 未设 white-space / width，父容器收缩时块级子元素宽度被压到约一个字宽，文字逐字换行成竖排",
+    "fix": "toast 内联样式加 position:fixed;left:50%;bottom:24px;transform:translateX(-50%);white-space:nowrap;width:max-content;max-width:90vw;writing-mode:horizontal-tb;display:flex — 强制单行横排、底部居中、随内容收缩",
+    "tags": [
+      "frontend",
+      "css",
+      "toast",
+      "digital-twin",
+      "secs-core"
+    ],
+    "date": "2026-06-22"
+  },
+  {
+    "id": "bug-056",
+    "error_message": "静态合并脚本删 #env-status-float 时按内容标记 '收益曲线内嵌浮动卡' 定位，误删 267 行（539..806）",
+    "root_cause": "标记字符串不唯一——同一短语同时出现在 L540 的 CSS 注释和 L797 的 HTML 注释；find 命中第一个，删除区间跨越大量无关代码",
+    "fix": "改用唯一标记 '<!-- P3: 收益曲线内嵌浮动卡 -->'(带 HTML 注释符) + id=\"env-status-float\"，并加安全闸 assert (fe-fs)<15 行；操作前 cp 备份到 /tmp，发现异常立即还原",
+    "tags": [
+      "frontend",
+      "refactor",
+      "script",
+      "digital-twin",
+      "html"
+    ],
+    "date": "2026-06-22"
   }
 ]

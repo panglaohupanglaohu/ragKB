@@ -10,10 +10,10 @@
   },
   "llm": {
     "provider": "codebuddy",
-    "model": "deepseek-v4-pro",
-    "api_base_url": "https://copilot.tencent.com/v2",
+    "model": "glm-5.1",
+    "api_base_url": "https://models.sjtu.edu.cn/api/v1",
     "api_key": "",
-    "max_tokens": 4096,
+    "max_tokens": 12288,
     "temperature": 0.7,
     "thinking": {
       "type": "enabled"
@@ -62,5 +62,9 @@
     "per_team_daily_max": 10000000,
     "on_exceed": "halt",
     "alert_threshold": 0.8
+  },
+  "global_model": {
+    "team_id": "build_system",
+    "model_id": "codebuddy"
   }
 }

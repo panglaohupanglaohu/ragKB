@@ -794,55 +794,12 @@ body {
           <svg id="env-linkage-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:15;overflow:visible"></svg>
           <!-- P2: 事件弹幕层 -->
           <div id="env-barrage-layer"></div>
-          <!-- P3: 收益曲线内嵌浮动卡 -->
-          <div class="env-status-float" id="env-status-float" onclick="switchView(document.querySelector('[data-view=architecture]' ))" title="点击展开完整系统状态">
-            <div class="esf-header"><span class="esf-title">◈ 系统状态</span><span class="esf-expand">展开 →</span></div>
-            <div class="esf-grid" id="esf-grid">
-              <div class="esf-item"><div class="val" id="esf-sessions">0</div><div class="lbl">沙箱会话</div></div>
-              <div class="esf-item"><div class="val" id="esf-steps">0</div><div class="lbl">仿真步数</div></div>
-              <div class="esf-item"><div class="val green" id="esf-sops">0</div><div class="lbl">提取SOP</div></div>
-              <div class="esf-item"><div class="val amber" id="esf-score">—</div><div class="lbl">最优评分</div></div>
-            </div>
-          </div>
-          
           <div class="env-reward-float" id="env-reward-float" style="display:none">
             <div class="erf-title">实时收益</div>
             <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
             <svg class="erf-mini-chart" viewBox="0 0 160 28"><polyline id="erf-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"/></svg>
           </div>
 
-          <div id="trial-director-panel" class="director-panel">
-            <div class="dp-header"><span class="dp-title">🎬 试炼导演台</span><span class="dp-header-status"><button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button><span class="dp-status-badge" id="dp-status-badge">● 就绪</span></span></div>
-            <div class="dp-section"><label class="dp-label">团队</label><select id="dp-team-select" class="dp-select" onchange="onDirectorTeamChange(this.value)"><option value="">— 选择团队 —</option><option value="build-system">Build System</option><option value="ai-programming">AI 编程团队</option><option value="cloudops">公有云 xOPs</option></select></div>
-            <!-- v4 D-1.1: 业务场景卡片选择器 -->
-            <div class="dp-section"><label class="dp-label">🌍 业务场景</label><div id="dp-scenario-cards" class="mode-grid" style="max-height:140px;overflow-y:auto"></div><div id="dp-scenario-info" style="font-size:9px;color:var(--dim);margin-top:4px;line-height:1.5"></div><button class="btn btn-secondary" style="width:100%;margin-top:6px;font-size:10px" onclick="generateScenarioFromDesc()">✨ AI 生成场景</button></div>
-            <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
-            <div class="dp-section"><label class="dp-label">试炼模式</label><div class="mode-grid" id="mode-selector"><div class="mode-card mode-active" data-mode="what_if" onclick="selectMode('what_if')"><span class="mode-icon">🔮</span><span class="mode-name">What-if</span><span class="mode-desc">基线实验</span></div><div class="mode-card" data-mode="multi_branch" onclick="selectMode('multi_branch')"><span class="mode-icon">🌳</span><span class="mode-name">多分支对比</span><span class="mode-desc">并行策略</span></div><div class="mode-card" data-mode="chaos_drill" onclick="selectMode('chaos_drill')"><span class="mode-icon">🌀</span><span class="mode-name">混沌演练</span><span class="mode-desc">压力测试</span></div><div class="mode-card" data-mode="evolutionary" onclick="selectMode('evolutionary')"><span class="mode-icon">🧬</span><span class="mode-name">演化试炼</span><span class="mode-desc">进化搜索</span></div><div class="mode-card" data-mode="replay" onclick="selectMode('replay')"><span class="mode-icon">📼</span><span class="mode-name">回放复盘</span><span class="mode-desc">历史重放</span></div></div></div>
-            <div class="dp-section dp-row"><div class="dp-field"><label class="dp-label-sm">步数上限</label><input type="number" id="dp-max-steps" class="dp-input-sm" value="150" min="10" max="500"></div><div class="dp-field"><label class="dp-label-sm">加速倍率</label><input type="number" id="dp-acceleration" class="dp-input-sm" value="1" min="1" max="100"></div><div class="dp-field"><label class="dp-label-sm">并行分支</label><input type="number" id="dp-parallel" class="dp-input-sm" value="1" min="1" max="8"></div></div>
-            <div class="dp-actions" id="dt-action-buttons"></div>
-            <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
-            <div class="dp-section" id="inject-event-panel" style="display:none"><label class="dp-label">⚡ 注入事件</label><div class="inject-event-types"><button class="inject-btn" onclick="doInjectEvent('network_delay')">🌐 网络延迟</button><button class="inject-btn" onclick="doInjectEvent('agent_leave')">👤 Agent离队</button><button class="inject-btn" onclick="doInjectEvent('task_change')">📝 任务变更</button><button class="inject-btn" onclick="doInjectEvent('skill_degraded')">⬇️ 技能退化</button><button class="inject-btn" onclick="doInjectEvent('model_hallucination')">🧠 模型幻觉</button><button class="inject-btn" onclick="doInjectEvent('logic_deadlock')">🔒 逻辑死锁</button></div><input type="number" id="inject-at-step" class="dp-input-sm" placeholder="触发步数(留空=立即)" style="width:100%;margin-top:6px;"></div>
-            <div class="dp-section" style="max-height:120px;overflow-y:auto;margin-top:6px"><label class="dp-label">📋 注入历史</label><div id="inject-history-list" class="inject-history-list"></div></div>
-            <!-- v4 D-2: 技能进化面板 -->
-            <div class="dp-section" id="skill-evolution-panel" style="margin-top:6px">
-              <label class="dp-label">🧬 技能进化</label>
-              <div id="skill-stats-area" style="font-size:10px;color:var(--dim)">试炼评分后显示 per-skill 统计</div>
-              <div class="secs-pipeline-indicator" id="evo-pipeline" style="display:none">
-                <span class="secs-node" data-phase="identifying">识别</span><span class="secs-node" data-phase="reflecting">反思</span><span class="secs-node" data-phase="mutating">变体</span><span class="secs-node" data-phase="ab_testing">A/B</span><span class="secs-node" data-phase="gating">晋升</span>
-              </div>
-              <div id="evo-result-area" style="font-size:10px;margin-top:6px"></div>
-              <div id="ab-compare-area" style="font-size:10px;margin-top:6px"></div>
-              <div id="gen-curve-area" style="margin-top:6px"></div>
-              <div style="display:flex;gap:6px;margin-top:8px">
-                <button class="btn btn-accent" style="flex:1;font-size:10px" onclick="loadSkillStats()">📊 技能统计</button>
-                <button class="btn btn-primary" style="flex:1;font-size:10px" onclick="startEvolution()">🧬 发起进化</button>
-              </div>
-              <div id="evo-gate-actions" style="display:none;gap:6px;margin-top:6px">
-                <button class="sop-btn approve" onclick="approveEvolution()">✓ 批准写回</button>
-                <button class="sop-btn reject" onclick="rejectEvolution()">✗ 拒绝</button>
-              </div>
-            </div>
-          </div>
           <div style="position:absolute;bottom:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
             <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
             <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
@@ -999,6 +956,35 @@ body {
       <div id="secs-sim-status" style="font-size:9px;color:var(--dim);margin-top:4px;text-align:center"></div>
     </div>
 
+    <!-- ═══ 试炼生命周期 + 技能进化（由试炼导演台合并而来）═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
+      <div class="dp-header-status" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button>
+        <span class="dp-status-badge" id="dp-status-badge">● 就绪</span>
+      </div>
+      <div class="dp-actions" id="dt-action-buttons"></div>
+      <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
+      <!-- v4 D-2: 技能进化面板 -->
+      <div class="dp-section" id="skill-evolution-panel" style="margin-top:6px">
+        <label class="dp-label">🧬 技能进化</label>
+        <div id="skill-stats-area" style="font-size:10px;color:var(--dim)">试炼评分后显示 per-skill 统计</div>
+        <div class="secs-pipeline-indicator" id="evo-pipeline" style="display:none">
+          <span class="secs-node" data-phase="identifying">识别</span><span class="secs-node" data-phase="reflecting">反思</span><span class="secs-node" data-phase="mutating">变体</span><span class="secs-node" data-phase="ab_testing">A/B</span><span class="secs-node" data-phase="gating">晋升</span>
+        </div>
+        <div id="evo-result-area" style="font-size:10px;margin-top:6px"></div>
+        <div id="ab-compare-area" style="font-size:10px;margin-top:6px"></div>
+        <div id="gen-curve-area" style="margin-top:6px"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-accent" style="flex:1;font-size:10px" onclick="loadSkillStats()">📊 技能统计</button>
+          <button class="btn btn-primary" style="flex:1;font-size:10px" onclick="startEvolution()">🧬 发起进化</button>
+        </div>
+        <div id="evo-gate-actions" style="display:none;gap:6px;margin-top:6px">
+          <button class="sop-btn approve" onclick="approveEvolution()">✓ 批准写回</button>
+          <button class="sop-btn reject" onclick="rejectEvolution()">✗ 拒绝</button>
+        </div>
+      </div>
+    </div>
     <!-- ═══ 实时控制台（独立窗口，始终可见）═══ -->
     <div class="rp-section" style="padding:8px 12px">
       <div class="rp-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">

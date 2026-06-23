@@ -192,6 +192,11 @@ def init_agent_config(team_manager: TeamManager) -> None:
     _load_model_pool(team_manager)
     # Sync any existing default model to the chat harness
     _init_harness_from_teams(team_manager)
+    # 应用持久化的全局模型 override（若已设置）—— 让全系统统一用该模型
+    try:
+        _load_global_model_on_startup()
+    except Exception as _e:
+        logging.getLogger(__name__).warning("全局模型加载失败(非致命): %s", _e)
     # Initialize skill library chain (演化/验证/效果贯通)
     _init_skill_library_chain(team_manager, _skill_registry)
 
@@ -7207,6 +7212,111 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
         "latency_ms": result.latency_ms,
         "error": result.error,
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# 全局模型 override — 一处设置，plaza/skill 演进/棘轮/数字孪生 等所有走 harness 的地方统一用它
+# ═══════════════════════════════════════════════════════════════
+
+def _build_provider_config_from_model(team_id: str, model_id: str):
+    """从某团队的模型(含已存密钥)构造 ProviderConfig；找不到返回 None。"""
+    from .chat_harness import ProviderConfig, LLMProvider
+    if _team_manager is None:
+        return None
+    team = _team_manager.get_team(team_id)
+    model = team.get_model(model_id) if team else None
+    if model is None:
+        return None
+    try:
+        provider = LLMProvider(model.provider)
+    except ValueError:
+        provider = LLMProvider.DEEPSEEK
+    return ProviderConfig(
+        provider=provider, api_key=model.api_key, api_base_url=model.api_base_url,
+        model=model.name, max_tokens=model.max_tokens, temperature=model.temperature,
+    )
+
+
+def _persist_global_model(sel: Optional[Dict[str, str]]) -> None:
+    """把全局模型选择(team_id/model_id)写入 settings.json；sel=None 清除。"""
+    import json as _json, os as _os
+    path = _os.path.join(_CONFIG_DIR, "settings.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            settings = _json.load(f)
+    except Exception:
+        settings = {}
+    if sel:
+        settings["global_model"] = {"team_id": sel["team_id"], "model_id": sel["model_id"]}
+    else:
+        settings.pop("global_model", None)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(settings, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _load_global_model_on_startup() -> None:
+    """启动时从 settings.json 读全局模型并应用到 harness。"""
+    import json as _json, os as _os
+    path = _os.path.join(_CONFIG_DIR, "settings.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            sel = _json.load(f).get("global_model")
+    except Exception:
+        sel = None
+    if not sel:
+        return
+    cfg = _build_provider_config_from_model(sel.get("team_id", ""), sel.get("model_id", ""))
+    if cfg is not None:
+        from .chat_harness import get_chat_harness
+        team = _team_manager.get_team(sel["team_id"]) if _team_manager else None
+        model = team.get_model(sel["model_id"]) if team else None
+        get_chat_harness().set_global_override(cfg, {
+            "team_id": sel["team_id"], "model_id": sel["model_id"],
+            "name": getattr(model, "name", sel["model_id"]),
+        })
+        logging.getLogger(__name__).info("🌐 全局模型已加载: %s/%s", sel["team_id"], sel["model_id"])
+
+
+class GlobalModelRequest(BaseModel):
+    team_id: str = ""
+    model_id: str = ""
+
+
+@router.get("/llm/global-model", summary="读取当前全局模型")
+def get_global_model() -> Dict[str, Any]:
+    from .chat_harness import get_chat_harness
+    h = get_chat_harness()
+    ov = h.get_global_override()
+    return {"enabled": ov is not None, "current": h._global_override_meta if ov is not None else None}
+
+
+@router.post("/llm/global-model", summary="设为全局模型（全系统统一使用）")
+def set_global_model(req: GlobalModelRequest) -> Dict[str, Any]:
+    if not req.team_id or not req.model_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id 与 model_id 必填")
+    cfg = _build_provider_config_from_model(req.team_id, req.model_id)
+    if cfg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未找到该团队模型")
+    from .chat_harness import get_chat_harness
+    team = _team_manager.get_team(req.team_id)
+    model = team.get_model(req.model_id)
+    get_chat_harness().set_global_override(cfg, {
+        "team_id": req.team_id, "model_id": req.model_id, "name": model.name,
+    })
+    _persist_global_model({"team_id": req.team_id, "model_id": req.model_id})
+    return {"enabled": True, "current": {"team_id": req.team_id, "model_id": req.model_id, "name": model.name},
+            "note": "plaza/技能演进/棘轮/数字孪生 等所有 LLM 调用现统一使用该模型"}
+
+
+@router.delete("/llm/global-model", summary="清除全局模型（回退各团队默认）")
+def clear_global_model() -> Dict[str, Any]:
+    from .chat_harness import get_chat_harness
+    get_chat_harness().set_global_override(None)
+    _persist_global_model(None)
+    return {"enabled": False, "current": None}
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -193,6 +193,11 @@ const teamNames = {
 };
 function tColor(tid) { return teamColors[tid] || 0x7A7470; }
 
+// 鲜艳调色板（与数字孪生 3D 一致）：让每个 agent 有独立亮色，避免未知团队全灰
+const VIVID_AGENT_COLORS = [0x22d3ee, 0x34d399, 0xa78bfa, 0xfbbf24, 0xf472b6, 0x60a5fa, 0xfb923c, 0x4ade80];
+let _plazaSeatColorIdx = 0;
+function nextVividColor() { const c = VIVID_AGENT_COLORS[_plazaSeatColorIdx % VIVID_AGENT_COLORS.length]; _plazaSeatColorIdx++; return c; }
+
 /* ═══════════ THREE.JS — 安藤忠雄清水混凝土议事厅 ═══════════ */
 const canvas = $('three-canvas');
 // E-4.1: 屏幕阅读器可访问
@@ -494,9 +499,12 @@ function renderArena3D(participants) {
   if (!chairman && allParticipants.length) chairman = allParticipants[0];
   const seated = allParticipants.filter(p => !chairman || p.agent_id !== chairman.agent_id);
 
+  // 鲜艳配色：每次重建场景从头分配，议事长用亮金，其余循环亮色（像数字孪生）
+  _plazaSeatColorIdx = 0;
+
   // Chairman on Scarpa throne
   if (chairman) {
-    const fig = createAgentFigure(chairman.agent_name || '议事长', 0x8F979E, true);
+    const fig = createAgentFigure(chairman.agent_name || '议事长', 0xfbbf24, true);
     fig.position.set(0, 0.0, 0.5);
     scene.add(fig); sceneAgents.push(fig);
     agentMeshes.set(chairman.agent_id, { group: fig });
@@ -517,7 +525,7 @@ function renderArena3D(participants) {
       if (!ring.length) return;
       ring.forEach((ag, ai) => {
         const angle = (ai / ring.length) * Math.PI * 2 - Math.PI / 2;
-        const fig = createAgentFigure(ag.agent_name || ag.agent_id, tColor(ag.team_id));
+        const fig = createAgentFigure(ag.agent_name || ag.agent_id, nextVividColor());
         fig.position.set(ringRadii[rIdx] * Math.cos(angle), ringHeights[rIdx], ringRadii[rIdx] * Math.sin(angle));
         fig.lookAt(0, ringHeights[rIdx], 0);
         fig.rotation.x = 0; fig.rotation.z = 0;

@@ -689,6 +689,10 @@ class ChatHarness:
         self._sessions: Dict[str, ChatSession] = {}
         # Per-agent provider overrides (agent_id -> ProviderConfig)
         self._agent_configs: Dict[str, ProviderConfig] = {}
+        # 全局模型 override：一旦设置，压过 per-agent / per-team / default，
+        # 让 plaza / skill 演进 / 棘轮 / 数字孪生等所有走本 harness 的地方统一用它。
+        self._global_override: Optional[ProviderConfig] = None
+        self._global_override_meta: Dict[str, str] = {}  # {team_id, model_id, name} 供前端回显
         # Global fallback tools
         self._global_tools: List[Dict[str, Any]] = []
         # Metrics
@@ -719,8 +723,21 @@ class ChatHarness:
         """Override the LLM provider for a specific agent."""
         self._agent_configs[agent_id] = config
 
+    def set_global_override(self, config: Optional[ProviderConfig], meta: Optional[Dict[str, str]] = None) -> None:
+        """设置/清除全局模型 override。config=None 清除（回退到 per-team/default）。"""
+        self._global_override = config
+        self._global_override_meta = dict(meta or {}) if config else {}
+
+    def get_global_override(self) -> Optional[ProviderConfig]:
+        return self._global_override
+
     def get_provider_config(self, agent_id: str = "") -> ProviderConfig:
-        """Get the provider config for an agent (or default)."""
+        """Get the provider config for an agent (or default).
+
+        全局 override 优先级最高：设了就压过 per-agent / per-team / default。
+        """
+        if self._global_override is not None:
+            return self._global_override
         if agent_id and agent_id in self._agent_configs:
             return self._agent_configs[agent_id]
         return self._default_config
@@ -927,7 +944,8 @@ class ChatHarness:
     ) -> TurnResult:
         """Execute a single chat turn. This is the main entry point."""
         self._total_calls += 1
-        config = config_override or self.get_provider_config(agent_id)
+        # 全局 override 优先级最高（压过显式 config_override）；未设则按 config_override→per-agent→default
+        config = self._global_override or config_override or self.get_provider_config(agent_id)
         client = LLMClient(config)
 
         session = self.get_or_create_session(session_id, agent_id, system_prompt)

@@ -442,6 +442,44 @@ function log(test, status, detail) {
     log('💰 Cost report', ts5.ok() && td5.reconciliation ? 'PASS' : 'FAIL', `consistent=${td5.reconciliation && td5.reconciliation.consistent}`);
   } catch(e) { log('💰 Cost report', 'FAIL', e.message); }
 
+  // ═══ 21b. Token 额外端点（P10.9 补全：breakdown/trend/detail/lever-split/ratchet/targets）═══
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/tokens/breakdown?dim=phase&window=24h`);
+    log('💰 Token breakdown', r.ok() ? 'PASS' : 'FAIL', `status=${r.status()}`);
+  } catch(e) { log('💰 Token breakdown', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/tokens/trend?window=24h&bucket=hour`);
+    log('💰 Token trend', r.ok() ? 'PASS' : 'FAIL', `status=${r.status()}`);
+  } catch(e) { log('💰 Token trend', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/tokens/detail?window=24h&limit=5`);
+    log('💰 Token detail', r.ok() ? 'PASS' : 'FAIL', `status=${r.status()}`);
+  } catch(e) { log('💰 Token detail', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/tokens/lever-split?window=24h`);
+    const j = await r.json();
+    log('💰 Token lever-split', r.ok() && j.grand_total ? 'PASS' : 'FAIL', `grand_total=${j.grand_total}`);
+  } catch(e) { log('💰 Token lever-split', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/tokens/ratchet`);
+    const j = await r.json();
+    log('💰 Token ratchet status', r.ok() ? 'PASS' : 'FAIL', `metrics=${(j.metrics||[]).length}`);
+  } catch(e) { log('💰 Token ratchet status', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/cost/targets`);
+    log('💰 Cost targets list', r.ok() ? 'PASS' : 'FAIL', `status=${r.status()}`);
+  } catch(e) { log('💰 Cost targets list', 'FAIL', e.message); }
+
+  try {
+    const r = await page.request.get(`${BASE}/api/v1/skill-library/duplicates`);
+    log('📚 Skill duplicates', r.ok() ? 'PASS' : 'FAIL', `status=${r.status()}`);
+  } catch(e) { log('📚 Skill duplicates', 'FAIL', e.message); }
+
   // ═══ Summary ═══
   const passCount = results.filter(r => r.status === 'PASS').length;
   const failCount = results.filter(r => r.status === 'FAIL').length;
