@@ -1077,5 +1077,114 @@
       "html"
     ],
     "date": "2026-06-22"
+  },
+  {
+    "id": "bug-057",
+    "error_message": "后端启动崩溃 NameError: name 'logging' is not defined（_load_global_model_on_startup 与其 except 处理器）",
+    "root_cause": "api.py 模块级把 logging 导成别名 `import logging as _logging`(L2514)，但全局模型相关代码(L199/L7280)用了未导入的裸名 `logging`",
+    "fix": "L199、L7280 改用模块别名 `_logging.getLogger(__name__)`；grep 确认无残留裸 logging.，py_compile 通过",
+    "tags": [
+      "backend",
+      "startup",
+      "global-model",
+      "import",
+      "api.py"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-058",
+    "error_message": "门禁提示「单人即可推进」但点推进报 缺少必要身份:['peer'] + 复核0人/同意0票，无 UI 完成复核",
+    "root_cause": "default_gate_requirements 虽 min_reviewers=1 却仍 required_identities=[PEER] 且需 1 张 approve 票；advance() 不会把触发者登记为复核人 → 永远 0 票，单人无法推进",
+    "fix": "advance() 真人推进时自动登记其为 approve 复核(identity=PEER，幂等)；default_gate_requirements 三阶段 required_identities 改 []。新/旧管线单人一键即可推进",
+    "tags": [
+      "backend",
+      "gate",
+      "review",
+      "extraction-pipeline"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-059",
+    "error_message": "技能详情「对话优化技能」对话框内容展示不全（截屏被裁）",
+    "root_cause": "#usage-chat-log max-height:200px 太矮，AI 改进建议较长时大部分需滚动",
+    "fix": "max-height 改 min(460px,52vh) + overflow-wrap:anywhere + white-space:pre-wrap",
+    "tags": [
+      "frontend",
+      "css",
+      "skill-extract"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-060",
+    "error_message": "技能详情弹窗 演化/验证/效果/版本/管线 各 tab 多个栏目内容被裁切、展示不全",
+    "root_cause": ".modal-tab-content 为 flex 列(overflow-y:auto)，子区块默认 flex-shrink:1，栏目多时被压缩到低于内容高度，叠加各区块自身 overflow:hidden → 内容被裁",
+    "fix": "skill-extract.css 增加 #tab-evolve/#tab-verify/#tab-usage/#tab-version/#tab-pipeline > * { flex-shrink:0 }，区块保持自然高度，超出由 .modal-body overflow-y:auto 整体下拉滚动",
+    "tags": [
+      "frontend",
+      "css",
+      "flexbox",
+      "skill-extract",
+      "overflow"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-061",
+    "error_message": "沙箱孪生页「协作图」持续空白（无节点/连线，也无错误文字）",
+    "root_cause": "bootSandboxTwin 顺序执行各 init，initCollabGraph 排在 setupTabs/bindPipelineNodes 之后；若前面任一步抛错，initCollabGraph(含5s自愈定时器)整段不执行 → 协作图永久留白且无自愈",
+    "fix": "bootSandboxTwin 改为步骤数组，initCollabGraph 提到第一个执行，且每步包 try/catch 隔离——单步失败不再阻断协作图渲染与自愈",
+    "tags": [
+      "frontend",
+      "sandbox-twin",
+      "collab-graph",
+      "init",
+      "robustness"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-062",
+    "error_message": "棘轮显示团队『有 token 消耗但无演练评分』(score=0→效率=0)，但团队实际跑过评分试炼",
+    "root_cause": "collect_team_usage 只读内存 _trials；_trials 仅在创建试炼时写入、后端重启即清空；而 token 用量(usage.db)与试炼(TrialStore)均持久化 → 重启后 token 在、评分丢 → token_only",
+    "fix": "新增 _enrich_trials_from_store()，在 collect_team_usage_async 里从持久化 TrialStore.list_trials() 按 team_id 合并已评分试炼(去重)，并在补回真实分后纠正 data_quality=measured",
+    "tags": [
+      "backend",
+      "sustainability",
+      "ratchet",
+      "persistence",
+      "trial-score",
+      "data-linkage"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-062b",
+    "error_message": "棘轮仍报 score=0（效率视角已修但棘轮没同步）",
+    "root_cause": "上一版只修了异步 collect_team_usage_async；棘轮 advance(cost_routes.py /tokens/ratchet/advance) 与 cost_targets 走的是同步 collect_team_usage，未合并持久化试炼",
+    "fix": "把合并逻辑下沉为同步 _merge_persisted_trials()，直接读 trials.json，在 collect_team_usage 内调用 → 覆盖所有同步调用方(棘轮/cost_targets/效率视角)。离线验证 a7c36670 total_score=3.96",
+    "tags": [
+      "backend",
+      "ratchet",
+      "sustainability",
+      "sync-path",
+      "persistence"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-063",
+    "error_message": "演练 Agent 动画改错位置：错加在议事广场 plaza，用户要的是数字孪生 沙箱推演/自动·单步 的 3D",
+    "root_cause": "误判页面；破茧成蝶动画应在 digital-twin-cli-3d.js（演练 3D）而非 plaza.js",
+    "fix": "还原 plaza.js；在 digital-twin-cli-3d.js createAgentFigure 加进化光圈，并把 _pulseQueue 的 body 脉冲由『整体放大缩小』改为『光环分步(14步)从底座升到头部、到顶张开淡出』",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "3d",
+      "animation"
+    ],
+    "date": "2026-06-23"
   }
 ]

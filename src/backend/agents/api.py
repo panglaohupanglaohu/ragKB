@@ -196,7 +196,7 @@ def init_agent_config(team_manager: TeamManager) -> None:
     try:
         _load_global_model_on_startup()
     except Exception as _e:
-        logging.getLogger(__name__).warning("全局模型加载失败(非致命): %s", _e)
+        _logging.getLogger(__name__).warning("全局模型加载失败(非致命): %s", _e)
     # Initialize skill library chain (演化/验证/效果贯通)
     _init_skill_library_chain(team_manager, _skill_registry)
 
@@ -7277,7 +7277,7 @@ def _load_global_model_on_startup() -> None:
             "team_id": sel["team_id"], "model_id": sel["model_id"],
             "name": getattr(model, "name", sel["model_id"]),
         })
-        logging.getLogger(__name__).info("🌐 全局模型已加载: %s/%s", sel["team_id"], sel["model_id"])
+        _logging.getLogger(__name__).info("🌐 全局模型已加载: %s/%s", sel["team_id"], sel["model_id"])
 
 
 class GlobalModelRequest(BaseModel):

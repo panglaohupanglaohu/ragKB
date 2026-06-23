@@ -57,6 +57,14 @@ function createAgentFigure(name,hexColor,isChairman=false){
     new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.22,side:THREE.DoubleSide}));
   glowRing.rotation.x=-Math.PI/2;glowRing.position.y=0.01;group.add(glowRing);
   group.userData.glowRing=glowRing;
+  // 进化光圈（破茧成蝶）：演练中该 agent 行动时，一道光环从底座分步升到头部、到顶张开淡出，
+  // 取代整体放大缩小，体现"跃迁/演化"。默认隐藏，由 _pulseQueue 的 body 脉冲驱动。
+  const ascendRing=new THREE.Mesh(new THREE.RingGeometry(0.30*scale,0.40*scale,48),
+    new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));
+  ascendRing.rotation.x=-Math.PI/2;ascendRing.position.y=0.06;group.add(ascendRing);
+  group.userData.ascendRing=ascendRing;
+  group.userData.ascendBaseY=0.06;
+  group.userData.ascendHeadY=2.0*scale;
   // Name sprite
   const css='#'+col.getHexString();
   const tex=new THREE.CanvasTexture(makeColorLabel(name,css));tex.minFilter=THREE.LinearFilter;
@@ -1075,16 +1083,26 @@ function animate(){
   for(let i=_pulseQueue.length-1;i>=0;i--){
     const p=_pulseQueue[i];const elapsed=t-p.start;
     if(elapsed>p.dur){
-      if(p.type==='body'){p.mesh.scale.setScalar(p.mesh.userData._origScale||1)}
+      if(p.type==='body'){
+        // 复位进化光圈（回到底座、隐藏）
+        const ring=p.mesh.userData&&p.mesh.userData.ascendRing;
+        if(ring){ring.material.opacity=0;ring.position.y=(p.mesh.userData.ascendBaseY||0.06);ring.scale.set(1,1,1);}
+      }
       else{p.mesh.material.opacity=0.22;p.mesh.scale.setScalar(1)}
       _pulseQueue.splice(i,1);continue;
     }
     const wave=Math.sin(elapsed/p.dur*Math.PI);
     if(p.type==='body'){
-      // 整体身体弹跳
-      const os=p.mesh.userData._origScale||1;
-      if(!p.mesh.userData._origScale)p.mesh.userData._origScale=os;
-      p.mesh.scale.setScalar(os*(1+0.3*wave));
+      // 破茧成蝶：一道光环分步从底座升到头部、到顶张开淡出（取代整体放大缩小，体现跃迁/演化）
+      const ring=p.mesh.userData&&p.mesh.userData.ascendRing;
+      if(ring){
+        const N=14;                                          // 行程离散成的步数（"计算好步数"）
+        const sp=Math.floor((elapsed/p.dur)*N)/(N-1);        // 0..1 按步推进
+        const baseY=p.mesh.userData.ascendBaseY||0.06, headY=p.mesh.userData.ascendHeadY||2.0;
+        ring.position.y=baseY+sp*(headY-baseY);
+        const grow=1+sp*0.9; ring.scale.set(grow,grow,1);    // 上升时张开（到顶破茧）
+        ring.material.opacity=0.6*Math.sin(sp*Math.PI);      // 底淡入→中段最亮→顶淡出
+      }
     } else {
       p.mesh.material.opacity=0.22+0.6*wave;
       p.mesh.scale.setScalar(1+0.4*wave);

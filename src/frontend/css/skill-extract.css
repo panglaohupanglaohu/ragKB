@@ -138,3 +138,14 @@
   border-color: var(--koke);
   color: var(--koke);
 }
+
+/* ── 修复：flex 列布局把各栏目压缩并被 overflow:hidden 裁切 ──
+   让列式 tab(演化/验证/效果/版本/管线)内各区块保持自然高度，
+   超出部分由 .modal-body 的 overflow-y:auto 整体下拉滚动，不再裁切内容。 */
+#tab-evolve > *,
+#tab-verify > *,
+#tab-usage > *,
+#tab-version > *,
+#tab-pipeline > * {
+  flex-shrink: 0;
+}

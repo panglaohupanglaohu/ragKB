@@ -506,7 +506,7 @@
             <button class="btn btn-sm" onclick="usageChatSuggest('edge')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">🔀 边界场景</button>
           </div>
         </div>
-        <div id="usage-chat-log" style="max-height:200px;overflow-y:auto;padding:8px 12px;font-size:11px;line-height:1.6">
+        <div id="usage-chat-log" style="max-height:min(460px,52vh);overflow-y:auto;padding:8px 12px;font-size:11px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap">
           <div style="color:oklch(0.45 0.005 110);text-align:center;padding:8px 0">在下方输入你对技能的改进想法，AI 将帮你优化指令</div>
         </div>
         <div style="display:flex;gap:6px;padding:8px 12px;border-top:1px solid oklch(0.2 0.005 110)">
@@ -604,7 +604,8 @@
           <div id="reviewer-list-pipe" class="reviewer-list" style="margin-bottom:8px">
             <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:4px">尚无确认记录</div>
           </div>
-          <button class="btn btn-sm" id="btn-show-review-form-pipe" onclick="toggleReviewForm('pipe')" style="width:100%;justify-content:center;border-style:dashed">+ 确认推进</button>
+          <button class="btn btn-sm" id="btn-advance-pipe-primary" onclick="advancePipeline()" style="width:100%;justify-content:center;margin-bottom:6px;background:oklch(0.52 0.04 160/.18);border:1px solid oklch(0.52 0.04 160/.45);color:oklch(0.72 0.07 155);font-weight:600">✅ 通过并推进（单人即可，点击=本人确认）</button>
+          <button class="btn btn-sm" id="btn-show-review-form-pipe" onclick="toggleReviewForm('pipe')" style="width:100%;justify-content:center;border-style:dashed">+ 多人复核（可选，填名字/身份）</button>
           <div id="review-inline-form-pipe" style="display:none;margin-top:8px;padding:10px;border:1px solid oklch(1 0 0/.08);background:oklch(0.1 0.005 60/.5)">
             <div style="display:flex;gap:6px;margin-bottom:6px">
               <input id="review-name-pipe" placeholder="你的名字" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">

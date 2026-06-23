@@ -1923,19 +1923,26 @@ function renderSessionDetailHtml(d) {
   function bootSandboxTwin() {
     if (window._sandboxTwinBooted) return;
     window._sandboxTwinBooted = true;
-    setupTabs('input-tabs', 'input-content');
-    setupTabs('output-tabs', 'output-content');
-    bindPipelineNodes();
-    initCollabGraph();
-    bindRuntimeBar();
-    loadStats();
-    loadRuntimeStatus();
-    renderSessionHistory();
-    startAutoRefresh();
-    setActiveLayer('L3'); // 默认 L3
-    loadL1AgentGridFromStats();
-    loadSessionHistoryFromBackend();
-    showGuideBanner();
+    // BUGFIX(协作图空白): 先画协作图 + 启动自愈，并把每步隔离 try/catch，
+    // 避免任一 init 步骤抛错导致后续(含协作图)整段不执行而留白。
+    var steps = [
+      ['initCollabGraph', function () { initCollabGraph(); }],
+      ['setupTabs(input)', function () { setupTabs('input-tabs', 'input-content'); }],
+      ['setupTabs(output)', function () { setupTabs('output-tabs', 'output-content'); }],
+      ['bindPipelineNodes', function () { bindPipelineNodes(); }],
+      ['bindRuntimeBar', function () { bindRuntimeBar(); }],
+      ['loadStats', function () { loadStats(); }],
+      ['loadRuntimeStatus', function () { loadRuntimeStatus(); }],
+      ['renderSessionHistory', function () { renderSessionHistory(); }],
+      ['startAutoRefresh', function () { startAutoRefresh(); }],
+      ['setActiveLayer', function () { setActiveLayer('L3'); }],
+      ['loadL1AgentGridFromStats', function () { loadL1AgentGridFromStats(); }],
+      ['loadSessionHistoryFromBackend', function () { loadSessionHistoryFromBackend(); }],
+      ['showGuideBanner', function () { showGuideBanner(); }],
+    ];
+    steps.forEach(function (s) {
+      try { s[1](); } catch (e) { console.error('[boot] 步骤失败 ' + s[0] + ':', e); }
+    });
   }
   window._sandboxTwinBoot = bootSandboxTwin;
   if (document.readyState === 'loading') {

@@ -211,6 +211,26 @@ class ExtractionPipelineEngine:
                 reason=f"已是最终阶段 '{current.value}'",
             ))
 
+        # 单人 review：触发推进的真人即视为完成复核并同意（降低门槛，单人即可推进）。
+        # identity 用 PEER，同时满足历史管线里仍要求 peer 身份的门禁。
+        if triggered_by and triggered_by != "system" and not force:
+            already_approved = any(
+                r.reviewer_id == triggered_by and r.action == "approve"
+                for r in pipeline.reviewers
+            )
+            if not already_approved:
+                updated = await self._store.add_reviewer(pipeline_id, ReviewerRecord(
+                    reviewer_id=triggered_by,
+                    reviewer_name=triggered_by,
+                    identity=ReviewerIdentity.PEER,
+                    team_id=pipeline.team_id,
+                    action="approve",
+                    comment="单人推进：触发者自动复核同意",
+                    reviewed_at=datetime.now(timezone.utc).isoformat(),
+                ))
+                if updated:
+                    pipeline = updated
+
         # 门禁检查
         gate_result = self.check_gate(pipeline, target)
         if not gate_result.passed and not force:

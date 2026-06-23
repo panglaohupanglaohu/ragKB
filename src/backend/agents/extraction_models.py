@@ -240,12 +240,13 @@ def default_gate_requirements() -> Dict[PipelineStage, GateRequirement]:
     """返回默认的四阶段门禁配置.
 
     简化版: 单人即可推进，降低使用门槛。
+    不强制特定复核身份（peer/senior），触发推进的本人即可作为唯一复核人同意。
     """
     return {
         PipelineStage.REVIEW: GateRequirement(
             stage=PipelineStage.REVIEW,
             min_reviewers=1,
-            required_identities=[ReviewerIdentity.PEER],
+            required_identities=[],
             min_approvals=1,
             max_rejections=1,
             require_cross_team=False,
@@ -255,7 +256,7 @@ def default_gate_requirements() -> Dict[PipelineStage, GateRequirement]:
         PipelineStage.APPROVAL: GateRequirement(
             stage=PipelineStage.APPROVAL,
             min_reviewers=1,
-            required_identities=[ReviewerIdentity.PEER],
+            required_identities=[],
             min_approvals=1,
             max_rejections=1,
             require_cross_team=False,
@@ -265,7 +266,7 @@ def default_gate_requirements() -> Dict[PipelineStage, GateRequirement]:
         PipelineStage.PUBLISHED: GateRequirement(
             stage=PipelineStage.PUBLISHED,
             min_reviewers=1,
-            required_identities=[ReviewerIdentity.PEER],
+            required_identities=[],
             min_approvals=1,
             max_rejections=1,
             require_cross_team=False,

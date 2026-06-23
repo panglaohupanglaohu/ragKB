@@ -249,6 +249,41 @@ def build_plaza_topics(group_result: Dict[str, Any]) -> List[Dict[str, str]]:
     return topics
 
 
+def _merge_persisted_trials(usage: TeamUsage) -> None:
+    """从持久化 trials.json 合并本团队已评分试炼（与内存 _trials 按 id 去重）。
+
+    根因(bug-062): 内存 _trials 仅在创建试炼时写入、后端重启即清空；token 用量(usage.db)
+    与试炼(TrialStore/trials.json)均持久化、重启都在，唯独内存 _trials 丢失 → 效率/棘轮
+    误判『有 token 消耗但无演练评分』(score=0→效率=0)。同步读盘文件即可恢复评分，
+    覆盖所有同步调用方（棘轮 advance、cost_targets、效率视角）。
+    """
+    try:
+        import json
+        from sandbox.trial_store import STORAGE_FILE
+        if not STORAGE_FILE.exists():
+            return
+        data = json.loads(STORAGE_FILE.read_text(encoding="utf-8"))
+        seen = {t.get("trial_id") for t in usage.trials}
+        added = False
+        for tid, d in (data.get("trials") or {}).items():
+            if (d.get("team_id") or "") != usage.team_id:
+                continue
+            real_id = d.get("id", tid)
+            if real_id in seen or tid in seen:
+                continue
+            score = (d.get("evaluation") or {}).get("total_score", d.get("best_score")) or 0
+            usage.trials.append({"trial_id": real_id,
+                                 "scenario_id": d.get("scenario_id", ""),
+                                 "total_score": float(score or 0),
+                                 "steps": d.get("total_steps", 0)})
+            seen.add(real_id)
+            added = True
+        if added:
+            usage.data_sources["trial_store"] = "measured"
+    except Exception as e:
+        logger.debug(f"trial_store 合并不可用: {e}")
+
+
 def collect_team_usage(team_id: str) -> TeamUsage:
     """G5-3 数据适配层: 优先真实来源，缺失则估算（标注 data_quality）."""
     usage = TeamUsage(team_id=team_id, data_quality="estimated")
@@ -268,6 +303,10 @@ def collect_team_usage(team_id: str) -> TeamUsage:
             usage.data_sources["trials"] = "estimated"
     except Exception as e:
         logger.debug(f"trial 数据不可用: {e}")
+
+    # 重启后内存 _trials 清空 → 从持久化 trials.json 合并本团队已评分试炼（去重），
+    # 否则效率/棘轮误判『有 token 消耗但无演练评分』(score=0)。(bug-062)
+    _merge_persisted_trials(usage)
 
     # 真实成本（消耗侧）— P4: 切换到 TokenLedger（直接从 usage.db 聚合）
     try:
@@ -368,7 +407,7 @@ def _infer_model_tier(model_names: List[str]) -> str:
 
 async def collect_team_usage_async(team_id: str) -> TeamUsage:
     """异步适配层: 同步 token/trial 证据 + 真实 CostAggregator 团队成本."""
-    usage = collect_team_usage(team_id)
+    usage = collect_team_usage(team_id)   # 内部已合并持久化试炼(_merge_persisted_trials)
     await _enrich_cost_aggregator(usage)
     return usage
 
