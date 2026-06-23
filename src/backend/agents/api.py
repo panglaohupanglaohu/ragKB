@@ -1172,22 +1172,25 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
 )
 def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     team = _get_team_or_404(team_id)
+    # 技能可能只在技能库(skill_store)里、并未注册进 team.skills（UI 仍会展示），
+    # 因此不能因 team.skills 没有就直接 404；三处都尝试删，全无才报 404。
     removed = team.skills.pop(skill_id, None)
-    if removed is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
-    # Remove from all agents in this team
-    for agent in team.agents:
+    # Remove from all agents in this team（team.agents 是 dict[id→AgentProfile]，须遍历 values）
+    for agent in team.agents.values():
         if skill_id in agent.skills:
             agent.skills.remove(skill_id)
     _tm()._persist()
     # Also remove from skill store
+    store_deleted = False
     try:
         from .skill_library import get_skill_library
         lib = get_skill_library()
         if lib and lib._skill_store:
-            lib._skill_store.delete(skill_id)
+            store_deleted = bool(lib._skill_store.delete(skill_id))
     except Exception:
         pass
+    if removed is None and not store_deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team or library")
     return {"status": "deleted", "skill_id": skill_id}
 
 

@@ -1186,5 +1186,102 @@
       "animation"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-064",
+    "error_message": "GET /plaza/escalations 404，前端不停刷+弹『讨论结束』",
+    "root_cause": "FastAPI 按注册顺序匹配：@router.get('/{plaza_id}')(L503) 在 @router.get('/escalations')(L1581) 之前，导致 /escalations 被 /{plaza_id} 吞掉(plaza_id='escalations')→404 广场不存在",
+    "fix": "把 get_escalation_queue 路由上移到 /{plaza_id} 之前(紧跟 /presets)",
+    "tags": [
+      "backend",
+      "fastapi",
+      "routing",
+      "plaza",
+      "404"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-065",
+    "error_message": "DELETE /teams/{id}/skills/{id} 500，技能不可删除",
+    "root_cause": "delete_skill 里 `for agent in team.agents` 遍历的是 dict 的键(agent_id 字符串)，再取 agent.skills → str 无 skills 属性 → AttributeError 500",
+    "fix": "改为 `for agent in team.agents.values()`",
+    "tags": [
+      "backend",
+      "api",
+      "skill",
+      "delete",
+      "500",
+      "dict-iteration"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-066",
+    "error_message": "点『进入演化』只笼统报『演化启动失败』，看不出原因",
+    "root_cause": "enterEvolution 用 api() 包装，非2xx 返回 null → 真实 detail(尚无执行计划/演化引擎未初始化) 被吞",
+    "fix": "改直连 fetch 读取后端 detail，失败时一并提示真实原因",
+    "tags": [
+      "frontend",
+      "plaza",
+      "error-surfacing"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-065b",
+    "error_message": "DELETE 技能改 .values() 后不再 500，但库内(非 team.skills)技能删除报 404",
+    "root_cause": "delete_skill 在 team.skills.pop 为 None 时直接 404，而 UI 展示的技能可能只在 skill_store/库里、未注册进 team.skills",
+    "fix": "改为三处都尝试删(team.skills / 各 agent.skills / skill_store.delete)，仅当 team 与库都无该技能才 404",
+    "tags": [
+      "backend",
+      "api",
+      "skill",
+      "delete",
+      "404"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-067",
+    "error_message": "创建试炼 与 沙箱推演 两个创建入口冗余",
+    "root_cause": "两者最终都调用 createTrial()；沙箱推演(sexyCreateAndRun)还额外读仿真参数面板+空场景守卫+切出运行控制区，导演台 idle 态的『创建试炼』按钮属重复入口",
+    "fix": "_BG.idle 由『🧪创建试炼』按钮改为指向『沙箱推演』的提示文案，统一为单一创建入口；ready/completed 等其它生命周期按钮(单步/自动/评分/反哺/新试炼)保持不变",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "ux",
+      "dedup"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-068",
+    "error_message": "沙箱出料『SOP』标签永远显示占位『仿真完成后提取SOP』，看不到提取结果与过程",
+    "root_cause": "#sub-sop 标签是死占位；extractSop/renderSopList 只写 #sop-list-area(导演台元素)，从不写 #sub-sop；点 SOP 标签(switchIOSub)也不触发提取",
+    "fix": "switchIOSub('sop') 触发新增 _loadSecsSop()：调 /extract-sop 提取本次试炼 SOP，渲染到 #sub-sop(含『提取过程』说明+每条 SOP 名称/置信度/步数)，空结果给明确提示",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "secs",
+      "sop",
+      "extraction"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-069",
+    "error_message": "Cost Gate 自检总是失败(block)",
+    "root_cause": "前端自检硬编码 inline.score=0 且 min_efficiency=1.0 → eff=score/(tokens/1k)恒为0 < 1.0 → LOW_TOKEN_EFFICIENCY(high) → block；即便真实效率(~0.3)也低于1.0仍会失败",
+    "fix": "自检改用 /sustainability/group 的真实数据(total_score/tokens_consumed/trial_count)选 token 最高团队为样本；阈值改 min_efficiency=0.05、max_tokens=1e6；结果行标注团队。离线验证 AWS eff=0.2968 → pass",
+    "tags": [
+      "frontend",
+      "cost-gate",
+      "self-check",
+      "threshold",
+      "score"
+    ],
+    "date": "2026-06-23"
   }
 ]

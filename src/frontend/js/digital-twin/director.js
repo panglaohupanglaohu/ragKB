@@ -223,7 +223,7 @@ window.addEventListener('DOMContentLoaded', window._dtRoomMapHealth);
 window.addEventListener('load', window._dtRoomMapHealth);
 setInterval(window._dtRoomMapHealth, 2000);  // 引用断裂检测 + 页面诊断刷新
 
-var _BG={idle:'<button class="btn btn-primary" onclick="createTrial()" style="width:100%">🧪 创建试炼</button>',
+var _BG={idle:'<div style="width:100%;text-align:center;font-size:11px;color:var(--dim);padding:8px 0;line-height:1.5">👆 点上方绿色「▶ 沙箱推演」按钮创建并就绪试炼<br>（统一创建入口：读取仿真参数 + 场景守卫）</div>',
 creating:'<button class="btn-disabled" disabled style="width:100%">⏳ 创建中...</button>',
 ready:'<div style="display:flex;gap:4px;width:100%"><button class="btn btn-accent" onclick="stepOnce()" style="flex:1">▶ 单步</button><button class="btn btn-primary" onclick="autoRun()" style="flex:1">▶▶ 自动</button><button class="btn btn-warning" onclick="showInjectDropdown()" style="flex:1">💥 注入</button></div>',
 running:'<button class="btn btn-warning" onclick="pauseSim()" style="width:100%">⏸ 暂停</button>',

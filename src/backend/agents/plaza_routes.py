@@ -500,6 +500,34 @@ async def get_preset_topics() -> List[Dict[str, str]]:
     return PRESET_TOPICS
 
 
+# NOTE: 必须在 /{plaza_id} 之前注册，否则 GET /escalations 会被 /{plaza_id} 吞掉
+# (plaza_id="escalations") → 404「广场不存在」。FastAPI 按注册顺序匹配。
+@router.get("/escalations", summary="获取失败升级队列")
+async def get_escalation_queue(
+    plaza_id: str = Query(default="", description="按广场过滤"),
+    discussion_id: str = Query(default="", description="按讨论过滤"),
+    entry_status: str = Query(default="", alias="status", description="按状态过滤"),
+) -> Dict[str, Any]:
+    """Return all pending escalation entries for human review."""
+    engine = get_plaza_engine()
+    queue = [
+        {"index": index, **entry}
+        for index, entry in enumerate(engine.get_escalation_queue())
+    ]
+    if plaza_id:
+        queue = [entry for entry in queue if entry.get("plaza_id") == plaza_id]
+    if discussion_id:
+        queue = [entry for entry in queue if entry.get("discussion_id") == discussion_id]
+    if entry_status:
+        queue = [entry for entry in queue if entry.get("status") == entry_status]
+    pending = [e for e in queue if e.get("status") == "pending"]
+    return {
+        "items": queue,
+        "total": len(queue),
+        "pending_count": len(pending),
+    }
+
+
 @router.get("/{plaza_id}", summary="获取广场详情")
 async def get_plaza(plaza_id: str) -> Dict[str, Any]:
     engine = get_plaza_engine()
@@ -1578,31 +1606,7 @@ async def monitoring_report_event(event: Dict[str, Any]) -> Dict[str, Any]:
 # Escalation Queue (失败升级)
 # ══════════════════════════════════════════════════════════════════
 
-@router.get("/escalations", summary="获取失败升级队列")
-async def get_escalation_queue(
-    plaza_id: str = Query(default="", description="按广场过滤"),
-    discussion_id: str = Query(default="", description="按讨论过滤"),
-    entry_status: str = Query(default="", alias="status", description="按状态过滤"),
-) -> Dict[str, Any]:
-    """Return all pending escalation entries for human review."""
-    engine = get_plaza_engine()
-    queue = [
-        {"index": index, **entry}
-        for index, entry in enumerate(engine.get_escalation_queue())
-    ]
-    if plaza_id:
-        queue = [entry for entry in queue if entry.get("plaza_id") == plaza_id]
-    if discussion_id:
-        queue = [entry for entry in queue if entry.get("discussion_id") == discussion_id]
-    if entry_status:
-        queue = [entry for entry in queue if entry.get("status") == entry_status]
-    pending = [e for e in queue if e.get("status") == "pending"]
-    return {
-        "items": queue,
-        "total": len(queue),
-        "pending_count": len(pending),
-    }
-
+# get_escalation_queue 已上移到 /{plaza_id} 之前（修复路由吞噬 404）。
 
 @router.post("/escalations/{index}/resolve", summary="解决升级项")
 async def resolve_escalation(index: int) -> Dict[str, Any]:

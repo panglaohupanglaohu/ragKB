@@ -1400,23 +1400,25 @@
     var result = $('cost-action-result');
     if (result) result.textContent = '正在运行 Token Gate 自检...';
     try {
-      // P2: 改调 Token Gate，用当前 Top 团队最近一次 run 或 inline 拼数据
-      var tokOverview = state.tokenOverview;
-      var topTeam = (tokOverview && tokOverview.by_team && tokOverview.by_team[0]) || null;
-      var inlineData = null;
-      var runId = '';
-      if (topTeam) {
-        inlineData = { total: topTeam.total || 0, calls: topTeam.calls || 0, score: 0 };
-      } else {
-        inlineData = { total: 0, calls: 0, score: 0 };
-      }
+      // 用「效率视角」的真实数据(含真实评分，bug-062 后从持久化 trials 补回)做自检。
+      // 旧实现硬编码 score:0 + min_efficiency:1.0 → eff 恒为 0 → 永远 block → 自检总是失败。
+      var sust = state.sustainability;
+      if (!sust || !sust.teams) { sust = await requestJson(SUSTAINABILITY_API + '/group'); }
+      var teams = (sust && sust.teams) || [];
+      // 取 token 消耗最高的团队作为自检样本（最能体现"高 token"风险）
+      var sample = teams.slice().sort(function (a, b) { return (b.tokens_consumed || 0) - (a.tokens_consumed || 0); })[0] || null;
+      var inlineData = sample
+        ? { total: sample.tokens_consumed || 0, calls: sample.trial_count || 0, score: sample.total_score || 0 }
+        : { total: 0, calls: 0, score: 0 };
+      var sampleName = sample ? (sample.team_id || '样本') : '样本';
       var report = await requestJson(GATE_API + '/token/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inline: inlineData,
-          run_id: runId || undefined,
-          budget: { min_efficiency: 1.0, max_tokens: 100000 },
+          // 真实效率约 0.1~0.5：min_efficiency 0.05 只拦"有 token 零产出"的团队；
+          // max_tokens 给足，避免样本团队 token 多被误判超预算。
+          budget: { min_efficiency: 0.05, max_tokens: 1000000 },
         }),
       });
       if (report) {
@@ -1425,7 +1427,7 @@
         var eff = report.efficiency != null ? report.efficiency.toFixed(4) : '—';
         if (result) {
           var icon = decision === 'pass' ? '✅' : decision === 'warn' ? '⚠️' : '🚫';
-          result.innerHTML = icon + ' Token Gate: <strong>' + esc(decision) + '</strong> · 效率 ' + eff + ' · 违规 ' + compactNumber(violations);
+          result.innerHTML = icon + ' Token Gate【' + esc(sampleName) + '】: <strong>' + esc(decision) + '</strong> · 效率 ' + eff + ' · 违规 ' + compactNumber(violations);
         }
         // 更新 Gate 统计
         var tokStats = await requestJson(GATE_API + '/token/stats');

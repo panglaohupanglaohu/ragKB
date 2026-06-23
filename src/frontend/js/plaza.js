@@ -1908,17 +1908,25 @@ window.enterEvolution = async function() {
   if (!curPlaza || !curDisc) return;
   const teamId = $('assign-team')?.value;
   toast('正在进入系统演化...');
-  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/evolve`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team_id: teamId || '' })
-  });
+  // 直接 fetch 以便拿到后端真实原因（尚无执行计划 / 演化引擎未初始化 等），不再笼统报"失败"
+  let r = null, detail = '';
+  try {
+    const resp = await fetch(`${API}/plaza/${curPlaza}/discussions/${curDisc}/evolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ team_id: teamId || '' })
+    });
+    const d = await resp.json().catch(() => ({}));
+    if (resp.ok) { r = d; }
+    else { detail = String(d?.detail || d?.message || `HTTP ${resp.status}`); }
+  } catch (e) { detail = e.message || '网络错误'; }
   if (r && r.status === 'evolving') {
     toast(`演化已启动: ${r.evolution_items || 0} 项演进需求`);
     if (r.tasks) renderDispatchedTasks(r.tasks);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
     await refreshVerificationState();
   } else {
-    toast('演化启动失败');
+    // 常见原因：尚无执行计划（先点"刷新计划"生成计划表）/ 演化引擎未初始化（重启后端）
+    toast('演化启动失败' + (detail ? '：' + detail : '（请先生成执行计划）'));
   }
 };
 

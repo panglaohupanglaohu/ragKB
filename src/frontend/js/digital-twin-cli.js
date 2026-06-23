@@ -289,11 +289,18 @@ function renderTopology(){
   // Render
   let html='';
   // Edges
-  Object.entries(edgeMap).forEach(([key,count])=>{
-    const[id1,id2]=key.split('-');
-    const n1=nodes.find(n=>n.agent_id===id1),n2=nodes.find(n=>n.agent_id===id2);
-    if(n1&&n2){const opacity=Math.min(0.8,0.1+count*0.1);html+=`<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="#3d5070" stroke-width="${Math.min(4,1+count*0.5)}" stroke-opacity="${opacity}"/>`}
-  });
+  const edgeEntries=Object.entries(edgeMap);
+  if(edgeEntries.length){
+    // 有真实交互历史 → 按交互频次画加权连线
+    edgeEntries.forEach(([key,count])=>{
+      const[id1,id2]=key.split('-');
+      const n1=nodes.find(n=>n.agent_id===id1),n2=nodes.find(n=>n.agent_id===id2);
+      if(n1&&n2){const opacity=Math.min(0.8,0.1+count*0.1);html+=`<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="#3d5070" stroke-width="${Math.min(4,1+count*0.5)}" stroke-opacity="${opacity}"/>`}
+    });
+  }else{
+    // 暂无交互历史 → 画编排中枢的基线连线(编排↔各 agent)，体现协作骨架，避免空白
+    nodes.forEach(n=>{html+=`<line x1="${cx}" y1="${cy}" x2="${n.x}" y2="${n.y}" stroke="#3d5070" stroke-width="1" stroke-opacity="0.3" stroke-dasharray="5,5"/>`});
+  }
   // Nodes
   nodes.forEach(n=>{
     html+=`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}20" stroke="${n.color}" stroke-width="2"/>`;

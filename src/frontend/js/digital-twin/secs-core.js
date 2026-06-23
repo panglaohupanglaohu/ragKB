@@ -370,7 +370,44 @@
     if (target) target.style.display = '';
     parent.querySelectorAll('.btn[data-sub]').forEach(function(b){ b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
+    // 点「SOP」标签即从本次试炼提取并展示 SOP（含提取过程），不再只是占位提示
+    if (sub === 'sop') { try { _loadSecsSop(); } catch(e) {} }
   };
+
+  // 沙箱出料「SOP」标签：调用 /extract-sop 从本次试炼归纳 SOP，渲染到 #sub-sop。
+  async function _loadSecsSop() {
+    var el = document.getElementById('sub-sop');
+    if (!el) return;
+    var tid = (window._DTS && window._DTS.activeTrialId) || (window._sx && window._sx.trialId);
+    if (!tid) {
+      el.innerHTML = '<div class="io-empty" style="font-size:10px">先创建并运行试炼，完成后再提取 SOP</div>';
+      return;
+    }
+    el.innerHTML = '<div style="font-size:10px;color:var(--dim)">⏳ 正在从本次试炼提取 SOP…</div>';
+    try {
+      var r = await fetch('/api/v1/twin-trials/' + encodeURIComponent(tid) + '/extract-sop', { method: 'POST' });
+      var d = await r.json();
+      var sops = d.sops || d.extracted_sops || [];
+      if (typeof _logConsole === 'function') _logConsole('📋 SOP 提取：扫描试炼 ' + String(tid).slice(0, 8) + ' → ' + sops.length + ' 条', 'info');
+      if (!sops.length) {
+        el.innerHTML = '<div class="io-empty" style="font-size:10px">本次试炼未提取到稳定 SOP（步数不足或策略未收敛）。多跑几步或选具体演练场景后重试。</div>';
+        return;
+      }
+      el.innerHTML = '<div style="font-size:9px;color:var(--dim);margin-bottom:4px">提取过程：扫描本次试炼执行轨迹 → 归纳出 ' + sops.length + ' 条 SOP（百分比=策略出现稳定度/置信度）</div>'
+        + sops.map(function (s) {
+            var conf = Math.round((s.confidence || 0) * 100);
+            var steps = (s.steps && s.steps.length) ? s.steps.length : (s.step_count || 0);
+            return '<div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">'
+              + '<b style="color:#fbbf24">' + (s.name || s.sop_id || 'SOP') + '</b> <span style="color:#4ade80">' + conf + '%</span>'
+              + (steps ? ' <span style="color:var(--dim)">· ' + steps + ' 步</span>' : '')
+              + (s.description ? '<div style="color:var(--dim);margin-top:2px">' + String(s.description).slice(0, 120) + '</div>' : '')
+              + '</div>';
+          }).join('');
+      if (typeof renderSopList === 'function') { try { renderSopList(sops); } catch (e) {} }
+    } catch (e) {
+      el.innerHTML = '<div class="io-empty" style="font-size:10px;color:var(--red)">SOP 提取失败：' + (e.message || '服务异常') + '</div>';
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // 🎯 选择演练团队 (直接点击选中，无需二级确认)
