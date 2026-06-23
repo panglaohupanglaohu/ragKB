@@ -13,6 +13,70 @@ cd "$ROOT" || exit 0
 # 显式跳过
 [ "${SKIP_OFFLINE_CHECK:-}" = "1" ] && exit 0
 
+# ── 明文密钥扫描（拦截 settings.json / model_pool.json 里的非空 api_key/secret）──
+# 匹配常见密钥前缀: sk- / ck_ / ghp_ / AKIA / eyJ (JWT) / 长十六进制串
+SECRET_FILES_RX='^config/(settings|model_pool)\.json$'
+STAGED_SECRET_FILES="$(git diff --cached --name-only --diff-filter=ACM | grep -E "$SECRET_FILES_RX" || true)"
+if [ -n "$STAGED_SECRET_FILES" ]; then
+  SECRET_HIT=0
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    # 提取 staged 版本内容（而非工作区），用 git show :<file>
+    HITS="$(git show ":$f" 2>/dev/null | python3 -c '
+import sys, json, re
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+patterns = [
+    re.compile(r"^(sk-[A-Za-z0-9_\-]{8,})$"),
+    re.compile(r"^(ck_[a-z0-9]{6,}\.[A-Za-z0-9_\-]{8,})$"),
+    re.compile(r"^(ghp_[A-Za-z0-9]{20,})$"),
+    re.compile(r"^(AKIA[0-9A-Z]{16})$"),
+    re.compile(r"^(eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{8,})$"),  # JWT
+]
+def scan(obj, path=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            if isinstance(v, str):
+                key_lower = k.lower()
+                is_secret_field = any(s in key_lower for s in ("api_key", "apikey", "secret", "token", "password", "passwd"))
+                if is_secret_field and v.strip() != "":
+                    for rx in patterns:
+                        if rx.match(v.strip()):
+                            print(f"  {p} = {v.strip()[:12]}...（疑似密钥）")
+                            break
+                    else:
+                        # 非空但不符合已知前缀：若字段名含 key/secret 且长度>=16，仍告警
+                        if is_secret_field and len(v.strip()) >= 16 and "base_url" not in key_lower and "url" not in key_lower:
+                            print(f"  {p} = {v.strip()[:12]}...（非空，长度{len(v.strip())}，请确认非密钥）")
+            elif isinstance(v, (dict, list)):
+                scan(v, p)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, (dict, list)):
+                scan(v, f"{path}[{i}]")
+scan(data)
+' 2>/dev/null || true)"
+    if [ -n "$HITS" ]; then
+      echo "🔒 pre-commit: 检测到疑似明文密钥，已拦截提交！"
+      echo "   文件: $f"
+      echo "$HITS"
+      echo ""
+      echo "   处理: 请将密钥改为空字符串 \"\"（运行时通过 secret_store 加密加载）"
+      echo "   绕过(不推荐): git commit --no-verify"
+      SECRET_HIT=1
+    fi
+  done <<EOF
+$STAGED_SECRET_FILES
+EOF
+  if [ "$SECRET_HIT" = "1" ]; then
+    exit 1
+  fi
+  echo "🔒 pre-commit: 密钥扫描 OK（无非空明文密钥）"
+fi
+
 # ── 前端 JS 语法检查（只查本次暂存的 .js，零 token、毫秒级）──
 # 只检查 staged 的 src/frontend 下 .js，避免被无关的历史语法错拦住提交。
 if command -v node >/dev/null 2>&1; then
