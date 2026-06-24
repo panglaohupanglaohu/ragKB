@@ -2903,8 +2903,14 @@ async function loadPipelineTab() {
   document.getElementById('pipe-current-stage').textContent = STAGE_LABELS[p.current_stage] || p.current_stage;
 
   // Enable advance button (always enabled except published)
+  const isPublished = p.current_stage === 'published';
   const advBtn = document.getElementById('btn-advance-pipe');
-  advBtn.disabled = p.current_stage === 'published';
+  if (advBtn) advBtn.disabled = isPublished;
+  // 已发布=最终阶段：隐藏「通过并推进」主按钮，避免误点后报「已是最终阶段」被当成门禁失败
+  const primaryAdv = document.getElementById('btn-advance-pipe-primary');
+  if (primaryAdv) primaryAdv.style.display = isPublished ? 'none' : '';
+  const reviewFormBtn = document.getElementById('btn-show-review-form-pipe');
+  if (reviewFormBtn) reviewFormBtn.style.display = isPublished ? 'none' : '';
 
   // Update reviewer/approval counts
   const reviews = p.reviews?.[p.current_stage] || [];
@@ -2915,7 +2921,7 @@ async function loadPipelineTab() {
   _eachGateEl('gate-reviewer-count', el => el.textContent = `${reviews.length}/${reqReviewers} 复核`);
   _eachGateEl('gate-approval-count', el => el.textContent = `${approvals.length}/${reqApprovals} 同意`);
   _eachGateEl('gate-progress-fill', el => el.style.width = progress + '%');
-  _eachGateEl('gate-status-badge', el => el.textContent = approvals.length >= reqApprovals ? '🔓 可推进' : '🔒 未确认');
+  _eachGateEl('gate-status-badge', el => el.textContent = isPublished ? '🎉 已发布(最终阶段)' : (approvals.length >= reqApprovals ? '🔓 可推进' : '🔒 未确认'));
 
   // Render reviewer list (两套门禁 UI 都写)
   if (reviews.length > 0) {
@@ -3146,13 +3152,24 @@ window.submitReviewAction = async function(action, scope) {
 // ── Pipeline Advance ────────────────────────────────────────────
 window.advancePipeline = async function() {
   if (!currentPipeline) return;
+  // 已是最终阶段（已发布）→ 无需再推进，给明确提示而非「门禁未通过」
+  if (currentPipeline.current_stage === 'published') {
+    showToast('🎉 该技能已发布（最终阶段），无需再推进', 'success');
+    return;
+  }
   const result = await api2(`${PIPELINE_API}/pipelines/${currentPipeline.pipeline_id}/advance`, {
     method: 'POST',
     body: JSON.stringify({ triggered_by: 'human' }),
   });
   if (result && result._error) {
     const gr = result.gate_result || result;
-    showToast(`🔒 门禁未通过: ${result.reason || gr.reason || result.error}`, 'error');
+    const _reason = result.reason || gr.reason || result.error || '';
+    // 后端「已是最终阶段」不是门禁失败，单独友好提示
+    if (/最终阶段|已是最终|already.*final/i.test(_reason)) {
+      showToast('🎉 该技能已发布（最终阶段），无需再推进', 'success');
+      return;
+    }
+    showToast(`🔒 门禁未通过: ${_reason}`, 'error');
     // Show gate check result
     const gateEl = document.getElementById('pipe-gate-result');
     gateEl.style.display = 'block';

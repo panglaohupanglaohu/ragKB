@@ -622,10 +622,16 @@ async def create_discussion(
         plaza_id, req.topic, req.description,
         req.moderator_agent_id, req.max_rounds,
     )
-    if disc:
-        disc.goal = req.goal
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc.goal = req.goal
+    # 关联发起团队（如成本治理按团队创建话题）→ 讨论归属该团队，可按团队过滤
+    if getattr(req, "team_id", ""):
+        disc.assigned_team_id = req.team_id
+    try:
+        engine._store.save_plaza(engine._plazas[plaza_id])
+    except Exception:
+        pass
     return disc.to_dict()
 
 

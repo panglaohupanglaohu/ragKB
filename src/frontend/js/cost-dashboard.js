@@ -856,7 +856,6 @@
       '  <div class="action-buttons">',
       '    <button class="btn cost-btn cost-btn--accent cost-btn--sm" onclick="createOptimizationTask(\'breakdown\',0)">创建优化任务</button>',
       '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="createPlazaTopic(\'breakdown\',0)">创建 Plaza 话题</button>',
-      '    <button class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="generateLabelPatch(\'pod\',0)">标签补丁</button>',
       '  </div>',
       '  <div class="action-result" id="cost-action-result"></div>',
       '</div>',
@@ -909,7 +908,19 @@
     var allZeroEff = teams.every(function (t) { return !Number(t.token_efficiency || 0); });
     var scoreNote = '<div style="font-size:11px;color:var(--sumi-3);margin-bottom:8px;line-height:1.5">效率 = score ÷ (tokens/1k)，<b>score 来自数字孪生「评分试炼」</b>。'
       + (allZeroEff ? '当前所有团队尚无评分 → 效率显示 0（<b>不代表低效</b>）。去 <a href="/Agent-digital-twin.html" style="color:var(--koke)">数字孪生</a> 跑一次评分试炼即可解锁。' : '未跑评分的团队显示为 0。') + '</div>';
+    // 13.1: 未归因 token 健康指标（>5% 红字提示，效率被低估）
+    var ua = payload && payload._unattributed;
+    var uaBanner = '';
+    if (ua && ua.tokens > 0) {
+      var uaPct = (ua.ratio * 100).toFixed(1);
+      var uaWarn = ua.ratio > 0.05;
+      uaBanner = '<div style="font-size:11px;margin-bottom:8px;line-height:1.5;' + (uaWarn ? 'color:var(--shu)' : 'color:var(--sumi-3)') + '">'
+        + (uaWarn ? '⚠ ' : '') + '未归因 token：' + compactNumber(ua.tokens) + ' (' + uaPct + '%)'
+        + (uaWarn ? ' — 有 LLM 调用未带 team_id，部分团队效率被低估；让议事/萃取/演练调用带上 token_scope(team_id)，归因占比应 <5%。' : ' · 归因健康')
+        + '</div>';
+    }
     host.innerHTML = [
+      uaBanner,
       scoreNote,
       '<div class="efficiency-grid">',
       '  <div class="efficiency-list">' + rows + '</div>',
@@ -936,6 +947,14 @@
     setHtml('efficiency-panel', '<div class="loading-state"><div class="spinner"></div></div>');
     try {
       state.sustainability = await requestJson(SUSTAINABILITY_API + '/group');
+      // 13.1: 取未归因 token，算占比挂到 payload 供顶部健康指标显示
+      try {
+        var rep = await requestJson(COST_API + '/report?window=' + encodeURIComponent((state.filters && state.filters.window) || '24h'));
+        var unattr = (rep && (rep.unattributed_tokens || (rep.reconciliation && rep.reconciliation.unattributed))) || 0;
+        var attr = ((state.sustainability && state.sustainability.teams) || []).reduce(function (s, t) { return s + (t.tokens_consumed || 0); }, 0);
+        var tot = attr + unattr;
+        state.sustainability._unattributed = { tokens: unattr, ratio: tot > 0 ? unattr / tot : 0 };
+      } catch (e) { /* 未归因指标可选，失败不影响主视图 */ }
       renderEfficiencyView(state.sustainability);
       return state.sustainability;
     } catch (e) {
@@ -1375,6 +1394,8 @@
           goal: '形成可派发的成本优化任务，并判断是否需要进入系统演进。',
           moderator_agent_id: '',
           max_rounds: 3,
+          // 关联当前选中/治理目标团队 → 话题归属该团队，可按团队过滤查看
+          team_id: (target && target.ref_id) || (state.filters && state.filters.team) || '',
         }),
       });
       if (discussion && discussion.id) {
@@ -1411,14 +1432,17 @@
         ? { total: sample.tokens_consumed || 0, calls: sample.trial_count || 0, score: sample.total_score || 0 }
         : { total: 0, calls: 0, score: 0 };
       var sampleName = sample ? (sample.team_id || '样本') : '样本';
+      // 13.4 自适应阈值：底线效率 = 全员真实效率 P25 × 0.5（替代写死的 0.05），最低 0.02。
+      var effs = teams.map(function (t) { return t.token_efficiency || 0; }).filter(function (e) { return e > 0; }).sort(function (a, b) { return a - b; });
+      var p25 = effs.length ? effs[Math.floor(effs.length * 0.25)] : 0;
+      var minEff = Math.max(p25 * 0.5, 0.02);
       var report = await requestJson(GATE_API + '/token/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inline: inlineData,
-          // 真实效率约 0.1~0.5：min_efficiency 0.05 只拦"有 token 零产出"的团队；
           // max_tokens 给足，避免样本团队 token 多被误判超预算。
-          budget: { min_efficiency: 0.05, max_tokens: 1000000 },
+          budget: { min_efficiency: minEff, max_tokens: 1000000 },
         }),
       });
       if (report) {
@@ -1427,7 +1451,7 @@
         var eff = report.efficiency != null ? report.efficiency.toFixed(4) : '—';
         if (result) {
           var icon = decision === 'pass' ? '✅' : decision === 'warn' ? '⚠️' : '🚫';
-          result.innerHTML = icon + ' Token Gate【' + esc(sampleName) + '】: <strong>' + esc(decision) + '</strong> · 效率 ' + eff + ' · 违规 ' + compactNumber(violations);
+          result.innerHTML = icon + ' Token Gate【' + esc(sampleName) + '】: <strong>' + esc(decision) + '</strong> · 效率 ' + eff + ' · 底线 ' + minEff.toFixed(3) + '(全员P25×0.5) · 违规 ' + compactNumber(violations);
         }
         // 更新 Gate 统计
         var tokStats = await requestJson(GATE_API + '/token/stats');
@@ -1542,10 +1566,12 @@
     if (t.metric === 'score_per_1k') {
       return '推进：去 <a href="/Agent-digital-twin.html?team=' + ref + '" style="color:var(--koke)">数字孪生</a> 为该团队跑「评分试炼」提高 score/1k → 回来点「刷新效率」→ 棘轮可锁定';
     }
-    // tokens_per_goal
+    // tokens_per_goal — 13.5: 附「预计可省 token」量化（基于当前消耗 × 各杠杆经验降幅）
+    var cur = Number(t.current || t.total || t.value || 0);
+    var save = function (pct) { return cur > 0 ? '（预计可省 ~' + compactNumber(Math.round(cur * pct)) + ' token · ~' + Math.round(pct * 100) + '%）' : ''; };
     return t.lever === 'collaboration_routing'
-      ? '推进：去 <a href="/plaza.html" style="color:var(--koke)">议事广场</a> 复盘协作/优化 Agent 路由，减少无效往返 → 同意图 token 下降'
-      : '推进：去 <a href="/skill-extract.html?team_id=' + ref + '&focus=redundant" style="color:var(--koke)">技能萃取</a> 把重复意图固化为已验证 skill，复跑同意图命中 skill → token 下降';
+      ? '推进：去 <a href="/plaza.html" style="color:var(--koke)">议事广场</a> 复盘协作/优化 Agent 路由，减少无效往返 → 同意图 token 下降 ' + save(0.15)
+      : '推进：去 <a href="/skill-extract.html?team_id=' + ref + '&focus=redundant" style="color:var(--koke)">技能萃取</a> 把重复意图固化为已验证 skill，复跑同意图命中 skill → token 下降 ' + save(0.25);
   }
 
   // ═══ P5.2: Token 优化目标管理 ═══

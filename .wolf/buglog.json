@@ -1283,5 +1283,78 @@
       "score"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-070",
+    "error_message": "成本治理『创建 Plaza 话题』未归属选中团队，话题不在该团队下",
+    "root_cause": "createPlazaTopic 创建讨论时不传 team_id；且后端 create_discussion 即便收到 team_id 也忽略(只 /assign 用 assigned_team_id)",
+    "fix": "前端传 team_id=target.ref_id||filters.team；后端 create_discussion 用 req.team_id 设 disc.assigned_team_id 并 save_plaza 持久化",
+    "tags": [
+      "frontend",
+      "backend",
+      "plaza",
+      "cost-governance",
+      "team-association"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-071",
+    "error_message": "点『标签补丁』提示『请选择pod』——项目不使用 k8s，不该有 pod 概念",
+    "root_cause": "标签补丁=k8s pod label patch(OpenCost 云成本归因)，与 Token 成本北极星无关，属遗留 infra 动作",
+    "fix": "从治理动作按钮行移除『标签补丁』(generateLabelPatch) 按钮",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "k8s",
+      "scope",
+      "cleanup"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-013",
+    "error_message": "Phase 13 演进式成本优化闭环 — 代码可完成项落地",
+    "root_cause": "Phase 13 设计的闭环增强项待实现",
+    "fix": "13.1 效率视角顶部未归因 token 占比(>5%红字, /cost/report); 13.3 director _dtAutoCostRatchet 评分/反哺后自动推进 cost 棘轮; 13.4 CostGate 自检阈值改全员效率 P25×0.5 自适应; 13.5 targetHowto 附预计可省 token(skill 25%/collab 15%); 13.2 OpenCost/云成本标注'可选·非北极星'文案。live-env-only(Phase7 Demo/10 D1D2/11 AWS e2e)需真实 LLM 不可离线完成",
+    "tags": [
+      "cost-optimization",
+      "phase13",
+      "frontend",
+      "ratchet",
+      "gate",
+      "attribution"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-072",
+    "error_message": "技能赋予给 agent 后，智能体页技能列表找不到该技能",
+    "root_cause": "两处：①skill_router.assign 只往 agent.skills 追加 skill_id，不登记进 team.skills→团队不识别该技能；②智能体页 agent 卡片直接渲染原始 skill_id(如 7b33f2f0 哈希)而非名称，且 slice(0,3) 截断",
+    "fix": "①assign 时用 skill_library._find_skill 取 SkillDefinition 并 team.add_skill 登记进 team.skills；②agent 卡片用 team.skills 映射 skill_id→name 显示，>3 个显示 +N。注：已存在的散值需重新赋予一次才会登记+解析",
+    "tags": [
+      "backend",
+      "frontend",
+      "skill-router",
+      "agent",
+      "skill-assign",
+      "display"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-073",
+    "error_message": "已两人 approve(2/1 复核 2/1 同意)仍报『不能通过门禁』",
+    "root_cause": "该管线 current_stage 已是 published(最终阶段)，技能其实已发布；advance 无下一阶段→返回『已是最终阶段』，但前端把它当门禁失败显示。#btn-advance-pipe 在 published 已禁用，但我之前新增的『通过并推进』主按钮(btn-advance-pipe-primary)与复核按钮未禁用，误点即报错",
+    "fix": "published 时隐藏 通过并推进/多人复核 按钮、徽章显示『🎉已发布(最终阶段)』；advancePipeline 对 published 或『最终阶段』原因给成功提示而非门禁失败",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "pipeline",
+      "published",
+      "gate",
+      "ux"
+    ],
+    "date": "2026-06-23"
   }
 ]

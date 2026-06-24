@@ -62,13 +62,13 @@
       "api_base_url": "https://api.deepseek.com"
     }
   },
-  "a7c36670": {
-    "0f136344": {
-      "model_id": "0f136344",
+  "aws-ops": {
+    "deepseek": {
+      "model_id": "deepseek",
       "provider": "deepseek",
       "name": "deepseek-v4-pro",
-      "max_tokens": 4096,
-      "temperature": 0.7,
+      "max_tokens": 8192,
+      "temperature": 0.2,
       "is_default": true,
       "enabled": true,
       "api_key": "",

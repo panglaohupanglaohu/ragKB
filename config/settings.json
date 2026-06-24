@@ -12,7 +12,7 @@
     "provider": "codebuddy",
     "model": "glm-5.1",
     "api_base_url": "https://models.sjtu.edu.cn/api/v1",
-    "api_key": "",
+    "api_key": "sk-a3NiNAu1g_qNpvdUS_pLhQ",
     "max_tokens": 12288,
     "temperature": 0.7,
     "thinking": {

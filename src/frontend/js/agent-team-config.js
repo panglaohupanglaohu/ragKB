@@ -425,8 +425,13 @@ async function loadOverview(){
     const tbody=el('ov-team-agents');tbody.innerHTML='';
     if(curTm&&curTm.agents){
       const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);
+      // agent.skills 存的是 skill_id；用 team.skills 映射成可读名称，避免只显示一串 id
+      const _skMap={};
+      if(curTm.skills&&typeof curTm.skills==='object'){Object.keys(curTm.skills).forEach(function(sid){var sd=curTm.skills[sid]||{};_skMap[sid]=sd.name||sd.slug||sid;});}
       aa.forEach(a=>{
-        const skillChips=(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+escapeHtml(s)+'</span>').join('');
+        const _allSk=(a.skills||[]);
+        const _moreSk=_allSk.length>3?'<span class="chip" style="opacity:.55" title="还有 '+(_allSk.length-3)+' 个技能">+'+(_allSk.length-3)+'</span>':'';
+        const skillChips=_allSk.slice(0,3).map(s=>'<span class="chip" title="'+escapeHtml(s)+'">'+escapeHtml(_skMap[s]||s)+'</span>').join('')+_moreSk;
         const toolCount=a.tools?.length||0;
         const modelId=a.model_id||'-';
         tbody.innerHTML+=`<tr>

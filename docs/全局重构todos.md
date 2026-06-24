@@ -1553,6 +1553,13 @@ node scripts/check-docs-signoff.cjs                                  # 0 FAIL
 
 ## Phase 12 · 试炼导演台并入 SECS 演练 Pipeline（合并去重 + 腾出 3D 窗口 · 事无巨细 + 伪代码）
 
+> ✅ **本 Phase 已由 Phase 12.F「静态合并落地」实现并验证（见下方 12.✅ 落地状态 + buglog bug-043~068）**。
+> 下面 12.0~12.7 / 12.F 的逐条 `[ ]` 是当初的设计记录；实际落地采取了等价方案：
+> - 单一团队源用 `window._selectedTeamId`（而非新建 `DTContext` 抽象）——`createTrial` 已改读它（bug-054）。
+> - 创建入口收敛：`沙箱推演(sexyCreateAndRun)` 内部调 `createTrial`，导演台 idle 态「创建试炼」按钮已移除（bug-067），单一入口。
+> - 状态机回退边、跨 IIFE 暴露(`window._logConsole/_selectedTeamId/...`)、全流程 `_dtLogConsole` 联动、SOP 标签提取、破茧动画——均已落地（bug-053/054/058/068 等）。
+> 故 12.x 视为**已完成**，保留条目仅作设计追溯。
+
 > **决策（用户确认，2026-06-22）**：「试炼导演台」与「SECS 演练 Pipeline」本质是**同一功能拆成两个面板**——都做「选团队/场景/模式 → 创建 → 运行/单步 → 注入 → 评分/反哺/进化」。决定：**把试炼导演台的独有能力并入右侧 SECS 面板，移除左侧浮层，腾出 3D 窗口**。
 > **职责切分（合并后）**：`secs-core.js` = 唯一面板 + 执行 + 渲染 + 控制台；`director.js` = 退化为**状态机 + 评分/反哺/进化编排库**（被 SECS 面板调用），不再拥有自己的左侧 UI。
 > 已修的相关 bug（合并的起点）：bug-043/045/046/053/054（drill reward、team 选中、SSE/3D/停止、控制台联动、状态机+跨 IIFE）。
@@ -1854,3 +1861,116 @@ grep -nE "_logConsole|_selectedTeamId|_selectedTeamName|_secsSimRunning|_sx\b" s
 ```
 
 > **边界**：Phase 12 只**收敛**导演台现有能力，不新增业务；涉及后端的只读现有 `twin-trials`/`sandbox`/`twin-evolution` 路由。先做 12.1(单一团队源)+12.3(状态机复位)+12.5(跨 IIFE 收口) 三项即可消除「散乱+卡死」的主症状，12.2/12.6/12.7 是进一步收敛与闭环。
+
+---
+
+## Phase 13 · 演进式成本优化「做对、做闭环」（北极星 = 用最少 Token 把事办成 · 事无巨细 + 伪代码）
+
+> **定位**：Phase 8 把页面补成形、Phase 4/5 接了 Ledger/Gate/目标，但本会话实测仍发现一串"看着有、其实断"的问题（评分重启即丢、棘轮恒 0、Cost Gate 自检恒失败、Plaza 话题不归团队、还混着 k8s/pod 概念）。Phase 13 不再加新页面，而是把"测量→诊断→干预→验证→复盘"这条**演进闭环**真正打通，并彻底对齐"成本=LLM Token、不是基础设施"这一北极星。
+> **一句话目标**：任意团队，看一眼就知道"它花了多少 Token、产出多少分、效率几何、该动哪个杠杆"，点一下就能发起改进，改完棘轮只进不退地把成果锁住。
+
+### 13.0 现状诊断（本会话实测，✓=已修）
+- ✓ **评分重启即丢**(bug-062)：`collect_team_usage` 只读内存 `_trials`，重启清空→效率/棘轮恒 0。已改为同步合并持久化 `trials.json`。
+- ✓ **Cost Gate 自检恒失败**(bug-069)：前端硬编码 `score=0`+`min_efficiency=1.0`→效率恒 0<1.0→必 block。已改用真实评分+合理阈值。
+- ✓ **Plaza 话题不归团队**(bug-070)：`create_discussion` 忽略 `team_id`。已用 `assigned_team_id` 关联并持久化。
+- ✓ **混入 k8s/pod**(bug-071)：「标签补丁」是 pod label patch，与 Token 北极星无关。已移除。
+- [ ] **Token 归因仍有遗漏**：部分调用 `team_id` 为空→「未归因」。需在所有 ChatHarness 入口强制带 `token_scope(team_id)`。
+- [ ] **棘轮不自动**：达标后仍要人工点「运行棘轮周期」。应在评分/反哺成功后自动尝试推进。
+- [ ] **Gate 只会"自检"**：没有真正运行时拦截链路（评分/演练超预算时并不会被挡）。
+- [ ] **OpenCost「degraded」长驻**：云成本连接器降级常驻，干扰视线；Token 北极星下应弱化为可选附注。
+
+### 13.1 数据闭环：Token 归因零遗漏 + 真实评分（测量层）
+```python
+# 目标：任何一次 LLM 调用都带 team_id，使 by_team 无「未归因」桶
+# ChatHarness 单一收口处（chat()）：进入前断言 scope
+def chat(self, ...):
+    tid = token_scope.get() or self._infer_team_id(agent_id, team_id)   # 上下文/参数/默认 三级兜底
+    assert tid, "LLM 调用缺 team_id 归因"        # 开发期断言；生产降级为 warn + 落 'unattributed'
+    with token_scope_ctx(tid):
+        ...  # LEDGER 记账自动带 tid
+```
+- [ ] `_generate_agent_response` / plaza / skill-extract / drill 四条主路径都确认传 `team_id`（已修 drill，复核其余三条）。
+- [x] `LEDGER.by_team(include_unattributed=True)` 的「未归因」占比作为**数据健康指标**展示在效率视角顶部；>5% 给红字提示"有调用未归因，效率被低估"。
+- [x] 评分来源：`_merge_persisted_trials` 已从 `trials.json` 合并真实 `total_score`（重启不丢）。
+- **验收**：跑一轮 plaza+drill+extract 后，`by_team` 未归因占比 <5%；重启后端，效率视角各团队 score/效率不归零。
+
+### 13.2 对齐北极星：成本 = Token，剥离基础设施噪音（认知层）
+- [x] 移除「标签补丁」(pod label patch)。
+- [ ] OpenCost / pod_count / service_count / 云账单 等 **infra 指标整体降级**：默认折叠进「附注（可选云成本）」，不占主视线；主 KPI 只留 **Token 消耗 / Score / 效率(score per 1k) / 棘轮代数**。
+- [x] 文案统一：页面任何"成本"字样都指 **Token**；云成本处显式标注"（可选·非北极星）"。
+- **验收**：成本页首屏只见 Token 维度指标；无 pod/k8s 字样出现在主流程。
+
+### 13.3 效率视角 + 棘轮：自动闭环、只进不退（验证层）
+```js
+// 评分/反哺成功后自动尝试推进 cost_efficiency 棘轮，无需人工点
+async function onTrialScored(teamId){
+  const ev = await GET(`/sustainability/teams/${teamId}`);   // 真实 score/效率
+  if (ev.token_efficiency > 0){
+    const r = await POST('/tokens/ratchet/advance', {team_id:teamId});  // 内部 only-up
+    if (r.advanced) toast(`棘轮推进 → 第${r.generation}代 · 效率锁定 ${r.value}`);
+  }
+}
+```
+- [x] `evaluateTrial` / `feedbackAgents` 成功回调里调用 `onTrialScored(teamId)`（自动推进，失败静默）。**已落地**：director.js 新增 `_dtAutoCostRatchet()`，评分/反哺成功即 POST `/cost/tokens/ratchet/advance`。
+- [ ] 棘轮 UI 用真实数据渲染当前代数/锁定值/下一目标；达标即显示 🔒「已锁定为遗产」。
+- [ ] 效率视角排序明确：升序暴露"高 Token 低产出"团队（北极星反指标），并给"该动哪个杠杆"的下一步链接。
+- **验收**：评分一次→不点棘轮，代数自动 +1 且值只增不减；再评一次更低分，棘轮不回退。
+
+### 13.4 Cost Gate：从"自检"到"运行时拦截" + 自适应阈值（干预层）
+```python
+# 运行时：演练/批量调用前用预算闸门，超限则 warn/block 并落 Plaza 治理议题
+report = ENGINE.evaluate(run={"total":tokens,"score":score,"calls":calls,
+                              "dup_intent_calls":dups,"skill_available":sa,"used_raw_llm":raw},
+                         budget=adaptive_budget(team_id))
+if report.decision == "block":
+    raise GateBlocked(report)        # 拦在动作前，而非事后自检
+elif report.decision == "warn":
+    create_plaza_topic_from_gate(report, team_id)   # 自动转治理议题
+```
+```python
+def adaptive_budget(team_id):
+    # 阈值按全体团队真实效率分布自适应，而非写死 1.0
+    effs = [t.token_efficiency for t in all_teams() if t.token_efficiency>0]
+    floor = percentile(effs, 25) * 0.5 if effs else 0.05   # 取 P25 的一半为底线
+    return TokenBudget(min_efficiency=max(floor,0.02), max_tokens=team_budget(team_id) or 1_000_000)
+```
+- [x] 自检改用真实数据 + 合理阈值(bug-069)。
+- [ ] 接入**运行时**：drill/批量调用前过闸；block 抛错、warn 自动建治理议题。
+- [x] 阈值自适应（P25 法），替代魔法数 `0.05`，并在 UI 标注"底线效率 = 全员 P25×0.5"。
+- **验收**：人为造一个高 Token 零产出的 run，运行时被 block；一个偏低的被 warn 并自动生成 Plaza 议题。
+
+### 13.5 两杠杆诊断 → 干预 → 回写（演进层，核心闭环）
+> 北极星只有两个杠杆：**技能杠杆**(extract/skill_verify，把重复意图固化成 skill→命中省 token) 与 **协作杠杆**(plaza/drill/routing，减少无效往返)。`lever_split` 已能拆分两者 token。让它驱动闭环：
+```text
+lever_split(team) → {skill: X tokens, collab: Y tokens}
+  if skill 占比高且有重复意图(dup_intent_calls↑) → 建议「去技能萃取固化重复 skill」
+  if collab 占比高且往返多(轮次↑/路由 miss↑)   → 建议「去议事广场复盘协作 / 优化 Agent 路由」
+→ 一键「创建优化任务」(派发到该团队) 或「创建 Plaza 话题」(已归团队, bug-070)
+→ 执行/讨论产出 SOP / 技能进化 → 复跑同意图 → 效率↑ → 13.3 棘轮锁定
+→ 回写：把"省了多少 token / 效率提升"记到该团队的演进日志(可回溯)
+```
+- [x] `targetHowto` 文案已按 metric/lever 给下一步；补上"预计可省 token"的量化（基于 dup_intent_calls × 平均单调用 token）。
+- [ ] 优化任务/议题完成后，自动触发一次"同意图复跑"对比，把 before/after 效率写回治理目标与棘轮证据。
+- **验收**：从"诊断弱杠杆"到"复跑见效率提升"全链路可走通一遍，且提升被棘轮锁定、有 before/after 记录。
+
+### 13.6 治理动作的团队归属与回写（已部分修）
+- [x] 创建 Plaza 话题带 `team_id`→`assigned_team_id`，按团队可查(bug-070)。
+- [ ] 创建优化任务同样带 `team_id`，并在团队任务列表可见；任务完成回写治理目标进度。
+- [ ] 治理目标(`cost_targets`) 的 `score_per_1k` / `tokens_per_goal` 进度用 13.1 真实数据计算，且与棘轮值一致（同源）。
+- **验收**：选 AWS 运维团队建的话题/任务，都出现在该团队名下；目标进度与效率视角、棘轮三处数值一致。
+
+### 13.7 度量与验收（一页纸闭环体检）
+```bash
+# 后端
+python3 -m py_compile src/backend/agents/{sustainability,cost_routes,cost_targets,token_policy,plaza_routes}.py
+python3 scripts/offline_reconcile_check.py --quiet     # C1/C2/C3 + 合并单测
+# 前端
+node --check src/frontend/js/cost-dashboard.js
+# 端到端目检（联机）：
+#  1) 效率视角：各团队 score/效率非 0、未归因<5%、重启不归零
+#  2) Cost Gate 自检：用真实数据，pass/warn 合理，不再恒 block
+#  3) 棘轮：评分后自动 +1、只进不退、达标 🔒
+#  4) 两杠杆：诊断→建任务/议题(归团队)→复跑→效率↑→棘轮锁
+#  5) 首屏无 pod/k8s/OpenCost 主指标，成本=Token
+```
+> **执行顺序建议**：13.1(归因零遗漏，数据是地基) → 13.2(剥离 infra 噪音) → 13.3(棘轮自动闭环) → 13.4(Gate 运行时) → 13.5(两杠杆演进) → 13.6(归属回写)。13.0 标 ✓ 的已在本会话落地（bug-062/069/070/071）。

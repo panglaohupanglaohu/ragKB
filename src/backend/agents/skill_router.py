@@ -228,6 +228,15 @@ class SkillRouter:
                     agent.skills = []
                 agent.skills.append(sid)
                 assigned.append(sid)
+            # 同步登记进 team.skills，使团队「知道」该技能 → 智能体页技能列表能按名称解析显示
+            # （否则 agent.skills 里只有 skill_id 散值，团队不识别，页面只显示一串 id）
+            if sid not in team.skills:
+                try:
+                    sdef = self._skill_library._find_skill(team_id, sid) if self._skill_library else None
+                    if sdef is not None:
+                        team.add_skill(sdef)
+                except Exception as _e:  # noqa: BLE001
+                    logger.debug("SkillRouter: register skill %s into team failed: %s", sid, _e)
 
         # Persist
         self._team_manager._persist()
