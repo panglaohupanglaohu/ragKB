@@ -17,6 +17,9 @@ let curEscalationState = null;
 const escalationFetchBlocked = new Set();
 const escalationFetchInFlight = new Set();
 let discussionSignalTimer = null;
+// 用户正在交互 plan-panel（滚动/点击）时，延迟重渲染避免闪烁
+let _planPanelBusy = false;
+let _planPanelBusyTimer = null;
 // SSE reconnect state
 let _sseRetryTimer = null, _sseRetryDelay = 1000, _sseClosedByUs = false;
 const SSE_MAX_DELAY = 10000;
@@ -1829,11 +1832,30 @@ function clearDiscussionSignals() {
   }
 }
 
+function _markPlanPanelBusy() {
+  _planPanelBusy = true;
+  if (_planPanelBusyTimer) clearTimeout(_planPanelBusyTimer);
+  _planPanelBusyTimer = setTimeout(() => {
+    _planPanelBusy = false;
+    _planPanelBusyTimer = null;
+    // 交互结束后，如果有待刷新的信号，补刷一次
+    if (discussionSignalTimer) {
+      clearTimeout(discussionSignalTimer);
+      discussionSignalTimer = null;
+      refreshConsensusState(true);
+      refreshEscalationState(true);
+    }
+  }, 1500);
+}
+
 function scheduleDiscussionSignalRefresh(delay = 600) {
   if (!curPlaza || !curDisc || !$('plan-panel') || $('plan-panel').style.display === 'none') return;
+  // 用户正在滚动/交互 → 跳过本次，交互结束后会补刷
+  if (_planPanelBusy) return;
   if (discussionSignalTimer) clearTimeout(discussionSignalTimer);
   discussionSignalTimer = setTimeout(() => {
     discussionSignalTimer = null;
+    if (_planPanelBusy) return;  // 定时器到期时再次检查
     refreshConsensusState(true);
     refreshEscalationState(true);
   }, delay);
@@ -1852,9 +1874,13 @@ function renderPlanCard(planContent, revised = false) {
   const existingRevised = !!p.querySelector('.plan-card h4 span');
   if (existingText === planContent && existingRevised === revised && p.querySelector('.plan-card')) {
     // 计划没变，只刷新子面板（它们有自己的滚动保存）
-    renderConsensusState();
-    renderEscalationState();
-    renderVerificationState();
+    if (!_planPanelBusy) { renderConsensusState(); renderEscalationState(); renderVerificationState(); }
+    return;
+  }
+
+  // 用户正在滚动/交互 → 只更新计划文字，不重建 DOM（避免闪烁 + 滚动跳变）
+  if (_planPanelBusy && p.querySelector('.plan-text')) {
+    p.querySelector('.plan-text').innerHTML = mdLite(planContent);
     return;
   }
 
@@ -2527,3 +2553,12 @@ init();
 
 // 页面离开时关闭 SSE，避免悬挂连接与重连计时器
 window.addEventListener('beforeunload', () => { teardownSSE(); });
+
+// plan-panel 滚动/触摸时标记 busy，阻止重渲染闪烁
+['scroll', 'touchstart', 'mousedown', 'wheel'].forEach(evt => {
+  document.addEventListener(evt, (e) => {
+    if (e.target.closest && e.target.closest('#plan-panel')) {
+      _markPlanPanelBusy();
+    }
+  }, { passive: true });
+});
