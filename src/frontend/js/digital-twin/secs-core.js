@@ -911,6 +911,11 @@
     _logConsole('══ 仿真启动 (统一入口 → 试炼导演台) ══', 'header');
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');
+    if (window._selectedTaskGoal && window._selectedTaskGoal.task_id) {
+      _logConsole('任务: ' + window._selectedTaskGoal.name + ' (' + window._selectedTaskGoal.task_id + ')', 'info');
+    } else {
+      _logConsole('任务: 未选择（默认兜底）', 'warn');
+    }
 
     // A-1: 无场景空跑治理 — 未选具体场景时弹确认
     if (!_selectedSceneId || ('' + _selectedSceneId).startsWith('room_')) {
