@@ -186,7 +186,8 @@ class PlazaEngine:
         )
         return any(marker in lowered for marker in markers)
 
-    def _mark_llm_degraded(self, seconds: float = 300.0) -> None:
+    def _mark_llm_degraded(self, seconds: float = 30.0) -> None:
+        # 短窗口熔断：仅 30s，避免一次超时导致整场讨论所有 agent 都走 fallback
         self._llm_degraded_until = max(self._llm_degraded_until, time.monotonic() + seconds)
 
     def _has_actionable_plan(self, text: str) -> bool:
@@ -259,8 +260,8 @@ class PlazaEngine:
     def _build_fallback_agent_content(self, participant: Participant, prompt: str) -> str:
         """Build a topic-relevant fallback utterance when LLM is unavailable.
 
-        The utterance is generated from the participant's real role and the
-        discussion topic — never hardcoded with domain-specific content.
+        The utterance is differentiated by the participant's role and skills —
+        each agent says something different based on their expertise.
         """
         role_text = f"{participant.agent_name or participant.agent_id}（{participant.role or '参与者'}）"
         # 从 prompt 中提取话题（prompt 格式为 "{topic}\n{description}\n{goal}"）
@@ -278,8 +279,36 @@ class PlazaEngine:
                 f"| 2 | 提出方案并评估可行性与风险 | {role_text} | P0 | 任务1 | 方案文档、风险评估 |\n"
                 f"| 3 | 细化为可执行步骤并验证 | {role_text} | P1 | 任务2 | 执行记录、验收结论 |\n"
             )
-        # 通用发言：角色围绕话题给一条中立观点，不注入任何领域硬编码
-        return f"{role_text} 围绕「{topic}」，建议先明确目标与关键约束，再分步推进方案设计与验证。"
+
+        # 根据角色生成差异化发言（不硬编码领域内容，基于角色职责自然区分视角）
+        role_lower = (participant.role or "").lower()
+        name = participant.agent_name or participant.agent_id
+
+        # 获取 agent 绑定的 skill，用于丰富发言视角
+        skill_descs = ""
+        profile = self._get_agent_profile(participant.agent_id)
+        if profile:
+            skill_descs = self._get_agent_skill_descriptions(profile, participant.team_id)
+
+        # 按角色类型生成不同视角的发言
+        if any(kw in role_lower for kw in ["architect", "架构", "架构师"]):
+            return f"{name}：从架构角度看「{topic}」，建议先梳理系统边界和模块间的依赖关系，明确哪些环节可以解耦并行、哪些必须串行依赖。核心是要保证整体方案的弹性和容错能力。"
+        elif any(kw in role_lower for kw in ["research", "researcher", "研究", "调研"]):
+            return f"{name}：围绕「{topic}」，建议先做一轮现状调研和数据收集，把关键约束、风险点和已有方案梳理清楚，再进入方案设计阶段。没有数据支撑的决策容易偏。"
+        elif any(kw in role_lower for kw in ["develop", "developer", "开发", "全栈", "工程"]):
+            return f"{name}：从工程实现角度，围绕「{topic}」，建议先确定技术选型和接口规范，把核心链路的 prototype 跑通验证可行性，再逐步补全边缘场景。"
+        elif any(kw in role_lower for kw in ["test", "qa", "测试", "质量"]):
+            return f"{name}：从质量保障角度，围绕「{topic}」，建议在方案设计阶段就明确验收标准和测试策略，包括正常流程、边界条件和异常恢复的覆盖范围。"
+        elif any(kw in role_lower for kw in ["project", "pm", "manager", "项目经理", "管理"]):
+            return f"{name}：作为项目经理，围绕「{topic}」，建议先对齐各方目标和优先级，明确里程碑和责任人，再拆解为可执行的任务项推进。"
+        elif any(kw in role_lower for kw in ["doc", "writer", "文档", "技术写作"]):
+            return f"{name}：从文档和知识管理角度，围绕「{topic}」，建议把讨论中的关键决策和方案设计及时记录下来，方便后续追溯和交接。"
+        elif skill_descs:
+            # 有绑定 skill 但角色不匹配上面任何类型 → 用 skill 描述生成发言
+            first_skill = skill_descs.split("\n")[0].lstrip("- ")
+            return f"{name}：基于我的技能背景（{first_skill}），围绕「{topic}」，建议先从该领域的专业角度评估可行性和关键风险点。"
+        else:
+            return f"{name}：围绕「{topic}」，建议先明确目标与关键约束，再分步推进方案设计与验证。"
 
     # ── 广场 CRUD ──────────────────────────────────────────
 
