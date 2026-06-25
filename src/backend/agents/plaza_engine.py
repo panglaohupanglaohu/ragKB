@@ -163,61 +163,79 @@ class PlazaEngine:
         participants: List[Participant],
         reason: str,
     ) -> str:
-        """Build a product-demo-safe plan when the provider is unavailable."""
-        leader = self._role_label_for(participants, ["leader", "协调", "派发", "风险"], "运维 Leader")
-        architect = self._role_label_for(participants, ["架构", "architect", "规划", "容量"], "上云架构师")
-        operator = self._role_label_for(participants, ["操作", "operator", "terraform", "资源创建"], "运维操作员")
-        monitor = self._role_label_for(participants, ["巡检", "监控", "故障", "responder"], "巡检监控员")
-        cost = self._role_label_for(participants, ["成本", "cost", "ri", "账单"], "成本优化成员")
-        region = self._role_label_for(participants, ["北美", "north", "合规", "ai 项目"], "北美 AI 项目运维员")
+        """Build a topic-relevant plan when the LLM provider is unavailable.
+
+        The plan is generated from the real discussion topic, description/goal,
+        and participant roles — never hardcoded with domain-specific content
+        (no AWS/ES/Terraform/compliance leakage).
+        """
+        topic = disc.topic or "本次讨论"
+        desc = (disc.description or disc.goal or "").strip()
+        # 参与者角色列表（去重，最多取 5 个）
+        roles = []
+        seen = set()
+        for p in participants:
+            label = p.agent_name or p.role or p.agent_id
+            if label and label not in seen:
+                seen.add(label)
+                roles.append(label)
+        if not roles:
+            roles = ["参与者"]
+
+        # 根据参与者数量构建任务行：围绕真实话题，角色取自真实参与者
+        task_rows = []
+        n = min(len(roles), 5)
+        task_templates = [
+            f"明确「{topic}」的目标与范围，梳理当前现状与关键约束",
+            f"针对「{topic}」提出初步方案，评估可行性与风险",
+            f"细化方案为可执行步骤，确定验收标准",
+            f"执行方案并验证结果，记录过程产出",
+            f"复盘总结，沉淀经验为可复用资产",
+        ]
+        for i in range(n):
+            dep = "无" if i == 0 else f"任务{i}"
+            role = roles[i] if i < len(roles) else roles[-1]
+            priority = "P0" if i < 2 else ("P1" if i < 4 else "P2")
+            task_rows.append(
+                f"| {i+1} | {task_templates[i]} | {role} | {priority} | {dep} | 方案文档/执行记录/验收结论 |"
+            )
+
         return (
-            "## 技术概要\n"
-            f"围绕「{disc.topic}」，先冻结当前生产基线，再比较纵向升配与横向扩节点两条路径。"
-            "首要方案是由 Build System 生成可审阅、可 dry-run、可回滚的 Terraform/运维脚本，"
-            "AWS 运维团队负责容量评估、变更执行、监控验收、成本治理与区域合规。"
-            "最大风险是扩容后索引迁移、热点分片和跨可用区流量导致的性能抖动；"
-            "因此所有动作必须有指标门禁、回滚窗口和北美 AI 项目数据驻留检查。"
+            f"## 讨论摘要\n"
+            f"围绕「{topic}」，"
+            + (f"基于以下背景：{desc}。" if desc else "")
+            + f"由 {', '.join(roles[:3])} 等参与者共同推进。"
             f"本计划由系统在 {reason} 场景下生成，可直接派发任务并进入数字孪生演练。\n\n"
-            "## 加权结论 (P0→P1→P2)\n"
-            f"- [P0] 先完成容量与风险基线，再让 Build System 编写伸缩脚本 | {architect} / Build System | 没有基线和脚本就无法安全变更\n"
-            f"- [P0] 变更执行必须绑定 dry-run、代码 review、单步 apply 和回滚脚本 | {operator} / {leader} | 降低生产误操作和不可逆变更风险\n"
-            f"- [P1] 监控验收、故障注入和成本门禁必须在演练场先跑通 | {monitor} / {cost} | 保证扩容后的稳定性和预算可控\n"
-            f"- [P1] 北美 AI 项目单独执行区域合规检查 | {region} | 满足数据驻留、审计和法律约束\n"
-            "- [P2] 后续可把脚本模板沉淀为公共技能，并把区域合规做成特质技能\n\n"
             "## 执行计划\n"
             "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
             "|---|---|---|---|---|---|\n"
-            f"| 1 | 建立 ES 当前容量、索引、分片和 SLO 基线 | {architect} | P0 | 无 | 容量评估表、扩容选型建议、风险清单 |\n"
-            "| 2 | 生成 ElasticSearch 伸缩 Terraform/运维脚本 | Build System | P0 | 任务1 | plan/dry-run/apply/rollback 脚本与 README |\n"
-            f"| 3 | 执行代码 review、单步变更和彩排回滚 | {operator} | P0 | 任务2 | 审核记录、执行日志、回滚验证结果 |\n"
-            f"| 4 | 配置 CloudWatch/OpenSearch 指标门禁与故障处理演练 | {monitor} | P1 | 任务2 | 告警规则、验收指标、故障演练报告 |\n"
-            f"| 5 | 评估扩容账单、RI/Savings Plan 与治理阈值 | {cost} | P1 | 任务1 | 成本预测、购买建议、治理目标 |\n"
-            f"| 6 | 完成北美 AI 项目区域合规与部署限制检查 | {region} | P1 | 任务2 | 合规检查表、区域部署准入结论 |\n\n"
-            "## 补充观察\n"
-            f"{leader} 负责把 P0 任务按变更窗口派发，并在数字孪生演练通过后再进入真实执行。"
+            + "\n".join(task_rows)
         )
 
     def _build_fallback_agent_content(self, participant: Participant, prompt: str) -> str:
-        role_text = f"{participant.agent_name or participant.agent_id}（{participant.role}）"
-        lowered = prompt.lower()
+        """Build a topic-relevant fallback utterance when LLM is unavailable.
+
+        The utterance is generated from the participant's real role and the
+        discussion topic — never hardcoded with domain-specific content.
+        """
+        role_text = f"{participant.agent_name or participant.agent_id}（{participant.role or '参与者'}）"
+        # 从 prompt 中提取话题（prompt 格式为 "{topic}\n{description}\n{goal}"）
+        topic = (prompt.split("\n")[0] if prompt else "").strip() or "本次讨论"
+
         if "执行计划" in prompt or "修订后的执行计划" in prompt:
+            # 计划修订请求：返回最小结构化计划（格式与 _build_deterministic_plan_content 一致）
             return (
-                "## 修订说明\n"
-                "LLM 当前不可用，先按变更安全路径生成可派发计划。\n\n"
+                f"## 修订说明\n"
+                f"LLM 当前不可用，围绕「{topic}」生成可派发计划。\n\n"
                 "## 执行计划\n"
                 "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
                 "|---|---|---|---|---|---|\n"
-                f"| 1 | 补齐容量基线与回滚门禁 | {role_text} | P0 | 无 | 可执行变更清单 |\n"
-                "| 2 | 生成脚本并完成 review | Build System | P0 | 任务1 | 脚本、README、review 记录 |\n"
-                f"| 3 | 在演练场执行单步扩容和故障注入 | {role_text} | P1 | 任务2 | 演练报告 |\n"
+                f"| 1 | 明确「{topic}」目标与范围，梳理现状与约束 | {role_text} | P0 | 无 | 目标说明、现状清单 |\n"
+                f"| 2 | 提出方案并评估可行性与风险 | {role_text} | P0 | 任务1 | 方案文档、风险评估 |\n"
+                f"| 3 | 细化为可执行步骤并验证 | {role_text} | P1 | 任务2 | 执行记录、验收结论 |\n"
             )
-        if "成本" in prompt or "cost" in lowered:
-            return f"{role_text} 建议先做扩容前后账单预测，把 RI/Savings Plan 建议和预算阈值写入变更门禁。"
-        if "监控" in prompt or "故障" in prompt:
-            return f"{role_text} 建议把 CPU、JVMMemoryPressure、写入延迟、分片迁移和 5xx 告警作为验收门禁，并保留回滚窗口。"
-        if "合规" in prompt or "北美" in prompt:
-            return f"{role_text} 建议单独检查北美 AI 项目的数据驻留、日志审计和区域部署限制，再进入生产变更。"
-        return f"{role_text} 建议先确认容量基线、脚本 dry-run、代码 review、监控验收和回滚路径，再推进 ElasticSearch 伸缩。"
+        # 通用发言：角色围绕话题给一条中立观点，不注入任何领域硬编码
+        return f"{role_text} 围绕「{topic}」，建议先明确目标与关键约束，再分步推进方案设计与验证。"
 
     # ── 广场 CRUD ──────────────────────────────────────────
 
@@ -520,9 +538,9 @@ class PlazaEngine:
                 "LLM 不可用或未返回结构化计划",
             )
             disc.key_conclusions = [
-                "先建立 ES 容量与风险基线",
-                "Build System 生成可 dry-run/可回滚脚本",
-                "AWS 运维团队负责监控、成本与北美合规门禁",
+                f"围绕「{disc.topic}」明确目标与关键约束",
+                "分步推进方案设计、验证与执行",
+                "演练通过后再进入实际派发",
             ]
         # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
         disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
@@ -1149,9 +1167,9 @@ class PlazaEngine:
             "模拟模式",
         )
         disc.key_conclusions = [
-            "先建立 ES 容量与风险基线",
-            "Build System 生成可 dry-run/可回滚脚本",
-            "AWS 运维团队负责监控、成本与北美合规门禁",
+            f"围绕「{disc.topic}」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
         ]
         disc.plan = self._build_plan_payload(disc, disc.summary, "模拟模式自动生成")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
