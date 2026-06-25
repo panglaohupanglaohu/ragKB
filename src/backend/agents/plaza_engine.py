@@ -35,7 +35,7 @@ _EXCHANGES_PER_ROUND = 2  # 每轮内交锋次数
 _SPEAKERS_PER_EXCHANGE = 3  # 每次交锋参与人数
 _MAX_RETRIES = 3  # LLM 调用最大重试次数
 _RETRY_BACKOFF_BASE = 1.5  # 退避基数（秒）
-_LLM_CALL_TIMEOUT = 12.0  # 单次 LLM 调用超时，避免议事厅永久 in_progress
+_LLM_CALL_TIMEOUT = 30.0  # 单次 LLM 调用超时（12s 太短，高峰期容易超时走 fallback）
 _CORE_ROLE_PRIORITY = {
     "architect": 0,
     "researcher": 1,
@@ -264,8 +264,10 @@ class PlazaEngine:
         each agent says something different based on their expertise.
         """
         role_text = f"{participant.agent_name or participant.agent_id}（{participant.role or '参与者'}）"
-        # 从 prompt 中提取话题（prompt 格式为 "{topic}\n{description}\n{goal}"）
-        topic = (prompt.split("\n")[0] if prompt else "").strip() or "本次讨论"
+        # 从 prompt 中提取真实话题：prompt 里话题被「」包裹，如 "你正在参与关于「收复台湾」的团队讨论。"
+        import re
+        topic_match = re.search(r'「(.+?)」', prompt) if prompt else None
+        topic = topic_match.group(1) if topic_match else "本次讨论"
 
         if "执行计划" in prompt or "修订后的执行计划" in prompt:
             # 计划修订请求：返回最小结构化计划（格式与 _build_deterministic_plan_content 一致）
