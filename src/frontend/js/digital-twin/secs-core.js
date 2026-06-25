@@ -757,7 +757,9 @@
         var desc = (t.description || '').slice(0, 80);
         if ((t.description || '').length > 80) desc += '...';
         return '<div class="modal-select__item' + (isSel ? ' selected' : '') + '" style="cursor:pointer;padding:12px;border-bottom:1px solid var(--border)"' +
-          ' onclick="sexySelectTask(\'' + esc(t.task_id) + '\',' + JSON.stringify(esc(t.title || t.task_id)).replace(/'/g, '&#39;') + ',' + JSON.stringify(esc(desc)).replace(/'/g, '&#39;') + ')">' +
+          ' data-task-id="' + esc(t.task_id) + '"' +
+          ' data-task-title="' + esc(t.title || t.task_id) + '"' +
+          ' data-task-desc="' + esc(desc) + '">' +
           '<div style="display:flex;align-items:center;justify-content:space-between">' +
             '<div style="flex:1;min-width:0">' +
               '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📋 ' + esc(t.title || t.task_id) + '</div>' +
@@ -768,6 +770,13 @@
           '</div>' +
         '</div>';
       }).join('');
+
+      // 事件委托：避免 inline onclick 的引号转义问题
+      listEl.querySelectorAll('.modal-select__item').forEach(function(el) {
+        el.addEventListener('click', function() {
+          window.sexySelectTask(this.dataset.taskId, this.dataset.taskTitle, this.dataset.taskDesc);
+        });
+      });
     } catch(e) {
       listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--red)">加载失败: ' + esc(e.message) + '</div>';
       showToast('加载任务列表失败', 'error');
