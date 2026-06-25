@@ -1850,6 +1850,8 @@ function renderPlanCard(planContent, revised = false) {
     const selected = preferredTeam && t.team_id === preferredTeam ? ' selected' : '';
     return `<option value="${esc(t.team_id)}"${selected}>${esc(t.name)}</option>`;
   }).join('');
+  // 保存滚动位置 — innerHTML 重建会丢失 scrollTop
+  const savedScroll = p.scrollTop;
   p.innerHTML = `<div class="plan-card"><h4>执行计划${revised ? ' <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">已修订</span>' : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
     <div class="assign-row"><span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">ASSIGN:</span>
     <select id="assign-team" onchange="try{AGCtx.set('team',this.value)}catch(e){}">${opts}</select><button class="plan-btn" onclick="assignPlan()">派发</button></div>
@@ -1864,6 +1866,8 @@ function renderPlanCard(planContent, revised = false) {
     // Re-apply value defensively in case option order changes during rerender.
     $('assign-team').value = preferredTeam;
   }
+  // innerHTML 重建后立即恢复滚动位置，再渲染子面板（子面板的 outerHTML 也会保存/恢复）
+  p.scrollTop = savedScroll;
   renderConsensusState();
   renderEscalationState();
   renderVerificationState();
