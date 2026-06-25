@@ -4645,19 +4645,16 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     document.querySelectorAll('.mode-toggle button').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
-    // Update seal + title
-    const seal = document.getElementById('mode-seal');
-    const title = document.getElementById('mode-title');
+    // Update seal + title (seal removed in topbar unification, title stays in h1)
+    const title = document.querySelector('.topbar-ws__left h1');
     if (mode === 'router') {
-      seal.textContent = '赋';
-      title.textContent = '技能萃取/赋予';
+      if (title) title.textContent = '技能赋予';
       // Show agent figure in router mode
       if (humanFigure) humanFigure.visible = true;
       // Show assign bar immediately
       updateAssignBar();
     } else {
-      seal.textContent = '萃';
-      title.textContent = '技能萃取/赋予';
+      if (title) title.textContent = '技能萃取/赋予';
       // Hide agent figure in extraction mode — skill nodes stay visible
       if (humanFigure) humanFigure.visible = false;
       // Hide assign bar

@@ -29,28 +29,18 @@
   <!-- ── Topbar ──────────────────────────────────────────────── -->
   <header class="topbar-ws" style="grid-column:1 / -1;position:relative">
     <div class="topbar-ws__left">
-      <span class="seal" id="mode-seal">萃</span>
-      <h1 id="mode-title">技能萃取/赋予</h1>
+      <h1>技能萃取/赋予</h1>
       <div class="mode-toggle">
         <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">萃取</button>
         <button data-mode="router" onclick="window._switchPageMode('router')">赋予</button>
       </div>
     </div>
-    <nav class="topbar-ws__nav nav-grouped" aria-label="主导航">
-      <div class="nav-group">
-        <span class="nav-group__label">资产</span>
-        <a href="/agent-team-config.html">智能体</a>
-        <a href="/plaza.html">广场</a>
-        <span class="cur">技能</span>
-      </div>
-      <div class="nav-group">
-        <span class="nav-group__label">演练</span>
-        <a href="/Agent-digital-twin.html">孪生</a>
-      </div>
-      <div class="nav-group">
-        <span class="nav-group__label">观测</span>
-        <a href="/cost-dashboard.html">演进式成本优化</a>
-      </div>
+    <nav class="topbar-ws__nav" aria-label="主导航">
+      <a href="/agent-team-config.html">智能体团队</a>
+      <a href="/plaza.html">议事广场</a>
+      <span class="cur">技能萃取/赋予</span>
+      <a href="/Agent-digital-twin.html">数字孪生</a>
+      <a href="/cost-dashboard.html">演进式成本优化</a>
     </nav>
     <div class="topbar-ws__right">
       <div class="team-chips" id="team-chips" style="position:relative"></div>
