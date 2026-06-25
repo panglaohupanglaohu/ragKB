@@ -1658,6 +1658,9 @@ function renderVerificationState() {
     return;
   }
 
+  const scrollHost = $('plan-panel');
+  const savedScroll = scrollHost ? scrollHost.scrollTop : 0;
+
   const counts = state.status_counts || {};
   const chips = [
     `<span class="verify-chip">队列 ${state.queue_count || 0}</span>`,
@@ -1696,6 +1699,8 @@ function renderVerificationState() {
 
   if (existing) existing.outerHTML = html;
   else root.insertAdjacentHTML('beforeend', html);
+
+  if (scrollHost) scrollHost.scrollTop = savedScroll;
 }
 
 function renderConsensusState() {
@@ -1707,6 +1712,10 @@ function renderConsensusState() {
     if (existing) existing.remove();
     return;
   }
+
+  // 保存滚动位置 — outerHTML 重建会丢失 scrollTop
+  const scrollHost = $('plan-panel');
+  const savedScroll = scrollHost ? scrollHost.scrollTop : 0;
 
   const scorePercent = Math.max(0, Math.min(100, Math.round((state.score || 0) * 100)));
   const trendColor = consensusTrendColor(state.convergence_trend);
@@ -1757,6 +1766,9 @@ function renderConsensusState() {
 
   if (existing) existing.outerHTML = html;
   else root.insertAdjacentHTML('beforeend', html);
+
+  // 恢复滚动位置
+  if (scrollHost) scrollHost.scrollTop = savedScroll;
 }
 
 function renderEscalationState() {
@@ -1768,6 +1780,9 @@ function renderEscalationState() {
     if (existing) existing.remove();
     return;
   }
+
+  const scrollHost = $('plan-panel');
+  const savedScroll = scrollHost ? scrollHost.scrollTop : 0;
 
   const listHtml = (state.items || []).slice(0, 6).map(item => {
     const color = item.status === 'resolved' ? '#6A8E6A' : '#C05C5C';
@@ -1801,6 +1816,8 @@ function renderEscalationState() {
 
   if (existing) existing.outerHTML = html;
   else root.insertAdjacentHTML('beforeend', html);
+
+  if (scrollHost) scrollHost.scrollTop = savedScroll;
 }
 
 function clearDiscussionSignals() {
@@ -2456,7 +2473,7 @@ function connectSSE(discId) {
       if (d.type === 'summarizing') { $('btn-start').textContent = '总结中'; $('status-text').textContent = '议事长总结中…'; }
       if (d.type === 'discussion_end') {
         $('btn-start').disabled = false; $('btn-start').textContent = '重新讨论'; $('status-text').textContent = 'DONE';
-        teardownSSE(); toast('讨论结束');
+        teardownSSE();
         scheduleDiscussionSignalRefresh(200);
         const refreshDelay = Math.max(2600, Math.min(120000, 1500 + getQueuedSpeechDuration()));
         _discEndTimer = setTimeout(() => { _discEndTimer = null; selectDisc(discId, { keepSpeech: true }); }, refreshDelay);
