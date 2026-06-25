@@ -60,6 +60,7 @@ class PlazaEngine:
         self._chat_fn: Optional[Callable] = None  # ChatHarness.chat reference
         self._escalation_queue: List[Dict[str, Any]] = []  # failed tasks for human review
         self._llm_degraded_until: float = 0.0
+        self._last_call_was_fallback: bool = False  # _generate_agent_content 设置，_agent_speak 读取
 
     def set_chat_fn(self, fn: Callable):
         """注入 ChatHarness.chat 异步函数."""
@@ -514,6 +515,8 @@ class PlazaEngine:
         )
 
         # ── 多轮讨论 (辩论式交锋) ──
+        _consecutive_fallback = 0  # 连续 fallback 计数，超过阈值则终止讨论
+        _FALLBACK_ABORT_THRESHOLD = 2  # 连续 2 个 agent 走 fallback → LLM 不可用，终止
         for round_num in range(1, disc.max_rounds + 1):
             disc.current_round = round_num
             await self._broadcast(disc.id, {
@@ -551,6 +554,37 @@ class PlazaEngine:
                         disc, speaker, speak_prompt, round_number=round_num,
                         niche_role=speaker.niche_role.value,
                     )
+                    # 检测 fallback：LLM 不可用时连续 fallback → 终止讨论
+                    if self._last_call_was_fallback:
+                        _consecutive_fallback += 1
+                        if _consecutive_fallback >= _FALLBACK_ABORT_THRESHOLD:
+                            logger.warning(
+                                "讨论 %s 在第 %d 轮因 LLM 连续 %d 次 fallback 而提前终止",
+                                disc.id[:8], round_num, _consecutive_fallback,
+                            )
+                            # 通知前端 LLM 不可用，讨论提前结束
+                            abort_msg = PlazaMessage(
+                                discussion_id=disc.id,
+                                agent_id=moderator.agent_id if moderator else "system",
+                                agent_name=(moderator.agent_name if moderator else "系统") or "系统",
+                                role="moderator",
+                                niche_role="moderator",
+                                content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
+                                round_number=round_num,
+                            )
+                            abort_msg.seq = len(disc.messages)
+                            disc.messages.append(abort_msg)
+                            await self._broadcast(disc.id, {
+                                "type": "message", "message": abort_msg.to_dict(),
+                            })
+                            # 跳到最终总结（用已有发言生成计划）
+                            disc.max_rounds = round_num
+                            break
+                    else:
+                        _consecutive_fallback = 0  # LLM 成功，重置计数
+                else:
+                    continue  # 内层 for 正常结束，继续外层
+                break  # 内层被 break（fallback 终止），跳出外层 exchanges
 
             # Moderator 收束本轮 (非最后一轮时)
             if round_num < disc.max_rounds:
@@ -701,6 +735,7 @@ class PlazaEngine:
         prompt: str, round_number: int, niche_role: str = "",
     ) -> Optional[PlazaMessage]:
         """让一个 Agent 在广场中发言."""
+        self._last_call_was_fallback = False  # reset before each call
         content = await self._generate_agent_content(
             participant,
             prompt,
@@ -1016,6 +1051,7 @@ class PlazaEngine:
         round_number: int = 0,
     ) -> str:
         if time.monotonic() < self._llm_degraded_until:
+            self._last_call_was_fallback = True
             return self._build_fallback_agent_content(participant, prompt)
         # 包 token_scope：广场发言的 LLM token 归因到 phase=plaza + 本次讨论的 run_id。
         # discussion_id 作 run_id 种子，同一讨论的多次发言/重试落到同一 run，便于聚合。
@@ -1044,6 +1080,7 @@ class PlazaEngine:
                                 participant.agent_id,
                             )
                             self._mark_llm_degraded()
+                            self._last_call_was_fallback = True
                             return self._build_fallback_agent_content(participant, prompt)
                         return result.response
                     last_error = Exception("empty response")
@@ -1063,6 +1100,7 @@ class PlazaEngine:
                             discussion_topic=discussion_topic,
                             round_number=round_number,
                         )
+                        self._last_call_was_fallback = True
                         return self._build_fallback_agent_content(participant, prompt)
                 if attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
