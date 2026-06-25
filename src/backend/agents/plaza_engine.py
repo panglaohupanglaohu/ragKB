@@ -79,21 +79,32 @@ class PlazaEngine:
         return None
 
     def _build_agent_system_prompt(self, participant: Participant) -> str:
-        """根据 AgentProfile 构建有个性的 system prompt."""
+        """根据 AgentProfile 构建有个性的 system prompt,并注入绑定的 skill 约束."""
         profile = self._get_agent_profile(participant.agent_id)
         if profile:
             expertise = "、".join(profile.personality.expertise_areas) if profile.personality.expertise_areas else ""
             traits = "、".join(profile.metadata.get("traits", [])) if profile.metadata else ""
+
+            # 获取 agent 绑定的 skill 详情（从 team.skills 字典解析）
+            skill_descs = self._get_agent_skill_descriptions(profile, participant.team_id)
+
             parts = [
                 f"你是 {profile.name}，职责: {profile.role}。",
                 f"专长: {expertise}。" if expertise else "",
                 f"性格特质: {traits}。" if traits else "",
                 f"你的工作方式: {profile.system_prompt}" if profile.system_prompt else "",
+            ]
+            if skill_descs:
+                parts.append(
+                    f"\n你绑定了以下技能，发言时应围绕这些技能的专业领域展开，"
+                    f"不要超出技能范围谈论不相关的内容:\n{skill_descs}"
+                )
+            parts.extend([
                 f"\n你正在一个智能体广场的讨论中发言。",
                 f"请用自然的方式说话，像一个真实的专业人士在开会讨论。",
                 f"可以表达观点、提出建议、回应他人，说话要有内容、有依据。",
                 f"不需要客套寒暄，但要说人话，不要像电报一样压缩。",
-            ]
+            ])
             return "".join(p for p in parts if p)
         # 回退到基础信息
         return (
@@ -102,6 +113,39 @@ class PlazaEngine:
             f"请用自然的方式说话，像一个真实的专业人士在开会讨论。"
             f"可以表达观点、提出建议、回应他人，说话要有内容、有依据。"
         )
+
+    def _get_agent_skill_descriptions(self, profile, team_id: str = "") -> str:
+        """获取 agent 绑定的 skill 描述列表，用于注入 system prompt 约束发言范围."""
+        try:
+            from agents.api import _team_manager
+            if not _team_manager or not profile.skills:
+                return ""
+            # 优先从指定 team_id 查找，其次遍历所有 team
+            teams_to_check = []
+            if team_id:
+                t = _team_manager.get_team(team_id)
+                if t:
+                    teams_to_check.append(t)
+            if not teams_to_check:
+                teams_to_check = _team_manager.list_teams()
+            for team in teams_to_check:
+                # team.skills 是 Dict[str, SkillDefinition]
+                team_skills = getattr(team, 'skills', {}) or {}
+                descs = []
+                for sid in profile.skills:
+                    sd = team_skills.get(sid)
+                    if sd:
+                        name = getattr(sd, 'name', '') or sid
+                        desc = getattr(sd, 'description', '') or ''
+                        cat = getattr(sd, 'category', '')
+                        cat_val = cat.value if hasattr(cat, 'value') else str(cat)
+                        line = f"- {name}（{cat_val}）: {desc}" if desc else f"- {name}（{cat_val}）"
+                        descs.append(line)
+                if descs:
+                    return "\n".join(descs)
+            return ""
+        except Exception:
+            return ""
 
     def _next_plan_revision(self, disc: Discussion) -> int:
         """Return the next monotonically increasing plan revision number."""
