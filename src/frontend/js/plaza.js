@@ -1846,6 +1846,18 @@ function renderPlanCard(planContent, revised = false) {
     try { return window.AGCtx?.get?.('team') || ''; } catch (e) { return ''; }
   })();
   const preferredTeam = previousTeam || ctxTeam || '';
+
+  // 如果计划内容没变，跳过全量重建（避免滚动位置丢失 + 闪烁）
+  const existingText = p.querySelector('.plan-text')?.textContent || '';
+  const existingRevised = !!p.querySelector('.plan-card h4 span');
+  if (existingText === planContent && existingRevised === revised && p.querySelector('.plan-card')) {
+    // 计划没变，只刷新子面板（它们有自己的滚动保存）
+    renderConsensusState();
+    renderEscalationState();
+    renderVerificationState();
+    return;
+  }
+
   const opts = allTeams.map(t => {
     const selected = preferredTeam && t.team_id === preferredTeam ? ' selected' : '';
     return `<option value="${esc(t.team_id)}"${selected}>${esc(t.name)}</option>`;
@@ -2440,7 +2452,7 @@ function connectSSE(discId) {
         log.scrollTop = log.scrollHeight;
         $('status-text').textContent = `R${m.round_number} · ${m.agent_name}`;
         if (!isUser) showSpeechBubble(m.agent_id, m.agent_name, m.content);
-        scheduleDiscussionSignalRefresh(750);
+        scheduleDiscussionSignalRefresh(2000);
       }
       if (d.type === 'interjection_state') {
         $('status-text').textContent = d.state === 'paused' ? '纠偏中…' : '讨论继续';
