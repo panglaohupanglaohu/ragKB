@@ -677,6 +677,7 @@ class PlazaEngine:
             discussion_id=discussion_id,
             discussion_topic=disc.topic,
             round_number=disc.max_rounds,
+            bypass_degraded=True,  # 最终总结是最重要的调用，绕过降级窗口强制尝试 LLM
         )
         if not self._has_actionable_plan(disc.summary):
             participants_for_plan = ([moderator] if moderator else []) + speakers
@@ -1089,8 +1090,10 @@ class PlazaEngine:
         discussion_id: str = "",
         discussion_topic: str = "",
         round_number: int = 0,
+        bypass_degraded: bool = False,
     ) -> str:
-        if time.monotonic() < self._llm_degraded_until:
+        # 最终总结等重要调用可绕过降级窗口，强制尝试 LLM
+        if not bypass_degraded and time.monotonic() < self._llm_degraded_until:
             self._last_call_was_fallback = True
             return self._build_fallback_agent_content(participant, prompt)
         # 包 token_scope：广场发言的 LLM token 归因到 phase=plaza + 本次讨论的 run_id。
@@ -1246,6 +1249,7 @@ class PlazaEngine:
             discussion_id=disc_id,
             discussion_topic=disc.topic,
             round_number=disc.current_round or 1,
+            bypass_degraded=True,  # 刷新计划也是关键调用，绕过降级窗口
         )
         if not self._has_actionable_plan(plan_text):
             participants = list(plaza.participants.values())
