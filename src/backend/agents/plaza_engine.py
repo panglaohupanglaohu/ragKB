@@ -211,9 +211,9 @@ class PlazaEngine:
     ) -> str:
         """Build a topic-relevant plan when the LLM provider is unavailable.
 
-        The plan is generated from the real discussion topic, description/goal,
-        and participant roles — never hardcoded with domain-specific content
-        (no AWS/ES/Terraform/compliance leakage).
+        If the discussion has messages (LLM spoke in earlier rounds), extract
+        key points from the actual discussion to form the plan tasks.
+        Otherwise, generate a generic topic-relevant plan from participant roles.
         """
         topic = disc.topic or "本次讨论"
         desc = (disc.description or disc.goal or "").strip()
@@ -228,31 +228,71 @@ class PlazaEngine:
         if not roles:
             roles = ["参与者"]
 
-        # 根据参与者数量构建任务行：围绕真实话题，角色取自真实参与者
-        task_rows = []
-        n = min(len(roles), 5)
-        task_templates = [
-            f"明确「{topic}」的目标与范围，梳理当前现状与关键约束",
-            f"针对「{topic}」提出初步方案，评估可行性与风险",
-            f"细化方案为可执行步骤，确定验收标准",
-            f"执行方案并验证结果，记录过程产出",
-            f"复盘总结，沉淀经验为可复用资产",
-        ]
-        for i in range(n):
-            dep = "无" if i == 0 else f"任务{i}"
-            role = roles[i] if i < len(roles) else roles[-1]
-            priority = "P0" if i < 2 else ("P1" if i < 4 else "P2")
-            task_rows.append(
-                f"| {i+1} | {task_templates[i]} | {role} | {priority} | {dep} | 方案文档/执行记录/验收结论 |"
+        # ── 从讨论历史中提取关键内容构建任务 ──
+        # 如果有发言记录，从每条发言中提取第一句作为任务依据
+        discussion_tasks = []
+        for msg in disc.messages:
+            if msg.niche_role == "moderator":
+                continue  # 跳过主持人消息
+            if not msg.content or len(msg.content) < 10:
+                continue
+            # 提取发言的第一句（前 60 字）作为任务摘要
+            first_sentence = msg.content.split("。")[0].split("\n")[0].strip()
+            if len(first_sentence) > 60:
+                first_sentence = first_sentence[:57] + "..."
+            speaker_name = msg.agent_name or msg.role or "参与者"
+            discussion_tasks.append((first_sentence, speaker_name))
+
+        if discussion_tasks:
+            # 有讨论内容 → 基于实际发言生成任务
+            # 去重（同一人可能发言多次，取最后一条）
+            seen_speakers = {}
+            for sentence, speaker in discussion_tasks:
+                seen_speakers[speaker] = sentence
+            unique_tasks = list(seen_speakers.items())[:5]
+
+            task_rows = []
+            for i, (sentence, speaker) in enumerate(unique_tasks):
+                dep = "无" if i == 0 else f"任务{i}"
+                priority = "P0" if i < 2 else ("P1" if i < 4 else "P2")
+                task_rows.append(
+                    f"| {i+1} | {sentence} | {speaker} | {priority} | {dep} | 方案文档/执行记录 |"
+                )
+
+            summary_text = (
+                f"围绕「{topic}」，经 {', '.join(unique_tasks[i][1] for i in range(min(3, len(unique_tasks))))} 等参与者讨论，"
+                f"提炼以下 {len(unique_tasks)} 项关键行动。"
+                f"本计划由系统在 {reason} 场景下基于讨论内容生成。\n\n"
+            )
+        else:
+            # 无讨论内容 → 通用模板
+            n = min(len(roles), 5)
+            task_templates = [
+                f"明确「{topic}」的目标与范围，梳理当前现状与关键约束",
+                f"针对「{topic}」提出初步方案，评估可行性与风险",
+                f"细化方案为可执行步骤，确定验收标准",
+                f"执行方案并验证结果，记录过程产出",
+                f"复盘总结，沉淀经验为可复用资产",
+            ]
+            task_rows = []
+            for i in range(n):
+                dep = "无" if i == 0 else f"任务{i}"
+                role = roles[i] if i < len(roles) else roles[-1]
+                priority = "P0" if i < 2 else ("P1" if i < 4 else "P2")
+                task_rows.append(
+                    f"| {i+1} | {task_templates[i]} | {role} | {priority} | {dep} | 方案文档/执行记录 |"
+                )
+            summary_text = (
+                f"围绕「{topic}」，"
+                + (f"基于以下背景：{desc}。" if desc else "")
+                + f"由 {', '.join(roles[:3])} 等参与者共同推进。"
+                f"本计划由系统在 {reason} 场景下生成。\n\n"
             )
 
         return (
             f"## 讨论摘要\n"
-            f"围绕「{topic}」，"
-            + (f"基于以下背景：{desc}。" if desc else "")
-            + f"由 {', '.join(roles[:3])} 等参与者共同推进。"
-            f"本计划由系统在 {reason} 场景下生成，可直接派发任务并进入数字孪生演练。\n\n"
-            "## 执行计划\n"
+            + summary_text
+            + "## 执行计划\n"
             "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
             "|---|---|---|---|---|---|\n"
             + "\n".join(task_rows)
