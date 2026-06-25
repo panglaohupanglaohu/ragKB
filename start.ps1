@@ -27,11 +27,23 @@ Write-Host ""
 # ── Create and use Python venv (aligned with start.sh) ──
 $VENV_DIR = "$ROOT\venv"
 $VENV_PY = "$VENV_DIR\Scripts\python.exe"
-$RUNTIME_PY = "python"
+$PYTHON_CMD = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $PYTHON_CMD -or $PYTHON_CMD -like "*\WindowsApps\python.exe") {
+    $PYTHON_CMD = (Get-Command py -ErrorAction SilentlyContinue).Source
+    if (-not $PYTHON_CMD) {
+        Write-Host "[X] Python not found. Please install Python 3.11+." -ForegroundColor Red
+        exit 1
+    }
+}
+$RUNTIME_PY = $PYTHON_CMD
 
 if (-not (Test-Path $VENV_DIR)) {
     Write-Host "[*] Creating Python virtual environment..." -ForegroundColor Cyan
-    python -m venv --system-site-packages $VENV_DIR
+    if ((Split-Path $PYTHON_CMD -Leaf) -ieq "py.exe") {
+        & $PYTHON_CMD -3 -m venv --system-site-packages $VENV_DIR
+    } else {
+        & $PYTHON_CMD -m venv --system-site-packages $VENV_DIR
+    }
     if (-not $?) {
         Write-Host "[X] Failed to create virtual environment" -ForegroundColor Red
         exit 1
@@ -172,7 +184,16 @@ if (-not $ready) {
 # ── Start frontend ──
 Write-Host "[*] Starting frontend on port 5173..." -ForegroundColor Cyan
 # Use npx vite directly (more reliable than npm run dev which depends on rtk tool)
-$frontendProcess = Start-Process npx -ArgumentList "vite","--config","vite.config.mjs","--port","5173" `
+$npxCommand = (Get-Command npx.cmd -ErrorAction SilentlyContinue).Source
+if (-not $npxCommand) {
+    $npxCommand = (Get-Command npx -ErrorAction SilentlyContinue).Source
+}
+if (-not $npxCommand) {
+    Write-Host "[X] npx not found. Please install Node.js/npm." -ForegroundColor Red
+    Stop-Process $backendProcess -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+$frontendProcess = Start-Process $npxCommand -ArgumentList "vite","--config","vite.config.mjs","--port","5173" `
     -WorkingDirectory $ROOT -WindowStyle Hidden -PassThru
 
 Start-Sleep 2
