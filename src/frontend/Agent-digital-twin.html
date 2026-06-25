@@ -907,6 +907,7 @@ body {
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="btn" onclick="sexyPickTeam()" id="secs-team-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">👥 选择演练团队</button>
         <button class="btn" onclick="sexyPickScene()" id="secs-scene-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">🏟️ 选择演练场景</button>
+        <button class="btn" onclick="sexyPickTask()" id="secs-task-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">📋 选择演练任务</button>
       </div>
     </div>
 
@@ -1072,6 +1073,8 @@ body {
 <div class="overlay" id="o-team" style="display:none" onclick="if(event.target===this){this.style.display='none';_teamModalOpen=false}"><div class="modal-select"><div class="modal-select__header"><h3>👥 选择演练团队</h3><button class="modal-select__close" onclick="document.getElementById('o-team').style.display='none';_teamModalOpen=false">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-team-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
 <!-- 场景选择 Modal -->
 <div class="overlay" id="o-scene" style="display:none" onclick="if(event.target===this)this.style.display='none'"><div class="modal-select"><div class="modal-select__header"><h3>🏟️ 选择演练场景</h3><button class="modal-select__close" onclick="document.getElementById('o-scene').style.display='none'">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-scene-list"></div></div></div></div>
+<!-- 任务选择 Modal -->
+<div class="overlay" id="o-task" style="display:none" onclick="if(event.target===this)this.style.display='none'"><div class="modal-select"><div class="modal-select__header"><h3>📋 选择演练任务</h3><button class="modal-select__close" onclick="document.getElementById('o-task').style.display='none'">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-task-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
 
 <!-- Toast -->
 <div id="toast-container" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none"></div>

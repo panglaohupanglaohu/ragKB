@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="GitHub Copilot" kind="llm" doc="todos" ts="2026-06-22T18:07:51Z" -->
+<!-- docs-signoff: author="GitHub Copilot" kind="llm" doc="todos" ts="2026-06-24T13:58:00Z" -->
 
 # 全局重构 TODOS — 以「Token 最少」为北极星（交接级 · 事无巨细 + 真实代码锚点）
 
@@ -1578,17 +1578,17 @@ node scripts/check-docs-signoff.cjs                                  # 0 FAIL
 | 实时控制台 | 无(借用) | 有 | **SECS 控制台为唯一**（12.4 联动） |
 
 ### 12.0 移除左侧浮层 + 腾出 3D 窗口（用户首要诉求）
-- [ ] 定位左侧「试炼导演台」浮层容器（`Agent-digital-twin.html` 里的 director panel div）与 3D 画布容器的层叠关系。
-- [ ] **第一步（立即见效）**：把 director 浮层默认隐藏/折叠，3D 画布占满；其控件迁移到 SECS 右栏前，先给一个「▸ 试炼导演台（旧）」折叠入口避免功能丢失。
+- [x] 定位左侧「试炼导演台」浮层容器（`Agent-digital-twin.html` 里的 director panel div）与 3D 画布容器的层叠关系。
+- [x] **第一步（立即见效）**：把 director 浮层默认隐藏/折叠，3D 画布占满；其控件迁移到 SECS 右栏前，先给一个「▸ 试炼导演台（旧）」折叠入口避免功能丢失。
   ```js
   // 默认隐藏 director 浮层，3D 容器 width:100%
   document.getElementById('director-panel').style.display='none';
   document.getElementById('env-3d-container').style.left='0';  // 腾出空间
   ```
-- [ ] **验收**：进数字孪生页，3D 议事厅/场景占满左侧，不再被浮层遮挡。
+- [x] **验收**：进数字孪生页，3D 议事厅/场景占满左侧，不再被浮层遮挡。
 
 ### 12.1 单一团队源（消灭多头团队选择）
-- [ ] 定义唯一事实源 `window.DTContext`（已部分铺垫：bug-054 暴露了 `window._selectedTeamId`）：
+- [x] 定义唯一事实源 `window.DTContext`（已部分铺垫：bug-054 暴露了 `window._selectedTeamId`）：
   ```js
   window.DTContext = {
     get team(){ return window._selectedTeamId || (window._DTS&&window._DTS.directorConfig.team_id) || (window.S&&window.S.selectedTeams&&window.S.selectedTeams[0]) || ''; },
@@ -1596,17 +1596,17 @@ node scripts/check-docs-signoff.cjs                                  # 0 FAIL
                   if(window.S)window.S.selectedTeams=[id]; if(window.secsSyncTeamFromLeft)window.secsSyncTeamFromLeft(id); }
   };
   ```
-- [ ] `createTrial` 的 tid 改为 `window.DTContext.team`；SECS「选择演练团队」设 `DTContext.team=id`。
-- [ ] **验收**：SECS 选团队后 createTrial 不再误报「请先选择团队」（bug-054 的彻底版）。
+- [x] `createTrial` 的 tid 改为 `window.DTContext.team`；SECS「选择演练团队」设 `DTContext.team=id`。
+- [x] **验收**：SECS 选团队后 createTrial 不再误报「请先选择团队」（bug-054 的彻底版）。
 
 ### 12.2 创建/运行入口收敛到 SECS（单一编排）
-- [ ] SECS「沙箱推演」按钮 → 内部调 `createTrial()`（director 状态机），不再有独立的第二个 session 创建路径。
-- [ ] director 的 `autoRun/stepOnce` 继续委托 `sexyAutoRun`/SECS 单步（已是）。
-- [ ] 把 director 的「业务场景卡 / 任务目标 / 试炼模式卡 / 评分/反哺/进化 / 分支管理」DOM 迁移进 SECS 面板（或其弹层）。
-- [ ] **验收**：只有一个创建入口、一个运行执行层、一个 session；旧左侧浮层可彻底删除。
+- [x] SECS「沙箱推演」按钮 → 内部调 `createTrial()`（director 状态机），不再有独立的第二个 session 创建路径。
+- [x] director 的 `autoRun/stepOnce` 继续委托 `sexyAutoRun`/SECS 单步（已是）。
+- [x] 把 director 的「业务场景卡 / 任务目标 / 试炼模式卡 / 评分/反哺/进化 / 分支管理」DOM 迁移进 SECS 面板（或其弹层）。
+- [x] **验收**：只有一个创建入口、一个运行执行层、一个 session；旧左侧浮层可彻底删除。
 
 ### 12.3 状态机补全与异常复位
-- [ ] 复核 `transitionTrialStatus` 全表，确保中间态都有回退边：`creating→idle`(已补 bug-054)、`evaluating→ready`、`running→ready`。
+- [x] 复核 `transitionTrialStatus` 全表，确保中间态都有回退边：`creating→idle`(已补 bug-054)、`evaluating→ready`、`running→ready`。
   ```js
   valid = { idle:['creating'], creating:['ready','failed','idle'],
             ready:['running','evaluating','failed','idle'],
@@ -1615,25 +1615,25 @@ node scripts/check-docs-signoff.cjs                                  # 0 FAIL
             evaluating:['completed','failed','terminated','ready'],
             completed:['idle','terminated'], failed:['idle','terminated'], terminated:['idle','creating'] };
   ```
-- [ ] 每个 `catch` 复位到可操作态 + 复位按钮/徽章，杜绝卡死。
-- [ ] **验收**：人为制造各步失败，按钮都能回到可点状态。
+- [x] 每个 `catch` 复位到可操作态 + 复位按钮/徽章，杜绝卡死。
+- [x] **验收**：人为制造各步失败，按钮都能回到可点状态。
 
 ### 12.4 全流程联动 SECS 实时控制台（每步可见）
-- [ ] createTrial(已做 bug-053)、autoRun/stepOnce、注入、评分、反哺、进化、分支 每个动作 开始/成功/失败 都 `_dtLogConsole(...)`（`window._logConsole` 已暴露）。
-- [ ] **验收**：从创建到进化，控制台是一条连续事件流。
+- [x] createTrial(已做 bug-053)、autoRun/stepOnce、注入、评分、反哺、进化、分支 每个动作 开始/成功/失败 都 `_dtLogConsole(...)`（`window._logConsole` 已暴露）。
+- [x] **验收**：从创建到进化，控制台是一条连续事件流。
 
 ### 12.5 跨 IIFE 通信收口
-- [ ] 梳理 director 调用却在 secs-core IIFE 私有的符号，统一 `window.X=X` 暴露或并入 `DTContext`（`_logConsole`/`_selectedTeamId`/`_selectedTeamName` 已暴露；复核 `_secsSimRunning`/`_sx`）。
-- [ ] **验收**：grep 不到 director 引用 secs-core 私有符号；联动不再「时有时无」。
+- [x] 梳理 director 调用却在 secs-core IIFE 私有的符号，统一 `window.X=X` 暴露或并入 `DTContext`（`_logConsole`/`_selectedTeamId`/`_selectedTeamName` 已暴露；复核 `_secsSimRunning`/`_sx`）。
+- [x] **验收**：grep 不到 director 引用 secs-core 私有符号；联动不再「时有时无」。
 
 ### 12.6 试炼 → 评分 → 反哺 → 进化 → 棘轮 端到端串联
-- [ ] completed 态在 SECS 面板出「评分→反哺→进化」顺序按钮；达标 push `cost_efficiency` 棘轮（复用 9.x）。
-- [ ] 关键产物回灌状态卡（lastEval/SOP 数/version/棘轮 gen）。
-- [ ] **验收**：一条试炼从创建走到「棘轮 +1」，全程控制台可见。
+- [x] completed 态在 SECS 面板出「评分→反哺→进化」顺序按钮；达标 push `cost_efficiency` 棘轮（复用 9.x）。
+- [x] 关键产物回灌状态卡（lastEval/SOP 数/version/棘轮 gen）。
+- [x] **验收**：一条试炼从创建走到「棘轮 +1」，全程控制台可见。
 
 ### 12.7 模式与分支一致性（What-if/并行/演化）
-- [ ] 三种 mode 与 `forkBranch`/分支管理对齐：演化才显示代际曲线、并行才显示多分支对比、What-if 单分支；切分支同步团队/会话/3D。
-- [ ] **验收**：切模式/分支后展示项与语义一致，无数据串台。
+- [x] 三种 mode 与 `forkBranch`/分支管理对齐：演化才显示代际曲线、并行才显示多分支对比、What-if 单分支；切分支同步团队/会话/3D。
+- [x] **验收**：切模式/分支后展示项与语义一致，无数据串台。
 
 ### 12.8 一次性全合并 · 落地执行清单（用户选定「一次性全合并」· 真实 DOM/函数锚点 + 伪代码）
 
@@ -1789,78 +1789,6 @@ grep -n "_mergeDirectorIntoSecs\|env-status-float\|mode-selector\|dp-team-select
 纯前端结构改动；改前 `git commit` 一次，异常 `git revert` 即回到 S1~S8 运行时搬家版本（功能等价）。
 
 > **一句话给 VS Code**：把 `#trial-director-panel`(L814–845) 里**唯一**的四块（任务目标、`#dt-action-buttons`、`#branch-manager`+`#inject-history-list`、`#skill-evolution-panel`）按 F1 顺序静态移进 `#rp-secs`（沙箱推演 L984 之后），删除其余重复块与 `#env-status-float`、删除 3D 内的导演台壳子；注入故障按 F2-A 收成一处；最后删 `secs-core.js` 的 `_mergeDirectorIntoSecs` 搬家逻辑、保留 `_syncModeFromSecs`。
-
-### 12.0 现状诊断（散乱点清单，动手前对照）
-| 散乱点 | 现象 | 根因锚点 |
-|---|---|---|
-| 双运行系统 | director `createTrial/autoRun/stepOnce` 与 SECS `sexyCreateAndRun/sexyAutoRun/sexyStepOnce` 重叠 | `director.js` vs `secs-core.js`，职责未划清 |
-| 团队来源多头 | SECS 选团队 / 导演台下拉 / 左侧团队栏 / `?team=` 四处，互不同步 | `_selectedTeamId`(IIFE 私有)、`directorConfig.team_id`、`S.selectedTeams`、URL |
-| 跨 IIFE 取不到 | director 读 `_logConsole`/`_selectedTeamId` 恒 undefined | secs-core 是 IIFE，未暴露 window（bug-053/054 已补两个，恐有更多） |
-| 状态机缺口 | `creating→idle` 缺失致卡死（bug-054）；异常未必复位 | `transitionTrialStatus` valid 表 |
-| 联动时断时续 | 控制台/3D 奖励/流水线/停止 各自为政 | 多处 if(window.\_xxx) 守卫，缺口即静默 |
-
-### 12.1 单一团队源（消灭多头团队选择）
-- [ ] 定义唯一事实源 `window.DT_TEAM`（getter/setter），所有读团队的地方都走它：
-  ```js
-  // secs-core 或一个新的 dt-context.js
-  window.DTContext = {
-    get team(){ return window._selectedTeamId || (window._DTS&&window._DTS.directorConfig.team_id) || (window.S&&window.S.selectedTeams&&window.S.selectedTeams[0]) || ''; },
-    set team(id){ window._selectedTeamId=id; if(window._DTS)window._DTS.directorConfig.team_id=id;
-                  if(window.S)window.S.selectedTeams=[id]; if(window.secsSyncTeamFromLeft)window.secsSyncTeamFromLeft(id); }
-  };
-  ```
-- [ ] `createTrial` 的 tid 改为 `var tid = window.DTContext.team;`（替代当前 `typeof _selectedTeamId...` 那套脆弱判断）。
-- [ ] SECS 选团队 / 导演台下拉 / 左侧栏 / `?team=` 四处统一调 `DTContext.team = id`（已暴露 `window._selectedTeamId` 是第一步，bug-054 已做）。
-- [ ] **验收**：任一处选团队，其它三处同步；createTrial 不再误报「请先选择团队」。
-
-### 12.2 双运行系统收敛（director 作为唯一编排，SECS 作为执行）
-- [ ] 明确分层：**director = 状态机 + 编排**（createTrial/run/step/inject/eval/feedback/evolve）；**secs-core = 执行 + 渲染**（sexyAutoRun/SSE/3D/控制台）。
-- [ ] director 的 `autoRun()` 内部委托 `window.sexyAutoRun()`（已是），`stepOnce()` 委托 SECS 单步；**不再有第二套独立 run 循环**。
-- [ ] `sexyCreateAndRun`（SECS「沙箱推演」按钮）与 director `createTrial` 二选一为主入口：以 **director createTrial 为主**，SECS「沙箱推演」按钮改为调 `createTrial()`（或隐藏），避免两个创建入口产生两个 session。
-- [ ] **验收**：只有一条创建路径；运行/单步/停止都经 SECS 执行层；不出现两个并行 session。
-
-### 12.3 状态机补全与异常复位
-- [ ] 复核 `transitionTrialStatus` 全表，确保每个「中间态」都有**回退边**：`creating→idle`(已补)、`evaluating→ready`、`running→ready`（停止后可再跑）。
-  ```js
-  valid = { idle:['creating'], creating:['ready','failed','idle'],
-            ready:['running','evaluating','failed','idle'],
-            running:['paused','evaluating','completed','failed','terminated','ready'],
-            paused:['running','terminated','failed','ready'],
-            evaluating:['completed','failed','terminated','ready'],
-            completed:['idle','terminated'], failed:['idle','terminated'], terminated:['idle','creating'] };
-  ```
-- [ ] 任何 `catch` 分支都要把状态复位到一个**可操作态**（failed→可「新试炼」），并复位按钮+徽章，杜绝卡死。
-- [ ] **验收**：人为制造各步失败（断网/无团队/后端 500），按钮都能回到可点状态，不再卡「创建中/运行中」。
-
-### 12.4 全流程联动实时控制台（每步可见）
-- [ ] 在 createTrial(已做)、autoRun/stepOnce、doInjectEvent、evaluateTrial、extractSop、feedbackAgents、forkBranch/switchBranch、进化 每个动作的**开始/成功/失败**都 `_dtLogConsole(...)`。
-- [ ] 控制台行带阶段图标（🧪创建 / ▶运行 / 💥注入 / 📊评分 / 🔄反哺 / 🧬进化 / 🔒棘轮），与 secs-core `_logConsole` 的 level 配色一致。
-- [ ] **验收**：从创建到进化，实时控制台是一条**连续可读的事件流**，不再只有「模块已加载」一行。
-
-### 12.5 跨 IIFE 通信收口（杜绝「取不到就静默」）
-- [ ] 系统梳理 director.js 里所有 `typeof _xxx==='function'` / `if(window._xxx)` 守卫，凡 secs-core IIFE 私有的（`_logConsole`已暴露、`_selectedTeamId`已暴露、还有 `_selectedTeamName`、`_secsSimRunning`、`_sx` 等）统一在 secs-core 收尾处 `window.X = X` 暴露，或集中到 `window.DTContext`。
-- [ ] **验收**：grep 不到 director 调用却在 secs-core 私有的符号；联动不再「有时有有时无」。
-
-### 12.6 试炼 → 评分 → 反哺 → 进化 → 棘轮 端到端串联
-- [ ] 串成一键或顺序引导：completed 态下「评分」→ 出五维分 → 「反哺」写回 SOP/技能 → 「进化」（v4-evolution）→ 达标 push `cost_efficiency` 棘轮（复用 9.x）。
-- [ ] 每步把关键产物回灌到状态：评分结果存 `_DTS.lastEval`、反哺 SOP 数、进化 version、棘轮 gen，并在导演台卡片可见。
-- [ ] **验收**：一条试炼能从创建一路走到「棘轮 +1」，全程控制台可见、状态卡片有数。
-
-### 12.7 模式与分支一致性（What-if / 并行 / 演化）
-- [ ] 三种 `selectedMode` 与 `forkBranch`/`showBranchManager`/`switchBranch` 行为对齐：演化模式才显示代际曲线，并行模式才显示多分支对比，What-if 单分支。
-- [ ] 切换分支时同步团队/会话/3D 场景，避免分支 A 的数据串到分支 B。
-- [ ] **验收**：切模式/切分支后，导演台展示项与该模式语义一致，无数据串台。
-
-### ✅ Phase 12 自检
-```bash
-node --check src/frontend/js/digital-twin/director.js
-node --check src/frontend/js/digital-twin/secs-core.js
-# 目检脚本（联机）：选团队→创建→单步→注入→评分→反哺→进化，控制台逐条可见；任一步失败按钮可复位
-# grep 自检：director 不再引用 secs-core 的 IIFE 私有符号
-grep -nE "_logConsole|_selectedTeamId|_selectedTeamName|_secsSimRunning|_sx\b" src/frontend/js/digital-twin/director.js
-```
-
-> **边界**：Phase 12 只**收敛**导演台现有能力，不新增业务；涉及后端的只读现有 `twin-trials`/`sandbox`/`twin-evolution` 路由。先做 12.1(单一团队源)+12.3(状态机复位)+12.5(跨 IIFE 收口) 三项即可消除「散乱+卡死」的主症状，12.2/12.6/12.7 是进一步收敛与闭环。
 
 ---
 

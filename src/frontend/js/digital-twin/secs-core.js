@@ -30,6 +30,11 @@
   var _selectedSceneMode = 'what_if';  // 当前场景对应的模式
   var _selectedSceneId = null;         // 当前选中的场景ID
 
+  // ── 演练任务选择状态 ──
+  var _selectedTaskId = null;          // 选中的任务ID
+  var _selectedTaskTitle = '';         // 任务标题
+  var _selectedTaskGoal = null;        // 任务的 task_goal（传入试炼创建）
+
   var MODE_LABEL = { what_if:'What-if', parallel:'并行', evolutionary:'演化' };
 
   // ── 管理启动按钮 disabled 状态 ──
@@ -456,6 +461,11 @@
     _selectedTeamName = teamName;
     // 暴露到 window，让 director.js（创建试炼）能读到当前选中的团队（_selectedTeamId 本是 IIFE 私有）
     window._selectedTeamId = teamId; window._selectedTeamName = teamName;
+    // 切换团队时清空已选任务（任务属于团队，换团队后旧任务无效）
+    _selectedTaskId = null; _selectedTaskTitle = ''; _selectedTaskGoal = null;
+    window._selectedTaskId = null; window._selectedTaskGoal = null;
+    var taskBtn = document.getElementById('secs-task-btn');
+    if (taskBtn) { taskBtn.textContent = '📋 选择演练任务'; taskBtn.style.color = ''; }
     var btn = document.getElementById('secs-team-btn');
     var team = _teamTreeData.find(function(t){return t.team_id===teamId;});
     var agentCount = (team?.agents||[]).length;
@@ -711,6 +721,78 @@
     _updateLaunchButton();
 
     showToast('已选择场景: ' + sceneName + ' · ' + (MODE_LABEL[mode]||mode), 'success');
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 📋 选择演练任务（从团队已提交的任务中选一个作为演练目标）
+  // ═══════════════════════════════════════════════════════════════
+  window.sexyPickTask = async function() {
+    var overlay = document.getElementById('o-task');
+    var listEl = document.getElementById('sexy-task-list');
+    overlay.style.display = 'block';
+    listEl.innerHTML = '<div class="modal-select__loading">加载任务列表...</div>';
+
+    // 未选团队 → 提示先选团队
+    if (!_selectedTeamId) {
+      listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--amber)">请先选择演练团队，再选择任务</div>';
+      return;
+    }
+
+    try {
+      var r = await fetch('/api/v1/agent-config/teams/' + encodeURIComponent(_selectedTeamId) + '/tasks');
+      var tasks = await r.json();
+      if (!Array.isArray(tasks) || !tasks.length) {
+        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dim)">该团队暂无任务 — 请先在「任务」页面创建并派发</div>';
+        return;
+      }
+
+      // 按创建时间倒序
+      tasks.sort(function(a, b) {
+        return (b.created_at || '').localeCompare(a.created_at || '');
+      });
+
+      listEl.innerHTML = tasks.map(function(t) {
+        var isSel = t.task_id === _selectedTaskId;
+        var statusColor = { pending:'var(--dim)', running:'var(--cyan)', completed:'var(--green)', failed:'var(--red)', cancelled:'var(--dim)' }[t.status] || 'var(--dim)';
+        var desc = (t.description || '').slice(0, 80);
+        if ((t.description || '').length > 80) desc += '...';
+        return '<div class="modal-select__item' + (isSel ? ' selected' : '') + '" style="cursor:pointer;padding:12px;border-bottom:1px solid var(--border)"' +
+          ' onclick="sexySelectTask(\'' + esc(t.task_id) + '\',' + JSON.stringify(esc(t.title || t.task_id)).replace(/'/g, '&#39;') + ',' + JSON.stringify(esc(desc)).replace(/'/g, '&#39;') + ')">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📋 ' + esc(t.title || t.task_id) + '</div>' +
+              '<div style="font-size:10px;color:var(--dim);margin-top:3px">' + esc(t.task_id) + ' · <span style="color:' + statusColor + '">' + esc(t.status) + '</span> · 优先级 ' + esc(String(t.priority || 0)) + '</div>' +
+              (desc ? '<div style="font-size:10px;color:var(--dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(desc) + '</div>' : '') +
+            '</div>' +
+            (isSel ? '<span style="color:var(--cyan);font-size:16px;flex-shrink:0">✓</span>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch(e) {
+      listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--red)">加载失败: ' + esc(e.message) + '</div>';
+      showToast('加载任务列表失败', 'error');
+    }
+  };
+
+  window.sexySelectTask = function(taskId, taskTitle, taskDesc) {
+    _selectedTaskId = taskId;
+    _selectedTaskTitle = taskTitle;
+    // 构建 task_goal — 将任务信息带入试炼，让演练有明确的执行目标
+    _selectedTaskGoal = {
+      task_id: taskId,
+      name: taskTitle,
+      description: taskDesc,
+    };
+    // 暴露到 window，供 director.js createTrial 读取
+    window._selectedTaskId = taskId;
+    window._selectedTaskGoal = _selectedTaskGoal;
+
+    var btn = document.getElementById('secs-task-btn');
+    btn.textContent = '📋 ' + taskTitle;
+    btn.style.color = 'var(--cyan)';
+    document.getElementById('o-task').style.display = 'none';
+
+    showToast('已选择任务: ' + taskTitle, 'success');
   };
 
   // ── 场景脚本执行：分配Agent到房间 + 聚焦视图 ──
