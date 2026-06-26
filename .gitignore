@@ -11,6 +11,8 @@ dist/
 .env
 *.log
 *.bak
+/.perm_test_*
+/tests/_test_*_temp.*
 config/.api_keys.json
 config/.master_key
 config/.dev_admin_password
