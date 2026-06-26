@@ -9,11 +9,11 @@
     "port": 8080
   },
   "llm": {
-    "provider": "codebuddy",
-    "model": "glm-5.1",
-    "api_base_url": "https://models.sjtu.edu.cn/api/v1",
-    "api_key": "sk-a3NiNAu1g_qNpvdUS_pLhQ",
-    "max_tokens": 12288,
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "api_base_url": "https://api.deepseek.com",
+    "api_key": "stored-secret",
+    "max_tokens": 4096,
     "temperature": 0.7,
     "thinking": {
       "type": "enabled"

@@ -496,7 +496,14 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Call the chat completions endpoint."""
-        import aiohttp
+        try:
+            import aiohttp
+        except ModuleNotFoundError as exc:
+            return {
+                "error": True,
+                "status": 0,
+                "message": f"Missing runtime dependency: {exc.name}. Install project dependencies and retry.",
+            }
 
         def _is_codebuddy_param_error(txt: str) -> bool:
             t = (txt or "").lower()
