@@ -235,6 +235,57 @@ def _log_blocked_report(report) -> None:
     )
 
 
+def _resource_config_from_request(request: PolicyUpdateRequest) -> Dict[str, Any]:
+    from agents.cost_policy import ResourceTypeConfig
+    config = ResourceTypeConfig(
+        resource_type=request.resource_type,
+        allowed_instance_families=request.allowed_instance_families,
+        max_instance_size=request.max_instance_size,
+        recommended_storage_tier=request.recommended_storage_tier,
+        max_storage_gb=request.max_storage_gb,
+        cost_per_unit_hourly=request.cost_per_unit_hourly,
+        required_tags=request.required_tags,
+        max_count=request.max_count,
+        blocked_regions=request.blocked_regions,
+        notes=request.notes,
+    )
+    return config.to_dict()
+
+
+def _single_policy_response(gate, resource_type: str) -> Dict[str, Any]:
+    config = gate._engine.get_resource_config(resource_type)
+    if config:
+        return {"resource_type": resource_type, "policy": config.to_dict()}
+    raise HTTPException(status_code=404, detail=f"No policy for resource type: {resource_type}")
+
+
+def _require_budget(gate):
+    budget = gate.get_budget()
+    if not budget:
+        raise HTTPException(status_code=404, detail="No budget profile configured")
+    return budget
+
+
+def _history_report_summary(report) -> Dict[str, Any]:
+    return {
+        "report_id": report.report_id,
+        "project_id": report.project_id,
+        "decision": report.decision.value,
+        "violations_count": len(report.violations),
+        "critical_count": report.critical_count,
+        "high_count": report.high_count,
+        "estimated_monthly_cost_usd": report.estimated_monthly_cost_usd,
+        "timestamp": report.timestamp,
+    }
+
+
+def _history_response(reports) -> Dict[str, Any]:
+    return {
+        "count": len(reports),
+        "reports": [_history_report_summary(report) for report in reports],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════
 # API Endpoints
 # ══════════════════════════════════════════════════════════════════
@@ -307,15 +358,9 @@ async def list_policies(
         Policy configurations
     """
     gate = _get_cost_gate()
-    policies = gate.get_policies()
-
     if resource_type:
-        config = gate._engine.get_resource_config(resource_type)
-        if config:
-            return {"resource_type": resource_type, "policy": config.to_dict()}
-        raise HTTPException(status_code=404, detail=f"No policy for resource type: {resource_type}")
-
-    return policies
+        return _single_policy_response(gate, resource_type)
+    return gate.get_policies()
 
 
 @cost_gate_router.post("/policies")
@@ -329,22 +374,7 @@ async def upsert_policy(request: PolicyUpdateRequest):
         Updated policy confirmation
     """
     gate = _get_cost_gate()
-
-    from agents.cost_policy import ResourceTypeConfig
-    config = ResourceTypeConfig(
-        resource_type=request.resource_type,
-        allowed_instance_families=request.allowed_instance_families,
-        max_instance_size=request.max_instance_size,
-        recommended_storage_tier=request.recommended_storage_tier,
-        max_storage_gb=request.max_storage_gb,
-        cost_per_unit_hourly=request.cost_per_unit_hourly,
-        required_tags=request.required_tags,
-        max_count=request.max_count,
-        blocked_regions=request.blocked_regions,
-        notes=request.notes,
-    )
-
-    result = gate.update_policy(config.to_dict())
+    result = gate.update_policy(_resource_config_from_request(request))
     logger.info("📋 Cost policy updated: %s", request.resource_type)
     return result
 
@@ -374,10 +404,7 @@ async def get_budget():
         Budget profile
     """
     gate = _get_cost_gate()
-    budget = gate.get_budget()
-    if not budget:
-        raise HTTPException(status_code=404, detail="No budget profile configured")
-    return budget
+    return _require_budget(gate)
 
 
 @cost_gate_router.post("/budget")
@@ -412,22 +439,7 @@ async def get_history(
     """
     gate = _get_cost_gate()
     reports = gate.get_history(project_id=project_id, limit=limit)
-    return {
-        "count": len(reports),
-        "reports": [
-            {
-                "report_id": r.report_id,
-                "project_id": r.project_id,
-                "decision": r.decision.value,
-                "violations_count": len(r.violations),
-                "critical_count": r.critical_count,
-                "high_count": r.high_count,
-                "estimated_monthly_cost_usd": r.estimated_monthly_cost_usd,
-                "timestamp": r.timestamp,
-            }
-            for r in reports
-        ],
-    }
+    return _history_response(reports)
 
 
 @cost_gate_router.get("/history/{report_id}")
