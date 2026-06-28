@@ -1523,8 +1523,25 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> Dict[str, Any]:
         """Run verification for a filtered set of pending items."""
         results: List[Dict[str, Any]] = []
-        item_id_filter = set(item_ids or [])
+        for item in self._verification_candidates(
+            item_ids=item_ids,
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            result = self._verify_one_pending_item(item)
+            results.append(result)
 
+        return {"verified": results, "count": len(results)}
+
+    def _verification_candidates(
+        self,
+        *,
+        item_ids: Optional[List[str]],
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        item_id_filter = set(item_ids or [])
+        candidates = []
         for item in self.evolution_items.values():
             if item.status != EvolutionStatus.VERIFY_PENDING.value:
                 continue
@@ -1534,69 +1551,93 @@ class SystemEvolutionChannel(MarineChannel):
                 continue
             if source_discussion_id and item.source_discussion_id != source_discussion_id:
                 continue
+            candidates.append(item)
+        return candidates
 
-            test_fn = self._verify_registry.get(item.verify_test_name)
-            if test_fn is None:
-                # 也可以回退到重新运行 audit rule
-                rule = self._get_rule_by_id(item.build_task_id)
-                if rule and rule.check_fn:
-                    channel = get_default_registry().get(item.target_channel)
-                    if channel:
-                        test_fn = lambda ch=channel, fn=rule.check_fn: fn(ch)
+    def _verify_one_pending_item(self, item: EvolutionItem) -> Dict[str, Any]:
+        test_fn = self._resolve_verify_test(item)
+        if test_fn is None:
+            return self._missing_verify_test_result(item)
 
-            if test_fn is None:
-                evidence_run_id = self._record_evolution_verify_evidence(
-                    item,
-                    status="blocked",
-                    detail=f"验证函数 '{item.verify_test_name}' 未注册",
-                    exit_code=None,
-                )
-                results.append({
-                    "item_id": item.id, "status": "skip",
-                    "reason": f"验证函数 '{item.verify_test_name}' 未注册",
-                    "evidence_run_id": evidence_run_id,
-                })
-                continue
+        passed, detail = self._run_verify_test(test_fn)
+        self._apply_verify_outcome(item, passed, detail)
+        evidence_run_id = self._record_evolution_verify_evidence(
+            item,
+            status="passed" if passed else "failed",
+            detail=detail,
+            exit_code=0 if passed else 1,
+        )
+        return self._verify_result_payload(item, passed, detail, evidence_run_id)
 
-            try:
-                passed, detail = test_fn()
-            except Exception as exc:
-                passed, detail = False, f"验证异常: {exc}"
+    def _resolve_verify_test(self, item: EvolutionItem) -> Optional[Callable]:
+        test_fn = self._verify_registry.get(item.verify_test_name)
+        if test_fn is not None:
+            return test_fn
+        rule = self._get_rule_by_id(item.build_task_id)
+        if not rule or not rule.check_fn:
+            return None
+        channel = get_default_registry().get(item.target_channel)
+        if not channel:
+            return None
+        return lambda ch=channel, fn=rule.check_fn: fn(ch)
 
-            item.verify_result = "passed" if passed else "failed"
-            item.verify_detail = detail
-            self._update_item_escalation(item, passed)
+    def _missing_verify_test_result(self, item: EvolutionItem) -> Dict[str, Any]:
+        reason = f"验证函数 '{item.verify_test_name}' 未注册"
+        evidence_run_id = self._record_evolution_verify_evidence(
+            item,
+            status="blocked",
+            detail=reason,
+            exit_code=None,
+        )
+        return {
+            "item_id": item.id,
+            "status": "skip",
+            "reason": reason,
+            "evidence_run_id": evidence_run_id,
+        }
 
-            if passed:
-                item.status = EvolutionStatus.VERIFIED.value
-                item.completed_at = datetime.now().isoformat()
-                self.total_verified += 1
-            else:
-                item.retry_count += 1
-                if item.retry_count >= item.max_retries:
-                    item.status = EvolutionStatus.FAILED.value
-                    item.verify_detail = f"{detail} (max retries exhausted)"
-                    self.total_failed += 1
-                else:
-                    # 退回给 Build 团队重做
-                    item.status = EvolutionStatus.DISPATCHED.value
-                    item.verify_detail = (
-                        f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
-                    )
+    @staticmethod
+    def _run_verify_test(test_fn: Callable) -> Tuple[bool, str]:
+        try:
+            return test_fn()
+        except Exception as exc:
+            return False, f"验证异常: {exc}"
 
-            evidence_run_id = self._record_evolution_verify_evidence(
-                item,
-                status="passed" if passed else "failed",
-                detail=detail,
-                exit_code=0 if passed else 1,
+    def _apply_verify_outcome(self, item: EvolutionItem, passed: bool, detail: str) -> None:
+        item.verify_result = "passed" if passed else "failed"
+        item.verify_detail = detail
+        self._update_item_escalation(item, passed)
+        if passed:
+            item.status = EvolutionStatus.VERIFIED.value
+            item.completed_at = datetime.now().isoformat()
+            self.total_verified += 1
+            return
+
+        item.retry_count += 1
+        if item.retry_count >= item.max_retries:
+            item.status = EvolutionStatus.FAILED.value
+            item.verify_detail = f"{detail} (max retries exhausted)"
+            self.total_failed += 1
+        else:
+            item.status = EvolutionStatus.DISPATCHED.value
+            item.verify_detail = (
+                f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
             )
-            results.append({
-                "item_id": item.id, "passed": passed, "detail": detail,
-                "retry_count": item.retry_count,
-                "evidence_run_id": evidence_run_id,
-            })
 
-        return {"verified": results, "count": len(results)}
+    @staticmethod
+    def _verify_result_payload(
+        item: EvolutionItem,
+        passed: bool,
+        detail: str,
+        evidence_run_id: str,
+    ) -> Dict[str, Any]:
+        return {
+            "item_id": item.id,
+            "passed": passed,
+            "detail": detail,
+            "retry_count": item.retry_count,
+            "evidence_run_id": evidence_run_id,
+        }
 
     def _build_verification_alert(self, item: EvolutionItem) -> Optional[Dict[str, Any]]:
         """Summarize verification follow-up required for an evolution item."""

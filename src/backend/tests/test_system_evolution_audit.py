@@ -158,3 +158,22 @@ def test_dispatch_all_pending_assigns_agents_and_build_tasks(monkeypatch):
         ("dev_lead", "evolution_fix:rule-general:General Fix"),
         ("chief_director", "evolution_fix:rule-critical:Critical Fix"),
     ]
+
+
+def test_verify_pending_items_skips_missing_verify_test():
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items["evo-missing-verify"] = EvolutionItem(
+        id="evo-missing-verify",
+        title="Missing Verify",
+        status=EvolutionStatus.VERIFY_PENDING.value,
+        verify_test_name="missing-test",
+    )
+
+    result = channel.verify_all_pending()
+
+    assert result["count"] == 1
+    assert result["verified"][0]["item_id"] == "evo-missing-verify"
+    assert result["verified"][0]["status"] == "skip"
+    assert "missing-test" in result["verified"][0]["reason"]
+    assert channel.evolution_items["evo-missing-verify"].status == EvolutionStatus.VERIFY_PENDING.value
