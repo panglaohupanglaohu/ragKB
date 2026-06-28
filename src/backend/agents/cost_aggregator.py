@@ -376,75 +376,29 @@ class CostAggregator:
         """
         name = entry.get("name", "")
         props = entry.get("properties", entry)
-
-        # Labels may be in properties.labels or top-level labels
-        labels_raw = props.get("labels", {}) if isinstance(props, dict) else {}
-        if not labels_raw:
-            labels_raw = entry.get("labels", {})
-
-        labels = self._normalize_labels(labels_raw)
-
-        # Fallback: derive service/env/team from namespace when OpenCost doesn't return labels
+        labels = self._labels_from_entry(entry, props)
         namespace = labels.get("namespace", props.get("namespace", ""))
-        if not labels.get("service") and namespace:
-            if namespace == "agentsgroup":
-                labels.setdefault("service", "agentsgroup-backend")
-                labels.setdefault("app", "agentsgroup2026")
-                labels.setdefault("component", "backend")
-            elif namespace == "opencost":
-                labels.setdefault("service", "opencost")
-                labels.setdefault("component", "monitoring")
-            elif namespace == "prometheus-system":
-                labels.setdefault("service", "prometheus")
-                labels.setdefault("component", "monitoring")
-            elif namespace == "kube-system":
-                labels.setdefault("service", "kubernetes")
-                labels.setdefault("component", "infrastructure")
-            else:
-                labels.setdefault("service", namespace)
-            labels.setdefault("environment", "production")
+        self._apply_namespace_label_fallback(labels, namespace)
+        self._apply_team_label_fallback(labels, props, name, namespace)
 
-        # Derive team from pod name: agentsgroup-{team}-{hash}
-        if not labels.get("team") or labels.get("team") == "platform":
-            pod_name = props.get("pod", name.rsplit("/", 1)[-1] if "/" in name else name)
-            # K8s deployment names convert "_" to "-", so pod name
-            # "agentsgroup-build-system-xxx" maps to team_id "build_system"
-            _team_map = {
-                "build-system": "build_system",
-                "ai-coding": "ai_coding",
-                "energy": "energy",
-                "xops": "xops",
-                "cloud-ops": "cloud_ops",
-            }
-            for segment, team_id in _team_map.items():
-                if f"agentsgroup-{segment}-" in pod_name:
-                    labels.setdefault("team", team_id)
-                    break
-            if not labels.get("team") and namespace == "agentsgroup":
-                labels.setdefault("team", "platform")
-
-        # Extract costs — try top-level first (new API), fall back to properties (old API)
-        _cost = lambda key: float(entry.get(key, props.get(key, 0)) or 0)
-        cpu_cost = _cost("cpuCost")
-        ram_cost = _cost("ramCost")
-        pv_cost = _cost("pvCost")
-        network_cost = _cost("networkCost")
-        gpu_cost = _cost("gpuCost")
-        total_cost = _cost("totalCost")
+        cpu_cost = self._entry_cost(entry, props, "cpuCost")
+        ram_cost = self._entry_cost(entry, props, "ramCost")
+        pv_cost = self._entry_cost(entry, props, "pvCost")
+        network_cost = self._entry_cost(entry, props, "networkCost")
+        gpu_cost = self._entry_cost(entry, props, "gpuCost")
+        total_cost = self._entry_cost(entry, props, "totalCost")
 
         # If total not provided, sum components
         if total_cost == 0:
             total_cost = cpu_cost + ram_cost + pv_cost + network_cost + gpu_cost
 
-        cpu_core_hours = _cost("cpuCoreHours")
-        ram_gb_hours = 0.0
-        ram_byte_hours = entry.get("ramByteHours", props.get("ramByteHours", 0)) or 0
-        if ram_byte_hours:
-            ram_gb_hours = float(ram_byte_hours) / (1024 ** 3)
+        cpu_core_hours = self._entry_cost(entry, props, "cpuCoreHours")
+        ram_gb_hours = self._ram_gb_hours(entry, props)
 
         namespace = labels.get("namespace", props.get("namespace", ""))
         pod_name = props.get("pod", "") or name.rsplit("/", 1)[-1] if "/" in name else name
         container = props.get("container", entry.get("container", ""))
+        window_start, window_end = self._entry_window(entry)
 
         return PodCostItem(
             pod=pod_name,
@@ -459,9 +413,79 @@ class CostAggregator:
             cpu_core_hours=round(cpu_core_hours, 6),
             ram_gb_hours=round(ram_gb_hours, 6),
             labels=labels,
-            window_start=entry.get("window", {}).get("start", "") if isinstance(entry.get("window"), dict) else "",
-            window_end=entry.get("window", {}).get("end", "") if isinstance(entry.get("window"), dict) else "",
+            window_start=window_start,
+            window_end=window_end,
         )
+
+    def _labels_from_entry(self, entry: Dict[str, Any], props: Dict[str, Any]) -> Dict[str, str]:
+        labels_raw = props.get("labels", {}) if isinstance(props, dict) else {}
+        if not labels_raw:
+            labels_raw = entry.get("labels", {})
+        return self._normalize_labels(labels_raw)
+
+    @staticmethod
+    def _apply_namespace_label_fallback(labels: Dict[str, str], namespace: str) -> None:
+        if labels.get("service") or not namespace:
+            return
+        if namespace == "agentsgroup":
+            labels.setdefault("service", "agentsgroup-backend")
+            labels.setdefault("app", "agentsgroup2026")
+            labels.setdefault("component", "backend")
+        elif namespace == "opencost":
+            labels.setdefault("service", "opencost")
+            labels.setdefault("component", "monitoring")
+        elif namespace == "prometheus-system":
+            labels.setdefault("service", "prometheus")
+            labels.setdefault("component", "monitoring")
+        elif namespace == "kube-system":
+            labels.setdefault("service", "kubernetes")
+            labels.setdefault("component", "infrastructure")
+        else:
+            labels.setdefault("service", namespace)
+        labels.setdefault("environment", "production")
+
+    @staticmethod
+    def _apply_team_label_fallback(
+        labels: Dict[str, str],
+        props: Dict[str, Any],
+        name: str,
+        namespace: str,
+    ) -> None:
+        if labels.get("team") and labels.get("team") != "platform":
+            return
+        pod_name = props.get("pod", name.rsplit("/", 1)[-1] if "/" in name else name)
+        # K8s deployment names convert "_" to "-", so pod name
+        # "agentsgroup-build-system-xxx" maps to team_id "build_system"
+        team_map = {
+            "build-system": "build_system",
+            "ai-coding": "ai_coding",
+            "energy": "energy",
+            "xops": "xops",
+            "cloud-ops": "cloud_ops",
+        }
+        for segment, team_id in team_map.items():
+            if f"agentsgroup-{segment}-" in pod_name:
+                labels.setdefault("team", team_id)
+                break
+        if not labels.get("team") and namespace == "agentsgroup":
+            labels.setdefault("team", "platform")
+
+    @staticmethod
+    def _entry_cost(entry: Dict[str, Any], props: Dict[str, Any], key: str) -> float:
+        return float(entry.get(key, props.get(key, 0)) or 0)
+
+    def _ram_gb_hours(self, entry: Dict[str, Any], props: Dict[str, Any]) -> float:
+        ram_byte_hours = entry.get("ramByteHours", props.get("ramByteHours", 0)) or 0
+        if not ram_byte_hours:
+            return 0.0
+        return float(ram_byte_hours) / (1024 ** 3)
+
+    @staticmethod
+    def _entry_window(entry: Dict[str, Any]) -> Tuple[str, str]:
+        window = entry.get("window", {})
+        if not isinstance(window, dict):
+            return "", ""
+        return window.get("start", ""), window.get("end", "")
 
     def _normalize_labels(self, raw_labels: Dict[str, str]) -> Dict[str, str]:
         """Normalize Kubernetes labels to standard cost label keys."""
