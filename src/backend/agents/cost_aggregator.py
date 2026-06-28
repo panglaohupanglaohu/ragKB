@@ -331,37 +331,39 @@ class CostAggregator:
         Handles both old (/model/allocation) and new (/allocation) response formats.
         """
         pods: List[PodCostItem] = []
+        for entry in self._allocation_items(data):
+            for pod_data in self._pod_entry_candidates(entry):
+                pod = self._safe_pod_from_entry(pod_data)
+                if pod is not None:
+                    pods.append(pod)
+        return self._sort_and_limit_pods(pods)
+
+    @staticmethod
+    def _allocation_items(data: Dict[str, Any]) -> List[Any]:
         items = data if isinstance(data, list) else data.get("data", [])
         if isinstance(items, dict):
-            items = list(items.values())
+            return list(items.values())
+        return list(items) if isinstance(items, list) else []
 
-        for entry in items:
-            if not isinstance(entry, dict):
-                continue
-            # Determine entry format:
-            # A) Single-entry wrap: {"allocID": {data}} → unwrap
-            # B) Multi-pod aggregate: {"podA": {data}, "podB": {data}} → iterate values
-            # C) Direct data: {name, properties, costs} → use as-is
-            all_values_are_dicts = all(isinstance(v, dict) for v in entry.values()) if entry else False
-            if all_values_are_dicts:
-                # Case A or B — iterate all values
-                for pod_data in entry.values():
-                    try:
-                        pod = self._pod_from_entry(pod_data)
-                        if pod is not None:
-                            pods.append(pod)
-                    except Exception:
-                        continue
-            else:
-                # Case C — direct data dict
-                try:
-                    pod = self._pod_from_entry(entry)
-                    if pod is not None:
-                        pods.append(pod)
-                except Exception:
-                    continue
+    @staticmethod
+    def _is_wrapped_allocation_entry(entry: Dict[str, Any]) -> bool:
+        return bool(entry) and all(isinstance(value, dict) for value in entry.values())
 
-        # Sort by total cost descending
+    def _pod_entry_candidates(self, entry: Any) -> List[Dict[str, Any]]:
+        if not isinstance(entry, dict):
+            return []
+        if self._is_wrapped_allocation_entry(entry):
+            return list(entry.values())
+        return [entry]
+
+    def _safe_pod_from_entry(self, entry: Dict[str, Any]) -> Optional[PodCostItem]:
+        try:
+            return self._pod_from_entry(entry)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _sort_and_limit_pods(pods: List[PodCostItem]) -> List[PodCostItem]:
         pods.sort(key=lambda p: p.total_cost, reverse=True)
         return pods[:MAX_POD_ITEMS]
 
