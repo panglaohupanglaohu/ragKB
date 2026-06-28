@@ -1123,55 +1123,90 @@ class SystemEvolutionChannel(MarineChannel):
         new_items: List[str] = []
 
         for rule in self.audit_rules:
-            channel = self if rule.target_channel == self.name else registry.get(rule.target_channel)
-            if not channel:
-                results.append({
-                    "rule": rule.id, "status": "skip",
-                    "reason": f"Channel '{rule.target_channel}' 未注册",
-                })
-                continue
+            audit_detail = self._run_audit_rule(rule, registry)
+            results.append(audit_detail)
+            new_item_id = self._maybe_create_evolution_item(rule, audit_detail)
+            if new_item_id:
+                new_items.append(new_item_id)
 
-            if rule.check_fn is None:
-                results.append({"rule": rule.id, "status": "skip", "reason": "无检查函数"})
-                continue
+        result = self._build_audit_result(results, new_items)
+        self._enrich_audit_result(result, results)
+        self._record_audit_completion(result, len(new_items))
+        return result
 
-            try:
-                passed, detail = rule.check_fn(channel)
-            except Exception as exc:
-                passed, detail = False, f"审查异常: {exc}"
+    def _run_audit_rule(self, rule: AuditRule, registry) -> Dict[str, Any]:
+        channel = self if rule.target_channel == self.name else registry.get(rule.target_channel)
+        if not channel:
+            return self._skipped_audit_result(
+                rule,
+                f"Channel '{rule.target_channel}' 未注册",
+            )
+        if rule.check_fn is None:
+            return self._skipped_audit_result(rule, "无检查函数")
 
-            results.append({
-                "rule": rule.id, "passed": passed, "detail": detail,
-            })
+        try:
+            passed, detail = rule.check_fn(channel)
+        except Exception as exc:
+            passed, detail = False, f"审查异常: {exc}"
 
-            # ── Phase 3: 升级机制跟踪 ──
-            self._update_escalation(rule.id, passed)
+        self._update_escalation(rule.id, passed)
+        return {
+            "rule": rule.id,
+            "passed": passed,
+            "detail": detail,
+        }
 
-            if not passed:
-                # 避免重复创建
-                existing = self._find_item_by_rule(rule.id)
-                if existing and existing.status not in (
-                    EvolutionStatus.CLOSED.value, EvolutionStatus.FAILED.value
-                ):
-                    continue
+    @staticmethod
+    def _skipped_audit_result(rule: AuditRule, reason: str) -> Dict[str, Any]:
+        return {
+            "rule": rule.id,
+            "status": "skip",
+            "reason": reason,
+        }
 
-                item = EvolutionItem(
-                    title=rule.title,
-                    description=rule.description,
-                    target_channel=rule.target_channel,
-                    audit_domain=rule.domain,
-                    severity=rule.severity,
-                    reference_standard=rule.reference,
-                    current_behavior=detail,
-                    expected_behavior=rule.description,
-                    verify_test_name=f"test_evo_{rule.id.lower().replace('-', '_')}",
-                )
-                item.build_task_id = rule.id
-                self.evolution_items[item.id] = item
-                self.total_discovered += 1
-                new_items.append(item.id)
+    def _maybe_create_evolution_item(
+        self,
+        rule: AuditRule,
+        audit_detail: Dict[str, Any],
+    ) -> str:
+        if audit_detail.get("passed") is not False:
+            return ""
+        existing = self._find_item_by_rule(rule.id)
+        if existing and existing.status not in (
+            EvolutionStatus.CLOSED.value, EvolutionStatus.FAILED.value
+        ):
+            return ""
 
-        result = AwaitableDict({
+        item = self._new_evolution_item_from_rule(
+            rule,
+            str(audit_detail.get("detail", "")),
+        )
+        self.evolution_items[item.id] = item
+        self.total_discovered += 1
+        return item.id
+
+    @staticmethod
+    def _new_evolution_item_from_rule(rule: AuditRule, detail: str) -> EvolutionItem:
+        item = EvolutionItem(
+            title=rule.title,
+            description=rule.description,
+            target_channel=rule.target_channel,
+            audit_domain=rule.domain,
+            severity=rule.severity,
+            reference_standard=rule.reference,
+            current_behavior=detail,
+            expected_behavior=rule.description,
+            verify_test_name=f"test_evo_{rule.id.lower().replace('-', '_')}",
+        )
+        item.build_task_id = rule.id
+        return item
+
+    def _build_audit_result(
+        self,
+        results: List[Dict[str, Any]],
+        new_items: List[str],
+    ) -> AwaitableDict:
+        return AwaitableDict({
             "audit_run": self.total_audits,
             "rules_checked": len(results),
             "passed": sum(1 for r in results if r.get("passed")),
@@ -1181,37 +1216,36 @@ class SystemEvolutionChannel(MarineChannel):
             "details": results,
         })
 
-        # ── Phase 3: 计算合规评级 ──
+    def _enrich_audit_result(
+        self,
+        result: Dict[str, Any],
+        results: List[Dict[str, Any]],
+    ) -> None:
         rating_result = self.calculate_compliance_rating(results)
         result["compliance_rating"] = rating_result["rating"]
         result["compliance_score"] = rating_result["score"]
         result["domain_scores"] = rating_result.get("domain_scores", {})
         result["escalation"] = self.get_escalation_status()
 
-        # 记录审计轨迹
+    def _record_audit_completion(self, result: Dict[str, Any], new_items_count: int) -> None:
         self._record_trail(
             "audit_run",
             detail=f"审查 #{self.total_audits}: {result['passed']} pass, "
-                   f"{result['failed']} fail, 评级 {rating_result['rating']} "
-                   f"({rating_result['score']}分)",
-            compliance_rating=rating_result["rating"],
+                   f"{result['failed']} fail, 评级 {result['compliance_rating']} "
+                   f"({result['compliance_score']}分)",
+            compliance_rating=result["compliance_rating"],
         )
         self._last_monitoring_time = time.time()
-
-        # Record in history
         self.audit_history.append({
             "run": self.total_audits,
             "time": datetime.now().isoformat(),
             "passed": result["passed"],
             "failed": result["failed"],
             "skipped": result["skipped"],
-            "new_items": len(new_items),
+            "new_items": new_items_count,
         })
-        # Keep last 50 audits
         if len(self.audit_history) > 50:
             self.audit_history = self.audit_history[-50:]
-
-        return result
 
     def _find_item_by_rule(self, rule_id: str) -> Optional[EvolutionItem]:
         for item in self.evolution_items.values():
