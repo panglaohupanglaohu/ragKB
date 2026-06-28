@@ -1093,14 +1093,18 @@ class PlazaEngine:
         bypass_degraded: bool = False,
     ) -> str:
         # 最终总结等重要调用可绕过降级窗口，强制尝试 LLM
-        if not bypass_degraded and time.monotonic() < self._llm_degraded_until:
-            self._last_call_was_fallback = True
-            return self._build_fallback_agent_content(participant, prompt)
+        degraded_content = self._degraded_agent_content(
+            participant,
+            prompt,
+            bypass_degraded=bypass_degraded,
+        )
+        if degraded_content is not None:
+            return degraded_content
+
         # 包 token_scope：广场发言的 LLM token 归因到 phase=plaza + 本次讨论的 run_id。
         # discussion_id 作 run_id 种子，同一讨论的多次发言/重试落到同一 run，便于聚合。
-        plaza_run_id = f"plaza_{discussion_id}" if discussion_id else "plaza"
         with token_scope(
-            run_id=plaza_run_id,
+            run_id=self._plaza_run_id(discussion_id),
             phase="plaza",
             team_id=participant.team_id,
             agent_id=participant.agent_id,
@@ -1108,24 +1112,10 @@ class PlazaEngine:
             last_error = None
             for attempt in range(_MAX_RETRIES):
                 try:
-                    result = await asyncio.wait_for(
-                        self._chat_fn(
-                            prompt,
-                            agent_id=participant.agent_id,
-                            system_prompt=self._build_agent_system_prompt(participant),
-                        ),
-                        timeout=_LLM_CALL_TIMEOUT,
-                    )
-                    if result and result.response:
-                        if self._is_unusable_llm_text(result.response):
-                            logger.warning(
-                                "Agent %s received provider fallback text; using deterministic content",
-                                participant.agent_id,
-                            )
-                            self._mark_llm_degraded()
-                            self._last_call_was_fallback = True
-                            return self._build_fallback_agent_content(participant, prompt)
-                        return result.response
+                    response = await self._call_agent_chat(participant, prompt)
+                    content = self._usable_agent_response(participant, prompt, response)
+                    if content is not None:
+                        return content
                     last_error = Exception("empty response")
                 except Exception as e:
                     last_error = e
@@ -1133,8 +1123,7 @@ class PlazaEngine:
                         f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
                     )
                     if isinstance(e, asyncio.TimeoutError):
-                        self._mark_llm_degraded()
-                        self._escalate_failure(
+                        return self._timeout_agent_fallback(
                             participant,
                             prompt,
                             e,
@@ -1143,13 +1132,10 @@ class PlazaEngine:
                             discussion_topic=discussion_topic,
                             round_number=round_number,
                         )
-                        self._last_call_was_fallback = True
-                        return self._build_fallback_agent_content(participant, prompt)
                 if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+                    await self._sleep_before_retry(attempt)
 
-            # All retries exhausted — escalate
-            self._escalate_failure(
+            return self._offline_agent_content(
                 participant,
                 prompt,
                 last_error,
@@ -1158,7 +1144,100 @@ class PlazaEngine:
                 discussion_topic=discussion_topic,
                 round_number=round_number,
             )
-            return f"[{participant.agent_name} 暂时离线]"
+
+    def _degraded_agent_content(
+        self,
+        participant: Participant,
+        prompt: str,
+        *,
+        bypass_degraded: bool,
+    ) -> Optional[str]:
+        if bypass_degraded or time.monotonic() >= self._llm_degraded_until:
+            return None
+        self._last_call_was_fallback = True
+        return self._build_fallback_agent_content(participant, prompt)
+
+    @staticmethod
+    def _plaza_run_id(discussion_id: str) -> str:
+        return f"plaza_{discussion_id}" if discussion_id else "plaza"
+
+    async def _call_agent_chat(self, participant: Participant, prompt: str):
+        return await asyncio.wait_for(
+            self._chat_fn(
+                prompt,
+                agent_id=participant.agent_id,
+                system_prompt=self._build_agent_system_prompt(participant),
+            ),
+            timeout=_LLM_CALL_TIMEOUT,
+        )
+
+    def _usable_agent_response(
+        self,
+        participant: Participant,
+        prompt: str,
+        result: Any,
+    ) -> Optional[str]:
+        if not result or not result.response:
+            return None
+        if self._is_unusable_llm_text(result.response):
+            logger.warning(
+                "Agent %s received provider fallback text; using deterministic content",
+                participant.agent_id,
+            )
+            self._mark_llm_degraded()
+            self._last_call_was_fallback = True
+            return self._build_fallback_agent_content(participant, prompt)
+        return result.response
+
+    def _timeout_agent_fallback(
+        self,
+        participant: Participant,
+        prompt: str,
+        error: Exception,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        self._mark_llm_degraded()
+        self._escalate_failure(
+            participant,
+            prompt,
+            error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
+        self._last_call_was_fallback = True
+        return self._build_fallback_agent_content(participant, prompt)
+
+    @staticmethod
+    async def _sleep_before_retry(attempt: int) -> None:
+        await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+
+    def _offline_agent_content(
+        self,
+        participant: Participant,
+        prompt: str,
+        error: Exception | None,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        self._escalate_failure(
+            participant,
+            prompt,
+            error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
+        return f"[{participant.agent_name} 暂时离线]"
 
     def _escalate_failure(
         self,
