@@ -1855,58 +1855,87 @@ async def _execute_agent_tool_invocations(agent, tool_invocations: List[Any]) ->
 async def send_session_message(
     team_id: str, agent_id: str, session_id: str, req: SessionMessageRequest
 ) -> Dict[str, Any]:
-    import uuid
-    session = _sessions.get(session_id)
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    msg = {
-        "message_id": str(uuid.uuid4())[:8],
-        "role": req.role,
-        "content": req.content,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    session = _get_session_or_404(session_id)
+    msg = _build_session_message(req.role, req.content)
     session["messages"].append(msg)
     agent = _get_agent_or_404(team_id, agent_id)
     _bump_metric(agent_id, "messages_sent")
     _log_agent_action(agent_id, "message_received", f"session={session_id}")
     reply_text, turn_result = await _generate_agent_response(agent, req.content, session_id, team_id)
     if reply_text:
-        reply_msg = {
-            "message_id": str(uuid.uuid4())[:8],
-            "role": "assistant",
-            "content": reply_text,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "model": turn_result.model if turn_result else "",
-            "provider": turn_result.provider if turn_result else "",
-            "latency_ms": turn_result.latency_ms if turn_result else 0,
-        }
-        session["messages"].append(reply_msg)
-        # Track real token usage from harness
-        real_usage = turn_result.usage if turn_result else None
-        if real_usage and real_usage.total_tokens > 0:
-            _bump_metric(agent_id, "today_llm_calls")
-            _bump_metric(agent_id, "today_tokens", real_usage.total_tokens)
-            _bump_metric(agent_id, "month_tokens", real_usage.total_tokens)
-            _bump_metric(agent_id, "total_tokens", real_usage.total_tokens)
-        else:
-            _bump_metric(agent_id, "today_llm_calls")
-            estimated_tokens = len(req.content) + len(reply_text)
-            _bump_metric(agent_id, "today_tokens", estimated_tokens)
-            _bump_metric(agent_id, "month_tokens", estimated_tokens)
-            _bump_metric(agent_id, "total_tokens", estimated_tokens)
-        # Check for tool invocations from harness or text
-        if turn_result and turn_result.tool_invocations:
-            _bump_metric(agent_id, "tools_invoked", len(turn_result.tool_invocations))
-            _log_agent_action(agent_id, "tools_invoked",
-                              ", ".join(t.tool_name for t in turn_result.tool_invocations))
-        else:
-            tool_invocations = _parse_tool_invocations(reply_text)
-            if tool_invocations:
-                _bump_metric(agent_id, "tools_invoked", len(tool_invocations))
-                _log_agent_action(agent_id, "tools_invoked",
-                                  ", ".join(t["tool"] for t in tool_invocations))
+        session["messages"].append(_build_assistant_session_message(reply_text, turn_result))
+        _record_session_response_metrics(agent_id, req.content, reply_text, turn_result)
 
     return msg
+
+
+def _get_session_or_404(session_id: str) -> Dict[str, Any]:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return session
+
+
+def _build_session_message(role: str, content: str) -> Dict[str, Any]:
+    import uuid
+
+    return {
+        "message_id": str(uuid.uuid4())[:8],
+        "role": role,
+        "content": content,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _build_assistant_session_message(reply_text: str, turn_result) -> Dict[str, Any]:
+    msg = _build_session_message("assistant", reply_text)
+    msg.update({
+        "model": turn_result.model if turn_result else "",
+        "provider": turn_result.provider if turn_result else "",
+        "latency_ms": turn_result.latency_ms if turn_result else 0,
+    })
+    return msg
+
+
+def _record_session_response_metrics(
+    agent_id: str,
+    request_content: str,
+    reply_text: str,
+    turn_result,
+) -> None:
+    _record_session_token_metrics(agent_id, request_content, reply_text, turn_result)
+    _record_session_tool_metrics(agent_id, reply_text, turn_result)
+
+
+def _record_session_token_metrics(
+    agent_id: str,
+    request_content: str,
+    reply_text: str,
+    turn_result,
+) -> None:
+    real_usage = turn_result.usage if turn_result else None
+    if real_usage and real_usage.total_tokens > 0:
+        token_count = real_usage.total_tokens
+    else:
+        token_count = len(request_content) + len(reply_text)
+    _bump_metric(agent_id, "today_llm_calls")
+    _bump_metric(agent_id, "today_tokens", token_count)
+    _bump_metric(agent_id, "month_tokens", token_count)
+    _bump_metric(agent_id, "total_tokens", token_count)
+
+
+def _record_session_tool_metrics(agent_id: str, reply_text: str, turn_result) -> None:
+    tool_names = _session_tool_invocation_names(reply_text, turn_result)
+    if not tool_names:
+        return
+    _bump_metric(agent_id, "tools_invoked", len(tool_names))
+    _log_agent_action(agent_id, "tools_invoked", ", ".join(tool_names))
+
+
+def _session_tool_invocation_names(reply_text: str, turn_result) -> List[str]:
+    if turn_result and turn_result.tool_invocations:
+        return [invocation.tool_name for invocation in turn_result.tool_invocations]
+    return [item["tool"] for item in _parse_tool_invocations(reply_text)]
 
 
 @router.get("/teams/{team_id}/delegations", summary="List delegations for a team")
