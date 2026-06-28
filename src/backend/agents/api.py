@@ -1662,71 +1662,9 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     Injects bound skill instructions into system prompt.
     """
     harness = get_chat_harness()
-
-    # If team has a default model, ensure harness uses it
-    if team_id:
-        team = _tm().get_team(team_id)
-        if team:
-            _sync_default_model_to_harness(team)
-
-    # Build tool schemas for function calling from agent's bound tools
-    tools_for_llm = None
-    tool_names_bound = set(agent.tools) if agent.tools else set()
-    if tool_names_bound:
-        all_tools = _tr().list_all()
-        tools_for_llm = []
-        for t in all_tools:
-            if t.name in tool_names_bound or t.tool_id in tool_names_bound:
-                # Build OpenAI function calling schema
-                props = {}
-                required_params = []
-                for pname, pdef in (t.parameters or {}).items():
-                    ptype = pdef.get("type", "string")
-                    if ptype == "integer":
-                        ptype = "number"
-                    if ptype == "object":
-                        ptype = "string"
-                    if ptype == "array":
-                        ptype = "string"
-                    props[pname] = {
-                        "type": ptype,
-                        "description": pdef.get("description", ""),
-                    }
-                    if pdef.get("required"):
-                        required_params.append(pname)
-                fn_schema = {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": props,
-                            "required": required_params,
-                        },
-                    },
-                }
-                tools_for_llm.append(fn_schema)
-
-    # Build system prompt from agent metadata + skill instructions
-    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
-    system_prompt = (
-        f"你是 {agent.name}，角色: {agent.role}。\n"
-        f"技能: {skills_str}\n"
-        f"你是 AgentsGroup2026 智能体团队管理平台的核心智能体之一。\n"
-        f"请用中文回答，专业但易懂。"
-    )
-
-    # Inject bound skill instructions into system prompt
-    skill_names_bound = set(agent.skills) if agent.skills else set()
-    if skill_names_bound:
-        all_skills = _sr().list_all()
-        skill_instructions = []
-        for s in all_skills:
-            if (s.name in skill_names_bound or s.skill_id in skill_names_bound) and s.instructions:
-                skill_instructions.append(f"### {s.name}\n{s.instructions}")
-        if skill_instructions:
-            system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
+    _sync_team_default_model(team_id)
+    tools_for_llm = _build_agent_tool_schemas(agent, team_id)
+    system_prompt = _build_agent_response_system_prompt(agent, team_id)
 
     result = await harness.chat(
         content,
@@ -1739,25 +1677,174 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
 
     # If LLM returned tool calls, execute them and feed results back
     if result.tool_invocations:
-        from .tool_executor import get_tool_executor
-        executor = get_tool_executor()
-        tool_outputs = []
-        for inv in result.tool_invocations:
-            tr = await executor.execute(inv.tool_name, inv.arguments, agent_id=agent.agent_id)
-            inv.result = tr.output if tr.success else f"Error: {tr.error}"
-            tool_outputs.append(f"[{inv.tool_name}] {'✅' if tr.success else '❌'}: {inv.result[:500]}")
-        # Append tool results and get a follow-up response
-        tool_summary = "\n\n".join(tool_outputs)
-        followup = await harness.chat(
-            f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
-            agent_id=agent.agent_id,
-            team_id=team_id,  # 归因：工具回执后续调用同样落团队
+        return await _generate_tool_followup_response(
+            harness,
+            agent,
+            result.tool_invocations,
+            team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
         )
-        return followup.response, followup
 
     return result.response, result
+
+
+def _sync_team_default_model(team_id: str) -> None:
+    if not team_id:
+        return
+    team = _tm().get_team(team_id)
+    if team:
+        _sync_default_model_to_harness(team)
+
+
+def _build_agent_permission_context(agent) -> ToolPermissionContext:
+    from .security.permission_resolver import PermissionResolver
+
+    return PermissionResolver().build_context(agent)
+
+
+def _build_agent_tool_schemas(agent, team_id: str = "") -> Optional[List[Dict[str, Any]]]:
+    tool_names_bound = _agent_bound_tool_names(agent, team_id)
+    if not tool_names_bound:
+        return None
+    permission_context = _build_agent_permission_context(agent)
+    tools_for_llm = []
+    for tool in _tr().list_all():
+        if (
+            tool.name in tool_names_bound or tool.tool_id in tool_names_bound
+        ) and not permission_context.blocks(tool.name):
+            tools_for_llm.append(_build_tool_function_schema(tool))
+    return tools_for_llm
+
+
+def _agent_bound_tool_names(agent, team_id: str = "") -> set[str]:
+    tool_names = set(agent.tools) if agent.tools else set()
+    for skill in _agent_bound_skills(agent, team_id):
+        tool_names.update(skill.required_tools or [])
+    return tool_names
+
+
+def _build_tool_function_schema(tool) -> Dict[str, Any]:
+    props, required_params = _build_tool_parameter_schema(tool.parameters or {})
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": required_params,
+            },
+        },
+    }
+
+
+def _build_tool_parameter_schema(parameters: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
+    props = {}
+    required_params = []
+    for pname, pdef in parameters.items():
+        ptype = _llm_tool_param_type(pdef.get("type", "string"))
+        props[pname] = {
+            "type": ptype,
+            "description": pdef.get("description", ""),
+        }
+        if pdef.get("required"):
+            required_params.append(pname)
+    return props, required_params
+
+
+def _llm_tool_param_type(param_type: str) -> str:
+    if param_type == "integer":
+        return "number"
+    if param_type in {"object", "array"}:
+        return "string"
+    return param_type
+
+
+def _build_agent_response_system_prompt(agent, team_id: str = "") -> str:
+    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
+    system_prompt = (
+        f"你是 {agent.name}，角色: {agent.role}。\n"
+        f"技能: {skills_str}\n"
+        f"你是 AgentsGroup2026 智能体团队管理平台的核心智能体之一。\n"
+        f"请用中文回答，专业但易懂。"
+    )
+    skill_instructions = _agent_skill_instructions(agent, team_id)
+    if skill_instructions:
+        system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
+    return system_prompt
+
+
+def _agent_skill_instructions(agent, team_id: str = "") -> List[str]:
+    return [
+        f"### {skill.name}\n{skill.instructions}"
+        for skill in _agent_bound_skills(agent, team_id)
+        if skill.instructions
+    ]
+
+
+def _agent_bound_skills(agent, team_id: str = "") -> List[Any]:
+    skill_names_bound = set(agent.skills) if agent.skills else set()
+    if not skill_names_bound:
+        return []
+    skills = []
+    seen = set()
+    for skill in _iter_team_and_registry_skills(team_id):
+        if (
+            skill.name in skill_names_bound or skill.skill_id in skill_names_bound
+        ) and skill.skill_id not in seen:
+            skills.append(skill)
+            seen.add(skill.skill_id)
+    return skills
+
+
+def _iter_team_and_registry_skills(team_id: str = "") -> List[Any]:
+    skills = []
+    if team_id:
+        team = _tm().get_team(team_id)
+        if team:
+            skills.extend(team.skills.values())
+    skills.extend(_sr().list_all())
+    return skills
+
+
+async def _generate_tool_followup_response(
+    harness,
+    agent,
+    tool_invocations: List[Any],
+    *,
+    team_id: str,
+    session_id: str,
+    system_prompt: str,
+):
+    tool_summary = "\n\n".join(await _execute_agent_tool_invocations(agent, tool_invocations))
+    followup = await harness.chat(
+        f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
+        agent_id=agent.agent_id,
+        team_id=team_id,  # 归因：工具回执后续调用同样落团队
+        session_id=session_id,
+        system_prompt=system_prompt,
+    )
+    return followup.response, followup
+
+
+async def _execute_agent_tool_invocations(agent, tool_invocations: List[Any]) -> List[str]:
+    from .tool_executor import get_tool_executor
+
+    executor = get_tool_executor()
+    tool_outputs = []
+    for invocation in tool_invocations:
+        result = await executor.execute(
+            invocation.tool_name,
+            invocation.arguments,
+            agent_id=agent.agent_id,
+        )
+        invocation.result = result.output if result.success else f"Error: {result.error}"
+        tool_outputs.append(
+            f"[{invocation.tool_name}] {'✅' if result.success else '❌'}: {invocation.result[:500]}"
+        )
+    return tool_outputs
 
 
 @router.post(
