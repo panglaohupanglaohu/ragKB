@@ -1705,18 +1705,23 @@ class SystemEvolutionChannel(MarineChannel):
 
     def run_evolution_cycle(self) -> Dict[str, Any]:
         """一键运行完整的审查→派发→验证→关闭循环。"""
-        audit_result = self.run_full_audit()
-        dispatch_result = self.dispatch_all_pending()
+        return self._build_evolution_cycle_result(self._run_evolution_cycle_steps())
 
-        verify_result = self.verify_all_pending()
-        closed = self.close_verified()
+    def _run_evolution_cycle_steps(self) -> Dict[str, Any]:
+        return {
+            "audit": self.run_full_audit(),
+            "dispatch": self.dispatch_all_pending(),
+            "verify": self.verify_all_pending(),
+            "closed": self.close_verified(),
+        }
 
+    def _build_evolution_cycle_result(self, steps: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "cycle": self.total_audits,
-            "audit": audit_result,
-            "dispatch": dispatch_result,
-            "verify": verify_result,
-            "closed": closed,
+            "audit": steps["audit"],
+            "dispatch": steps["dispatch"],
+            "verify": steps["verify"],
+            "closed": steps["closed"],
             "summary": self.get_evolution_summary(),
         }
 
