@@ -221,6 +221,59 @@ def test_close_verified_items_filters_and_uses_default_conclusion():
     assert channel.evolution_items["evo-not-verified"].status == EvolutionStatus.DISPATCHED.value
 
 
+def test_verification_queue_and_alerts_filter_and_sort_by_priority():
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items = {
+        "evo-closed": EvolutionItem(
+            id="evo-closed",
+            title="Closed",
+            status=EvolutionStatus.CLOSED.value,
+            source_plaza_id="plaza-1",
+            source_discussion_id="disc-1",
+        ),
+        "evo-manual": EvolutionItem(
+            id="evo-manual",
+            title="Manual Verify",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-manual",
+            source_plaza_id="plaza-1",
+            source_discussion_id="disc-1",
+        ),
+        "evo-critical": EvolutionItem(
+            id="evo-critical",
+            title="Critical Failure",
+            status=EvolutionStatus.FAILED.value,
+            retry_count=3,
+            source_plaza_id="plaza-1",
+            source_discussion_id="disc-1",
+        ),
+        "evo-other": EvolutionItem(
+            id="evo-other",
+            title="Other Discussion",
+            status=EvolutionStatus.VERIFY_PENDING.value,
+            verify_test_name="verify-other",
+            source_plaza_id="plaza-2",
+            source_discussion_id="disc-2",
+        ),
+    }
+
+    queue = channel.get_verification_queue(
+        source_plaza_id="plaza-1",
+        source_discussion_id="disc-1",
+    )
+    alerts = channel.get_verification_alerts(
+        source_plaza_id="plaza-1",
+        source_discussion_id="disc-1",
+    )
+
+    assert [item["id"] for item in queue] == ["evo-manual", "evo-closed", "evo-critical"]
+    assert queue[0]["requires_manual_verify"] is True
+    assert [alert["item_id"] for alert in alerts] == ["evo-critical", "evo-manual"]
+    assert alerts[0]["alert_level"] == "critical"
+    assert alerts[1]["next_action"] == "run_verify_test:verify-manual"
+
+
 @pytest.mark.asyncio
 async def test_dispatch_item_dispatches_discovered_item_and_records_trail():
     channel = SystemEvolutionChannel()

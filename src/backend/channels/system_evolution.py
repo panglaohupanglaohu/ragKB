@@ -1699,21 +1699,14 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[Dict[str, Any]]:
         """Return pending/failing verification items that need follow-up."""
         alerts: List[Dict[str, Any]] = []
-        for item in self.evolution_items.values():
-            if source_plaza_id and item.source_plaza_id != source_plaza_id:
-                continue
-            if source_discussion_id and item.source_discussion_id != source_discussion_id:
-                continue
+        for item in self._source_filtered_items(
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
             alert = self._build_verification_alert(item)
             if alert:
                 alerts.append(alert)
-        alerts.sort(
-            key=lambda alert: (
-                0 if alert["alert_level"] == "critical" else 1,
-                0 if alert["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
-                alert["item_id"],
-            )
-        )
+        alerts.sort(key=self._verification_alert_sort_key)
         return alerts
 
     def get_verification_queue(
@@ -1724,39 +1717,64 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[Dict[str, Any]]:
         """Return linked evolution items, prioritizing entries still waiting on verification."""
         items: List[Dict[str, Any]] = []
+        for item in self._source_filtered_items(
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            items.append(self._verification_queue_item(item))
+
+        items.sort(key=self._verification_queue_sort_key)
+        return items
+
+    def _source_filtered_items(
+        self,
+        *,
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        items = []
         for item in self.evolution_items.values():
             if source_plaza_id and item.source_plaza_id != source_plaza_id:
                 continue
             if source_discussion_id and item.source_discussion_id != source_discussion_id:
                 continue
-            items.append(
-                {
-                    "id": item.id,
-                    "title": item.title,
-                    "status": item.status,
-                    "verify_test_name": item.verify_test_name,
-                    "verify_result": item.verify_result,
-                    "verify_detail": item.verify_detail,
-                    "retry_count": item.retry_count,
-                    "max_retries": item.max_retries,
-                    "source_task_ids": list(item.source_task_ids),
-                    "requires_manual_verify": bool(
-                        item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
-                    ),
-                    "consecutive_failures": item.consecutive_failures,
-                    "escalation_tier": item.escalation_tier,
-                    "escalation_label": self._escalation_label(item.escalation_tier),
-                }
-            )
-
-        items.sort(
-            key=lambda item: (
-                0 if item["requires_manual_verify"] else 1,
-                0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
-                item["id"],
-            )
-        )
+            items.append(item)
         return items
+
+    @staticmethod
+    def _verification_alert_sort_key(alert: Dict[str, Any]) -> tuple[int, int, str]:
+        return (
+            0 if alert["alert_level"] == "critical" else 1,
+            0 if alert["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+            alert["item_id"],
+        )
+
+    def _verification_queue_item(self, item: EvolutionItem) -> Dict[str, Any]:
+        return {
+            "id": item.id,
+            "title": item.title,
+            "status": item.status,
+            "verify_test_name": item.verify_test_name,
+            "verify_result": item.verify_result,
+            "verify_detail": item.verify_detail,
+            "retry_count": item.retry_count,
+            "max_retries": item.max_retries,
+            "source_task_ids": list(item.source_task_ids),
+            "requires_manual_verify": bool(
+                item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
+            ),
+            "consecutive_failures": item.consecutive_failures,
+            "escalation_tier": item.escalation_tier,
+            "escalation_label": self._escalation_label(item.escalation_tier),
+        }
+
+    @staticmethod
+    def _verification_queue_sort_key(item: Dict[str, Any]) -> tuple[int, int, str]:
+        return (
+            0 if item["requires_manual_verify"] else 1,
+            0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+            item["id"],
+        )
 
     def close_verified(self) -> List[str]:
         """关闭所有已验证通过的演进项。"""
