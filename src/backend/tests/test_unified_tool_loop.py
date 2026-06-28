@@ -187,6 +187,96 @@ async def test_shared_runtime_filters_and_blocks_disallowed_tools(monkeypatch):
     assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))
 
 
+@pytest.mark.asyncio
+async def test_shared_runtime_finish_records_summary_and_unique_files(monkeypatch):
+    finish_args = "{\"summary\":\"done\",\"files_changed\":[\"a.py\",\"a.py\",\"b.py\"]}"
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "finish-1",
+                                "function": {
+                                    "name": "finish",
+                                    "arguments": finish_args,
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {},
+        },
+    ]
+    events = []
+
+    async def fake_chat_completion(self, *args, **kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(tool_loop_module, "get_budget_guard", lambda: _BudgetGuard())
+    monkeypatch.setattr(tool_loop_module.LLMClient, "chat_completion", fake_chat_completion)
+
+    result = await tool_loop_module.run_tool_loop(
+        prompt="finish",
+        config=ProviderConfig(api_key="k", api_base_url="https://example.com/v1", model="deepseek-v4-pro"),
+        role="developer",
+        system_prompt="system",
+        max_iterations=2,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    assert result.ok is True
+    assert result.summary == "done"
+    assert result.files_changed == ["a.py", "b.py"]
+    assert result.log == [{"name": "finish", "args": finish_args, "ok": True}]
+    assert events[-1][0] == "loop_end"
+    assert events[-1][1]["reason"] == "finish_called"
+
+
+@pytest.mark.asyncio
+async def test_shared_runtime_finish_invalid_json_uses_raw_summary(monkeypatch):
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "finish-1",
+                                "function": {"name": "finish", "arguments": "not-json"},
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {},
+        },
+    ]
+
+    async def fake_chat_completion(self, *args, **kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(tool_loop_module, "get_budget_guard", lambda: _BudgetGuard())
+    monkeypatch.setattr(tool_loop_module.LLMClient, "chat_completion", fake_chat_completion)
+
+    result = await tool_loop_module.run_tool_loop(
+        prompt="finish",
+        config=ProviderConfig(api_key="k", api_base_url="https://example.com/v1", model="deepseek-v4-pro"),
+        role="developer",
+        system_prompt="system",
+        max_iterations=1,
+    )
+
+    assert result.summary == "not-json"
+    assert result.files_changed == []
+
+
 def test_runtime_entrypoints_delegate_to_shared_runtimes():
     agent_loop_run = inspect.getsource(AgentLoop.run)
     api_tool_loop = inspect.getsource(api_module._run_tool_loop)

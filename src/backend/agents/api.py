@@ -51,6 +51,9 @@ from .chat_harness import (
     ProviderConfig,
     get_chat_harness,
 )
+from .budget.guard import get_budget_guard, save_budget_settings
+from .budget.models import TokenBudget
+from .budget.store import get_usage_store
 from .execution_registry import (
     ToolPermissionContext,
     PortRuntime,
@@ -391,6 +394,46 @@ class ChannelItem(BaseModel):
 class UpdateChannelsRequest(BaseModel):
     """Step 5 -- channel subscriptions."""
     channels: List[ChannelItem] = Field(default_factory=list)
+
+
+class UsageBudgetUpdateRequest(BaseModel):
+    per_session_max: int = Field(default=200_000, ge=0)
+    per_agent_daily_max: int = Field(default=2_000_000, ge=0)
+    per_team_daily_max: int = Field(default=10_000_000, ge=0)
+    on_exceed: str = "halt"
+    alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+@router.post("/usage/budget", summary="Update token usage budget")
+def update_usage_budget(req: UsageBudgetUpdateRequest) -> Dict[str, object]:
+    budget = save_budget_settings(
+        TokenBudget(
+            per_session_max=req.per_session_max,
+            per_agent_daily_max=req.per_agent_daily_max,
+            per_team_daily_max=req.per_team_daily_max,
+            on_exceed=req.on_exceed,
+            alert_threshold=req.alert_threshold,
+        )
+    )
+    get_budget_guard().update_budget(budget)
+    return {"budget": budget.to_dict()}
+
+
+@router.get("/usage/summary", summary="Get token usage summary")
+def get_usage_summary(
+    agent_id: str = "",
+    team_id: str = "",
+    from_date: str = "",
+    to_date: str = "",
+) -> Dict[str, object]:
+    filters = {
+        "agent_id": agent_id,
+        "team_id": team_id,
+        "from_date": from_date,
+        "to_date": to_date,
+    }
+    summary = get_usage_store().summarize_usage(**filters)
+    return {**summary, "filters": filters}
 
 
 # TAB 1 -- TEAM INFO
@@ -5391,9 +5434,9 @@ def _run_tool_loop(
     and execute the codebase via tool calls instead of single-shot text completion.
     """
     try:
-        from agents.agent_loop import AgentLoop
+        from agents.runtime import run_tool_loop_sync_with_provider
     except ImportError:
-        from .agent_loop import AgentLoop  # type: ignore
+        from .runtime import run_tool_loop_sync_with_provider  # type: ignore
 
     session["lines"].append(f"🔗 API: {api_base_url}\n模型: {model}\n角色: {role}\n")
     session["lines"].append(f"{'─'*60}\n\n")
@@ -5438,14 +5481,16 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
-    loop = AgentLoop(
-        api_key=api_key, api_base_url=api_base_url, model=model,
+    result = run_tool_loop_sync_with_provider(
+        prompt=prompt,
+        api_key=api_key,
+        api_base_url=api_base_url,
+        model=model,
         role=role, system_prompt=system,
         max_iterations=max_iterations,
         max_tokens=max_tokens, temperature=temperature,
         on_event=on_event,
     )
-    result = loop.run(prompt)
 
     session["tool_loop_log"] = result.get("log", [])
     session["files_changed"] = result.get("files_changed", [])

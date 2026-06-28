@@ -116,6 +116,103 @@ class TestTokenBudget:
         assert events[0]["scope"] == "session"
         assert events[0]["level"] == "halt"
 
+    def test_budget_guard_warns_at_threshold_without_blocking(self, temp_budget_env):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(
+            TokenBudget(
+                per_session_max=100,
+                per_agent_daily_max=1_000,
+                per_team_daily_max=10_000,
+                on_exceed="halt",
+                alert_threshold=0.8,
+            ),
+            store=store,
+        )
+
+        result = guard.check(
+            session_id="sess-threshold",
+            agent_id="agent-threshold",
+            team_id="team-threshold",
+            estimated_tokens=80,
+        )
+
+        assert result.allowed is True
+        assert result.events[0].scope == "session"
+        assert result.events[0].level == "warn"
+        assert result.events[0].message == "session token budget nearing limit: 80 / 100"
+
+    def test_budget_guard_warn_mode_allows_overage(self, temp_budget_env):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(
+            TokenBudget(
+                per_session_max=100,
+                per_agent_daily_max=1_000,
+                per_team_daily_max=10_000,
+                on_exceed="warn",
+                alert_threshold=0.8,
+            ),
+            store=store,
+        )
+
+        result = guard.check(
+            session_id="sess-warn",
+            agent_id="agent-warn",
+            team_id="team-warn",
+            estimated_tokens=101,
+        )
+
+        assert result.allowed is True
+        assert result.events[0].scope == "session"
+        assert result.events[0].level == "warn"
+        assert result.events[0].message == "session token budget exceeded: 101 > 100"
+
+    def test_budget_guard_skips_empty_scope_and_disabled_limits(self, temp_budget_env):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(
+            TokenBudget(
+                per_session_max=0,
+                per_agent_daily_max=100,
+                per_team_daily_max=-1,
+                on_exceed="halt",
+                alert_threshold=0.8,
+            ),
+            store=store,
+        )
+
+        result = guard.check(
+            session_id="sess-disabled",
+            agent_id="",
+            team_id="team-disabled",
+            estimated_tokens=1_000,
+        )
+
+        assert result.allowed is True
+        assert result.events == []
+        assert store.recent_events(limit=10) == []
+
+    def test_budget_guard_preserves_session_agent_team_event_order(self, temp_budget_env):
+        store = UsageStore(temp_budget_env["db_path"])
+        guard = BudgetGuard(
+            TokenBudget(
+                per_session_max=10,
+                per_agent_daily_max=10,
+                per_team_daily_max=10,
+                on_exceed="halt",
+                alert_threshold=0.8,
+            ),
+            store=store,
+        )
+
+        result = guard.check(
+            session_id="sess-order",
+            agent_id="agent-order",
+            team_id="team-order",
+            estimated_tokens=11,
+        )
+
+        assert result.allowed is False
+        assert [event.scope for event in result.events] == ["session", "agent", "team"]
+
     @pytest.mark.asyncio
     async def test_chat_halts_before_llm_call_when_budget_exceeded(self, temp_budget_env, monkeypatch):
         store = UsageStore(temp_budget_env["db_path"])

@@ -16,9 +16,11 @@ from __future__ import annotations
 import contextvars
 import uuid
 from contextlib import contextmanager
-from typing import Dict, Optional
+from typing import Any, Dict, Iterator
 
-_ctx: contextvars.ContextVar[Dict] = contextvars.ContextVar("token_ctx", default={})
+TokenContext = Dict[str, Any]
+
+_ctx: contextvars.ContextVar[TokenContext] = contextvars.ContextVar("token_ctx", default={})
 
 
 def new_run_id(prefix: str = "run") -> str:
@@ -26,21 +28,29 @@ def new_run_id(prefix: str = "run") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
-def get_token_ctx() -> Dict:
+def get_token_ctx() -> TokenContext:
     """获取当前归因上下文副本。"""
     return dict(_ctx.get())
 
 
 @contextmanager
-def token_scope(**kw):
+def token_scope(**kw: Any) -> Iterator[TokenContext]:
     """合并入栈当前归因上下文。
 
     支持的键: phase, run_id, team_id, agent_id, skill_id, scenario_id。
     值为 None 的键会被跳过，保留父级上下文中的值。
     """
-    merged = {**_ctx.get(), **{k: v for k, v in kw.items() if v is not None}}
-    tok = _ctx.set(merged)
+    merged = _merge_token_context(_ctx.get(), kw)
+    token = _ctx.set(merged)
     try:
         yield merged
     finally:
-        _ctx.reset(tok)
+        _ctx.reset(token)
+
+
+def _merge_token_context(parent: TokenContext, updates: TokenContext) -> TokenContext:
+    return {**parent, **_without_none_values(updates)}
+
+
+def _without_none_values(values: TokenContext) -> TokenContext:
+    return {key: value for key, value in values.items() if value is not None}
