@@ -522,39 +522,80 @@ class CostAggregator:
                 window_end=we,
             )
 
-        # Calculate totals
-        total = sum(p.total_cost for p in pods)
-        cpu = sum(p.cpu_cost for p in pods)
-        ram = sum(p.ram_cost for p in pods)
-        pv = sum(p.pv_cost for p in pods)
-        net = sum(p.network_cost for p in pods)
-        gpu = sum(p.gpu_cost for p in pods)
-
-        # Aggregations
-        by_service = self._aggregate(pods, "service", total)
-        by_environment = self._aggregate(pods, "environment", total)
-        by_team = self._aggregate(pods, "team", total)
-
-        # Trends — compute daily trend for primary aggregation
+        totals = self._cost_totals(pods)
+        by_service = self._aggregate(pods, "service", totals["total"])
+        by_environment = self._aggregate(pods, "environment", totals["total"])
+        by_team = self._aggregate(pods, "team", totals["total"])
         trends = self._compute_trends(
             pods, params.aggregation, params.granularity, params.window
         )
 
-        return CostSummary(
-            total_cost=round(total, 4),
-            cpu_cost=round(cpu, 4),
-            ram_cost=round(ram, 4),
-            pv_cost=round(pv, 4),
-            network_cost=round(net, 4),
-            gpu_cost=round(gpu, 4),
-            pod_count=len(pods),
-            container_count=sum(1 for p in pods if p.container),
-            service_count=len(by_service),
-            environment_count=len(by_environment),
-            team_count=len(by_team),
-            namespace_count=len(set(p.namespace for p in pods if p.namespace)),
+        return self._build_summary(
+            pods=pods,
+            totals=totals,
+            by_service=by_service,
+            by_environment=by_environment,
+            by_team=by_team,
+            trends=trends,
             window_start=ws,
             window_end=we,
+        )
+
+    @staticmethod
+    def _cost_totals(pods: List[PodCostItem]) -> Dict[str, float]:
+        return {
+            "total": sum(p.total_cost for p in pods),
+            "cpu": sum(p.cpu_cost for p in pods),
+            "ram": sum(p.ram_cost for p in pods),
+            "pv": sum(p.pv_cost for p in pods),
+            "net": sum(p.network_cost for p in pods),
+            "gpu": sum(p.gpu_cost for p in pods),
+        }
+
+    @staticmethod
+    def _summary_counts(
+        pods: List[PodCostItem],
+        by_service: List[AggregatedCostItem],
+        by_environment: List[AggregatedCostItem],
+        by_team: List[AggregatedCostItem],
+    ) -> Dict[str, int]:
+        return {
+            "pod_count": len(pods),
+            "container_count": sum(1 for p in pods if p.container),
+            "service_count": len(by_service),
+            "environment_count": len(by_environment),
+            "team_count": len(by_team),
+            "namespace_count": len(set(p.namespace for p in pods if p.namespace)),
+        }
+
+    def _build_summary(
+        self,
+        *,
+        pods: List[PodCostItem],
+        totals: Dict[str, float],
+        by_service: List[AggregatedCostItem],
+        by_environment: List[AggregatedCostItem],
+        by_team: List[AggregatedCostItem],
+        trends: List[CostTrendSeries],
+        window_start: str,
+        window_end: str,
+    ) -> CostSummary:
+        counts = self._summary_counts(pods, by_service, by_environment, by_team)
+        return CostSummary(
+            total_cost=round(totals["total"], 4),
+            cpu_cost=round(totals["cpu"], 4),
+            ram_cost=round(totals["ram"], 4),
+            pv_cost=round(totals["pv"], 4),
+            network_cost=round(totals["net"], 4),
+            gpu_cost=round(totals["gpu"], 4),
+            pod_count=counts["pod_count"],
+            container_count=counts["container_count"],
+            service_count=counts["service_count"],
+            environment_count=counts["environment_count"],
+            team_count=counts["team_count"],
+            namespace_count=counts["namespace_count"],
+            window_start=window_start,
+            window_end=window_end,
             by_service=by_service[:10],
             by_environment=by_environment[:10],
             by_team=by_team[:10],
@@ -571,42 +612,55 @@ class CostAggregator:
         })
 
         for pod in pods:
-            value = pod.labels.get(dimension, "")
-            if not value:
-                value = getattr(pod, dimension, "") if hasattr(pod, dimension) else ""
-            if not value:
-                value = "(unknown)"
-
-            b = buckets[value]
-            b["cpu"] += pod.cpu_cost
-            b["ram"] += pod.ram_cost
-            b["pv"] += pod.pv_cost
-            b["net"] += pod.network_cost
-            b["gpu"] += pod.gpu_cost
-            b["total"] += pod.total_cost
-            b["pods"].add(pod.pod)
-            if pod.container:
-                b["containers"].add(pod.container)
+            self._add_pod_to_bucket(buckets[self._aggregate_value(pod, dimension)], pod)
 
         result = []
         for value, b in buckets.items():
-            pct = (b["total"] / total * 100) if total > 0 else 0.0
-            result.append(AggregatedCostItem(
-                dimension=dimension,
-                value=value,
-                cpu_cost=round(b["cpu"], 4),
-                ram_cost=round(b["ram"], 4),
-                pv_cost=round(b["pv"], 4),
-                network_cost=round(b["net"], 4),
-                gpu_cost=round(b["gpu"], 4),
-                total_cost=round(b["total"], 4),
-                pod_count=len(b["pods"]),
-                container_count=len(b["containers"]),
-                percentage=round(pct, 2),
-            ))
+            result.append(self._bucket_to_cost_item(dimension, value, b, total))
 
         result.sort(key=lambda x: x.total_cost, reverse=True)
         return result
+
+    @staticmethod
+    def _aggregate_value(pod: PodCostItem, dimension: str) -> str:
+        value = pod.labels.get(dimension, "")
+        if not value:
+            value = getattr(pod, dimension, "") if hasattr(pod, dimension) else ""
+        return value or "(unknown)"
+
+    @staticmethod
+    def _add_pod_to_bucket(bucket: Dict[str, Any], pod: PodCostItem) -> None:
+        bucket["cpu"] += pod.cpu_cost
+        bucket["ram"] += pod.ram_cost
+        bucket["pv"] += pod.pv_cost
+        bucket["net"] += pod.network_cost
+        bucket["gpu"] += pod.gpu_cost
+        bucket["total"] += pod.total_cost
+        bucket["pods"].add(pod.pod)
+        if pod.container:
+            bucket["containers"].add(pod.container)
+
+    @staticmethod
+    def _bucket_to_cost_item(
+        dimension: str,
+        value: str,
+        bucket: Dict[str, Any],
+        total: float,
+    ) -> AggregatedCostItem:
+        pct = (bucket["total"] / total * 100) if total > 0 else 0.0
+        return AggregatedCostItem(
+            dimension=dimension,
+            value=value,
+            cpu_cost=round(bucket["cpu"], 4),
+            ram_cost=round(bucket["ram"], 4),
+            pv_cost=round(bucket["pv"], 4),
+            network_cost=round(bucket["net"], 4),
+            gpu_cost=round(bucket["gpu"], 4),
+            total_cost=round(bucket["total"], 4),
+            pod_count=len(bucket["pods"]),
+            container_count=len(bucket["containers"]),
+            percentage=round(pct, 2),
+        )
 
     def _compute_trends(
         self,
@@ -629,44 +683,58 @@ class CostAggregator:
         if window_days <= 0:
             window_days = 7
 
-        # Group by aggregation dimension
-        grouped: Dict[str, List[PodCostItem]] = defaultdict(list)
-        for pod in pods:
-            value = pod.labels.get(aggregation, "(unknown)")
-            grouped[value].append(pod)
+        grouped = self._group_pods_for_trends(pods, aggregation)
 
         trends = []
         for value, group_pods in list(grouped.items())[:5]:  # Top 5
-            total = sum(p.total_cost for p in group_pods)
-            daily_avg = total / window_days if window_days > 0 else total
-
-            # Build trend points (simulated daily distribution)
-            points = []
-            now = datetime.now(timezone.utc)
-            for day_offset in range(window_days, -1, -1):
-                day = now - timedelta(days=day_offset)
-                # Simple linear distribution
-                day_cost = daily_avg
-                cpu_day = sum(p.cpu_cost for p in group_pods) / window_days
-                ram_day = sum(p.ram_cost for p in group_pods) / window_days
-
-                points.append(CostTrendPoint(
-                    timestamp=day.strftime("%Y-%m-%d"),
-                    total_cost=round(day_cost, 4),
-                    cpu_cost=round(cpu_day, 4),
-                    ram_cost=round(ram_day, 4),
-                ))
-
-            trends.append(CostTrendSeries(
-                dimension=aggregation,
-                value=value,
-                points=points,
-                total=round(total, 4),
-                avg_daily=round(daily_avg, 4),
-            ))
+            trends.append(self._trend_series(aggregation, value, group_pods, window_days))
 
         trends.sort(key=lambda t: t.total, reverse=True)
         return trends[:10]
+
+    @staticmethod
+    def _group_pods_for_trends(pods: List[PodCostItem], aggregation: str) -> Dict[str, List[PodCostItem]]:
+        grouped: Dict[str, List[PodCostItem]] = defaultdict(list)
+        for pod in pods:
+            grouped[pod.labels.get(aggregation, "(unknown)")].append(pod)
+        return grouped
+
+    def _trend_series(
+        self,
+        aggregation: str,
+        value: str,
+        pods: List[PodCostItem],
+        window_days: int,
+    ) -> CostTrendSeries:
+        total = sum(p.total_cost for p in pods)
+        daily_avg = total / window_days if window_days > 0 else total
+        return CostTrendSeries(
+            dimension=aggregation,
+            value=value,
+            points=self._trend_points(pods, window_days, daily_avg),
+            total=round(total, 4),
+            avg_daily=round(daily_avg, 4),
+        )
+
+    @staticmethod
+    def _trend_points(
+        pods: List[PodCostItem],
+        window_days: int,
+        daily_avg: float,
+    ) -> List[CostTrendPoint]:
+        points = []
+        now = datetime.now(timezone.utc)
+        cpu_day = sum(p.cpu_cost for p in pods) / window_days
+        ram_day = sum(p.ram_cost for p in pods) / window_days
+        for day_offset in range(window_days, -1, -1):
+            day = now - timedelta(days=day_offset)
+            points.append(CostTrendPoint(
+                timestamp=day.strftime("%Y-%m-%d"),
+                total_cost=round(daily_avg, 4),
+                cpu_cost=round(cpu_day, 4),
+                ram_cost=round(ram_day, 4),
+            ))
+        return points
 
     @staticmethod
     def _parse_window_days(window: str) -> int:
