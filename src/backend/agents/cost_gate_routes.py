@@ -190,6 +190,51 @@ def _terraform_gate_stats() -> Dict[str, Any]:
         return {"error": str(e)[:120]}
 
 
+def _ensure_plan_request(request: TerraformPlanEvaluationRequest) -> None:
+    if not request.plan and not request.plan_json:
+        raise HTTPException(status_code=422, detail="Either 'plan' or 'plan_json' is required")
+
+
+def _plan_from_request(request: TerraformPlanEvaluationRequest) -> Dict[str, Any]:
+    if request.plan_json:
+        return json.loads(request.plan_json)
+    return request.plan or {}
+
+
+def _budget_from_request(request: TerraformPlanEvaluationRequest):
+    if not request.budget:
+        return None
+    from agents.cost_policy import BudgetProfile
+    return BudgetProfile.from_dict(request.budget)
+
+
+def _evaluate_plan_with_gate(gate, request: TerraformPlanEvaluationRequest, plan: Dict[str, Any], budget):
+    return gate.evaluate_plan(
+        plan,
+        project_id=request.project_id,
+        budget=budget,
+        metadata=request.metadata or {},
+    )
+
+
+async def _result_from_report(report, request: TerraformPlanEvaluationRequest) -> Dict[str, Any]:
+    result = report.to_dict()
+    evidence_run_id = await _record_cost_gate_evidence(report, request, result)
+    if evidence_run_id:
+        result["evidence_run_id"] = evidence_run_id
+    return result
+
+
+def _log_blocked_report(report) -> None:
+    if not report.is_blocked:
+        return
+    logger.warning(
+        "🚫 Cost Gate BLOCKED plan %s: %d critical/high violations",
+        report.report_id,
+        report.critical_count + report.high_count,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════
 # API Endpoints
 # ══════════════════════════════════════════════════════════════════
@@ -231,44 +276,15 @@ async def evaluate_terraform_plan(request: TerraformPlanEvaluationRequest):
         422: Budget exceeded (BLOCK decision) — CI/CD should treat as failure
     """
     gate = _get_cost_gate()
-
-    if not request.plan and not request.plan_json:
-        raise HTTPException(status_code=422, detail="Either 'plan' or 'plan_json' is required")
+    _ensure_plan_request(request)
 
     try:
-        if request.plan_json:
-            plan = json.loads(request.plan_json)
-        else:
-            plan = request.plan
-
-        # Convert budget if provided
-        budget = None
-        if request.budget:
-            from agents.cost_policy import BudgetProfile
-            budget = BudgetProfile.from_dict(request.budget)
-
-        report = gate.evaluate_plan(
-            plan,
-            project_id=request.project_id,
-            budget=budget,
-            metadata=request.metadata or {},
-        )
-
-        result = report.to_dict()
-        evidence_run_id = await _record_cost_gate_evidence(report, request, result)
-        if evidence_run_id:
-            result["evidence_run_id"] = evidence_run_id
-
-        # If blocked, return 422 to signal CI/CD failure
-        if report.is_blocked:
-            logger.warning(
-                "🚫 Cost Gate BLOCKED plan %s: %d critical/high violations",
-                report.report_id,
-                report.critical_count + report.high_count,
-            )
-            # We still return 200 here because the CI/CD script checks decision field
-            # But we include clear blocking info
-
+        plan = _plan_from_request(request)
+        budget = _budget_from_request(request)
+        report = _evaluate_plan_with_gate(gate, request, plan, budget)
+        result = await _result_from_report(report, request)
+        # We still return 200 for blocked reports because CI/CD checks decision field.
+        _log_blocked_report(report)
         return result
 
     except json.JSONDecodeError as e:
