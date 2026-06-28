@@ -389,26 +389,45 @@ _DISPATCH = {
 }
 
 
-def dispatch_tool_call(name: str, args_json: str) -> Dict[str, Any]:
-    """Execute a tool by name with JSON-encoded arguments. Returns JSON-safe dict."""
-    fn = _DISPATCH.get(name)
-    if name == "finish":
-        return {"ok": True, "_finished": True}
-    if not fn:
-        return {"ok": False, "error": f"unknown tool: {name}"}
+def _tool_error(message: str) -> Dict[str, Any]:
+    return {"ok": False, "error": message}
+
+
+def _is_finish_tool(name: str) -> bool:
+    return name == "finish"
+
+
+def _finish_result() -> Dict[str, Any]:
+    return {"ok": True, "_finished": True}
+
+
+def _parse_tool_args(args_json: str) -> Dict[str, Any]:
+    return json.loads(args_json) if args_json else {}
+
+
+def _invoke_tool(name: str, fn, args: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        args = json.loads(args_json) if args_json else {}
-    except json.JSONDecodeError as e:
-        return {"ok": False, "error": f"bad arguments JSON: {e}"}
-    try:
-        result = fn(**args)
+        return fn(**args)
     except TypeError as e:
-        return {"ok": False, "error": f"bad arguments: {e}"}
+        return _tool_error(f"bad arguments: {e}")
     except Exception as e:
         logger.exception("[Toolbox] tool %s crashed", name)
-        return {"ok": False, "error": str(e)}
+        return _tool_error(str(e))
+
+
+def dispatch_tool_call(name: str, args_json: str) -> Dict[str, Any]:
+    """Execute a tool by name with JSON-encoded arguments. Returns JSON-safe dict."""
+    if _is_finish_tool(name):
+        return _finish_result()
+    fn = _DISPATCH.get(name)
+    if fn is None:
+        return _tool_error(f"unknown tool: {name}")
+    try:
+        args = _parse_tool_args(args_json)
+    except json.JSONDecodeError as e:
+        return _tool_error(f"bad arguments JSON: {e}")
     # Truncate giant fields for transport
-    return result
+    return _invoke_tool(name, fn, args)
 
 
 def get_tools_for_role(role: str) -> List[Dict[str, Any]]:
