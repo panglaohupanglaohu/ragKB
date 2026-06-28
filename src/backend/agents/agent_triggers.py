@@ -273,7 +273,7 @@ class TriggerStore:
         p = self._path(team_id)
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(p)
+        tmp.replace(p)
 
     def add(self, trigger: AgentTrigger) -> AgentTrigger:
         data = self._load(trigger.team_id)
@@ -337,25 +337,34 @@ class TriggerDaemon:
         """单次扫描，返回唤醒事件列表 (EB-5)."""
         now = now or datetime.now(timezone.utc)
         self._tick_count += 1
-        events: List[Dict[str, Any]] = []
-
-        for team_id in self._store.list_teams():
-            for trg in self._store.list_enabled(team_id):
-                if trg.trigger_type in ("on_message", "webhook"):
-                    continue  # 事件驱动，不参与定时扫描
-                if not is_due(trg, now):
-                    continue
-                # 30s 去重窗口
-                last = self._last_wake.get(trg.agent_id)
-                if last and (now - last).total_seconds() < DEDUP_WINDOW_SEC:
-                    continue
-                event = self._fire(trg, now, reason=trg.trigger_type)
-                events.append(event)
+        events = self._collect_due_trigger_events(now)
 
         # 心跳: 每 4 tick 检查
-        if self._tick_count % 4 == 0 and self._heartbeat_config_fn:
+        if self._should_check_heartbeats():
             events.extend(self._check_heartbeats(now))
         return events
+
+    @staticmethod
+    def _is_periodic_trigger(trg: AgentTrigger) -> bool:
+        return trg.trigger_type not in ("on_message", "webhook")
+
+    def _is_deduped(self, trg: AgentTrigger, now: datetime) -> bool:
+        last = self._last_wake.get(trg.agent_id)
+        return bool(last and (now - last).total_seconds() < DEDUP_WINDOW_SEC)
+
+    def _should_fire_trigger(self, trg: AgentTrigger, now: datetime) -> bool:
+        return self._is_periodic_trigger(trg) and is_due(trg, now) and not self._is_deduped(trg, now)
+
+    def _collect_due_trigger_events(self, now: datetime) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for team_id in self._store.list_teams():
+            for trg in self._store.list_enabled(team_id):
+                if self._should_fire_trigger(trg, now):
+                    events.append(self._fire(trg, now, reason=trg.trigger_type))
+        return events
+
+    def _should_check_heartbeats(self) -> bool:
+        return self._tick_count % 4 == 0 and bool(self._heartbeat_config_fn)
 
     def _fire(self, trg: AgentTrigger, now: datetime, reason: str) -> Dict[str, Any]:
         trg.last_fired_at = now.isoformat()
