@@ -1761,22 +1761,59 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[str]:
         """Close a filtered set of verified items."""
         closed: List[str] = []
-        item_id_filter = set(item_ids or [])
-        for item in self.evolution_items.values():
-            if item.status == EvolutionStatus.VERIFIED.value:
-                if item_id_filter and item.id not in item_id_filter:
-                    continue
-                if source_plaza_id and item.source_plaza_id != source_plaza_id:
-                    continue
-                if source_discussion_id and item.source_discussion_id != source_discussion_id:
-                    continue
-                item.status = EvolutionStatus.CLOSED.value
-                item.closed_at = datetime.now().isoformat()
-                item.close_reason = close_reason or "verified improvement accepted"
-                item.close_verify_conclusion = verify_conclusion or (item.verify_detail or item.verify_result or "")
-                self.total_closed += 1
-                closed.append(item.id)
+        for item in self._verified_close_candidates(
+            item_ids=item_ids,
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            self._close_verified_item(
+                item,
+                close_reason=close_reason,
+                verify_conclusion=verify_conclusion,
+            )
+            closed.append(item.id)
         return closed
+
+    def _verified_close_candidates(
+        self,
+        *,
+        item_ids: Optional[List[str]],
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        item_id_filter = set(item_ids or [])
+        candidates = []
+        for item in self.evolution_items.values():
+            if item.status != EvolutionStatus.VERIFIED.value:
+                continue
+            if item_id_filter and item.id not in item_id_filter:
+                continue
+            if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                continue
+            if source_discussion_id and item.source_discussion_id != source_discussion_id:
+                continue
+            candidates.append(item)
+        return candidates
+
+    def _close_verified_item(
+        self,
+        item: EvolutionItem,
+        *,
+        close_reason: str,
+        verify_conclusion: str,
+    ) -> None:
+        item.status = EvolutionStatus.CLOSED.value
+        item.closed_at = datetime.now().isoformat()
+        item.close_reason = close_reason or "verified improvement accepted"
+        item.close_verify_conclusion = self._close_verify_conclusion(
+            item,
+            verify_conclusion,
+        )
+        self.total_closed += 1
+
+    @staticmethod
+    def _close_verify_conclusion(item: EvolutionItem, verify_conclusion: str) -> str:
+        return verify_conclusion or (item.verify_detail or item.verify_result or "")
 
     def _get_rule_by_id(self, rule_id: Optional[str]) -> Optional[AuditRule]:
         if not rule_id:

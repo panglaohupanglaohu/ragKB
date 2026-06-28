@@ -177,3 +177,43 @@ def test_verify_pending_items_skips_missing_verify_test():
     assert result["verified"][0]["status"] == "skip"
     assert "missing-test" in result["verified"][0]["reason"]
     assert channel.evolution_items["evo-missing-verify"].status == EvolutionStatus.VERIFY_PENDING.value
+
+
+def test_close_verified_items_filters_and_uses_default_conclusion():
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items = {
+        "evo-close": EvolutionItem(
+            id="evo-close",
+            title="Close Me",
+            status=EvolutionStatus.VERIFIED.value,
+            verify_result="passed",
+            verify_detail="pytest passed",
+            source_plaza_id="plaza-1",
+            source_discussion_id="disc-1",
+        ),
+        "evo-other-source": EvolutionItem(
+            id="evo-other-source",
+            title="Other Source",
+            status=EvolutionStatus.VERIFIED.value,
+            source_plaza_id="plaza-2",
+            source_discussion_id="disc-1",
+        ),
+        "evo-not-verified": EvolutionItem(
+            id="evo-not-verified",
+            title="Not Verified",
+            status=EvolutionStatus.DISPATCHED.value,
+        ),
+    }
+
+    closed = channel.close_verified_items(source_plaza_id="plaza-1")
+
+    item = channel.evolution_items["evo-close"]
+    assert closed == ["evo-close"]
+    assert item.status == EvolutionStatus.CLOSED.value
+    assert item.close_reason == "verified improvement accepted"
+    assert item.close_verify_conclusion == "pytest passed"
+    assert item.closed_at
+    assert channel.total_closed == 1
+    assert channel.evolution_items["evo-other-source"].status == EvolutionStatus.VERIFIED.value
+    assert channel.evolution_items["evo-not-verified"].status == EvolutionStatus.DISPATCHED.value
