@@ -404,6 +404,37 @@ class UsageBudgetUpdateRequest(BaseModel):
     alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
 
+class EditToolRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    requires_approval: Optional[bool] = None
+    category: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class EditSkillRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    instructions: Optional[str] = None
+    slug: Optional[str] = None
+    category: Optional[str] = None
+    required_tools: Optional[List[str]] = None
+
+
+class DigitalTwinMoveRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1)
+    room_id: str = Field(..., min_length=1)
+
+
+class DigitalTwinInteractRequest(BaseModel):
+    from_: str = Field(default="", alias="from")
+    to: str = ""
+    type: str = "handoff"
+    content: str = ""
+
+
 @router.post("/usage/budget", summary="Update token usage budget")
 def update_usage_budget(req: UsageBudgetUpdateRequest) -> Dict[str, object]:
     budget = save_budget_settings(
@@ -726,22 +757,23 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
     "/teams/{team_id}/tools/{tool_id}",
     summary="Edit tool properties",
 )
-def edit_tool(team_id: str, tool_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_tool(team_id: str, tool_id: str, req: EditToolRequest = Body(default_factory=EditToolRequest)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     tool = team.tools.get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
+    updates = req.model_dump(exclude_unset=True)
     # Update allowed fields
     for field in ("name", "description", "icon", "requires_approval"):
-        if field in req:
-            setattr(tool, field, req[field])
-    if "category" in req:
+        if field in updates:
+            setattr(tool, field, updates[field])
+    if "category" in updates:
         try:
-            tool.category = ToolCategory(req["category"])
+            tool.category = ToolCategory(updates["category"])
         except ValueError:
             pass
-    if "parameters" in req and isinstance(req["parameters"], dict):
-        tool.parameters = req["parameters"]
+    if "parameters" in updates and isinstance(updates["parameters"], dict):
+        tool.parameters = updates["parameters"]
     _tm()._persist()
     return tool.to_dict()
 
@@ -1170,7 +1202,7 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     "/teams/{team_id}/skills/{skill_id}",
     summary="Edit skill properties",
 )
-def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_skill(team_id: str, skill_id: str, req: EditSkillRequest = Body(default_factory=EditSkillRequest)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     skill = team.skills.get(skill_id)
     if skill is None:
@@ -1183,19 +1215,20 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
         # Add to team for editing
         team.skills[skill_id] = skill
+    updates = req.model_dump(exclude_unset=True)
     # Update allowed fields
     for field in ("name", "description", "icon", "instructions", "slug"):
-        if field in req:
-            setattr(skill, field, req[field])
-    if "category" in req:
+        if field in updates:
+            setattr(skill, field, updates[field])
+    if "category" in updates:
         try:
-            skill.category = SkillCategory(req["category"])
+            skill.category = SkillCategory(updates["category"])
         except ValueError:
             pass
-    if "required_tools" in req and isinstance(req["required_tools"], list):
-        skill.required_tools = req["required_tools"]
+    if "required_tools" in updates and isinstance(updates["required_tools"], list):
+        skill.required_tools = updates["required_tools"]
     # Bump version on instruction edit
-    if "instructions" in req:
+    if "instructions" in updates:
         skill.version = getattr(skill, "version", 0) + 1
     _tm()._persist()
     # Also update skill store if available
@@ -1261,9 +1294,9 @@ def dt_put_state(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
 
 
 @router.post("/digital-twin/move", summary="Move agent to room")
-def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    agent_id = req.get("agent_id", "")
-    room_id = req.get("room_id", "")
+def dt_move_agent(req: DigitalTwinMoveRequest) -> Dict[str, Any]:
+    agent_id = req.agent_id
+    room_id = req.room_id
     if not agent_id or not room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
     _dt_state["positions"][agent_id] = room_id
@@ -1271,11 +1304,11 @@ def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
 
 
 @router.post("/digital-twin/interact", summary="Record agent interaction")
-def dt_interact(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    from_agent = req.get("from", "")
-    to_agent = req.get("to", "")
-    msg_type = req.get("type", "handoff")
-    content = req.get("content", "")
+def dt_interact(req: DigitalTwinInteractRequest) -> Dict[str, Any]:
+    from_agent = req.from_
+    to_agent = req.to
+    msg_type = req.type
+    content = req.content
     ts = datetime.now(timezone.utc).isoformat()
     interaction = {"from": from_agent, "to": to_agent, "type": msg_type, "content": content, "time": ts}
     _dt_state["interactions"].append(interaction)
