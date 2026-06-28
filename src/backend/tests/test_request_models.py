@@ -142,6 +142,35 @@ class TestAgentConfigRequestModels:
         assert req.to == "agent-b"
         assert req.content == "payload"
 
+    @pytest.mark.asyncio
+    async def test_submit_task_returns_queued_task_when_backend_unavailable(
+        self,
+        paginated_api_state,
+        monkeypatch,
+    ):
+        _, team, _ = paginated_api_state
+
+        async def fake_token_factory_ready(_log_prefix):
+            return False
+
+        monkeypatch.setattr(api_module, "_check_token_factory_ready", fake_token_factory_ready)
+        monkeypatch.setattr(api_module, "_has_execution_backend", lambda _: False)
+        monkeypatch.setattr(api_module, "_seed_task_pipeline", lambda task: None)
+        monkeypatch.setattr(api_module, "_write_task_init_handoff", lambda *args, **kwargs: None)
+        monkeypatch.setattr(api_module, "_start_harness_monitor", lambda *args, **kwargs: None)
+
+        result = await api_module.submit_task(
+            team.team_id,
+            api_module.SubmitTaskRequest(
+                title="Queued task",
+                metadata={"_engine_auto_execute": False},
+            ),
+        )
+
+        assert result["title"] == "Queued task"
+        assert result["team_id"] == team.team_id
+        assert result["metadata"]["token_factory_error"] == "LLM 推理后端不可用，任务已创建但未启动执行"
+
 
 class TestWebhookDryRunRequestModel:
     @pytest.mark.asyncio

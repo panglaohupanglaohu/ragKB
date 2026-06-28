@@ -1948,6 +1948,128 @@ class SubmitBatchRequest(BaseModel):
     tasks: List[SubmitTaskRequest] = Field(..., min_length=1)
 
 
+async def _ensure_task_engine_running():
+    engine = _te()
+    if not engine._running:
+        await engine.start()
+    return engine
+
+
+async def _check_token_factory_ready(log_prefix: str) -> bool:
+    try:
+        from token_factory import TokenFactory as _TF
+        tf = _TF.instance()
+        tf_status = await tf.ensure_ready()
+        token_ready = tf_status.get("ready", False)
+        _harness_log.info(
+            "[%s] Token Factory ready=%s, providers=%s",
+            log_prefix,
+            token_ready,
+            [n for n, p in tf._provider_health.items() if p.reachable],
+        )
+        return token_ready
+    except Exception as exc:
+        _harness_log.warning("[%s] Token Factory check failed: %s", log_prefix, exc)
+        return False
+
+
+def _has_execution_backend(log_prefix: str) -> bool:
+    api_key, _, _ = _get_deepseek_credentials()
+    if api_key:
+        _harness_log.info("[%s] Token Factory not ready but direct DeepSeek API available — proceeding", log_prefix)
+        return True
+    return False
+
+
+def _build_task_from_request(team_id: str, req: SubmitTaskRequest) -> AgentTask:
+    return AgentTask(
+        agent_id=req.agent_id,
+        team_id=team_id,
+        title=req.title,
+        description=req.description,
+        priority=req.priority,
+        dependencies=list(req.dependencies),
+        metadata=dict(req.metadata),
+    )
+
+
+def _initialize_task_workflow(task: AgentTask, team_id: str) -> List[Dict[str, Any]]:
+    workflow = _generate_workflow(task, team_id)
+    if workflow:
+        task.metadata["workflow"] = workflow
+    return workflow
+
+
+def _seed_task_pipeline(task: AgentTask) -> None:
+    try:
+        _seed_project_context(task.task_id, task.title, task.description or "")
+        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
+    except Exception as exc:
+        _harness_log.warning("[submit_task] Context seeding failed: %s", exc)
+
+
+def _write_task_init_handoff(
+    task: AgentTask,
+    *,
+    team_id: str,
+    requested_agent_id: str,
+    token_ready: bool,
+    workflow: List[Dict[str, Any]],
+) -> None:
+    _write_handoff(task.task_id, "task_init", {
+        "task_id": task.task_id,
+        "title": task.title,
+        "description": task.description,
+        "team_id": team_id,
+        "agent_id": requested_agent_id,
+        "token_factory_ready": token_ready,
+        "workflow_steps": [s["key"] for s in workflow] if workflow else [],
+    })
+
+
+def _mark_task_backend_unavailable(task: AgentTask) -> None:
+    _harness_log.warning(
+        "[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
+        "请先确保 Ollama / LLM 推理后端可用。",
+        task.task_id,
+    )
+    task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
+
+
+def _start_first_workflow_step(task: AgentTask, team_id: str, workflow: List[Dict[str, Any]]) -> None:
+    if not workflow:
+        return
+    first_step = workflow[0]
+    if first_step.get("status") != "active" or not first_step.get("agent_id"):
+        return
+
+    import uuid as _uuid
+
+    sr = _sr()
+    skill = sr.get_by_slug("code_implementation")
+    cfg = dict(skill.config or {}) if skill else {}
+    agent = _tm().get_agent(team_id, first_step["agent_id"])
+    if not agent:
+        return
+
+    sid = str(_uuid.uuid4())[:12]
+    step_prompt = _build_step_prompt(task, first_step, workflow)
+    _harness_log.info(
+        "[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
+        sid,
+        first_step["key"],
+        agent.name,
+    )
+    _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+    first_step["session_id"] = sid
+    task.metadata["workflow"] = workflow
+    _emit_pipeline_event(task.task_id, "step_started", {
+        "step": first_step["key"],
+        "label": first_step.get("label", ""),
+        "agent": agent.name,
+    })
+
+
 def _te():
     """Return the TaskEngine singleton, registering the real executor on first call."""
     engine = get_task_engine()
@@ -2046,92 +2168,27 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
     _get_team_or_404(team_id)
     if req.agent_id:
         _get_agent_or_404(team_id, req.agent_id)
-    engine = _te()
-    if not engine._running:
-        await engine.start()
-
-    # ── Token Factory 预检: 确保 LLM 推理后端可用 ──
-    token_ready = False
-    try:
-        from token_factory import TokenFactory as _TF
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        token_ready = tf_status.get("ready", False)
-        _harness_log.info("[submit_task] Token Factory ready=%s, providers=%s",
-                          token_ready,
-                          [n for n, p in tf._provider_health.items() if p.reachable])
-    except Exception as _tf_err:
-        _harness_log.warning("[submit_task] Token Factory check failed: %s", _tf_err)
-
-    task = AgentTask(
-        agent_id=req.agent_id,
+    engine = await _ensure_task_engine_running()
+    token_ready = await _check_token_factory_ready("submit_task")
+    task = _build_task_from_request(team_id, req)
+    workflow = _initialize_task_workflow(task, team_id)
+    _seed_task_pipeline(task)
+    _write_task_init_handoff(
+        task,
         team_id=team_id,
-        title=req.title,
-        description=req.description,
-        priority=req.priority,
-        dependencies=list(req.dependencies),
-        metadata=dict(req.metadata),
+        requested_agent_id=req.agent_id,
+        token_ready=token_ready,
+        workflow=workflow,
     )
-    # Auto-generate workflow steps
-    wf = _generate_workflow(task, team_id)
-    if wf:
-        task.metadata["workflow"] = wf
-
-    # Pre-seed pipeline workspace with project context
-    try:
-        _seed_project_context(task.task_id, req.title, req.description or "")
-        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
-    except Exception as _ctx_err:
-        _harness_log.warning("[submit_task] Context seeding failed: %s", _ctx_err)
-
-    # 写入任务启动 handoff 文件
-    _write_handoff(task.task_id, "task_init", {
-        "task_id": task.task_id,
-        "title": task.title,
-        "description": task.description,
-        "team_id": team_id,
-        "agent_id": req.agent_id,
-        "token_factory_ready": token_ready,
-        "workflow_steps": [s["key"] for s in wf] if wf else [],
-    })
 
     await engine.submit_task(task)
 
-    # ── Token Factory 不就绪时检查是否有直连 API 可用 ──
-    if not token_ready:
-        api_key, _, _ = _get_deepseek_credentials()
-        if api_key:
-            _harness_log.info("[submit_task] Token Factory not ready but direct DeepSeek API available — proceeding")
-            token_ready = True  # Override: direct API works
-        else:
-            _harness_log.warning("[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
-                                 "请先确保 Ollama / LLM 推理后端可用。", task.task_id)
-            task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
-            return task.to_dict()
+    if not token_ready and not _has_execution_backend("submit_task"):
+        _mark_task_backend_unavailable(task)
+        return task.to_dict()
 
-    # Auto-start Claude Code for the first active step
-    if wf:
-        first_step = wf[0]
-        if first_step.get("status") == "active" and first_step.get("agent_id"):
-            import uuid as _uuid
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            agent = _tm().get_agent(team_id, first_step["agent_id"])
-            if agent:
-                sid = str(_uuid.uuid4())[:12]
-                step_prompt = _build_step_prompt(task, first_step, wf)
-                _harness_log.info("[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
-                                  sid, first_step["key"], agent.name)
-                _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
-                first_step["session_id"] = sid
-                task.metadata["workflow"] = wf
-                _emit_pipeline_event(task.task_id, "step_started", {
-                    "step": first_step["key"],
-                    "label": first_step.get("label", ""),
-                    "agent": agent.name,
-                })
-        # Mark task as running and start harness monitor
+    if workflow:
+        _start_first_workflow_step(task, team_id, workflow)
         await engine.start_task(task.task_id)
         _start_harness_monitor(task.task_id, team_id)
     return task.to_dict()
