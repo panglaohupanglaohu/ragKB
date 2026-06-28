@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from channels.system_evolution import (
     AuditDomain,
     AuditRule,
@@ -217,3 +219,43 @@ def test_close_verified_items_filters_and_uses_default_conclusion():
     assert channel.total_closed == 1
     assert channel.evolution_items["evo-other-source"].status == EvolutionStatus.VERIFIED.value
     assert channel.evolution_items["evo-not-verified"].status == EvolutionStatus.DISPATCHED.value
+
+
+@pytest.mark.asyncio
+async def test_dispatch_item_dispatches_discovered_item_and_records_trail():
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items["evo-single"] = EvolutionItem(
+        id="evo-single",
+        title="Single Dispatch",
+        status=EvolutionStatus.DISCOVERED.value,
+    )
+
+    item = await channel.dispatch_item("evo-single")
+
+    assert item is channel.evolution_items["evo-single"]
+    assert item.status == EvolutionStatus.DISPATCHED.value
+    assert item.dispatched_at
+    assert item.assigned_agent is None
+    assert channel.total_dispatched == 1
+    assert channel.get_audit_trail(event_type="dispatch")[-1]["item_id"] == "evo-single"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_item_returns_missing_or_non_discovered_unchanged():
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items["evo-existing"] = EvolutionItem(
+        id="evo-existing",
+        title="Already Dispatched",
+        status=EvolutionStatus.DISPATCHED.value,
+    )
+
+    missing = await channel.dispatch_item("missing")
+    existing = await channel.dispatch_item("evo-existing")
+
+    assert missing is None
+    assert existing is channel.evolution_items["evo-existing"]
+    assert existing.status == EvolutionStatus.DISPATCHED.value
+    assert existing.dispatched_at is None
+    assert channel.total_dispatched == 0

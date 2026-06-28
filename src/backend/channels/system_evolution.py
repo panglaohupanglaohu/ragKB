@@ -1312,20 +1312,32 @@ class SystemEvolutionChannel(MarineChannel):
         item = self.evolution_items.get(item_id)
         if item is None:
             return None
-        status = item.status.value if isinstance(item.status, EvolutionStatus) else item.status
-        if status == EvolutionStatus.DISCOVERED.value:
-            item.status = EvolutionStatus.DISPATCHED.value
-            item.dispatched_at = datetime.now().isoformat()
-            self.total_dispatched += 1
-            self._record_trail(
-                "dispatch",
-                item_id=item.id,
-                actor="system",
-                old_value=EvolutionStatus.DISCOVERED.value,
-                new_value=EvolutionStatus.DISPATCHED.value,
-                detail=f"单项派发: {item.title}",
-            )
+        if self._is_discovered_item(item):
+            self._dispatch_single_item(item)
         return item
+
+    @staticmethod
+    def _item_status_value(item: EvolutionItem) -> str:
+        return item.status.value if isinstance(item.status, EvolutionStatus) else item.status
+
+    def _is_discovered_item(self, item: EvolutionItem) -> bool:
+        return self._item_status_value(item) == EvolutionStatus.DISCOVERED.value
+
+    def _dispatch_single_item(self, item: EvolutionItem) -> None:
+        item.status = EvolutionStatus.DISPATCHED.value
+        item.dispatched_at = datetime.now().isoformat()
+        self.total_dispatched += 1
+        self._record_single_dispatch_trail(item)
+
+    def _record_single_dispatch_trail(self, item: EvolutionItem) -> None:
+        self._record_trail(
+            "dispatch",
+            item_id=item.id,
+            actor="system",
+            old_value=EvolutionStatus.DISCOVERED.value,
+            new_value=EvolutionStatus.DISPATCHED.value,
+            detail=f"单项派发: {item.title}",
+        )
 
     def mark_in_progress(self, item_id: str) -> bool:
         """Build 团队标记开始工作。"""
