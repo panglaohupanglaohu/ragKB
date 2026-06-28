@@ -2103,6 +2103,51 @@ def _start_first_workflow_step(task: AgentTask, team_id: str, workflow: List[Dic
     })
 
 
+def _active_workflow_step(workflow: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for step in workflow:
+        if step.get("status") == "active":
+            return step
+    return None
+
+
+def _code_implementation_skill_config() -> Dict[str, Any]:
+    skill = _sr().get_by_slug("code_implementation")
+    return dict(skill.config or {}) if skill else {}
+
+
+def _start_workflow_step_session(
+    *,
+    task: AgentTask,
+    team_id: str,
+    step: Dict[str, Any],
+    workflow: List[Dict[str, Any]],
+    log_prefix: str,
+) -> Optional[str]:
+    import uuid as _uuid
+
+    agent = _tm().get_agent(team_id, step.get("agent_id", ""))
+    if not agent:
+        return None
+    sid = str(_uuid.uuid4())[:12]
+    step_prompt = _build_step_prompt(task, step, workflow)
+    _harness_log.info(
+        "[%s] Starting Claude session %s for step '%s' (agent: %s)",
+        log_prefix,
+        sid,
+        step["key"],
+        agent.name,
+    )
+    _start_claude_session(sid, step_prompt, _code_implementation_skill_config(), agent, task.task_id)
+    step["session_id"] = sid
+    task.metadata["workflow"] = workflow
+    return sid
+
+
+def _persist_workflow_and_monitor(task: AgentTask, team_id: str, workflow: List[Dict[str, Any]]) -> None:
+    task.metadata["workflow"] = workflow
+    _start_harness_monitor(task.task_id, team_id)
+
+
 def _te():
     """Return the TaskEngine singleton, registering the real executor on first call."""
     engine = get_task_engine()
@@ -2480,19 +2525,15 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
         next_step = wf[active_idx + 1]
         # Auto-start Claude Code for EVERY step
         if next_step.get("agent_id"):
-            import uuid as _uuid
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            agent = _tm().get_agent(team_id, next_step["agent_id"])
-            if agent:
-                sid = str(_uuid.uuid4())[:12]
-                step_prompt = _build_step_prompt(task, next_step, wf)
-                _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-                next_step["session_id"] = sid
-    task.metadata["workflow"] = wf
+            _start_workflow_step_session(
+                task=task,
+                team_id=team_id,
+                step=next_step,
+                workflow=wf,
+                log_prefix="advance_workflow",
+            )
     # Ensure harness monitor is running
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
     # Check if all completed
     all_done = all(s["status"] in ("completed", "skipped") for s in wf)
     # Auto-complete the task when all workflow steps are done
@@ -2536,31 +2577,24 @@ async def run_claude_for_task(team_id: str, task_id: str) -> Dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     wf = task.metadata.get("workflow", [])
     # Find any active step
-    active_step = None
-    for s in wf:
-        if s.get("status") == "active":
-            active_step = s
-            break
+    active_step = _active_workflow_step(wf)
     if not active_step:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No active step")
     if active_step.get("session_id"):
         return {"session_id": active_step["session_id"], "status": "already_running"}
 
-    import uuid as _uuid
-    sr = _sr()
-    skill = sr.get_by_slug("code_implementation")
-    cfg = dict(skill.config or {}) if skill else {}
-    agent = _tm().get_agent(team_id, active_step.get("agent_id", ""))
-    if not agent:
+    sid = _start_workflow_step_session(
+        task=task,
+        team_id=team_id,
+        step=active_step,
+        workflow=wf,
+        log_prefix="run_claude_for_task",
+    )
+    if not sid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Agent not found for this step")
 
-    sid = str(_uuid.uuid4())[:12]
-    step_prompt = _build_step_prompt(task, active_step, wf)
-    _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-    active_step["session_id"] = sid
-    task.metadata["workflow"] = wf
     # Ensure harness monitor is running
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
     return {"session_id": sid, "status": "started"}
 
 
@@ -2607,24 +2641,18 @@ async def resume_blocked_task(team_id: str, task_id: str) -> Dict[str, Any]:
     # Clear token factory error
     task.metadata.pop("token_factory_error", None)
 
-    import uuid as _uuid
-    sr = _sr()
-    skill = sr.get_by_slug("code_implementation")
-    cfg = dict(skill.config or {}) if skill else {}
-    agent = _tm().get_agent(team_id, resume_step.get("agent_id", ""))
-    if agent:
-        sid = str(_uuid.uuid4())[:12]
-        step_prompt = _build_step_prompt(task, resume_step, wf)
-        _harness_log.info("[Resume] Resuming task %s at step '%s' (session %s)",
-                          task_id, resume_step["key"], sid)
-        _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-        resume_step["session_id"] = sid
-    task.metadata["workflow"] = wf
+    _start_workflow_step_session(
+        task=task,
+        team_id=team_id,
+        step=resume_step,
+        workflow=wf,
+        log_prefix="Resume",
+    )
 
     # Ensure running state
     if task.status.value == "pending":
         await _te().start_task(task_id)
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
 
     _write_handoff(task_id, "pipeline_resumed", {
         "step": resume_step["key"],

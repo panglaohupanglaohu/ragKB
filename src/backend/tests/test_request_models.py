@@ -17,7 +17,7 @@ from agents.k8s_webhook_handler import (
 )
 from agents.skill_library import init_skill_library
 from agents.skill_registry import SkillRegistry
-from agents.task_engine import TaskEngine
+from agents.task_engine import AgentTask, TaskEngine
 from agents.task_store import TaskStore
 from agents.team_manager import TeamManager
 from agents.team_store import TeamStore
@@ -170,6 +170,56 @@ class TestAgentConfigRequestModels:
         assert result["title"] == "Queued task"
         assert result["team_id"] == team.team_id
         assert result["metadata"]["token_factory_error"] == "LLM 推理后端不可用，任务已创建但未启动执行"
+
+    @pytest.mark.asyncio
+    async def test_run_claude_for_task_starts_active_step_session(
+        self,
+        paginated_api_state,
+        monkeypatch,
+    ):
+        _, team, task_engine = paginated_api_state
+        task = AgentTask(
+            task_id="workflow-task",
+            team_id=team.team_id,
+            title="Workflow task",
+            metadata={
+                "workflow": [
+                    {
+                        "index": 0,
+                        "key": "develop",
+                        "label": "开发",
+                        "agent_id": "agent-0",
+                        "agent_role": "developer",
+                        "status": "active",
+                    }
+                ]
+            },
+        )
+        task_engine._tasks[task.task_id] = task
+        started = {}
+        monitored = []
+
+        def fake_start_session(session_id, prompt, cfg, agent, task_id):
+            started.update(
+                {
+                    "session_id": session_id,
+                    "prompt": prompt,
+                    "agent_id": agent.agent_id,
+                    "task_id": task_id,
+                }
+            )
+
+        monkeypatch.setattr(api_module, "_start_claude_session", fake_start_session)
+        monkeypatch.setattr(api_module, "_start_harness_monitor", lambda *args: monitored.append(args))
+
+        result = await api_module.run_claude_for_task(team.team_id, task.task_id)
+
+        assert result["status"] == "started"
+        assert result["session_id"]
+        assert task.metadata["workflow"][0]["session_id"] == result["session_id"]
+        assert started["session_id"] == result["session_id"]
+        assert started["agent_id"] == "agent-0"
+        assert monitored == [(task.task_id, team.team_id)]
 
 
 class TestWebhookDryRunRequestModel:
