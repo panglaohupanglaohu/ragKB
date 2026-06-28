@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from channels.system_evolution import (
+    AuditDomain,
     AuditRule,
     EvolutionStatus,
+    EvolutionItem,
+    Severity,
     SystemEvolutionChannel,
 )
 
@@ -96,3 +99,62 @@ def test_run_full_audit_rediscovers_closed_items_for_same_rule():
 
     assert len(second["new_items_created"]) == 1
     assert len(channel.evolution_items) == 2
+
+
+def test_dispatch_all_pending_assigns_agents_and_build_tasks(monkeypatch):
+    class FakeBuildManager:
+        def __init__(self):
+            self.tasks = []
+
+        def assign_task(self, agent_id, task_description):
+            self.tasks.append((agent_id, task_description))
+
+    class FakeRegistry:
+        def __init__(self, build_manager):
+            self.build_manager = build_manager
+
+        def get(self, name):
+            if name == "build_team_manager":
+                return self.build_manager
+            return None
+
+    build_manager = FakeBuildManager()
+    monkeypatch.setattr(
+        "channels.system_evolution.get_default_registry",
+        lambda: FakeRegistry(build_manager),
+    )
+    channel = SystemEvolutionChannel()
+    channel.initialize()
+    channel.evolution_items = {
+        "evo-general": EvolutionItem(
+            id="evo-general",
+            title="General Fix",
+            audit_domain=AuditDomain.GENERAL.value,
+            build_task_id="rule-general",
+        ),
+        "evo-critical": EvolutionItem(
+            id="evo-critical",
+            title="Critical Fix",
+            audit_domain=AuditDomain.DATACENTER.value,
+            severity=Severity.CRITICAL.value,
+            build_task_id="rule-critical",
+        ),
+        "evo-skipped": EvolutionItem(
+            id="evo-skipped",
+            title="Already Dispatched",
+            status=EvolutionStatus.DISPATCHED.value,
+        ),
+    }
+
+    result = channel.dispatch_all_pending()
+
+    assert result == {"dispatched": ["evo-general", "evo-critical"], "count": 2}
+    assert channel.total_dispatched == 2
+    assert channel.evolution_items["evo-general"].status == EvolutionStatus.DISPATCHED.value
+    assert channel.evolution_items["evo-general"].assigned_agent == "dev_lead"
+    assert channel.evolution_items["evo-critical"].assigned_agent == "chief_director"
+    assert channel.evolution_items["evo-skipped"].assigned_agent is None
+    assert build_manager.tasks == [
+        ("dev_lead", "evolution_fix:rule-general:General Fix"),
+        ("chief_director", "evolution_fix:rule-critical:Critical Fix"),
+    ]

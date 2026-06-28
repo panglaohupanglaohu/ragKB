@@ -1261,41 +1261,51 @@ class SystemEvolutionChannel(MarineChannel):
         registry = get_default_registry()
         build_mgr = registry.get("build_team_manager")
 
-        # Agent assignment strategy based on domain and severity
-        _AGENT_MAP = {
-            AuditDomain.DATACENTER.value: "code_writer",
-            AuditDomain.GENERAL.value: "dev_lead",
-        }
-        _SEVERITY_OVERRIDE = {
-            Severity.CRITICAL.value: "chief_director",  # Critical → 总监亲自跟踪
-        }
-        # Per-rule agent override for balanced distribution
-        _RULE_AGENT_OVERRIDE: Dict[str, str] = {}
-
-        for item in self.evolution_items.values():
-            if item.status != EvolutionStatus.DISCOVERED.value:
-                continue
-
-            item.status = EvolutionStatus.DISPATCHED.value
-            item.dispatched_at = datetime.now().isoformat()
-            self.total_dispatched += 1
-
-            # Assign agent: per-rule override > severity override > domain map
-            if item.build_task_id in _RULE_AGENT_OVERRIDE:
-                item.assigned_agent = _RULE_AGENT_OVERRIDE[item.build_task_id]
-            elif item.severity == Severity.CRITICAL.value:
-                item.assigned_agent = _SEVERITY_OVERRIDE[item.severity]
-            else:
-                item.assigned_agent = _AGENT_MAP.get(item.audit_domain, "code_writer")
-
-            # 如果 Build 团队 Channel 存在，下发任务
-            if build_mgr and hasattr(build_mgr, "assign_task"):
-                task_desc = f"evolution_fix:{item.build_task_id}:{item.title}"
-                build_mgr.assign_task(item.assigned_agent, task_desc)
-
+        for item in self._pending_dispatch_items():
+            self._dispatch_evolution_item(item)
+            self._assign_build_task(build_mgr, item)
             dispatched.append(item.id)
 
         return {"dispatched": dispatched, "count": len(dispatched)}
+
+    def _pending_dispatch_items(self) -> List[EvolutionItem]:
+        return [
+            item
+            for item in self.evolution_items.values()
+            if item.status == EvolutionStatus.DISCOVERED.value
+        ]
+
+    def _dispatch_evolution_item(self, item: EvolutionItem) -> None:
+        item.status = EvolutionStatus.DISPATCHED.value
+        item.dispatched_at = datetime.now().isoformat()
+        self.total_dispatched += 1
+        item.assigned_agent = self._assigned_build_agent(item)
+
+    @staticmethod
+    def _assigned_build_agent(item: EvolutionItem) -> str:
+        agent_by_domain = {
+            AuditDomain.DATACENTER.value: "code_writer",
+            AuditDomain.GENERAL.value: "dev_lead",
+        }
+        agent_by_severity = {
+            Severity.CRITICAL.value: "chief_director",
+        }
+        agent_by_rule: Dict[str, str] = {}
+
+        if item.build_task_id in agent_by_rule:
+            return agent_by_rule[item.build_task_id]
+        if item.severity == Severity.CRITICAL.value:
+            return agent_by_severity[item.severity]
+        return agent_by_domain.get(item.audit_domain, "code_writer")
+
+    def _assign_build_task(self, build_mgr, item: EvolutionItem) -> None:
+        if not build_mgr or not hasattr(build_mgr, "assign_task"):
+            return
+        build_mgr.assign_task(item.assigned_agent, self._build_task_description(item))
+
+    @staticmethod
+    def _build_task_description(item: EvolutionItem) -> str:
+        return f"evolution_fix:{item.build_task_id}:{item.title}"
 
     async def dispatch_item(self, item_id: str) -> Optional[EvolutionItem]:
         """Async compatibility helper to dispatch a single evolution item."""
