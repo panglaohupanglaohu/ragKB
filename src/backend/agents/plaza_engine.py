@@ -1669,20 +1669,8 @@ class PlazaEngine:
         for round_num in range(1, min(disc.max_rounds + 1, 3)):
             disc.current_round = round_num
             await self._broadcast(disc.id, {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds})
-            for i, speaker in enumerate(speakers):
-                content = self._build_fallback_agent_content(
-                    speaker,
-                    f"{disc.topic}\n{disc.description}\n{disc.goal}",
-                )
-                msg = PlazaMessage(
-                    discussion_id=disc.id, agent_id=speaker.agent_id,
-                    agent_name=speaker.agent_name, role=speaker.role,
-                    niche_role=speaker.niche_role.value, content=content,
-                    round_number=round_num,
-                )
-                msg.seq = len(disc.messages)
-                disc.messages.append(msg)
-                await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+            for speaker in speakers:
+                await self._publish_simulated_round_message(disc, speaker, round_num)
                 await asyncio.sleep(0.1)
 
         participants_for_plan = ([moderator] if moderator else []) + speakers
@@ -1715,6 +1703,30 @@ class PlazaEngine:
             niche_role="moderator",
             content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
             round_number=0,
+        )
+        msg.seq = len(disc.messages)
+        disc.messages.append(msg)
+        await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+        return msg
+
+    async def _publish_simulated_round_message(
+        self,
+        disc: Discussion,
+        speaker: Participant,
+        round_num: int,
+    ) -> PlazaMessage:
+        content = self._build_fallback_agent_content(
+            speaker,
+            f"{disc.topic}\n{disc.description}\n{disc.goal}",
+        )
+        msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=speaker.agent_id,
+            agent_name=speaker.agent_name,
+            role=speaker.role,
+            niche_role=speaker.niche_role.value,
+            content=content,
+            round_number=round_num,
         )
         msg.seq = len(disc.messages)
         disc.messages.append(msg)

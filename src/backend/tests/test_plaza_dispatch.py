@@ -1419,3 +1419,31 @@ class TestDiscussionLifecycle:
         assert msg.content == "欢迎各位参与「让 Plaza 真的能派发任务」的讨论。让我们开始吧。"
         assert event["type"] == "message"
         assert event["message"] == msg.to_dict()
+
+    @pytest.mark.asyncio
+    async def test_publish_simulated_round_message_uses_fallback_content_and_broadcasts(
+        self,
+        isolated_plaza_engine,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        events = isolated_plaza_engine.subscribe(disc.id)
+
+        msg = await isolated_plaza_engine._publish_simulated_round_message(disc, speaker, 2)
+        event = await events.get()
+
+        assert msg is disc.messages[-1]
+        assert msg.seq == 0
+        assert msg.agent_id == "dev-1"
+        assert msg.agent_name == "开发者"
+        assert msg.role == "developer"
+        assert msg.niche_role == speaker.niche_role.value
+        assert msg.round_number == 2
+        assert "围绕「本次讨论」" in msg.content
+        assert event["type"] == "message"
+        assert event["message"] == msg.to_dict()
