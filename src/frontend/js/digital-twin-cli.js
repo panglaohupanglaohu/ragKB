@@ -1538,7 +1538,7 @@ async function secsLoadTeamTasks(){
 const _roomTaskConfig = {
   council: {
     label: '◇ 选择讨论议题',
-    btnText: '🎬 开始议事讨论',
+    btnText: '🎬 开始议事讨论 · 仅预演(不评分)',
     // 从真实任务提取议题 + 预置通用议题
     transform(tasks){
       const fromTasks = tasks.slice(0,5).map(t => ({
@@ -1556,7 +1556,7 @@ const _roomTaskConfig = {
   },
   workshop: {
     label: '□ 选择开发任务',
-    btnText: '🎬 运行开发流程仿真',
+    btnText: '🎬 运行开发流程仿真 · 仅预演(不评分)',
     transform(tasks){
       if(!tasks.length) return [{id:'_w1', title:'通用开发流程演示'}];
       return tasks.map(t => ({id: t.task_id, title: (t.title?.substring(0,38)||t.task_id) + ` [${t.status}]`}));
@@ -1564,7 +1564,7 @@ const _roomTaskConfig = {
   },
   extraction: {
     label: '○ 选择萃取目标',
-    btnText: '🎬 启动技能萃取仿真',
+    btnText: '🎬 启动技能萃取仿真 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: '萃取: ' + (t.title?.substring(0,28)||'技能')
@@ -1581,7 +1581,7 @@ const _roomTaskConfig = {
   },
   library: {
     label: '△ 选择检索主题',
-    btnText: '🎬 启动知识检索仿真',
+    btnText: '🎬 启动知识检索仿真 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: '检索: ' + (t.title?.substring(0,28)||'知识')
@@ -1598,7 +1598,7 @@ const _roomTaskConfig = {
   },
   arena: {
     label: '◎ 选择对抗命题',
-    btnText: '🎬 启动对抗演练',
+    btnText: '🎬 启动对抗演练 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: 'PK: ' + (t.title?.substring(0,28)||'挑战')
@@ -1615,7 +1615,7 @@ const _roomTaskConfig = {
   },
   rest: {
     label: '◌ 选择复盘对象',
-    btnText: '🎬 启动复盘充能',
+    btnText: '🎬 启动复盘充能 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.filter(t=>t.status==='completed').slice(0,3).map(t => ({
         id: t.task_id, title: '复盘: ' + (t.title?.substring(0,28)||'项目')

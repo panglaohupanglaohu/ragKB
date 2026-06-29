@@ -945,7 +945,10 @@
 
     // 从 SECS 面板读取模式和参数
     var modeEl = document.querySelector('input[name="secs-mode"]:checked');
-    var mode = (modeEl && modeEl.value) || window._DTS.selectedMode || 'what_if';
+    // SECS radio 值 → 后端 TrialMode 合法值（并行=multi_branch，否则后端 TrialMode('parallel') 报 400→创建失败→不出自动/单步）
+    var _MODE_MAP = { what_if: 'what_if', parallel: 'multi_branch', evolutionary: 'evolutionary' };
+    var _raw = (modeEl && modeEl.value) || 'what_if';
+    var mode = _MODE_MAP[_raw] || window._DTS.selectedMode || 'what_if';
     var steps = parseInt(document.getElementById('secs-steps')?.value) || 150;
     var speed = parseInt(document.getElementById('secs-speed-slider')?.value) || 10;
 
@@ -984,7 +987,7 @@
       );
       if (!confirmed) {
         btn.disabled = false;
-        btn.textContent = '▶ 沙箱推演';
+        btn.textContent = '▶ 运行演练';
         document.getElementById('secs-sim-status').textContent = '已取消';
         try { window.sexyPickScene(); } catch(e) {}
         return;
@@ -1000,7 +1003,7 @@
     if (!(window._sx && window._sx.sessionId)) {
       // createTrial 失败，恢复 SECS 面板
       btn.disabled = false;
-      btn.textContent = '▶ 沙箱推演';
+      btn.textContent = '▶ 运行演练';
       document.getElementById('secs-sim-status').textContent = '创建失败';
       return;
     }
@@ -1035,7 +1038,7 @@
     loadExerciseHistory();
 
     btn.disabled = false;
-    btn.textContent = '▶ 沙箱推演';
+    btn.textContent = '▶ 运行演练';
   };
 
   // ▶ 自动运行（统一入口：操作试炼 session）
@@ -1769,7 +1772,7 @@
   function _resetLaunchUI() {
     var launch = document.getElementById('secs-btn-launch');
     var ctrlPanel = document.getElementById('secs-ctrl-panel');
-    if (launch) { launch.style.display = 'block'; launch.disabled = false; launch.textContent = '▶ 沙箱推演'; }
+    if (launch) { launch.style.display = 'block'; launch.disabled = false; launch.textContent = '▶ 运行演练'; }
     if (ctrlPanel) ctrlPanel.style.display = 'none';
     // [fix] 保留 sessionId 用于报告按钮（延迟清除）
     var sidForReport = _sx.sessionId;

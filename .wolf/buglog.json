@@ -1385,5 +1385,19 @@
       "drill-sim-merge"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-075",
+    "error_message": "停止演练后选『并行』再点运行演练，不出现自动/单步按钮",
+    "root_cause": "SECS 并行 radio 值='parallel'，但后端 TrialMode 合法值是 'multi_branch'；sexyCreateAndRun 直接送 'parallel' → create_trial 的 TrialMode('parallel') 抛 400 Invalid mode → createTrial 失败 → 不展开 secs-ctrl-panel(自动/单步)。What-if/演化 恰好字符串匹配故无碍",
+    "fix": "sexyCreateAndRun 加 _MODE_MAP{what_if,parallel→multi_branch,evolutionary} 映射到合法 TrialMode 值；并把残留『沙箱推演』文案统一为『运行演练』；房间预演按钮 6 个 btnText 追加『· 仅预演(不评分)』",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "mode",
+      "trial",
+      "parallel"
+    ],
+    "date": "2026-06-23"
   }
 ]
