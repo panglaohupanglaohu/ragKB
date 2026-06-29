@@ -1413,5 +1413,19 @@
       "skill-gap"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-076",
+    "error_message": "agent-team-config-new.html 预算与告警/运行痕迹的下拉框在浅色页面上渲染成黑框",
+    "root_cause": "页面是浅色主题但未声明 color-scheme；OS 处于深色模式时原生 <select>/滚动条等 UA 控件回退到系统深色 → 黑框",
+    "fix": ":root 加 color-scheme: light，强制 UA 控件按浅色渲染",
+    "tags": [
+      "frontend",
+      "css",
+      "color-scheme",
+      "select",
+      "theme"
+    ],
+    "date": "2026-06-23"
   }
 ]

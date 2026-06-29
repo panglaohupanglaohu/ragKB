@@ -106,6 +106,8 @@ body {
 /* ═══ Light Theme Override (User Request: 浅色背景) ═══ */
 /* 覆盖 theme.css 的深色主题，改为浅色 */
 :root {
+  /* 强制浅色控件：否则原生 <select>/滚动条 在 OS 深色模式下会渲染成黑框（预算与告警/运行痕迹的下拉就是这个问题）*/
+  color-scheme: light;
   /* 浅色背景 - 类似 Linear 和 Carbon 的浅色模式 */
   --shironeri: #F5F7FA;      /* 极浅灰 - 主背景 */
   --ishi: #FFFFFF;           /* 纯白 - 卡片背景 */
