@@ -546,27 +546,9 @@ class PlazaEngine:
                     if self._last_call_was_fallback:
                         _consecutive_fallback += 1
                         if _consecutive_fallback >= _FALLBACK_ABORT_THRESHOLD:
-                            logger.warning(
-                                "讨论 %s 在第 %d 轮因 LLM 连续 %d 次 fallback 而提前终止",
-                                disc.id[:8], round_num, _consecutive_fallback,
+                            await self._abort_discussion_for_fallback(
+                                disc, moderator, round_num, _consecutive_fallback,
                             )
-                            # 通知前端 LLM 不可用，讨论提前结束
-                            abort_msg = PlazaMessage(
-                                discussion_id=disc.id,
-                                agent_id=moderator.agent_id if moderator else "system",
-                                agent_name=(moderator.agent_name if moderator else "系统") or "系统",
-                                role="moderator",
-                                niche_role="moderator",
-                                content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
-                                round_number=round_num,
-                            )
-                            abort_msg.seq = len(disc.messages)
-                            disc.messages.append(abort_msg)
-                            await self._broadcast(disc.id, {
-                                "type": "message", "message": abort_msg.to_dict(),
-                            })
-                            # 跳到最终总结（用已有发言生成计划）
-                            disc.max_rounds = round_num
                             break
                     else:
                         _consecutive_fallback = 0  # LLM 成功，重置计数
@@ -775,6 +757,41 @@ class PlazaEngine:
             f"- 可以提出具体的方案、步骤、注意事项\n"
             f"- 说 3-5 句话，100-200 字左右，不要太短也不要写论文\n"
             f"- 像在开会发言一样自然表达，不要用列表和标题"
+        )
+
+    async def _abort_discussion_for_fallback(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        round_num: int,
+        consecutive_fallback: int,
+    ) -> None:
+        logger.warning(
+            "讨论 %s 在第 %d 轮因 LLM 连续 %d 次 fallback 而提前终止",
+            disc.id[:8], round_num, consecutive_fallback,
+        )
+        abort_msg = self._build_fallback_abort_message(disc, moderator, round_num)
+        abort_msg.seq = len(disc.messages)
+        disc.messages.append(abort_msg)
+        await self._broadcast(disc.id, {
+            "type": "message", "message": abort_msg.to_dict(),
+        })
+        disc.max_rounds = round_num
+
+    @staticmethod
+    def _build_fallback_abort_message(
+        disc: Discussion,
+        moderator: Optional[Participant],
+        round_num: int,
+    ) -> PlazaMessage:
+        return PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id if moderator else "system",
+            agent_name=(moderator.agent_name if moderator else "系统") or "系统",
+            role="moderator",
+            niche_role="moderator",
+            content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
+            round_number=round_num,
         )
 
     async def _auto_extract_on_consensus(self, disc) -> None:

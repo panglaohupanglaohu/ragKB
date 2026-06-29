@@ -396,3 +396,40 @@ class TestDiscussionLifecycle:
         assert "你是 开发者（developer）。第 2 轮，第 2 次发言。" in prompt
         assert "先确认边界" in prompt
         assert "回应上面讨论中你认为重要的点" in prompt
+
+    @pytest.mark.asyncio
+    async def test_abort_discussion_for_fallback_records_message(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.max_rounds = 5
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        broadcasts = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+
+        await isolated_plaza_engine._abort_discussion_for_fallback(disc, moderator, 2, 2)
+
+        assert disc.max_rounds == 2
+        assert len(disc.messages) == 1
+        abort_msg = disc.messages[0]
+        assert abort_msg.seq == 0
+        assert abort_msg.agent_id == "pm-1"
+        assert abort_msg.agent_name == "主持人"
+        assert abort_msg.niche_role == "moderator"
+        assert abort_msg.round_number == 2
+        assert "LLM 当前不可用" in abort_msg.content
+        assert broadcasts[0][0] == disc.id
+        assert broadcasts[0][1]["type"] == "message"
+        assert broadcasts[0][1]["message"]["seq"] == 0
