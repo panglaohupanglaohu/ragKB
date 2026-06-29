@@ -952,11 +952,7 @@ class PlazaEngine:
         plaza, disc, moderator, speakers = self._prepare_interjection_context(plaza_id, discussion_id)
 
         async with self._get_discussion_lock(disc.id):
-            await self._broadcast(disc.id, {
-                "type": "interjection_state",
-                "state": "paused",
-                "message": "议事长正在纠偏当前讨论节奏",
-            })
+            await self._broadcast_interjection_paused(disc)
 
             if not self._chat_fn:
                 chosen = speakers[0] if speakers else None
@@ -1111,6 +1107,13 @@ class PlazaEngine:
             raise ValueError("广场没有议事长")
         speakers = self._sort_speakers(participants, moderator)
         return plaza, disc, moderator, speakers
+
+    async def _broadcast_interjection_paused(self, disc: Discussion) -> None:
+        await self._broadcast(disc.id, {
+            "type": "interjection_state",
+            "state": "paused",
+            "message": "议事长正在纠偏当前讨论节奏",
+        })
 
     async def _publish_interjection_plan_update(
         self,

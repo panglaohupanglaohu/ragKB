@@ -821,3 +821,30 @@ class TestDiscussionLifecycle:
         assert broadcasts[0][1] == {"type": "plan_updated", "plan": disc.plan}
         assert broadcasts[1][1] == {"type": "interjection_state", "state": "resumed"}
         assert saved == [plaza.id]
+
+    @pytest.mark.asyncio
+    async def test_broadcast_interjection_paused_uses_stable_payload(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        broadcasts = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+
+        await isolated_plaza_engine._broadcast_interjection_paused(disc)
+
+        assert broadcasts == [
+            (
+                disc.id,
+                {
+                    "type": "interjection_state",
+                    "state": "paused",
+                    "message": "议事长正在纠偏当前讨论节奏",
+                },
+            )
+        ]
