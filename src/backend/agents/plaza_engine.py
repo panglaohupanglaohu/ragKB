@@ -568,31 +568,7 @@ class PlazaEngine:
         disc.status = DiscussionStatus.SUMMARIZING
         await self._broadcast(disc.id, {"type": "summarizing"})
 
-        final_prompt = (
-            f"你是议事长。关于「{disc.topic}」的讨论已经完成 {disc.max_rounds} 轮。\n"
-            f"{f'背景描述: {disc.description}' if disc.description else ''}\n"
-            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
-            f"完整讨论记录:\n{self._format_history(disc)}\n\n"
-            f"请生成可直接派发任务的执行概要。核心原则——有取舍、有权重:\n"
-            f"- 根据讨论内容自行判断哪些观点最关键，按重要性赋予 P0/P1/P2 优先级\n"
-            f"- P0 = 直接推进核心目标的行动项；P1 = 重要但可并行或延后；P2 = 补充建议\n"
-            f"- 不要预设领域权重，以讨论实际内容和目标为准\n\n"
-            f"输出结构 (严格按此格式，不要自由发挥):\n"
-            f"## 讨论概要\n"
-            f"4-6 句写清: 主目标、核心方案、关键约束、最大风险、首要动作\n"
-            f"必须是接到这份概要的人能直接开工的描述\n\n"
-            f"## 加权结论 (P0→P1→P2)\n"
-            f"- [P0] 结论 | 主要支持角色 | 为什么重要\n"
-            f"- [P1] ...\n"
-            f"- [P2] 仅保留 1 条最相关的低权重建议\n\n"
-            f"## 执行计划\n"
-            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-            f"|---|---|---|---|---|---|\n"
-            f"列出 3-5 个任务，按优先级排序\n\n"
-            f"## 补充观察\n"
-            f"1 句话补充说明即可\n\n"
-            f"请用 Markdown 输出，简洁有力，能直接作为任务单下发。"
-        )
+        final_prompt = self._build_final_summary_prompt(disc)
         disc.summary = await self._generate_agent_content(
             moderator,
             final_prompt,
@@ -795,6 +771,33 @@ class PlazaEngine:
             f"- 总结大家达成的共识和仍有分歧的地方\n"
             f"- 提出下一轮需要重点讨论的问题\n"
             f"- 用 2-3 句话，自然表达"
+        )
+
+    def _build_final_summary_prompt(self, disc: Discussion) -> str:
+        return (
+            f"你是议事长。关于「{disc.topic}」的讨论已经完成 {disc.max_rounds} 轮。\n"
+            f"{f'背景描述: {disc.description}' if disc.description else ''}\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
+            f"完整讨论记录:\n{self._format_history(disc)}\n\n"
+            f"请生成可直接派发任务的执行概要。核心原则——有取舍、有权重:\n"
+            f"- 根据讨论内容自行判断哪些观点最关键，按重要性赋予 P0/P1/P2 优先级\n"
+            f"- P0 = 直接推进核心目标的行动项；P1 = 重要但可并行或延后；P2 = 补充建议\n"
+            f"- 不要预设领域权重，以讨论实际内容和目标为准\n\n"
+            f"输出结构 (严格按此格式，不要自由发挥):\n"
+            f"## 讨论概要\n"
+            f"4-6 句写清: 主目标、核心方案、关键约束、最大风险、首要动作\n"
+            f"必须是接到这份概要的人能直接开工的描述\n\n"
+            f"## 加权结论 (P0→P1→P2)\n"
+            f"- [P0] 结论 | 主要支持角色 | 为什么重要\n"
+            f"- [P1] ...\n"
+            f"- [P2] 仅保留 1 条最相关的低权重建议\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"列出 3-5 个任务，按优先级排序\n\n"
+            f"## 补充观察\n"
+            f"1 句话补充说明即可\n\n"
+            f"请用 Markdown 输出，简洁有力，能直接作为任务单下发。"
         )
 
     async def _auto_extract_on_consensus(self, disc) -> None:

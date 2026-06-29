@@ -452,3 +452,28 @@ class TestDiscussionLifecycle:
         assert "需要拆清楚轮次职责" in prompt
         assert "总结大家达成的共识和仍有分歧的地方" in prompt
         assert "提出下一轮需要重点讨论的问题" in prompt
+
+    def test_build_final_summary_prompt_uses_history_and_plan_contract(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.description = "最终总结背景"
+        disc.goal = "生成可派发任务"
+        disc.max_rounds = 2
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="dev-1",
+                agent_name="开发者",
+                content="优先拆边界再补测试",
+                round_number=1,
+            )
+        )
+
+        prompt = isolated_plaza_engine._build_final_summary_prompt(disc)
+
+        assert "关于「让 Plaza 真的能派发任务」的讨论已经完成 2 轮" in prompt
+        assert "背景描述: 最终总结背景" in prompt
+        assert "讨论目标: 生成可派发任务" in prompt
+        assert "优先拆边界再补测试" in prompt
+        assert "## 加权结论 (P0→P1→P2)" in prompt
+        assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in prompt
+        assert "请用 Markdown 输出，简洁有力，能直接作为任务单下发。" in prompt
