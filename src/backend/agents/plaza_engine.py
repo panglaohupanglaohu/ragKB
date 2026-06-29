@@ -1071,28 +1071,8 @@ class PlazaEngine:
                     extra_replies.append(extra_msg)
 
             # ── 议事长生成修订后的执行计划 ──
-            all_responses = []
-            if speaker_msg:
-                all_responses.append(f"{chosen.agent_name}: {speaker_msg.content}")
-            for er in extra_replies:
-                all_responses.append(f"{er.agent_name}: {er.content}")
-            responses_text = "\n".join(all_responses) if all_responses else "无回应"
-
-            plan_prompt = (
-                f"你是议事长。你刚刚针对用户的插话完成了一次纠偏讨论。\n"
-                f"讨论话题: 「{disc.topic}」\n"
-                f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
-                f"用户插话: 「{user_message}」\n"
-                f"各位回应:\n{responses_text}\n\n"
-                f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
-                f"请根据以上讨论结果，输出修订后的执行计划。严格按以下格式:\n"
-                f"## 修订说明\n"
-                f"1 句话说明本次修订的原因和变更要点\n\n"
-                f"## 执行计划\n"
-                f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-                f"|---|---|---|---|---|---|\n"
-                f"列出 3-6 个任务，按优先级排序。必须体现用户刚提出的问题/建议的处理方式。\n\n"
-                f"只输出以上内容，不要客套。"
+            plan_prompt = self._build_interjection_revised_plan_prompt(
+                disc, user_message, chosen, speaker_msg, extra_replies,
             )
             plan_text = await self._generate_agent_content(
                 moderator,
@@ -1219,6 +1199,45 @@ class PlazaEngine:
             f"最近讨论: \n{self._format_recent(disc, limit=6)}\n\n"
             f"请从你的专业角度补充 1-2 句，针对用户问题给出你的判断或补充方案。不要重复已有观点。"
         )
+
+    def _build_interjection_revised_plan_prompt(
+        self,
+        disc: Discussion,
+        user_message: str,
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        extra_replies: List[PlazaMessage],
+    ) -> str:
+        responses_text = self._format_interjection_responses(chosen, speaker_msg, extra_replies)
+        return (
+            f"你是议事长。你刚刚针对用户的插话完成了一次纠偏讨论。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
+            f"用户插话: 「{user_message}」\n"
+            f"各位回应:\n{responses_text}\n\n"
+            f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
+            f"请根据以上讨论结果，输出修订后的执行计划。严格按以下格式:\n"
+            f"## 修订说明\n"
+            f"1 句话说明本次修订的原因和变更要点\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"列出 3-6 个任务，按优先级排序。必须体现用户刚提出的问题/建议的处理方式。\n\n"
+            f"只输出以上内容，不要客套。"
+        )
+
+    @staticmethod
+    def _format_interjection_responses(
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        extra_replies: List[PlazaMessage],
+    ) -> str:
+        all_responses = []
+        if speaker_msg and chosen:
+            all_responses.append(f"{chosen.agent_name}: {speaker_msg.content}")
+        for reply in extra_replies:
+            all_responses.append(f"{reply.agent_name}: {reply.content}")
+        return "\n".join(all_responses) if all_responses else "无回应"
 
     async def _generate_agent_content(
         self,

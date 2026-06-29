@@ -719,3 +719,47 @@ class TestDiscussionLifecycle:
         assert "主持人点名的 测试 已回应: 「先补验收标准。」" in prompt
         assert "需要验收标准" in prompt
         assert "不要重复已有观点" in prompt
+
+    def test_build_interjection_revised_plan_prompt_uses_responses_and_existing_plan(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.goal = "补全验收"
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+        speaker_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="qa-1",
+            agent_name="测试",
+            content="需要加入回归测试。",
+            round_number=2,
+        )
+        extra_reply = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="dev-1",
+            agent_name="开发者",
+            content="实现前先拆接口边界。",
+            round_number=2,
+        )
+
+        prompt = isolated_plaza_engine._build_interjection_revised_plan_prompt(
+            disc,
+            "用户要求补充验收标准",
+            chosen,
+            speaker_msg,
+            [extra_reply],
+        )
+
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "讨论目标: 补全验收" in prompt
+        assert "用户插话: 「用户要求补充验收标准」" in prompt
+        assert "测试: 需要加入回归测试。" in prompt
+        assert "开发者: 实现前先拆接口边界。" in prompt
+        assert '"revision": 3' in prompt
+        assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in prompt
+        assert "必须体现用户刚提出的问题/建议的处理方式" in prompt
+
+    def test_format_interjection_responses_defaults_when_empty(self, isolated_plaza_engine):
+        assert isolated_plaza_engine._format_interjection_responses(None, None, []) == "无回应"
