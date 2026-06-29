@@ -304,8 +304,8 @@ function buildCouncil(){
   renderer.setClearColor(0x1A2026);
   renderer.toneMappingExposure=1.0;
   // 光照 (照搬 plaza.html: restrained Ando-style)
-  scene.add(new THREE.AmbientLight(0x9099A2,0.06));
-  const mainLight=new THREE.DirectionalLight(0xC7D0D8,0.46);
+  scene.add(new THREE.AmbientLight(0x9099A2,0.22));   // 0.06→0.22 提亮，避免整厅黑成一团/中央黑坑
+  const mainLight=new THREE.DirectionalLight(0xC7D0D8,0.62);  // 0.46→0.62
   mainLight.position.set(3,30,5);mainLight.castShadow=true;
   mainLight.shadow.mapSize.set(2048,2048);
   mainLight.shadow.camera.near=1;mainLight.shadow.camera.far=60;
@@ -313,7 +313,10 @@ function buildCouncil(){
   mainLight.shadow.camera.top=25;mainLight.shadow.camera.bottom=-25;
   mainLight.shadow.bias=-0.001;mainLight.shadow.normalBias=0.02;
   scene.add(mainLight);
-  scene.add(new THREE.HemisphereLight(0x98A2AB,0x353D46,0.04));
+  scene.add(new THREE.HemisphereLight(0x98A2AB,0x353D46,0.20));   // 0.04→0.20 天光补亮地面/看台
+  // 正面柔和补光：把中央讲坛与前排照亮，消除"黑坑"观感（不抢主光的方向感）
+  var fillLight=new THREE.DirectionalLight(0xDCE4EC,0.28);
+  fillLight.position.set(0,12,26);scene.add(fillLight);
   // Raking architectural light
   const rakingLight=new THREE.SpotLight(0xCCD4DC,0.12,70,Math.PI/8,0.65,1.3);
   rakingLight.position.set(-18,24,-6);

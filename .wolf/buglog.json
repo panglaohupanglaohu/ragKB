@@ -1427,5 +1427,19 @@
       "theme"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-077",
+    "error_message": "数字孪生议事厅 3D 太暗，精心设计的安藤式看台/讲坛被吞进黑里，只剩 agent 浮在黑坑上",
+    "root_cause": "buildCouncil 环境光 0.06/半球光 0.04 过低（刻意 Ando 暗调），实际渲染成黑团",
+    "fix": "提亮：AmbientLight 0.06→0.22、Hemisphere 0.04→0.20、main 0.46→0.62，并加 0.28 正面柔和补光照亮中央讲坛，消除黑坑观感（保留主光方向感）",
+    "tags": [
+      "frontend",
+      "3d",
+      "lighting",
+      "digital-twin",
+      "aesthetics"
+    ],
+    "date": "2026-06-23"
   }
 ]
