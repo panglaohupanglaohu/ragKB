@@ -1001,22 +1001,7 @@ class PlazaEngine:
                 return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
 
             chosen = self._pick_interjection_speaker(disc, speakers, user_message)
-            candidate_lines = "\n".join(
-                f"- {speaker.agent_id} | {speaker.agent_name} | {speaker.role}"
-                for speaker in speakers[:8]
-            )
-            redirect_prompt = (
-                f"你是本场讨论的议事长，当前讨论正在进行中，需要立刻纠偏。\n"
-                f"讨论话题: 「{disc.topic}」\n"
-                f"当前轮次: {disc.current_round}\n"
-                f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
-                f"用户插话: 「{user_message}」\n\n"
-                f"候选回应者（必须从这里选一个 agent_id）:\n{candidate_lines}\n\n"
-                f"严格输出：\n"
-                f"REPLY: 你给用户和全场的纠偏回应，最后一句必须明确点名下一位回应者\n"
-                f"NEXT: 候选中的 agent_id\n"
-                f"只输出这两行。"
-            )
+            redirect_prompt = self._build_interjection_redirect_prompt(disc, speakers, user_message)
             decision_text = await self._generate_agent_content(
                 moderator,
                 redirect_prompt,
@@ -1187,6 +1172,29 @@ class PlazaEngine:
             f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
             f"|---|---|---|---|---|---|\n"
             f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
+        )
+
+    def _build_interjection_redirect_prompt(
+        self,
+        disc: Discussion,
+        speakers: List[Participant],
+        user_message: str,
+    ) -> str:
+        candidate_lines = "\n".join(
+            f"- {speaker.agent_id} | {speaker.agent_name} | {speaker.role}"
+            for speaker in speakers[:8]
+        )
+        return (
+            f"你是本场讨论的议事长，当前讨论正在进行中，需要立刻纠偏。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"当前轮次: {disc.current_round}\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
+            f"用户插话: 「{user_message}」\n\n"
+            f"候选回应者（必须从这里选一个 agent_id）:\n{candidate_lines}\n\n"
+            f"严格输出：\n"
+            f"REPLY: 你给用户和全场的纠偏回应，最后一句必须明确点名下一位回应者\n"
+            f"NEXT: 候选中的 agent_id\n"
+            f"只输出这两行。"
         )
 
     async def _generate_agent_content(

@@ -608,3 +608,36 @@ class TestDiscussionLifecycle:
         assert "针对用户问题「这是一条很长的用户插话，需要被截断后写入修订说明，避免计划说明过长。」修订" in content
         assert "| 1 | 回应用户问题 | 开发者 | P0 | 无 | 方案落地 |" in content
         assert "## 执行计划" in content
+
+    def test_build_interjection_redirect_prompt_lists_candidates(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 3
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="pm-1",
+                agent_name="主持人",
+                content="先聚焦当前方案",
+                round_number=3,
+            )
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+
+        prompt = isolated_plaza_engine._build_interjection_redirect_prompt(
+            disc,
+            [speaker],
+            "用户要求补充验收标准",
+        )
+
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "当前轮次: 3" in prompt
+        assert "先聚焦当前方案" in prompt
+        assert "用户插话: 「用户要求补充验收标准」" in prompt
+        assert "- dev-1 | 开发者 | developer" in prompt
+        assert "REPLY: 你给用户和全场的纠偏回应" in prompt
+        assert "NEXT: 候选中的 agent_id" in prompt
