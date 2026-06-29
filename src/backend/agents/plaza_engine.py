@@ -984,13 +984,7 @@ class PlazaEngine:
                         metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
                     )
                 # 模拟模式也生成执行计划
-                plan_content = (
-                    f"## 修订说明\n针对用户问题「{user_message[:40]}」修订\n\n"
-                    f"## 执行计划\n"
-                    f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-                    f"|---|---|---|---|---|---|\n"
-                    f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
-                )
+                plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
                 disc.plan = self._build_plan_payload(disc, plan_content, user_message)
                 wrap_msg = await self.publish_message(
                     disc,
@@ -1181,6 +1175,19 @@ class PlazaEngine:
             raise ValueError("广场没有议事长")
         speakers = self._sort_speakers(participants, moderator)
         return plaza, disc, moderator, speakers
+
+    @staticmethod
+    def _build_simulated_interjection_plan_content(
+        user_message: str,
+        chosen: Optional[Participant],
+    ) -> str:
+        return (
+            f"## 修订说明\n针对用户问题「{user_message[:40]}」修订\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
+        )
 
     async def _generate_agent_content(
         self,

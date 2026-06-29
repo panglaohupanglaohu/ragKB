@@ -590,3 +590,21 @@ class TestDiscussionLifecycle:
             isolated_plaza_engine._prepare_interjection_context(plaza.id, disc.id)
 
         assert str(exc_info.value) == "广场没有议事长"
+
+    def test_build_simulated_interjection_plan_content_uses_chosen_agent(self, isolated_plaza_engine):
+        plaza, _ = _seed_discussion(isolated_plaza_engine)
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+
+        content = isolated_plaza_engine._build_simulated_interjection_plan_content(
+            "这是一条很长的用户插话，需要被截断后写入修订说明，避免计划说明过长。",
+            speaker,
+        )
+
+        assert "针对用户问题「这是一条很长的用户插话，需要被截断后写入修订说明，避免计划说明过长。」修订" in content
+        assert "| 1 | 回应用户问题 | 开发者 | P0 | 无 | 方案落地 |" in content
+        assert "## 执行计划" in content
