@@ -1275,3 +1275,29 @@ class TestDiscussionLifecycle:
         assert plan_updates[0][4] == "用户要求补充验收标准"
         assert plan_updates[0][5] == result["extra_replies"][-1].id
         assert len(generated_prompts) == 2
+
+    def test_build_regenerate_plan_prompt_uses_recent_context_and_plan(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.goal = "重新生成计划"
+        for index in range(35):
+            disc.messages.append(
+                PlazaMessage(
+                    discussion_id=disc.id,
+                    agent_id=f"agent-{index}",
+                    agent_name=f"成员{index}",
+                    content=f"观点{index}-" + ("x" * 240),
+                    round_number=index,
+                )
+            )
+
+        prompt = isolated_plaza_engine._build_regenerate_plan_prompt(disc)
+
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "讨论目标: 重新生成计划" in prompt
+        assert "[成员5] 观点5-" in prompt
+        assert "[成员4]" not in prompt
+        assert "观点34-" in prompt
+        assert "x" * 201 not in prompt
+        assert '"revision": 3' in prompt
+        assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in prompt
+        assert "只输出以上内容，不要客套。" in prompt

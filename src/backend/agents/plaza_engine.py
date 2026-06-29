@@ -1574,27 +1574,7 @@ class PlazaEngine:
         if not moderator:
             return {"error": "无议事长"}
 
-        # 收集全部对话（含用户插话）
-        recent = "\n".join(
-            f"[{m.agent_name}] {m.content[:200]}"
-            for m in disc.messages[-30:]
-        )
-
-        plan_prompt = (
-            f"你是议事长。请根据以下全部对话记录，重新生成一份完整的执行计划。\n"
-            f"讨论话题: 「{disc.topic}」\n"
-            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
-            f"全部对话:\n{recent}\n\n"
-            f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
-            f"请根据对话中所有观点（特别是用户的提问和建议），输出修订后的执行计划。严格按以下格式:\n"
-            f"## 修订说明\n"
-            f"1 句话说明本次修订的原因和变更要点\n\n"
-            f"## 执行计划\n"
-            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-            f"|---|---|---|---|---|---|\n"
-            f"列出 3-6 个任务，按优先级排序。\n\n"
-            f"只输出以上内容，不要客套。"
-        )
+        plan_prompt = self._build_regenerate_plan_prompt(disc)
         plan_text = await self._generate_agent_content(
             moderator,
             plan_prompt,
@@ -1632,6 +1612,31 @@ class PlazaEngine:
             "plan": disc.plan,
             "message": plan_msg,
         }
+
+    def _build_regenerate_plan_prompt(self, disc: Discussion) -> str:
+        recent = self._format_recent_plan_context(disc)
+        return (
+            f"你是议事长。请根据以下全部对话记录，重新生成一份完整的执行计划。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
+            f"全部对话:\n{recent}\n\n"
+            f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
+            f"请根据对话中所有观点（特别是用户的提问和建议），输出修订后的执行计划。严格按以下格式:\n"
+            f"## 修订说明\n"
+            f"1 句话说明本次修订的原因和变更要点\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"列出 3-6 个任务，按优先级排序。\n\n"
+            f"只输出以上内容，不要客套。"
+        )
+
+    @staticmethod
+    def _format_recent_plan_context(disc: Discussion) -> str:
+        return "\n".join(
+            f"[{m.agent_name}] {m.content[:200]}"
+            for m in disc.messages[-30:]
+        )
 
     async def _run_simulated(
         self, disc: Discussion, moderator: Optional[Participant],
