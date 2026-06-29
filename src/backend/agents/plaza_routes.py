@@ -1439,6 +1439,12 @@ async def interject_to_moderator(
 @router.post("/{plaza_id}/discussions/{disc_id}/start", summary="启动讨论")
 async def start_discussion(plaza_id: str, disc_id: str) -> Dict[str, Any]:
     engine = get_plaza_engine()
+    _resolve_startable_discussion(engine, plaza_id, disc_id)
+    _schedule_discussion_run(engine, plaza_id, disc_id)
+    return {"status": "started", "discussion_id": disc_id}
+
+
+def _resolve_startable_discussion(engine, plaza_id: str, disc_id: str):
     disc = engine.get_discussion(plaza_id, disc_id)
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
@@ -1446,10 +1452,11 @@ async def start_discussion(plaza_id: str, disc_id: str) -> Dict[str, Any]:
         disc = engine.reset_discussion(plaza_id, disc_id)
     elif disc.status != DiscussionStatus.OPEN:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"讨论状态为 {disc.status}，无法启动")
+    return disc
 
-    # 在后台运行讨论
+
+def _schedule_discussion_run(engine, plaza_id: str, disc_id: str):
     asyncio.create_task(engine.run_discussion(plaza_id, disc_id))
-    return {"status": "started", "discussion_id": disc_id}
 
 
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")

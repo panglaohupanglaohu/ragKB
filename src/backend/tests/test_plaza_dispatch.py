@@ -280,6 +280,42 @@ class TestDiscussionLifecycle:
         assert exc_info.value.status_code == 400
         assert "无法启动" in str(exc_info.value.detail)
 
+    def test_resolve_startable_discussion_resets_closed_state(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.status = DiscussionStatus.CLOSED
+        disc.current_round = 2
+        disc.messages.append(PlazaMessage(discussion_id=disc.id, agent_id="a-1", content="旧消息"))
+        disc.summary = "旧总结"
+        disc.assigned_team_id = "team-old"
+        isolated_plaza_engine._store.save_plaza(plaza)
+
+        refreshed = plaza_routes._resolve_startable_discussion(
+            isolated_plaza_engine,
+            plaza.id,
+            disc.id,
+        )
+
+        assert refreshed.status == DiscussionStatus.OPEN
+        assert refreshed.current_round == 0
+        assert refreshed.messages == []
+        assert refreshed.summary == ""
+        assert refreshed.assigned_team_id == ""
+
+    def test_schedule_discussion_run_uses_background_task(self, isolated_plaza_engine, monkeypatch):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        scheduled = []
+
+        def fake_create_task(coro):
+            scheduled.append(coro)
+            coro.close()
+            return object()
+
+        monkeypatch.setattr(plaza_routes.asyncio, "create_task", fake_create_task)
+
+        plaza_routes._schedule_discussion_run(isolated_plaza_engine, plaza.id, disc.id)
+
+        assert len(scheduled) == 1
+
     @pytest.mark.asyncio
     async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
         self,
