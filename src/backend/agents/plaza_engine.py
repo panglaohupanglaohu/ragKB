@@ -18,7 +18,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from .plaza import (
@@ -502,38 +502,16 @@ class PlazaEngine:
            b. Moderator 总结本轮观点
         3. 最终轮: Moderator 生成全局总结 + 关键结论
         """
-        plaza = self._plazas.get(plaza_id)
-        if not plaza:
+        run_state = await self._prepare_discussion_run(plaza_id, discussion_id)
+        if run_state is None:
             return None
-        disc = plaza.discussions.get(discussion_id)
-        if not disc:
-            return None
-        if disc.status not in (DiscussionStatus.OPEN,):
+        plaza, disc, moderator, speakers, should_continue = run_state
+        if not should_continue:
             return disc
-
-        disc.status = DiscussionStatus.IN_PROGRESS
-        disc.started_at = datetime.now(timezone.utc).isoformat()
-
-        # Give event loop a chance to process SSE client connections
-        await asyncio.sleep(0.1)
-
-        await self._broadcast(disc.id, {
-            "type": "discussion_start",
-            "discussion_id": disc.id,
-            "topic": disc.topic,
-        })
-
-        participants = list(plaza.participants.values())
-        moderator = None
-        speakers = []
-
-        moderator = self._resolve_moderator(plaza, disc, participants)
-        speakers = self._sort_speakers(participants, moderator)
 
         if not self._chat_fn:
             # 无 LLM 时使用模拟回复
-            await self._run_simulated(disc, moderator, speakers)
-            self._store.save_plaza(plaza)  # 持久化模拟讨论结果
+            await self._run_simulated_discussion(plaza, disc, moderator, speakers)
             return disc
 
         # ── 开场: Moderator 引导话题 ──
@@ -733,6 +711,50 @@ class PlazaEngine:
             f"{len(disc.messages)} 条消息, {disc.max_rounds} 轮"
         )
         return disc
+
+    async def _prepare_discussion_run(
+        self,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Optional[Tuple[Plaza, Discussion, Optional[Participant], List[Participant], bool]]:
+        plaza = self._plazas.get(plaza_id)
+        if not plaza:
+            return None
+        disc = plaza.discussions.get(discussion_id)
+        if not disc:
+            return None
+        if disc.status not in (DiscussionStatus.OPEN,):
+            return plaza, disc, None, [], False
+
+        self._mark_discussion_started(disc)
+        await asyncio.sleep(0.1)
+        await self._broadcast_discussion_start(disc)
+        participants = list(plaza.participants.values())
+        moderator = self._resolve_moderator(plaza, disc, participants)
+        speakers = self._sort_speakers(participants, moderator)
+        return plaza, disc, moderator, speakers, True
+
+    @staticmethod
+    def _mark_discussion_started(disc: Discussion) -> None:
+        disc.status = DiscussionStatus.IN_PROGRESS
+        disc.started_at = datetime.now(timezone.utc).isoformat()
+
+    async def _broadcast_discussion_start(self, disc: Discussion) -> None:
+        await self._broadcast(disc.id, {
+            "type": "discussion_start",
+            "discussion_id": disc.id,
+            "topic": disc.topic,
+        })
+
+    async def _run_simulated_discussion(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
+        await self._run_simulated(disc, moderator, speakers)
+        self._store.save_plaza(plaza)
 
     async def _auto_extract_on_consensus(self, disc) -> None:
         """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.

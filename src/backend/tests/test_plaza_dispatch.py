@@ -279,3 +279,42 @@ class TestDiscussionLifecycle:
 
         assert exc_info.value.status_code == 400
         assert "无法启动" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        broadcasts = []
+        simulated = []
+        saved = []
+
+        async def fake_sleep(_seconds):
+            return None
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        async def fake_run_simulated(disc_arg, moderator, speakers):
+            simulated.append((disc_arg.id, moderator.agent_id if moderator else "", [s.agent_id for s in speakers]))
+            disc_arg.status = DiscussionStatus.CLOSED
+
+        monkeypatch.setattr(plaza_engine_module.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+        monkeypatch.setattr(isolated_plaza_engine, "_run_simulated", fake_run_simulated)
+        monkeypatch.setattr(isolated_plaza_engine._store, "save_plaza", lambda plaza_arg: saved.append(plaza_arg.id))
+
+        result = await isolated_plaza_engine.run_discussion(plaza.id, disc.id)
+
+        assert result is disc
+        assert disc.started_at
+        assert broadcasts[0][1] == {
+            "type": "discussion_start",
+            "discussion_id": disc.id,
+            "topic": disc.topic,
+        }
+        assert simulated
+        assert simulated[0][0] == disc.id
+        assert saved == [plaza.id]
