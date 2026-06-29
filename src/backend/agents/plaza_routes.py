@@ -1459,6 +1459,11 @@ def _schedule_discussion_run(engine, plaza_id: str, disc_id: str):
     asyncio.create_task(engine.run_discussion(plaza_id, disc_id))
 
 
+def _format_sse_event(payload: Dict[str, Any], event_id: str = "") -> str:
+    id_line = f"id: {event_id}\n" if event_id else ""
+    return f"{id_line}data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")
 async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     """Server-Sent Events 实时推送讨论消息.
@@ -1485,21 +1490,27 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
             for msg in disc.messages:
                 if msg.seq >= 0 and msg.seq <= last_seq:
                     continue  # 已收到，跳过
-                yield f"id: {msg.seq}\ndata: {json.dumps({'type': 'message', 'message': msg.to_dict()}, ensure_ascii=False)}\n\n"
+                yield _format_sse_event(
+                    {"type": "message", "message": msg.to_dict()},
+                    str(msg.seq),
+                )
 
             # 推送当前状态（给跳过的 seq 使用虚拟 id）
             status_seq = max(msg.seq + 1 for msg in disc.messages) if disc.messages else 0
-            yield f"id: {status_seq}\ndata: {json.dumps({'type': 'status', 'status': disc.status.value}, ensure_ascii=False)}\n\n"
+            yield _format_sse_event({"type": "status", "status": disc.status.value}, str(status_seq))
 
             # 如果讨论已结束，推送合成的 plan_updated + discussion_end 事件
             # （SSE 连接时讨论可能已经跑完，需确保前端知道结果）
             if disc.status == DiscussionStatus.CLOSED:
                 if disc.plan:
                     end_seq = status_seq + 1
-                    yield f"id: {end_seq}\ndata: {json.dumps({'type': 'plan_updated', 'plan': disc.plan}, ensure_ascii=False)}\n\n"
+                    yield _format_sse_event({"type": "plan_updated", "plan": disc.plan}, str(end_seq))
                     status_seq = end_seq
                 end_seq_final = status_seq + 1
-                yield f"id: {end_seq_final}\ndata: {json.dumps({'type': 'discussion_end', 'summary': disc.summary}, ensure_ascii=False)}\n\n"
+                yield _format_sse_event(
+                    {"type": "discussion_end", "summary": disc.summary},
+                    str(end_seq_final),
+                )
                 # 讨论已结束，不需要等待实时事件
                 return
 
@@ -1509,12 +1520,11 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
                     event = await asyncio.wait_for(q.get(), timeout=30.0)
                     msg = event.get("message")
                     evt_seq = str(msg.seq) if msg and hasattr(msg, 'seq') and msg.seq >= 0 else ""
-                    id_line = f"id: {evt_seq}\n" if evt_seq else ""
-                    yield f"{id_line}data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    yield _format_sse_event(event, evt_seq)
                     if event.get("type") == "discussion_end":
                         break
                 except asyncio.TimeoutError:
-                    yield f"data: {json.dumps({'type': 'heartbeat'}, ensure_ascii=False)}\n\n"
+                    yield _format_sse_event({"type": "heartbeat"})
         finally:
             engine.unsubscribe(disc_id, q)
 

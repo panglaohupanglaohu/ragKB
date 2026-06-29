@@ -316,6 +316,14 @@ class TestDiscussionLifecycle:
 
         assert len(scheduled) == 1
 
+    def test_format_sse_event_preserves_optional_id_and_unicode_payload(self):
+        assert plaza_routes._format_sse_event({"type": "heartbeat"}) == (
+            'data: {"type": "heartbeat"}\n\n'
+        )
+        assert plaza_routes._format_sse_event({"type": "message", "text": "议事"}, "7") == (
+            'id: 7\ndata: {"type": "message", "text": "议事"}\n\n'
+        )
+
     @pytest.mark.asyncio
     async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
         self,
