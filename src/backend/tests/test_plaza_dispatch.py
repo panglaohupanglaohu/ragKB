@@ -1332,3 +1332,18 @@ class TestDiscussionLifecycle:
         )
 
         assert isolated_plaza_engine._resolve_regenerate_plan_moderator(plaza, disc) is niche
+
+    def test_build_regenerate_plan_fallback_returns_actionable_plan(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+
+        plan_text = isolated_plaza_engine._build_regenerate_plan_fallback(plaza, disc)
+
+        assert isolated_plaza_engine._has_actionable_plan(plan_text)
+        assert "刷新计划时 LLM 不可用或未返回结构化计划" in plan_text
+        assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in plan_text

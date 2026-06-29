@@ -1578,12 +1578,7 @@ class PlazaEngine:
             bypass_degraded=True,  # 刷新计划也是关键调用，绕过降级窗口
         )
         if not self._has_actionable_plan(plan_text):
-            participants = list(plaza.participants.values())
-            plan_text = self._build_deterministic_plan_content(
-                disc,
-                participants,
-                "刷新计划时 LLM 不可用或未返回结构化计划",
-            )
+            plan_text = self._build_regenerate_plan_fallback(plaza, disc)
 
         disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
 
@@ -1645,6 +1640,14 @@ class PlazaEngine:
                 None,
             )
         return moderator
+
+    def _build_regenerate_plan_fallback(self, plaza: Plaza, disc: Discussion) -> str:
+        participants = list(plaza.participants.values())
+        return self._build_deterministic_plan_content(
+            disc,
+            participants,
+            "刷新计划时 LLM 不可用或未返回结构化计划",
+        )
 
     async def _run_simulated(
         self, disc: Discussion, moderator: Optional[Participant],
