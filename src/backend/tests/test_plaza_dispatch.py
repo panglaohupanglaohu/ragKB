@@ -324,6 +324,12 @@ class TestDiscussionLifecycle:
             'id: 7\ndata: {"type": "message", "text": "议事"}\n\n'
         )
 
+    def test_parse_last_event_id_matches_existing_digit_only_behavior(self):
+        assert plaza_routes._parse_last_event_id("") == -1
+        assert plaza_routes._parse_last_event_id("abc") == -1
+        assert plaza_routes._parse_last_event_id("-1") == -1
+        assert plaza_routes._parse_last_event_id("12") == 12
+
     @pytest.mark.asyncio
     async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
         self,

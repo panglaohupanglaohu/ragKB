@@ -1464,6 +1464,10 @@ def _format_sse_event(payload: Dict[str, Any], event_id: str = "") -> str:
     return f"{id_line}data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _parse_last_event_id(last_event_id: str) -> int:
+    return int(last_event_id) if last_event_id and last_event_id.isdigit() else -1
+
+
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")
 async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     """Server-Sent Events 实时推送讨论消息.
@@ -1479,10 +1483,7 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     q = engine.subscribe(disc_id)
 
     # 断点续传：只重放 Last-Event-ID 之后的消息
-    last_event_id = request.headers.get("Last-Event-ID", "")
-    last_seq = -1
-    if last_event_id and last_event_id.isdigit():
-        last_seq = int(last_event_id)
+    last_seq = _parse_last_event_id(request.headers.get("Last-Event-ID", ""))
 
     async def event_stream():
         try:
