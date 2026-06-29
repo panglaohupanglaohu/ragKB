@@ -535,22 +535,8 @@ class PlazaEngine:
                     round_speakers, ex_idx, _SPEAKERS_PER_EXCHANGE,
                 )
                 for speaker in ex_speakers:
-                    # 获取最近 5 条作为即时上下文 (短窗口促进针锋相对)
-                    recent = self._format_recent(disc, limit=5)
-                    context_block = f"背景描述: {disc.description}\n" if disc.description else ""
-                    goal_block = f"讨论目标: {disc.goal}\n" if disc.goal else ""
-                    speak_prompt = (
-                        f"你正在参与关于「{disc.topic}」的团队讨论。\n"
-                        f"{context_block}{goal_block}"
-                        f"你是 {speaker.agent_name}（{speaker.role}）。"
-                        f"第 {round_num} 轮，第 {ex_idx+1} 次发言。\n\n"
-                        f"刚才的讨论:\n{recent}\n\n"
-                        f"发言要求:\n"
-                        f"- 结合你的专业背景，给出有实质内容的观点或建议\n"
-                        f"- 回应上面讨论中你认为重要的点，然后补充你的看法\n"
-                        f"- 可以提出具体的方案、步骤、注意事项\n"
-                        f"- 说 3-5 句话，100-200 字左右，不要太短也不要写论文\n"
-                        f"- 像在开会发言一样自然表达，不要用列表和标题"
+                    speak_prompt = self._build_round_speaker_prompt(
+                        disc, speaker, round_num, ex_idx,
                     )
                     await self._speak_with_lock(
                         disc, speaker, speak_prompt, round_number=round_num,
@@ -765,6 +751,30 @@ class PlazaEngine:
             f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
             f"- 然后向参与者提出第一个需要讨论的具体问题\n"
             f"- 说人话，像一个项目经理在主持会议"
+        )
+
+    def _build_round_speaker_prompt(
+        self,
+        disc: Discussion,
+        speaker: Participant,
+        round_num: int,
+        exchange_index: int,
+    ) -> str:
+        recent = self._format_recent(disc, limit=5)
+        context_block = f"背景描述: {disc.description}\n" if disc.description else ""
+        goal_block = f"讨论目标: {disc.goal}\n" if disc.goal else ""
+        return (
+            f"你正在参与关于「{disc.topic}」的团队讨论。\n"
+            f"{context_block}{goal_block}"
+            f"你是 {speaker.agent_name}（{speaker.role}）。"
+            f"第 {round_num} 轮，第 {exchange_index+1} 次发言。\n\n"
+            f"刚才的讨论:\n{recent}\n\n"
+            f"发言要求:\n"
+            f"- 结合你的专业背景，给出有实质内容的观点或建议\n"
+            f"- 回应上面讨论中你认为重要的点，然后补充你的看法\n"
+            f"- 可以提出具体的方案、步骤、注意事项\n"
+            f"- 说 3-5 句话，100-200 字左右，不要太短也不要写论文\n"
+            f"- 像在开会发言一样自然表达，不要用列表和标题"
         )
 
     async def _auto_extract_on_consensus(self, disc) -> None:

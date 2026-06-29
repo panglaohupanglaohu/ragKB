@@ -367,3 +367,32 @@ class TestDiscussionLifecycle:
         assert "讨论目标: 拆清楚开场边界" in prompt
         assert "参与者: 开发者" in prompt
         assert "不要自行转换或重新解读话题" in prompt
+
+    def test_build_round_speaker_prompt_uses_recent_context(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.description = "已有背景"
+        disc.goal = "保持行为"
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="pm-1",
+                agent_name="主持人",
+                content="先确认边界",
+                round_number=0,
+            )
+        )
+
+        prompt = isolated_plaza_engine._build_round_speaker_prompt(disc, speaker, 2, 1)
+
+        assert "你正在参与关于「让 Plaza 真的能派发任务」的团队讨论。" in prompt
+        assert "背景描述: 已有背景" in prompt
+        assert "讨论目标: 保持行为" in prompt
+        assert "你是 开发者（developer）。第 2 轮，第 2 次发言。" in prompt
+        assert "先确认边界" in prompt
+        assert "回应上面讨论中你认为重要的点" in prompt
