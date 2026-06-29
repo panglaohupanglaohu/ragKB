@@ -433,3 +433,22 @@ class TestDiscussionLifecycle:
         assert broadcasts[0][0] == disc.id
         assert broadcasts[0][1]["type"] == "message"
         assert broadcasts[0][1]["message"]["seq"] == 0
+
+    def test_build_round_summary_prompt_uses_round_messages(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="dev-1",
+                agent_name="开发者",
+                content="需要拆清楚轮次职责",
+                round_number=2,
+            )
+        )
+
+        prompt = isolated_plaza_engine._build_round_summary_prompt(disc, 2)
+
+        assert "你是主持人。第 2 轮讨论已结束。" in prompt
+        assert "需要拆清楚轮次职责" in prompt
+        assert "总结大家达成的共识和仍有分歧的地方" in prompt
+        assert "提出下一轮需要重点讨论的问题" in prompt

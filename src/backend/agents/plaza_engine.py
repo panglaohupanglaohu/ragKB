@@ -558,14 +558,7 @@ class PlazaEngine:
 
             # Moderator 收束本轮 (非最后一轮时)
             if round_num < disc.max_rounds:
-                summary_prompt = (
-                    f"你是主持人。第 {round_num} 轮讨论已结束。\n\n"
-                    f"本轮讨论:\n{self._format_round_messages(disc, round_num)}\n\n"
-                    f"请小结本轮要点:\n"
-                    f"- 总结大家达成的共识和仍有分歧的地方\n"
-                    f"- 提出下一轮需要重点讨论的问题\n"
-                    f"- 用 2-3 句话，自然表达"
-                )
+                summary_prompt = self._build_round_summary_prompt(disc, round_num)
                 await self._speak_with_lock(
                     disc, moderator, summary_prompt, round_number=round_num,
                     niche_role="moderator",
@@ -792,6 +785,16 @@ class PlazaEngine:
             niche_role="moderator",
             content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
             round_number=round_num,
+        )
+
+    def _build_round_summary_prompt(self, disc: Discussion, round_num: int) -> str:
+        return (
+            f"你是主持人。第 {round_num} 轮讨论已结束。\n\n"
+            f"本轮讨论:\n{self._format_round_messages(disc, round_num)}\n\n"
+            f"请小结本轮要点:\n"
+            f"- 总结大家达成的共识和仍有分歧的地方\n"
+            f"- 提出下一轮需要重点讨论的问题\n"
+            f"- 用 2-3 句话，自然表达"
         )
 
     async def _auto_extract_on_consensus(self, disc) -> None:
