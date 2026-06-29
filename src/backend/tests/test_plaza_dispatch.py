@@ -330,6 +330,21 @@ class TestDiscussionLifecycle:
         assert plaza_routes._parse_last_event_id("-1") == -1
         assert plaza_routes._parse_last_event_id("12") == 12
 
+    def test_iter_replay_message_events_skips_received_non_negative_seq(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.messages = []
+        for seq, agent_id in [(-1, "pending"), (0, "old"), (1, "next")]:
+            msg = PlazaMessage(discussion_id=disc.id, agent_id=agent_id, content=agent_id)
+            msg.seq = seq
+            disc.messages.append(msg)
+
+        events = list(plaza_routes._iter_replay_message_events(disc, 0))
+
+        assert len(events) == 2
+        assert '"agent_id": "pending"' in events[0]
+        assert '"agent_id": "next"' in events[1]
+        assert '"agent_id": "old"' not in "".join(events)
+
     @pytest.mark.asyncio
     async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
         self,

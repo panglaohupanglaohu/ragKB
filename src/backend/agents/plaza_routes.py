@@ -1468,6 +1468,16 @@ def _parse_last_event_id(last_event_id: str) -> int:
     return int(last_event_id) if last_event_id and last_event_id.isdigit() else -1
 
 
+def _iter_replay_message_events(disc, last_seq: int):
+    for msg in disc.messages:
+        if msg.seq >= 0 and msg.seq <= last_seq:
+            continue
+        yield _format_sse_event(
+            {"type": "message", "message": msg.to_dict()},
+            str(msg.seq),
+        )
+
+
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")
 async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     """Server-Sent Events 实时推送讨论消息.
@@ -1488,13 +1498,8 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     async def event_stream():
         try:
             # 先推送已有消息（支持中途接入，跳过已收消息）
-            for msg in disc.messages:
-                if msg.seq >= 0 and msg.seq <= last_seq:
-                    continue  # 已收到，跳过
-                yield _format_sse_event(
-                    {"type": "message", "message": msg.to_dict()},
-                    str(msg.seq),
-                )
+            for event in _iter_replay_message_events(disc, last_seq):
+                yield event
 
             # 推送当前状态（给跳过的 seq 使用虚拟 id）
             status_seq = max(msg.seq + 1 for msg in disc.messages) if disc.messages else 0
