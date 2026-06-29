@@ -559,3 +559,34 @@ class TestDiscussionLifecycle:
             "共识摘要:\n共识摘要\n\n"
             "执行计划:\n执行计划内容"
         )
+
+    def test_prepare_interjection_context_resolves_moderator_and_speakers(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+
+        result = isolated_plaza_engine._prepare_interjection_context(plaza.id, disc.id)
+
+        assert result[0] is plaza
+        assert result[1] is disc
+        assert result[2] is moderator
+        assert result[3] == [speaker]
+
+    def test_prepare_interjection_context_rejects_missing_moderator(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+
+        with pytest.raises(ValueError) as exc_info:
+            isolated_plaza_engine._prepare_interjection_context(plaza.id, disc.id)
+
+        assert str(exc_info.value) == "广场没有议事长"

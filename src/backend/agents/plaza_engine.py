@@ -949,18 +949,7 @@ class PlazaEngine:
         user_message: str,
         user_msg_id: str,
     ) -> Dict[str, Optional[PlazaMessage]]:
-        plaza = self._plazas.get(plaza_id)
-        if not plaza:
-            raise ValueError("广场不存在")
-        disc = plaza.discussions.get(discussion_id)
-        if not disc:
-            raise ValueError("讨论不存在")
-
-        participants = list(plaza.participants.values())
-        moderator = self._resolve_moderator(plaza, disc, participants)
-        if not moderator:
-            raise ValueError("广场没有议事长")
-        speakers = self._sort_speakers(participants, moderator)
+        plaza, disc, moderator, speakers = self._prepare_interjection_context(plaza_id, discussion_id)
 
         async with self._get_discussion_lock(disc.id):
             await self._broadcast(disc.id, {
@@ -1173,6 +1162,25 @@ class PlazaEngine:
                 "extra_replies": extra_replies,
                 "moderator_resume": wrap_msg,
             }
+
+    def _prepare_interjection_context(
+        self,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Tuple[Plaza, Discussion, Participant, List[Participant]]:
+        plaza = self._plazas.get(plaza_id)
+        if not plaza:
+            raise ValueError("广场不存在")
+        disc = plaza.discussions.get(discussion_id)
+        if not disc:
+            raise ValueError("讨论不存在")
+
+        participants = list(plaza.participants.values())
+        moderator = self._resolve_moderator(plaza, disc, participants)
+        if not moderator:
+            raise ValueError("广场没有议事长")
+        speakers = self._sort_speakers(participants, moderator)
+        return plaza, disc, moderator, speakers
 
     async def _generate_agent_content(
         self,
