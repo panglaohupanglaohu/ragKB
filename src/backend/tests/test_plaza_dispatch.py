@@ -1301,3 +1301,34 @@ class TestDiscussionLifecycle:
         assert '"revision": 3' in prompt
         assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in prompt
         assert "只输出以上内容，不要客套。" in prompt
+
+    def test_resolve_regenerate_plan_moderator_prefers_discussion_moderator(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        explicit = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-explicit",
+            "显式主持",
+            "project_manager",
+        )
+        isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-niche",
+            "壁龛主持",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        disc.moderator_agent_id = "pm-explicit"
+
+        assert isolated_plaza_engine._resolve_regenerate_plan_moderator(plaza, disc) is explicit
+
+    def test_resolve_regenerate_plan_moderator_falls_back_to_niche(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        niche = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-niche",
+            "壁龛主持",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+
+        assert isolated_plaza_engine._resolve_regenerate_plan_moderator(plaza, disc) is niche

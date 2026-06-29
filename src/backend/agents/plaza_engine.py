@@ -1563,14 +1563,7 @@ class PlazaEngine:
         if not disc:
             return {"error": "讨论不存在"}
 
-        moderator = None
-        if disc.moderator_agent_id:
-            moderator = plaza.participants.get(disc.moderator_agent_id)
-        if not moderator:
-            moderator = next(
-                (p for p in plaza.participants.values() if p.niche_role.value == "moderator"),
-                None,
-            )
+        moderator = self._resolve_regenerate_plan_moderator(plaza, disc)
         if not moderator:
             return {"error": "无议事长"}
 
@@ -1637,6 +1630,21 @@ class PlazaEngine:
             f"[{m.agent_name}] {m.content[:200]}"
             for m in disc.messages[-30:]
         )
+
+    @staticmethod
+    def _resolve_regenerate_plan_moderator(
+        plaza: Plaza,
+        disc: Discussion,
+    ) -> Optional[Participant]:
+        moderator = None
+        if disc.moderator_agent_id:
+            moderator = plaza.participants.get(disc.moderator_agent_id)
+        if not moderator:
+            moderator = next(
+                (p for p in plaza.participants.values() if p.niche_role.value == "moderator"),
+                None,
+            )
+        return moderator
 
     async def _run_simulated(
         self, disc: Discussion, moderator: Optional[Participant],
