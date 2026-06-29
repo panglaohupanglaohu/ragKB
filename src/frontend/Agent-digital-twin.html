@@ -940,7 +940,7 @@ body {
 
     <!-- ═══ 操作 ═══ -->
     <div class="rp-section" style="padding:8px 12px">
-      <button class="btn btn-primary" onclick="sexyCreateAndRun()" id="secs-btn-launch" style="width:100%;padding:12px 0;font-size:14px;font-weight:600">▶ 沙箱推演</button>
+      <button class="btn btn-primary" onclick="sexyCreateAndRun()" id="secs-btn-launch" title="可评分闭环：建试炼→运行(含3D可视化)→五维评分→SOP/反哺/进化→棘轮" style="width:100%;padding:12px 0;font-size:14px;font-weight:600">▶ 运行演练</button>
       <!-- 启动后的控制区（默认隐藏） -->
       <div id="secs-ctrl-panel" style="display:none;margin-top:6px">
         <div style="display:flex;gap:6px;margin-bottom:6px">
@@ -950,7 +950,8 @@ body {
         </div>
         <button class="btn" onclick="sexyStopSim()" id="secs-btn-stop" style="width:100%;padding:10px 0;font-size:13px">⏹ 停止演练</button>
       </div>
-      <button class="btn" onclick="_sexyRoomSim()" id="secs-dev-btn" style="width:100%;margin-top:6px;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,#fbbf24,#f472b6);color:#000;border:none;border-radius:6px;cursor:pointer">🎬 房间任务流程仿真</button>
+      <div style="font-size:9px;color:var(--dim);text-align:center;margin-top:6px;line-height:1.5">「运行演练」=可评分闭环(已含 3D 房间可视化)。下方仅在想<b>快速预览协作动画、不打分</b>时用：</div>
+      <button class="btn" onclick="_sexyRoomSim()" id="secs-dev-btn" title="纯前端动画预演：只看一眼协作流程，不创建评分试炼、不产出分数/SOP" style="width:100%;margin-top:4px;padding:6px 0;font-size:11px;color:var(--dim);background:transparent;border:1px dashed var(--border);border-radius:6px;cursor:pointer">🎬 仅可视化预演（不评分）</button>
       <!-- 隐藏的选择器：secsDevWorkflow 需要通过它们读团队/任务 -->
       <select id="secs-team-select" style="display:none"><option value="">—</option></select>
       <select id="secs-task-select" style="display:none"><option value="">—</option></select>

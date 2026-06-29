@@ -63,8 +63,8 @@
       launch.disabled = false;
       launch.style.opacity = '1';
       launch.style.cursor = 'pointer';
-      launch.textContent = '▶ 沙箱推演';
-      launch.title = '启动沙箱推演';
+      launch.textContent = '▶ 运行演练';
+      launch.title = '可评分闭环：建试炼→运行(含3D可视化)→五维评分→SOP/反哺/进化→棘轮';
     }
   }
 
@@ -597,6 +597,26 @@
     try {
       var sceneList = [];
 
+      // 0. 演练场景库（真实场景：含 taskflow + rubric，按所选团队匹配度排序）——闭环核心入口
+      try {
+        var _stid = window._selectedTeamId || '';
+        var scnR = await fetch('/api/v1/scenarios' + (_stid ? ('?team_id=' + encodeURIComponent(_stid)) : ''));
+        var scnD = await scnR.json();
+        (scnD.scenarios || []).forEach(function (s) {
+          var mtxt = '';
+          if (s.match) {
+            var pct = Math.round((s.match.skill_match_rate || 0) * 100);
+            mtxt = ' · 团队匹配 ' + pct + '%' + ((s.match.missing_skills && s.match.missing_skills.length) ? ' · 缺:' + s.match.missing_skills.slice(0, 2).join('/') : '');
+          }
+          sceneList.push({
+            id: s.scenario_id,
+            name: '🎯 ' + s.name,
+            desc: (s.description || '').slice(0, 46) + ' · 任务' + (s.task_count || 0) + ' · 难度' + (s.difficulty || '-') + mtxt,
+            type: 'scenario',
+          });
+        });
+      } catch (e) { /* 场景库不可用不阻断下方房间场景 */ }
+
       // 1. 获取数字孪生环境空间（房间 + Agent 位置）
       try {
         var dtR = await fetch('/api/v1/agent-config/digital-twin/state');
@@ -678,7 +698,7 @@
         return;
       }
 
-      var typeColor = { room:'#22d3ee', topo:'#a78bfa', default:'#34d399', mode:'#f59e0b', sop:'#f472b6', error:'#ef4444' };
+      var typeColor = { scenario:'#4ade80', room:'#22d3ee', topo:'#a78bfa', default:'#34d399', mode:'#f59e0b', sop:'#f472b6', error:'#ef4444' };
       listEl.innerHTML = sceneList.map(function(sc){
         var tc = typeColor[sc.type] || '#888';
         var isSel = _selectedSceneId === sc.id;
@@ -695,6 +715,10 @@
 
   window.sexySelectScene = function(sceneId, sceneName, sceneDesc) {
     _selectedSceneId = sceneId;
+    // 真实场景 id（capacity_incident 等）→ 设 _sx.scenarioId，createTrial 传给后端编译 taskflow/rubric；
+    // 房间(room_*)/模式(__*)/SOP(sop_*) 不是真实场景，清空避免误传。
+    window._sx = window._sx || {};
+    window._sx.scenarioId = /^(room_|__|sop_|_dt)/.test(sceneId) ? '' : sceneId;
     var btn = document.getElementById('secs-scene-btn');
     btn.textContent = '🏟️ ' + sceneName;
     btn.style.color = 'var(--green)';
@@ -739,10 +763,30 @@
     }
 
     try {
+      // C3: 已选真实场景 → 顶部列出该场景任务流（整条流程 + 各任务），打通"团队→场景→任务"
+      var _scnHtml = '';
+      var _scnId = window._sx && window._sx.scenarioId;
+      if (_scnId) {
+        try {
+          var _scn = await (await fetch('/api/v1/scenarios/' + encodeURIComponent(_scnId))).json();
+          var _tf = _scn.taskflow || [];
+          if (_tf.length) {
+            _scnHtml = '<div style="padding:6px 12px;font-size:9px;color:var(--dim);background:var(--panel2)">📚 场景「' + esc(_scn.name || _scnId) + '」任务流 · 默认跑整条</div>'
+              + '<div class="modal-select__item" style="cursor:pointer;padding:10px 12px;border-bottom:1px solid var(--border)" data-task-id="__flow__" data-task-title="整条场景流程(' + _tf.length + '任务)" data-task-desc="按场景 DAG 跑完整任务流"><div style="font-weight:600;color:var(--green)">▶ 用整条场景流程（推荐）· ' + _tf.length + ' 任务</div></div>'
+              + _tf.map(function (t) {
+                  return '<div class="modal-select__item" style="cursor:pointer;padding:8px 12px;border-bottom:1px solid var(--border)" data-task-id="' + esc(t.task_id) + '" data-task-title="' + esc(t.name || t.task_id) + '" data-task-desc="' + esc((t.required_skills || []).join(',')) + '"><div style="color:var(--text)">🎯 ' + esc(t.name || t.task_id) + '</div><div style="font-size:9px;color:var(--dim)">技能 ' + esc((t.required_skills || []).join(', ') || '—') + '</div></div>';
+                }).join('');
+          }
+        } catch (e) { /* 场景任务流可选 */ }
+      }
+
       var r = await fetch('/api/v1/agent-config/teams/' + encodeURIComponent(_selectedTeamId) + '/tasks');
       var tasks = await r.json();
       if (!Array.isArray(tasks) || !tasks.length) {
-        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dim)">该团队暂无任务 — 请先在「任务」页面创建并派发</div>';
+        listEl.innerHTML = _scnHtml || '<div style="text-align:center;padding:20px;color:var(--dim)">该团队暂无任务 — 请先在「任务」页面创建并派发</div>';
+        listEl.querySelectorAll('.modal-select__item').forEach(function (el) {
+          el.addEventListener('click', function () { window.sexySelectTask(this.dataset.taskId, this.dataset.taskTitle, this.dataset.taskDesc); });
+        });
         return;
       }
 
@@ -751,7 +795,7 @@
         return (b.created_at || '').localeCompare(a.created_at || '');
       });
 
-      listEl.innerHTML = tasks.map(function(t) {
+      listEl.innerHTML = _scnHtml + (_scnHtml ? '<div style="padding:6px 12px;font-size:9px;color:var(--dim)">— 或选团队已派发任务 —</div>' : '') + tasks.map(function(t) {
         var isSel = t.task_id === _selectedTaskId;
         var statusColor = { pending:'var(--dim)', running:'var(--cyan)', completed:'var(--green)', failed:'var(--red)', cancelled:'var(--dim)' }[t.status] || 'var(--dim)';
         var desc = (t.description || '').slice(0, 80);
@@ -784,6 +828,16 @@
   };
 
   window.sexySelectTask = function(taskId, taskTitle, taskDesc) {
+    // 「整条场景流程」→ 不指定单任务，清空 override，让 createTrial 用场景默认 taskflow
+    if (taskId === '__flow__') {
+      _selectedTaskId = null; _selectedTaskTitle = ''; _selectedTaskGoal = null;
+      window._selectedTaskId = null; window._selectedTaskGoal = null;
+      var fb = document.getElementById('secs-task-btn');
+      if (fb) { fb.textContent = '📋 整条场景流程'; fb.style.color = 'var(--green)'; }
+      var ot = document.getElementById('o-task'); if (ot) ot.style.display = 'none';
+      showToast('已选择：整条场景流程', 'success');
+      return;
+    }
     _selectedTaskId = taskId;
     _selectedTaskTitle = taskTitle;
     // 构建 task_goal — 将任务信息带入试炼，让演练有明确的执行目标

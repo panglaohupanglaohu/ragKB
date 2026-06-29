@@ -1356,5 +1356,34 @@
       "ux"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-074",
+    "error_message": "团队-场景-任务闭环：5 个富场景(taskflow+rubric)从未进入试炼，选场景只列 3D 房间",
+    "root_cause": "sexyPickScene 只列数字孪生房间/模式/SOP，从不列场景库；且 _sx.scenarioId 从未赋值→createTrial 永远发 scenario_id='' → 后端 compile_scenario/rubric 链路虽完整却收不到 id。(原 plan 误判 tasks:0 系字段名 task_flow vs taskflow)",
+    "fix": "后端 list_scenarios 加 team_id 按 match_team 排序;前端 sexyPickScene 顶部接入真实场景库(显示匹配%/缺技能/任务数);sexySelectScene 选真实场景即设 _sx.scenarioId → 贯通 taskflow 编译 + rubric 领域化评分",
+    "tags": [
+      "backend",
+      "frontend",
+      "scenario",
+      "closed-loop",
+      "digital-twin",
+      "match"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-014",
+    "error_message": "闭环优化 C2′/C3/C5 落地",
+    "root_cause": "团队-场景-任务闭环：场景库未接入选择器、演练/仿真两按钮割裂",
+    "fix": "C2′ 场景库接入选场景弹层(按团队匹配排序)+选中设_sx.scenarioId; C3 选任务弹层顶部带出场景 taskflow(整条流程+各任务,__flow__清override); C5.1 演练/仿真合并:沙箱推演→『运行演练』为唯一主入口、房间仿真降级为『仅可视化预演(不评分)』虚线小按钮+说明。C5.2 深度绑定标[人工]未做(scored drill 本就渲染3D,redundant)",
+    "tags": [
+      "frontend",
+      "backend",
+      "scenario",
+      "closed-loop",
+      "drill-sim-merge"
+    ],
+    "date": "2026-06-23"
   }
 ]
