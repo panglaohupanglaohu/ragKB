@@ -584,29 +584,7 @@ class PlazaEngine:
         disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
 
-        closing_msg = PlazaMessage(
-            discussion_id=disc.id,
-            agent_id=moderator.agent_id,
-            agent_name=moderator.agent_name or moderator.agent_id,
-            role=moderator.role,
-            niche_role="moderator",
-            content=self._build_closing_brief(disc.summary),
-            round_number=disc.max_rounds + 1,
-            metadata={"summary_kind": "closing_brief"},
-        )
-        closing_msg.seq = len(disc.messages)
-        disc.messages.append(closing_msg)
-        await self._broadcast(disc.id, {
-            "type": "message",
-            "message": closing_msg.to_dict(),
-        })
-        disc.status = DiscussionStatus.CLOSED
-        disc.ended_at = datetime.now(timezone.utc).isoformat()
-
-        await self._broadcast(disc.id, {
-            "type": "discussion_end",
-            "summary": disc.summary,
-        })
+        await self._close_discussion_with_summary(disc, moderator)
 
         # 持久化讨论结果
         self._store.save_plaza(plaza)
@@ -807,6 +785,43 @@ class PlazaEngine:
             "分步推进方案设计、验证与执行",
             "演练通过后再进入实际派发",
         ]
+
+    async def _close_discussion_with_summary(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        closing_msg = self._build_closing_message(disc, moderator)
+        closing_msg.seq = len(disc.messages)
+        disc.messages.append(closing_msg)
+        await self._broadcast(disc.id, {
+            "type": "message",
+            "message": closing_msg.to_dict(),
+        })
+        disc.status = DiscussionStatus.CLOSED
+        disc.ended_at = datetime.now(timezone.utc).isoformat()
+
+        await self._broadcast(disc.id, {
+            "type": "discussion_end",
+            "summary": disc.summary,
+        })
+        return closing_msg
+
+    def _build_closing_message(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        return PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id,
+            agent_name=moderator.agent_name or moderator.agent_id,
+            role=moderator.role,
+            niche_role="moderator",
+            content=self._build_closing_brief(disc.summary),
+            round_number=disc.max_rounds + 1,
+            metadata={"summary_kind": "closing_brief"},
+        )
 
     async def _auto_extract_on_consensus(self, disc) -> None:
         """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.

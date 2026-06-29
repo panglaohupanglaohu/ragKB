@@ -505,3 +505,44 @@ class TestDiscussionLifecycle:
             "分步推进方案设计、验证与执行",
             "演练通过后再进入实际派发",
         ]
+
+    @pytest.mark.asyncio
+    async def test_close_discussion_with_summary_broadcasts_closing_events(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.max_rounds = 2
+        disc.summary = "## 讨论概要\n收束内容\n\n## 执行计划\n| 序号 | 任务 |\n|---|---|"
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        broadcasts = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+
+        closing_msg = await isolated_plaza_engine._close_discussion_with_summary(disc, moderator)
+
+        assert closing_msg is disc.messages[-1]
+        assert closing_msg.seq == 0
+        assert closing_msg.agent_id == "pm-1"
+        assert closing_msg.niche_role == "moderator"
+        assert closing_msg.round_number == 3
+        assert closing_msg.metadata == {"summary_kind": "closing_brief"}
+        assert closing_msg.content == "本场收束：讨论概要\n立即执行：先从 P0 任务切入推进。"
+        assert disc.status == DiscussionStatus.CLOSED
+        assert disc.ended_at
+        assert broadcasts[0][1]["type"] == "message"
+        assert broadcasts[0][1]["message"]["seq"] == 0
+        assert broadcasts[1][1] == {
+            "type": "discussion_end",
+            "summary": disc.summary,
+        }
