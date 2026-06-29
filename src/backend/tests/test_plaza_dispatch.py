@@ -1449,6 +1449,40 @@ class TestDiscussionLifecycle:
         assert event["message"] == msg.to_dict()
 
     @pytest.mark.asyncio
+    async def test_run_simulated_round_broadcasts_start_and_speaker_messages(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        speakers = [
+            isolated_plaza_engine.add_participant(plaza.id, "dev-1", "开发者", "developer"),
+            isolated_plaza_engine.add_participant(plaza.id, "qa-1", "测试", "qa"),
+        ]
+        events = isolated_plaza_engine.subscribe(disc.id)
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        monkeypatch.setattr(plaza_engine_module.asyncio, "sleep", fake_sleep)
+
+        await isolated_plaza_engine._run_simulated_round(disc, speakers, 2)
+        round_event = await events.get()
+        first_message = await events.get()
+        second_message = await events.get()
+
+        assert disc.current_round == 2
+        assert round_event == {"type": "round_start", "round": 2, "max_rounds": disc.max_rounds}
+        assert [message.agent_id for message in disc.messages] == ["dev-1", "qa-1"]
+        assert [message.round_number for message in disc.messages] == [2, 2]
+        assert first_message["type"] == "message"
+        assert first_message["message"]["agent_id"] == "dev-1"
+        assert second_message["type"] == "message"
+        assert second_message["message"]["agent_id"] == "qa-1"
+        assert sleeps == [0.1, 0.1]
+
+    @pytest.mark.asyncio
     async def test_complete_simulated_discussion_updates_plan_and_end_events(
         self,
         isolated_plaza_engine,

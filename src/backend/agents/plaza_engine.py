@@ -1667,11 +1667,7 @@ class PlazaEngine:
             await self._publish_simulated_opening(disc, moderator)
 
         for round_num in range(1, min(disc.max_rounds + 1, 3)):
-            disc.current_round = round_num
-            await self._broadcast(disc.id, {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds})
-            for speaker in speakers:
-                await self._publish_simulated_round_message(disc, speaker, round_num)
-                await asyncio.sleep(0.1)
+            await self._run_simulated_round(disc, speakers, round_num)
 
         await self._complete_simulated_discussion(disc, moderator, speakers)
 
@@ -1717,6 +1713,21 @@ class PlazaEngine:
         disc.messages.append(msg)
         await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
         return msg
+
+    async def _run_simulated_round(
+        self,
+        disc: Discussion,
+        speakers: List[Participant],
+        round_num: int,
+    ) -> None:
+        disc.current_round = round_num
+        await self._broadcast(
+            disc.id,
+            {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds},
+        )
+        for speaker in speakers:
+            await self._publish_simulated_round_message(disc, speaker, round_num)
+            await asyncio.sleep(0.1)
 
     async def _complete_simulated_discussion(
         self,
