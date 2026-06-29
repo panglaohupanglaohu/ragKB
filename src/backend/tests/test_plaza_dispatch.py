@@ -546,3 +546,16 @@ class TestDiscussionLifecycle:
             "type": "discussion_end",
             "summary": disc.summary,
         }
+
+    def test_build_auto_extract_description_uses_summary_and_plan(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.summary = "共识摘要"
+        disc.plan = {"content": "执行计划内容"}
+
+        description = isolated_plaza_engine._build_auto_extract_description(disc)
+
+        assert description == (
+            "[议事广场自动萃取] 议题: 让 Plaza 真的能派发任务\n\n"
+            "共识摘要:\n共识摘要\n\n"
+            "执行计划:\n执行计划内容"
+        )

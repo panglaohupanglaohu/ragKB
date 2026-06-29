@@ -18,6 +18,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -830,35 +831,38 @@ class PlazaEngine:
         - 管线 created_by=plaza:{discussion_id}，tags 含 plaza_auto 与
           classification:reserve（萃取出的技能由 G2 分类器默认归入储备池）
         """
-        # 开关检查
-        try:
-            import json as _json
-            from pathlib import Path as _Path
-            settings_path = _Path(__file__).resolve().parents[3] / "config" / "settings.json"
-            settings = _json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
-            if not settings.get("auto_extract_on_consensus", True):
-                return
-        except Exception:
-            pass  # settings 不可读时默认开启
+        if not self._auto_extract_enabled():
+            return
 
         from .extraction_store import get_extraction_store
         store = get_extraction_store()
-        plan_text = ""
-        if disc.plan:
-            plan_text = str(disc.plan.get("content", ""))[:1500] if isinstance(disc.plan, dict) else str(disc.plan)[:1500]
-        description = (
-            f"[议事广场自动萃取] 议题: {disc.topic}\n\n"
-            f"共识摘要:\n{(disc.summary or '')[:1500]}\n\n"
-            f"执行计划:\n{plan_text}"
-        )
         pipeline = await store.create_pipeline(
             name=f"Plaza萃取: {disc.topic[:40]}",
-            description=description,
+            description=self._build_auto_extract_description(disc),
             team_id=getattr(disc, "team_id", "") or "",
             created_by=f"plaza:{disc.id}",
             tags=["plaza_auto", "classification:reserve", f"plaza:{disc.plaza_id}"],
         )
         logger.info(f"🔗 G1-1: 共识自动萃取管线已创建 {pipeline.pipeline_id} ← discussion {disc.id[:8]}")
+
+    def _auto_extract_enabled(self) -> bool:
+        try:
+            settings_path = Path(__file__).resolve().parents[3] / "config" / "settings.json"
+            settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+            return bool(settings.get("auto_extract_on_consensus", True))
+        except Exception:
+            return True
+
+    @staticmethod
+    def _build_auto_extract_description(disc: Discussion) -> str:
+        plan_text = ""
+        if disc.plan:
+            plan_text = str(disc.plan.get("content", ""))[:1500] if isinstance(disc.plan, dict) else str(disc.plan)[:1500]
+        return (
+            f"[议事广场自动萃取] 议题: {disc.topic}\n\n"
+            f"共识摘要:\n{(disc.summary or '')[:1500]}\n\n"
+            f"执行计划:\n{plan_text}"
+        )
 
     async def _agent_speak(
         self, disc: Discussion, participant: Participant,
