@@ -1052,13 +1052,8 @@ class PlazaEngine:
             extra_replies: List[PlazaMessage] = []
             remaining_speakers = [s for s in speakers if s != chosen][:2]
             for extra_speaker in remaining_speakers:
-                extra_prompt = (
-                    f"你是 {extra_speaker.agent_name}（{extra_speaker.role}）。\n"
-                    f"讨论话题: 「{disc.topic}」\n"
-                    f"用户刚才提出了问题/建议: 「{user_message}」\n"
-                    f"主持人点名的 {chosen.agent_name if chosen else '无'} 已回应: 「{speaker_msg.content if speaker_msg else '无'}」\n"
-                    f"最近讨论: \n{self._format_recent(disc, limit=6)}\n\n"
-                    f"请从你的专业角度补充 1-2 句，针对用户问题给出你的判断或补充方案。不要重复已有观点。"
+                extra_prompt = self._build_interjection_supplementary_reply_prompt(
+                    disc, extra_speaker, chosen, speaker_msg, user_message,
                 )
                 extra_msg = await self._agent_speak(
                     disc,
@@ -1206,6 +1201,23 @@ class PlazaEngine:
             f"主持人刚才的话: 「{moderator_reply_text}」\n"
             f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
             f"请用 2-4 句直接回应，必须回答用户的具体问题，给出可落地的方案或约束，不要泛泛而谈。"
+        )
+
+    def _build_interjection_supplementary_reply_prompt(
+        self,
+        disc: Discussion,
+        extra_speaker: Participant,
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        user_message: str,
+    ) -> str:
+        return (
+            f"你是 {extra_speaker.agent_name}（{extra_speaker.role}）。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"用户刚才提出了问题/建议: 「{user_message}」\n"
+            f"主持人点名的 {chosen.agent_name if chosen else '无'} 已回应: 「{speaker_msg.content if speaker_msg else '无'}」\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=6)}\n\n"
+            f"请从你的专业角度补充 1-2 句，针对用户问题给出你的判断或补充方案。不要重复已有观点。"
         )
 
     async def _generate_agent_content(

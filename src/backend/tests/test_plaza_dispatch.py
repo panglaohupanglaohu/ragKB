@@ -673,3 +673,49 @@ class TestDiscussionLifecycle:
         assert "主持人刚才的话: 「请 测试 先回应。」" in prompt
         assert "先回应验收标准" in prompt
         assert "必须回答用户的具体问题" in prompt
+
+    def test_build_interjection_supplementary_reply_prompt_uses_prior_reply(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="qa-1",
+                agent_name="测试",
+                content="需要验收标准",
+                round_number=2,
+            )
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+        extra = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        speaker_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="qa-1",
+            agent_name="测试",
+            content="先补验收标准。",
+            round_number=2,
+        )
+
+        prompt = isolated_plaza_engine._build_interjection_supplementary_reply_prompt(
+            disc,
+            extra,
+            chosen,
+            speaker_msg,
+            "用户要求补充验收标准",
+        )
+
+        assert "你是 开发者（developer）。" in prompt
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "用户刚才提出了问题/建议: 「用户要求补充验收标准」" in prompt
+        assert "主持人点名的 测试 已回应: 「先补验收标准。」" in prompt
+        assert "需要验收标准" in prompt
+        assert "不要重复已有观点" in prompt
