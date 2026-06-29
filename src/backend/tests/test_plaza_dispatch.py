@@ -641,3 +641,35 @@ class TestDiscussionLifecycle:
         assert "- dev-1 | 开发者 | developer" in prompt
         assert "REPLY: 你给用户和全场的纠偏回应" in prompt
         assert "NEXT: 候选中的 agent_id" in prompt
+
+    def test_build_interjection_nominated_reply_prompt_uses_context(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.messages.append(
+            PlazaMessage(
+                discussion_id=disc.id,
+                agent_id="pm-1",
+                agent_name="主持人",
+                content="先回应验收标准",
+                round_number=2,
+            )
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+
+        prompt = isolated_plaza_engine._build_interjection_nominated_reply_prompt(
+            disc,
+            chosen,
+            "用户要求补充验收标准",
+            "请 测试 先回应。",
+        )
+
+        assert "你是 测试（qa）。主持人刚刚点名你" in prompt
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "用户插话: 「用户要求补充验收标准」" in prompt
+        assert "主持人刚才的话: 「请 测试 先回应。」" in prompt
+        assert "先回应验收标准" in prompt
+        assert "必须回答用户的具体问题" in prompt

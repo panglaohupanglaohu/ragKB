@@ -1031,13 +1031,8 @@ class PlazaEngine:
 
             speaker_msg = None
             if chosen:
-                speaker_prompt = (
-                    f"你是 {chosen.agent_name}（{chosen.role}）。主持人刚刚点名你，要求你优先回应一次插话纠偏。\n"
-                    f"讨论话题: 「{disc.topic}」\n"
-                    f"用户插话: 「{user_message}」\n"
-                    f"主持人刚才的话: 「{moderator_reply_text}」\n"
-                    f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
-                    f"请用 2-4 句直接回应，必须回答用户的具体问题，给出可落地的方案或约束，不要泛泛而谈。"
+                speaker_prompt = self._build_interjection_nominated_reply_prompt(
+                    disc, chosen, user_message, moderator_reply_text,
                 )
                 speaker_msg = await self._agent_speak(
                     disc,
@@ -1195,6 +1190,22 @@ class PlazaEngine:
             f"REPLY: 你给用户和全场的纠偏回应，最后一句必须明确点名下一位回应者\n"
             f"NEXT: 候选中的 agent_id\n"
             f"只输出这两行。"
+        )
+
+    def _build_interjection_nominated_reply_prompt(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        user_message: str,
+        moderator_reply_text: str,
+    ) -> str:
+        return (
+            f"你是 {chosen.agent_name}（{chosen.role}）。主持人刚刚点名你，要求你优先回应一次插话纠偏。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"用户插话: 「{user_message}」\n"
+            f"主持人刚才的话: 「{moderator_reply_text}」\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
+            f"请用 2-4 句直接回应，必须回答用户的具体问题，给出可落地的方案或约束，不要泛泛而谈。"
         )
 
     async def _generate_agent_content(
