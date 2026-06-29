@@ -477,3 +477,31 @@ class TestDiscussionLifecycle:
         assert "## 加权结论 (P0→P1→P2)" in prompt
         assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in prompt
         assert "请用 Markdown 输出，简洁有力，能直接作为任务单下发。" in prompt
+
+    def test_apply_deterministic_summary_fallback_sets_plan_ready_summary(self, isolated_plaza_engine):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.summary = "LLM 当前不可用"
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+
+        isolated_plaza_engine._apply_deterministic_summary_fallback(disc, moderator, [speaker])
+
+        assert isolated_plaza_engine._has_actionable_plan(disc.summary)
+        assert "LLM 不可用或未返回结构化计划" in disc.summary
+        assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in disc.summary
+        assert disc.key_conclusions == [
+            "围绕「让 Plaza 真的能派发任务」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
+        ]

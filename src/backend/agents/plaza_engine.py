@@ -579,17 +579,7 @@ class PlazaEngine:
             bypass_degraded=True,  # 最终总结是最重要的调用，绕过降级窗口强制尝试 LLM
         )
         if not self._has_actionable_plan(disc.summary):
-            participants_for_plan = ([moderator] if moderator else []) + speakers
-            disc.summary = self._build_deterministic_plan_content(
-                disc,
-                participants_for_plan,
-                "LLM 不可用或未返回结构化计划",
-            )
-            disc.key_conclusions = [
-                f"围绕「{disc.topic}」明确目标与关键约束",
-                "分步推进方案设计、验证与执行",
-                "演练通过后再进入实际派发",
-            ]
+            self._apply_deterministic_summary_fallback(disc, moderator, speakers)
         # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
         disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
         await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
@@ -799,6 +789,24 @@ class PlazaEngine:
             f"1 句话补充说明即可\n\n"
             f"请用 Markdown 输出，简洁有力，能直接作为任务单下发。"
         )
+
+    def _apply_deterministic_summary_fallback(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
+        participants_for_plan = ([moderator] if moderator else []) + speakers
+        disc.summary = self._build_deterministic_plan_content(
+            disc,
+            participants_for_plan,
+            "LLM 不可用或未返回结构化计划",
+        )
+        disc.key_conclusions = [
+            f"围绕「{disc.topic}」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
+        ]
 
     async def _auto_extract_on_consensus(self, disc) -> None:
         """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.
