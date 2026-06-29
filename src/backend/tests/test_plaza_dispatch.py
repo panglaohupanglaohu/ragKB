@@ -1447,3 +1447,42 @@ class TestDiscussionLifecycle:
         assert "围绕「本次讨论」" in msg.content
         assert event["type"] == "message"
         assert event["message"] == msg.to_dict()
+
+    @pytest.mark.asyncio
+    async def test_complete_simulated_discussion_updates_plan_and_end_events(
+        self,
+        isolated_plaza_engine,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "议事长",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        events = isolated_plaza_engine.subscribe(disc.id)
+
+        await isolated_plaza_engine._complete_simulated_discussion(disc, moderator, [speaker])
+        plan_event = await events.get()
+        end_event = await events.get()
+
+        assert isolated_plaza_engine._has_actionable_plan(disc.summary)
+        assert disc.key_conclusions == [
+            "围绕「让 Plaza 真的能派发任务」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
+        ]
+        assert disc.plan["revision"] == 4
+        assert disc.plan["revision_reason"] == "模拟模式自动生成"
+        assert disc.plan["content"] == disc.summary
+        assert disc.status == DiscussionStatus.CLOSED
+        assert disc.ended_at
+        assert plan_event == {"type": "plan_updated", "plan": disc.plan}
+        assert end_event == {"type": "discussion_end", "summary": disc.summary}

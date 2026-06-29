@@ -1673,22 +1673,7 @@ class PlazaEngine:
                 await self._publish_simulated_round_message(disc, speaker, round_num)
                 await asyncio.sleep(0.1)
 
-        participants_for_plan = ([moderator] if moderator else []) + speakers
-        disc.summary = self._build_deterministic_plan_content(
-            disc,
-            participants_for_plan,
-            "模拟模式",
-        )
-        disc.key_conclusions = [
-            f"围绕「{disc.topic}」明确目标与关键约束",
-            "分步推进方案设计、验证与执行",
-            "演练通过后再进入实际派发",
-        ]
-        disc.plan = self._build_plan_payload(disc, disc.summary, "模拟模式自动生成")
-        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
-        disc.status = DiscussionStatus.CLOSED
-        disc.ended_at = datetime.now(timezone.utc).isoformat()
-        await self._broadcast(disc.id, {"type": "discussion_end", "summary": disc.summary})
+        await self._complete_simulated_discussion(disc, moderator, speakers)
 
     async def _publish_simulated_opening(
         self,
@@ -1732,6 +1717,29 @@ class PlazaEngine:
         disc.messages.append(msg)
         await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
         return msg
+
+    async def _complete_simulated_discussion(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
+        participants_for_plan = ([moderator] if moderator else []) + speakers
+        disc.summary = self._build_deterministic_plan_content(
+            disc,
+            participants_for_plan,
+            "模拟模式",
+        )
+        disc.key_conclusions = [
+            f"围绕「{disc.topic}」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
+        ]
+        disc.plan = self._build_plan_payload(disc, disc.summary, "模拟模式自动生成")
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
+        disc.status = DiscussionStatus.CLOSED
+        disc.ended_at = datetime.now(timezone.utc).isoformat()
+        await self._broadcast(disc.id, {"type": "discussion_end", "summary": disc.summary})
 
     def _format_history(self, disc: Discussion) -> str:
         """格式化讨论历史为 prompt 可用的文本."""
