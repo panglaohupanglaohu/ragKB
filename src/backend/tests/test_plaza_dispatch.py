@@ -935,3 +935,57 @@ class TestDiscussionLifecycle:
 
     def test_ensure_interjection_nomination_prefix_ignores_missing_choice(self, isolated_plaza_engine):
         assert isolated_plaza_engine._ensure_interjection_nomination_prefix("继续讨论。", None) == "继续讨论。"
+
+    @pytest.mark.asyncio
+    async def test_publish_interjection_moderator_redirect_uses_stable_metadata(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 2
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        published = []
+
+        async def fake_publish_message(disc_arg, participant, content, **kwargs):
+            published.append((disc_arg.id, participant.agent_id, content, kwargs))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant.agent_id,
+                agent_name=participant.agent_name,
+                content=content,
+                round_number=kwargs["round_number"],
+                reply_to=kwargs["reply_to"],
+                metadata=kwargs["metadata"],
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "publish_message", fake_publish_message)
+
+        msg = await isolated_plaza_engine._publish_interjection_moderator_redirect(
+            disc,
+            moderator,
+            "请 开发者 先回应。",
+            "user-msg-1",
+            chosen,
+        )
+
+        assert msg.reply_to == "user-msg-1"
+        assert msg.metadata == {
+            "interjection_kind": "moderator_redirect",
+            "nominated_agent_id": "dev-1",
+        }
+        assert published[0][2] == "请 开发者 先回应。"
+        assert published[0][3]["round_number"] == 2
+        assert published[0][3]["niche_role"] == "moderator"

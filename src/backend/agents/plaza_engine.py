@@ -977,14 +977,8 @@ class PlazaEngine:
             moderator_reply_text = self._ensure_interjection_nomination_prefix(
                 moderator_reply_text, chosen,
             )
-            moderator_msg = await self.publish_message(
-                disc,
-                moderator,
-                moderator_reply_text,
-                round_number=disc.current_round,
-                niche_role="moderator",
-                reply_to=user_msg_id,
-                metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+            moderator_msg = await self._publish_interjection_moderator_redirect(
+                disc, moderator, moderator_reply_text, user_msg_id, chosen,
             )
 
             speaker_msg = None
@@ -1095,14 +1089,8 @@ class PlazaEngine:
         moderator_text = "这个追问有效，我先把当前节奏拧回主线上。"
         if chosen:
             moderator_text += f"请 {chosen.agent_name} 先正面回应。"
-        moderator_msg = await self.publish_message(
-            disc,
-            moderator,
-            moderator_text,
-            round_number=disc.current_round,
-            niche_role="moderator",
-            reply_to=user_msg_id,
-            metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+        moderator_msg = await self._publish_interjection_moderator_redirect(
+            disc, moderator, moderator_text, user_msg_id, chosen,
         )
         speaker_msg = None
         if chosen:
@@ -1125,6 +1113,24 @@ class PlazaEngine:
             speaker_msg.id if speaker_msg else moderator_msg.id,
         )
         return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
+
+    async def _publish_interjection_moderator_redirect(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+        moderator_text: str,
+        user_msg_id: str,
+        chosen: Optional[Participant],
+    ) -> PlazaMessage:
+        return await self.publish_message(
+            disc,
+            moderator,
+            moderator_text,
+            round_number=disc.current_round,
+            niche_role="moderator",
+            reply_to=user_msg_id,
+            metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+        )
 
     @staticmethod
     def _ensure_interjection_nomination_prefix(
