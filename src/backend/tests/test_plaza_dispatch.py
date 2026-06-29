@@ -848,3 +848,58 @@ class TestDiscussionLifecycle:
                 },
             )
         ]
+
+    @pytest.mark.asyncio
+    async def test_handle_simulated_interjection_publishes_reply_plan_and_saves(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 2
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        broadcasts = []
+        saved = []
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+        monkeypatch.setattr(isolated_plaza_engine._store, "save_plaza", lambda plaza_arg: saved.append(plaza_arg.id))
+
+        result = await isolated_plaza_engine._handle_simulated_interjection(
+            plaza,
+            disc,
+            moderator,
+            [speaker],
+            "用户要求补充验收标准",
+            "user-msg-1",
+        )
+
+        assert result["moderator_reply"].reply_to == "user-msg-1"
+        assert result["moderator_reply"].metadata["interjection_kind"] == "moderator_redirect"
+        assert result["moderator_reply"].metadata["nominated_agent_id"] == "dev-1"
+        assert result["nominated_reply"].reply_to == result["moderator_reply"].id
+        assert result["nominated_reply"].metadata == {
+            "interjection_kind": "nominated_reply",
+            "prompted_by": "pm-1",
+        }
+        assert result["extra_replies"] == []
+        assert result["moderator_resume"].metadata == {"interjection_kind": "revised_plan"}
+        assert disc.plan["revision_reason"] == "用户要求补充验收标准"
+        assert "## 执行计划" in disc.plan["content"]
+        assert broadcasts[-2][1] == {"type": "plan_updated", "plan": disc.plan}
+        assert broadcasts[-1][1] == {"type": "interjection_state", "state": "resumed"}
+        assert saved == [plaza.id]

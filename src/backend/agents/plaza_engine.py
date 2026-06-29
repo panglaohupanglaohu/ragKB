@@ -955,41 +955,9 @@ class PlazaEngine:
             await self._broadcast_interjection_paused(disc)
 
             if not self._chat_fn:
-                chosen = speakers[0] if speakers else None
-                moderator_text = "这个追问有效，我先把当前节奏拧回主线上。"
-                if chosen:
-                    moderator_text += f"请 {chosen.agent_name} 先正面回应。"
-                moderator_msg = await self.publish_message(
-                    disc,
-                    moderator,
-                    moderator_text,
-                    round_number=disc.current_round,
-                    niche_role="moderator",
-                    reply_to=user_msg_id,
-                    metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+                return await self._handle_simulated_interjection(
+                    plaza, disc, moderator, speakers, user_message, user_msg_id,
                 )
-                speaker_msg = None
-                if chosen:
-                    speaker_msg = await self.publish_message(
-                        disc,
-                        chosen,
-                        f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
-                        round_number=disc.current_round,
-                        niche_role=chosen.niche_role.value,
-                        reply_to=moderator_msg.id,
-                        metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
-                    )
-                # 模拟模式也生成执行计划
-                plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
-                wrap_msg = await self._publish_interjection_plan_update(
-                    plaza,
-                    disc,
-                    moderator,
-                    plan_content,
-                    user_message,
-                    speaker_msg.id if speaker_msg else moderator_msg.id,
-                )
-                return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
 
             chosen = self._pick_interjection_speaker(disc, speakers, user_message)
             redirect_prompt = self._build_interjection_redirect_prompt(disc, speakers, user_message)
@@ -1114,6 +1082,50 @@ class PlazaEngine:
             "state": "paused",
             "message": "议事长正在纠偏当前讨论节奏",
         })
+
+    async def _handle_simulated_interjection(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+        user_message: str,
+        user_msg_id: str,
+    ) -> Dict[str, Any]:
+        chosen = speakers[0] if speakers else None
+        moderator_text = "这个追问有效，我先把当前节奏拧回主线上。"
+        if chosen:
+            moderator_text += f"请 {chosen.agent_name} 先正面回应。"
+        moderator_msg = await self.publish_message(
+            disc,
+            moderator,
+            moderator_text,
+            round_number=disc.current_round,
+            niche_role="moderator",
+            reply_to=user_msg_id,
+            metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+        )
+        speaker_msg = None
+        if chosen:
+            speaker_msg = await self.publish_message(
+                disc,
+                chosen,
+                f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
+                round_number=disc.current_round,
+                niche_role=chosen.niche_role.value,
+                reply_to=moderator_msg.id,
+                metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
+            )
+        plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
+        wrap_msg = await self._publish_interjection_plan_update(
+            plaza,
+            disc,
+            moderator,
+            plan_content,
+            user_message,
+            speaker_msg.id if speaker_msg else moderator_msg.id,
+        )
+        return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
 
     async def _publish_interjection_plan_update(
         self,
