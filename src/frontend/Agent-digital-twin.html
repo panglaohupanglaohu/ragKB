@@ -927,10 +927,10 @@ body {
       </div>
       <!-- 注入按钮 -->
       <div style="display:flex;gap:4px;flex-wrap:wrap">
-        <button class="btn" id="btn-inject-fault" style="font-size:9px;padding:3px 6px">💥 注入故障</button>
-        <button class="btn" id="btn-inject-task" style="font-size:9px;padding:3px 6px">🔄 任务变更</button>
-        <button class="btn" id="btn-inject-join" style="font-size:9px;padding:3px 6px">➕ 智能体加入</button>
-        <button class="btn" id="btn-inject-leave" style="font-size:9px;padding:3px 6px">➖ 智能体离开</button>
+        <button class="btn" id="btn-inject-fault" title="混沌注入·演练韧性：随机让一个 Agent 下线 5 步，观察团队能否自愈/补位（运行中可点）" style="font-size:9px;padding:3px 6px">💥 注入故障</button>
+        <button class="btn" id="btn-inject-task" title="混沌注入·演练适应性：随机突变 50% 待办任务的所需技能，观察团队能否重规划/重路由（运行中可点）" style="font-size:9px;padding:3px 6px">🔄 任务变更</button>
+        <button class="btn" id="btn-inject-join" title="混沌注入·演练弹性扩张：恢复/新增一个 Agent，观察团队能否纳入并利用新增资源（运行中可点）" style="font-size:9px;padding:3px 6px">➕ 智能体加入</button>
+        <button class="btn" id="btn-inject-leave" title="混沌注入·演练抗减员：永久移除一个 Agent，观察团队能否重新分工兜住（运行中可点）" style="font-size:9px;padding:3px 6px">➖ 智能体离开</button>
       </div>
       <!-- 注入事件记录面板 -->
       <div id="inject-history" style="margin-top:6px;max-height:80px;overflow-y:auto;font-size:9px;color:var(--dim)">
