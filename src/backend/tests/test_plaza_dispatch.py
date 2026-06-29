@@ -318,3 +318,52 @@ class TestDiscussionLifecycle:
         assert simulated
         assert simulated[0][0] == disc.id
         assert saved == [plaza.id]
+
+    @pytest.mark.asyncio
+    async def test_run_discussion_opening_uses_moderator_prompt(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.description = "保留现有行为"
+        disc.goal = "拆清楚开场边界"
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        calls = []
+
+        async def fake_speak_with_lock(disc_arg, participant_arg, prompt, round_number, niche_role):
+            calls.append((disc_arg.id, participant_arg.agent_id, prompt, round_number, niche_role))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant_arg.agent_id,
+                content="开场",
+                round_number=round_number,
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "_speak_with_lock", fake_speak_with_lock)
+
+        result = await isolated_plaza_engine._run_discussion_opening(disc, moderator, [speaker])
+
+        assert result.content == "开场"
+        assert calls
+        _, agent_id, prompt, round_number, niche_role = calls[0]
+        assert agent_id == "pm-1"
+        assert round_number == 0
+        assert niche_role == "moderator"
+        assert "讨论话题: 「让 Plaza 真的能派发任务」" in prompt
+        assert "话题描述: 保留现有行为" in prompt
+        assert "讨论目标: 拆清楚开场边界" in prompt
+        assert "参与者: 开发者" in prompt
+        assert "不要自行转换或重新解读话题" in prompt

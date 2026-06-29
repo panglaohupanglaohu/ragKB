@@ -514,23 +514,7 @@ class PlazaEngine:
             await self._run_simulated_discussion(plaza, disc, moderator, speakers)
             return disc
 
-        # ── 开场: Moderator 引导话题 ──
-        opening_prompt = (
-            f"你是本场讨论的议事长（主持人）。\n"
-            f"讨论话题: 「{disc.topic}」\n"
-            f"{f'话题描述: {disc.description}' if disc.description else ''}\n"
-            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
-            f"参与者: {', '.join(p.agent_name or p.agent_id for p in speakers)}\n\n"
-            f"请开场:\n"
-            f"- 用 2-4 句话点明讨论的核心问题\n"
-            f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
-            f"- 然后向参与者提出第一个需要讨论的具体问题\n"
-            f"- 说人话，像一个项目经理在主持会议"
-        )
-        opening = await self._speak_with_lock(
-            disc, moderator, opening_prompt, round_number=0,
-            niche_role="moderator",
-        )
+        await self._run_discussion_opening(disc, moderator, speakers)
 
         # ── 多轮讨论 (辩论式交锋) ──
         _consecutive_fallback = 0  # 连续 fallback 计数，超过阈值则终止讨论
@@ -755,6 +739,33 @@ class PlazaEngine:
     ) -> None:
         await self._run_simulated(disc, moderator, speakers)
         self._store.save_plaza(plaza)
+
+    async def _run_discussion_opening(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+    ) -> Optional[PlazaMessage]:
+        opening_prompt = self._build_discussion_opening_prompt(disc, speakers)
+        return await self._speak_with_lock(
+            disc, moderator, opening_prompt, round_number=0,
+            niche_role="moderator",
+        )
+
+    @staticmethod
+    def _build_discussion_opening_prompt(disc: Discussion, speakers: List[Participant]) -> str:
+        return (
+            f"你是本场讨论的议事长（主持人）。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'话题描述: {disc.description}' if disc.description else ''}\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
+            f"参与者: {', '.join(p.agent_name or p.agent_id for p in speakers)}\n\n"
+            f"请开场:\n"
+            f"- 用 2-4 句话点明讨论的核心问题\n"
+            f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
+            f"- 然后向参与者提出第一个需要讨论的具体问题\n"
+            f"- 说人话，像一个项目经理在主持会议"
+        )
 
     async def _auto_extract_on_consensus(self, disc) -> None:
         """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.
