@@ -1347,3 +1347,48 @@ class TestDiscussionLifecycle:
         assert isolated_plaza_engine._has_actionable_plan(plan_text)
         assert "刷新计划时 LLM 不可用或未返回结构化计划" in plan_text
         assert "| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |" in plan_text
+
+    @pytest.mark.asyncio
+    async def test_publish_regenerated_plan_updates_message_broadcast_and_save(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "议事长",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        events = isolated_plaza_engine.subscribe(disc.id)
+        saved_plazas = []
+        monkeypatch.setattr(
+            isolated_plaza_engine._store,
+            "save_plaza",
+            lambda saved: saved_plazas.append(saved.id),
+        )
+
+        result = await isolated_plaza_engine._publish_regenerated_plan(
+            plaza,
+            disc,
+            moderator,
+            _build_plan_text(),
+        )
+
+        message_event = await events.get()
+        plan_event = await events.get()
+
+        assert result["status"] == "refreshed"
+        assert result["plan"] is disc.plan
+        assert result["message"] is disc.messages[-1]
+        assert disc.plan["revision"] == 4
+        assert disc.plan["revision_reason"] == "用户请求刷新执行计划"
+        assert disc.plan["content"] == _build_plan_text()
+        assert result["message"].niche_role == "moderator"
+        assert result["message"].metadata == {"interjection_kind": "revised_plan"}
+        assert message_event["type"] == "message"
+        assert message_event["message"]["metadata"] == {"interjection_kind": "revised_plan"}
+        assert plan_event == {"type": "plan_updated", "plan": disc.plan}
+        assert saved_plazas == [plaza.id]

@@ -1580,26 +1580,7 @@ class PlazaEngine:
         if not self._has_actionable_plan(plan_text):
             plan_text = self._build_regenerate_plan_fallback(plaza, disc)
 
-        disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
-
-        # 议事长发出修订计划作为消息
-        plan_msg = await self.publish_message(
-            disc,
-            moderator,
-            plan_text,
-            round_number=disc.current_round or 1,
-            niche_role="moderator",
-            metadata={"interjection_kind": "revised_plan"},
-        )
-
-        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
-        self._store.save_plaza(plaza)
-
-        return {
-            "status": "refreshed",
-            "plan": disc.plan,
-            "message": plan_msg,
-        }
+        return await self._publish_regenerated_plan(plaza, disc, moderator, plan_text)
 
     def _build_regenerate_plan_prompt(self, disc: Discussion) -> str:
         recent = self._format_recent_plan_context(disc)
@@ -1648,6 +1629,33 @@ class PlazaEngine:
             participants,
             "刷新计划时 LLM 不可用或未返回结构化计划",
         )
+
+    async def _publish_regenerated_plan(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        plan_text: str,
+    ) -> dict:
+        disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
+
+        plan_msg = await self.publish_message(
+            disc,
+            moderator,
+            plan_text,
+            round_number=disc.current_round or 1,
+            niche_role="moderator",
+            metadata={"interjection_kind": "revised_plan"},
+        )
+
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
+        self._store.save_plaza(plaza)
+
+        return {
+            "status": "refreshed",
+            "plan": disc.plan,
+            "message": plan_msg,
+        }
 
     async def _run_simulated(
         self, disc: Discussion, moderator: Optional[Participant],
