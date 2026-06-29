@@ -985,19 +985,14 @@ class PlazaEngine:
                     )
                 # 模拟模式也生成执行计划
                 plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
-                disc.plan = self._build_plan_payload(disc, plan_content, user_message)
-                wrap_msg = await self.publish_message(
+                wrap_msg = await self._publish_interjection_plan_update(
+                    plaza,
                     disc,
                     moderator,
                     plan_content,
-                    round_number=disc.current_round,
-                    niche_role="moderator",
-                    reply_to=speaker_msg.id if speaker_msg else moderator_msg.id,
-                    metadata={"interjection_kind": "revised_plan"},
+                    user_message,
+                    speaker_msg.id if speaker_msg else moderator_msg.id,
                 )
-                await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
-                await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
-                self._store.save_plaza(plaza)
                 return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
 
             chosen = self._pick_interjection_speaker(disc, speakers, user_message)
@@ -1083,28 +1078,14 @@ class PlazaEngine:
                 round_number=disc.current_round,
             )
 
-            # 存储修订计划
-            disc.plan = self._build_plan_payload(disc, plan_text, user_message)
-
-            # 议事长发出修订后的执行计划作为消息
-            wrap_msg = await self.publish_message(
+            wrap_msg = await self._publish_interjection_plan_update(
+                plaza,
                 disc,
                 moderator,
                 plan_text,
-                round_number=disc.current_round,
-                niche_role="moderator",
-                reply_to=extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
-                metadata={"interjection_kind": "revised_plan"},
+                user_message,
+                extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
             )
-
-            # 广播计划更新事件，前端可即时刷新
-            await self._broadcast(disc.id, {
-                "type": "plan_updated",
-                "plan": disc.plan,
-            })
-
-            await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
-            self._store.save_plaza(plaza)
             return {
                 "moderator_reply": moderator_msg,
                 "nominated_reply": speaker_msg,
@@ -1130,6 +1111,30 @@ class PlazaEngine:
             raise ValueError("广场没有议事长")
         speakers = self._sort_speakers(participants, moderator)
         return plaza, disc, moderator, speakers
+
+    async def _publish_interjection_plan_update(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        plan_text: str,
+        revision_reason: str,
+        reply_to: str,
+    ) -> PlazaMessage:
+        disc.plan = self._build_plan_payload(disc, plan_text, revision_reason)
+        wrap_msg = await self.publish_message(
+            disc,
+            moderator,
+            plan_text,
+            round_number=disc.current_round,
+            niche_role="moderator",
+            reply_to=reply_to,
+            metadata={"interjection_kind": "revised_plan"},
+        )
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
+        await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
+        self._store.save_plaza(plaza)
+        return wrap_msg
 
     @staticmethod
     def _build_simulated_interjection_plan_content(

@@ -763,3 +763,61 @@ class TestDiscussionLifecycle:
 
     def test_format_interjection_responses_defaults_when_empty(self, isolated_plaza_engine):
         assert isolated_plaza_engine._format_interjection_responses(None, None, []) == "无回应"
+
+    @pytest.mark.asyncio
+    async def test_publish_interjection_plan_update_saves_and_resumes(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 4
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        published = []
+        broadcasts = []
+        saved = []
+
+        async def fake_publish_message(disc_arg, participant, content, **kwargs):
+            published.append((disc_arg.id, participant.agent_id, content, kwargs))
+            msg = PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant.agent_id,
+                agent_name=participant.agent_name,
+                content=content,
+                round_number=kwargs["round_number"],
+            )
+            msg.reply_to = kwargs["reply_to"]
+            msg.metadata.update(kwargs["metadata"])
+            return msg
+
+        async def fake_broadcast(discussion_id, event):
+            broadcasts.append((discussion_id, event))
+
+        monkeypatch.setattr(isolated_plaza_engine, "publish_message", fake_publish_message)
+        monkeypatch.setattr(isolated_plaza_engine, "_broadcast", fake_broadcast)
+        monkeypatch.setattr(isolated_plaza_engine._store, "save_plaza", lambda plaza_arg: saved.append(plaza_arg.id))
+
+        msg = await isolated_plaza_engine._publish_interjection_plan_update(
+            plaza,
+            disc,
+            moderator,
+            _build_plan_text(),
+            "用户补充验收标准",
+            "reply-to-message",
+        )
+
+        assert msg.reply_to == "reply-to-message"
+        assert msg.metadata == {"interjection_kind": "revised_plan"}
+        assert disc.plan["revision_reason"] == "用户补充验收标准"
+        assert disc.plan["content"] == _build_plan_text()
+        assert published[0][3]["round_number"] == 4
+        assert published[0][3]["niche_role"] == "moderator"
+        assert broadcasts[0][1] == {"type": "plan_updated", "plan": disc.plan}
+        assert broadcasts[1][1] == {"type": "interjection_state", "state": "resumed"}
+        assert saved == [plaza.id]
