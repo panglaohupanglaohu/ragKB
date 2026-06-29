@@ -1364,41 +1364,60 @@ class PlazaEngine:
             team_id=participant.team_id,
             agent_id=participant.agent_id,
         ):
-            last_error = None
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    response = await self._call_agent_chat(participant, prompt)
-                    content = self._usable_agent_response(participant, prompt, response)
-                    if content is not None:
-                        return content
-                    last_error = Exception("empty response")
-                except Exception as e:
-                    last_error = e
-                    logger.warning(
-                        f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
-                    )
-                    if isinstance(e, asyncio.TimeoutError):
-                        return self._timeout_agent_fallback(
-                            participant,
-                            prompt,
-                            e,
-                            plaza_id=plaza_id,
-                            discussion_id=discussion_id,
-                            discussion_topic=discussion_topic,
-                            round_number=round_number,
-                        )
-                if attempt < _MAX_RETRIES - 1:
-                    await self._sleep_before_retry(attempt)
-
-            return self._offline_agent_content(
+            return await self._generate_agent_content_with_retries(
                 participant,
                 prompt,
-                last_error,
                 plaza_id=plaza_id,
                 discussion_id=discussion_id,
                 discussion_topic=discussion_topic,
                 round_number=round_number,
             )
+
+    async def _generate_agent_content_with_retries(
+        self,
+        participant: Participant,
+        prompt: str,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        last_error = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = await self._call_agent_chat(participant, prompt)
+                content = self._usable_agent_response(participant, prompt, response)
+                if content is not None:
+                    return content
+                last_error = Exception("empty response")
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
+                )
+                if isinstance(e, asyncio.TimeoutError):
+                    return self._timeout_agent_fallback(
+                        participant,
+                        prompt,
+                        e,
+                        plaza_id=plaza_id,
+                        discussion_id=discussion_id,
+                        discussion_topic=discussion_topic,
+                        round_number=round_number,
+                    )
+            if attempt < _MAX_RETRIES - 1:
+                await self._sleep_before_retry(attempt)
+
+        return self._offline_agent_content(
+            participant,
+            prompt,
+            last_error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
 
     def _degraded_agent_content(
         self,
