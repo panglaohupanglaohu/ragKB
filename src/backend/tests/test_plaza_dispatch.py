@@ -1173,3 +1173,105 @@ class TestDiscussionLifecycle:
             "prompted_by": "pm-1",
         }
         assert calls == [(disc.id, "dev-1", "请补充工程约束。", 3, extra_speaker.niche_role.value)]
+
+    @pytest.mark.asyncio
+    async def test_handle_llm_interjection_orchestrates_replies_and_plan(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 3
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+        extra = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        generated_prompts = []
+        plan_updates = []
+
+        async def fake_generate_agent_content(participant, prompt, **kwargs):
+            generated_prompts.append((participant.agent_id, prompt, kwargs))
+            if len(generated_prompts) == 1:
+                return "REPLY: 请测试先回应用户验收问题。\nNEXT: qa-1"
+            return _build_plan_text()
+
+        async def fake_generate_nominated_reply(disc_arg, chosen_arg, prompt, moderator_arg, moderator_msg):
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=chosen_arg.agent_id,
+                agent_name=chosen_arg.agent_name,
+                content="需要加入回归测试。",
+                round_number=disc_arg.current_round,
+                reply_to=moderator_msg.id,
+                metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator_arg.agent_id},
+            )
+
+        async def fake_generate_supplementary_reply(
+            disc_arg,
+            extra_speaker,
+            prompt,
+            moderator_arg,
+            speaker_msg,
+            moderator_msg,
+        ):
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=extra_speaker.agent_id,
+                agent_name=extra_speaker.agent_name,
+                content="实现前先拆接口边界。",
+                round_number=disc_arg.current_round,
+                reply_to=speaker_msg.id,
+                metadata={"interjection_kind": "supplementary_reply", "prompted_by": moderator_arg.agent_id},
+            )
+
+        async def fake_publish_plan_update(plaza_arg, disc_arg, moderator_arg, plan_text, reason, reply_to):
+            plan_updates.append((plaza_arg.id, disc_arg.id, moderator_arg.agent_id, plan_text, reason, reply_to))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=moderator_arg.agent_id,
+                agent_name=moderator_arg.agent_name,
+                content=plan_text,
+                round_number=disc_arg.current_round,
+                reply_to=reply_to,
+                metadata={"interjection_kind": "revised_plan"},
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "_generate_agent_content", fake_generate_agent_content)
+        monkeypatch.setattr(isolated_plaza_engine, "_generate_interjection_nominated_reply", fake_generate_nominated_reply)
+        monkeypatch.setattr(isolated_plaza_engine, "_generate_interjection_supplementary_reply", fake_generate_supplementary_reply)
+        monkeypatch.setattr(isolated_plaza_engine, "_publish_interjection_plan_update", fake_publish_plan_update)
+
+        result = await isolated_plaza_engine._handle_llm_interjection(
+            plaza,
+            disc,
+            moderator,
+            [chosen, extra],
+            "用户要求补充验收标准",
+            "user-msg-1",
+            plaza.id,
+            disc.id,
+        )
+
+        assert result["moderator_reply"].reply_to == "user-msg-1"
+        assert result["moderator_reply"].metadata["nominated_agent_id"] == "qa-1"
+        assert result["nominated_reply"].agent_id == "qa-1"
+        assert [msg.agent_id for msg in result["extra_replies"]] == ["dev-1"]
+        assert result["moderator_resume"].metadata == {"interjection_kind": "revised_plan"}
+        assert plan_updates[0][4] == "用户要求补充验收标准"
+        assert plan_updates[0][5] == result["extra_replies"][-1].id
+        assert len(generated_prompts) == 2

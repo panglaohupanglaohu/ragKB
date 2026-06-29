@@ -959,77 +959,16 @@ class PlazaEngine:
                     plaza, disc, moderator, speakers, user_message, user_msg_id,
                 )
 
-            chosen = self._pick_interjection_speaker(disc, speakers, user_message)
-            redirect_prompt = self._build_interjection_redirect_prompt(disc, speakers, user_message)
-            decision_text = await self._generate_agent_content(
-                moderator,
-                redirect_prompt,
-                plaza_id=plaza_id,
-                discussion_id=discussion_id,
-                discussion_topic=disc.topic,
-                round_number=disc.current_round,
-            )
-            moderator_reply_text, chosen = self._parse_interjection_decision(
-                decision_text,
-                speakers,
-                chosen,
-            )
-            moderator_reply_text = self._ensure_interjection_nomination_prefix(
-                moderator_reply_text, chosen,
-            )
-            moderator_msg = await self._publish_interjection_moderator_redirect(
-                disc, moderator, moderator_reply_text, user_msg_id, chosen,
-            )
-
-            speaker_msg = None
-            if chosen:
-                speaker_prompt = self._build_interjection_nominated_reply_prompt(
-                    disc, chosen, user_message, moderator_reply_text,
-                )
-                speaker_msg = await self._generate_interjection_nominated_reply(
-                    disc, chosen, speaker_prompt, moderator, moderator_msg,
-                )
-
-            # ── 追加 1-2 位相关智能体讨论用户问题 ──
-            extra_replies: List[PlazaMessage] = []
-            remaining_speakers = [s for s in speakers if s != chosen][:2]
-            for extra_speaker in remaining_speakers:
-                extra_prompt = self._build_interjection_supplementary_reply_prompt(
-                    disc, extra_speaker, chosen, speaker_msg, user_message,
-                )
-                extra_msg = await self._generate_interjection_supplementary_reply(
-                    disc, extra_speaker, extra_prompt, moderator, speaker_msg, moderator_msg,
-                )
-                if extra_msg:
-                    extra_replies.append(extra_msg)
-
-            # ── 议事长生成修订后的执行计划 ──
-            plan_prompt = self._build_interjection_revised_plan_prompt(
-                disc, user_message, chosen, speaker_msg, extra_replies,
-            )
-            plan_text = await self._generate_agent_content(
-                moderator,
-                plan_prompt,
-                plaza_id=plaza_id,
-                discussion_id=discussion_id,
-                discussion_topic=disc.topic,
-                round_number=disc.current_round,
-            )
-
-            wrap_msg = await self._publish_interjection_plan_update(
+            return await self._handle_llm_interjection(
                 plaza,
                 disc,
                 moderator,
-                plan_text,
+                speakers,
                 user_message,
-                extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
+                user_msg_id,
+                plaza_id,
+                discussion_id,
             )
-            return {
-                "moderator_reply": moderator_msg,
-                "nominated_reply": speaker_msg,
-                "extra_replies": extra_replies,
-                "moderator_resume": wrap_msg,
-            }
 
     def _prepare_interjection_context(
         self,
@@ -1088,6 +1027,87 @@ class PlazaEngine:
             speaker_msg.id if speaker_msg else moderator_msg.id,
         )
         return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
+
+    async def _handle_llm_interjection(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+        user_message: str,
+        user_msg_id: str,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Dict[str, Any]:
+        chosen = self._pick_interjection_speaker(disc, speakers, user_message)
+        redirect_prompt = self._build_interjection_redirect_prompt(disc, speakers, user_message)
+        decision_text = await self._generate_agent_content(
+            moderator,
+            redirect_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round,
+        )
+        moderator_reply_text, chosen = self._parse_interjection_decision(
+            decision_text,
+            speakers,
+            chosen,
+        )
+        moderator_reply_text = self._ensure_interjection_nomination_prefix(
+            moderator_reply_text, chosen,
+        )
+        moderator_msg = await self._publish_interjection_moderator_redirect(
+            disc, moderator, moderator_reply_text, user_msg_id, chosen,
+        )
+
+        speaker_msg = None
+        if chosen:
+            speaker_prompt = self._build_interjection_nominated_reply_prompt(
+                disc, chosen, user_message, moderator_reply_text,
+            )
+            speaker_msg = await self._generate_interjection_nominated_reply(
+                disc, chosen, speaker_prompt, moderator, moderator_msg,
+            )
+
+        extra_replies: List[PlazaMessage] = []
+        remaining_speakers = [speaker for speaker in speakers if speaker != chosen][:2]
+        for extra_speaker in remaining_speakers:
+            extra_prompt = self._build_interjection_supplementary_reply_prompt(
+                disc, extra_speaker, chosen, speaker_msg, user_message,
+            )
+            extra_msg = await self._generate_interjection_supplementary_reply(
+                disc, extra_speaker, extra_prompt, moderator, speaker_msg, moderator_msg,
+            )
+            if extra_msg:
+                extra_replies.append(extra_msg)
+
+        plan_prompt = self._build_interjection_revised_plan_prompt(
+            disc, user_message, chosen, speaker_msg, extra_replies,
+        )
+        plan_text = await self._generate_agent_content(
+            moderator,
+            plan_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round,
+        )
+
+        wrap_msg = await self._publish_interjection_plan_update(
+            plaza,
+            disc,
+            moderator,
+            plan_text,
+            user_message,
+            extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
+        )
+        return {
+            "moderator_reply": moderator_msg,
+            "nominated_reply": speaker_msg,
+            "extra_replies": extra_replies,
+            "moderator_resume": wrap_msg,
+        }
 
     async def _publish_simulated_interjection_speaker_reply(
         self,
