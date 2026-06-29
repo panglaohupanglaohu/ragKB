@@ -1399,5 +1399,19 @@
       "parallel"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "feat-015",
+    "error_message": "智能体加入(agent_join)只恢复被禁用 Agent，无禁用时无效；增援不带对口技能",
+    "root_cause": "twin_loop agent_join 仅 if disabled_agents: 恢复一个；无禁用 Agent 时整个 elif 不返回→空操作；从不新增 Agent、更不匹配技能缺口",
+    "fix": "无可恢复时新增『增援』AgentTwin：技能=待办任务 required_skills 中最需要且活跃团队未覆盖的缺口(top3,无缺口则同质增援)，append 进 session.twins 参与下一步；前端 tooltip 同步说明",
+    "tags": [
+      "backend",
+      "twin-loop",
+      "chaos",
+      "agent-join",
+      "skill-gap"
+    ],
+    "date": "2026-06-23"
   }
 ]
