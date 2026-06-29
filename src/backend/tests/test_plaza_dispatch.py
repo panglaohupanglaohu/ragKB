@@ -1051,3 +1051,60 @@ class TestDiscussionLifecycle:
         assert "当前更关键的是把它落到本轮的约束与方案上。" in published[0][2]
         assert published[0][3]["round_number"] == 3
         assert published[0][3]["niche_role"] == chosen.niche_role.value
+
+    @pytest.mark.asyncio
+    async def test_generate_interjection_nominated_reply_sets_link_metadata(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 3
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+        moderator_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="pm-1",
+            agent_name="主持人",
+            content="请测试回应。",
+            round_number=3,
+        )
+        calls = []
+
+        async def fake_agent_speak(disc_arg, participant, prompt, round_number, niche_role):
+            calls.append((disc_arg.id, participant.agent_id, prompt, round_number, niche_role))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant.agent_id,
+                agent_name=participant.agent_name,
+                content="补充验收标准。",
+                round_number=round_number,
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "_agent_speak", fake_agent_speak)
+
+        msg = await isolated_plaza_engine._generate_interjection_nominated_reply(
+            disc,
+            chosen,
+            "请直接回应用户问题。",
+            moderator,
+            moderator_msg,
+        )
+
+        assert msg.reply_to == moderator_msg.id
+        assert msg.metadata == {
+            "interjection_kind": "nominated_reply",
+            "prompted_by": "pm-1",
+        }
+        assert calls == [(disc.id, "qa-1", "请直接回应用户问题。", 3, chosen.niche_role.value)]

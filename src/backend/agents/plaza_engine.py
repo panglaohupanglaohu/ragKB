@@ -986,19 +986,9 @@ class PlazaEngine:
                 speaker_prompt = self._build_interjection_nominated_reply_prompt(
                     disc, chosen, user_message, moderator_reply_text,
                 )
-                speaker_msg = await self._agent_speak(
-                    disc,
-                    chosen,
-                    speaker_prompt,
-                    round_number=disc.current_round,
-                    niche_role=chosen.niche_role.value,
+                speaker_msg = await self._generate_interjection_nominated_reply(
+                    disc, chosen, speaker_prompt, moderator, moderator_msg,
                 )
-                if speaker_msg:
-                    speaker_msg.reply_to = moderator_msg.id
-                    speaker_msg.metadata.update({
-                        "interjection_kind": "nominated_reply",
-                        "prompted_by": moderator.agent_id,
-                    })
 
             # ── 追加 1-2 位相关智能体讨论用户问题 ──
             extra_replies: List[PlazaMessage] = []
@@ -1125,6 +1115,29 @@ class PlazaEngine:
             reply_to=moderator_msg.id,
             metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
         )
+
+    async def _generate_interjection_nominated_reply(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        speaker_prompt: str,
+        moderator: Participant,
+        moderator_msg: PlazaMessage,
+    ) -> Optional[PlazaMessage]:
+        speaker_msg = await self._agent_speak(
+            disc,
+            chosen,
+            speaker_prompt,
+            round_number=disc.current_round,
+            niche_role=chosen.niche_role.value,
+        )
+        if speaker_msg:
+            speaker_msg.reply_to = moderator_msg.id
+            speaker_msg.metadata.update({
+                "interjection_kind": "nominated_reply",
+                "prompted_by": moderator.agent_id,
+            })
+        return speaker_msg
 
     async def _publish_interjection_moderator_redirect(
         self,
