@@ -903,3 +903,35 @@ class TestDiscussionLifecycle:
         assert broadcasts[-2][1] == {"type": "plan_updated", "plan": disc.plan}
         assert broadcasts[-1][1] == {"type": "interjection_state", "state": "resumed"}
         assert saved == [plaza.id]
+
+    def test_ensure_interjection_nomination_prefix_adds_missing_prefix(self, isolated_plaza_engine):
+        plaza, _ = _seed_discussion(isolated_plaza_engine)
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+
+        result = isolated_plaza_engine._ensure_interjection_nomination_prefix("请先补充验收。", chosen)
+
+        assert result == "请 测试 先回应。请先补充验收。"
+
+    def test_ensure_interjection_nomination_prefix_keeps_existing_prefix(self, isolated_plaza_engine):
+        plaza, _ = _seed_discussion(isolated_plaza_engine)
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "qa-1",
+            "测试",
+            "qa",
+        )
+
+        result = isolated_plaza_engine._ensure_interjection_nomination_prefix(
+            "请 测试 先回应。请补充验收。",
+            chosen,
+        )
+
+        assert result == "请 测试 先回应。请补充验收。"
+
+    def test_ensure_interjection_nomination_prefix_ignores_missing_choice(self, isolated_plaza_engine):
+        assert isolated_plaza_engine._ensure_interjection_nomination_prefix("继续讨论。", None) == "继续讨论。"

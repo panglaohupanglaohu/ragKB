@@ -974,10 +974,9 @@ class PlazaEngine:
                 speakers,
                 chosen,
             )
-            if chosen:
-                nomination_prefix = f"请 {chosen.agent_name} 先回应。"
-                if not moderator_reply_text.startswith(nomination_prefix):
-                    moderator_reply_text = f"{nomination_prefix}{moderator_reply_text}"
+            moderator_reply_text = self._ensure_interjection_nomination_prefix(
+                moderator_reply_text, chosen,
+            )
             moderator_msg = await self.publish_message(
                 disc,
                 moderator,
@@ -1126,6 +1125,18 @@ class PlazaEngine:
             speaker_msg.id if speaker_msg else moderator_msg.id,
         )
         return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
+
+    @staticmethod
+    def _ensure_interjection_nomination_prefix(
+        moderator_reply_text: str,
+        chosen: Optional[Participant],
+    ) -> str:
+        if not chosen:
+            return moderator_reply_text
+        nomination_prefix = f"请 {chosen.agent_name} 先回应。"
+        if moderator_reply_text.startswith(nomination_prefix):
+            return moderator_reply_text
+        return f"{nomination_prefix}{moderator_reply_text}"
 
     async def _publish_interjection_plan_update(
         self,
