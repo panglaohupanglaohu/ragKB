@@ -1392,3 +1392,30 @@ class TestDiscussionLifecycle:
         assert message_event["message"]["metadata"] == {"interjection_kind": "revised_plan"}
         assert plan_event == {"type": "plan_updated", "plan": disc.plan}
         assert saved_plazas == [plaza.id]
+
+    @pytest.mark.asyncio
+    async def test_publish_simulated_opening_appends_moderator_message_and_broadcasts(
+        self,
+        isolated_plaza_engine,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "议事长",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        events = isolated_plaza_engine.subscribe(disc.id)
+
+        msg = await isolated_plaza_engine._publish_simulated_opening(disc, moderator)
+        event = await events.get()
+
+        assert msg is disc.messages[-1]
+        assert msg.seq == 0
+        assert msg.agent_id == "pm-1"
+        assert msg.niche_role == "moderator"
+        assert msg.round_number == 0
+        assert msg.content == "欢迎各位参与「让 Plaza 真的能派发任务」的讨论。让我们开始吧。"
+        assert event["type"] == "message"
+        assert event["message"] == msg.to_dict()

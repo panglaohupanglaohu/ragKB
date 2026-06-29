@@ -1664,15 +1664,7 @@ class PlazaEngine:
         """无 LLM 时的模拟讨论."""
 
         if moderator:
-            msg = PlazaMessage(
-                discussion_id=disc.id, agent_id=moderator.agent_id,
-                agent_name=moderator.agent_name, role=moderator.role,
-                niche_role="moderator", content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
-                round_number=0,
-            )
-            msg.seq = len(disc.messages)
-            disc.messages.append(msg)
-            await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+            await self._publish_simulated_opening(disc, moderator)
 
         for round_num in range(1, min(disc.max_rounds + 1, 3)):
             disc.current_round = round_num
@@ -1709,6 +1701,25 @@ class PlazaEngine:
         disc.status = DiscussionStatus.CLOSED
         disc.ended_at = datetime.now(timezone.utc).isoformat()
         await self._broadcast(disc.id, {"type": "discussion_end", "summary": disc.summary})
+
+    async def _publish_simulated_opening(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id,
+            agent_name=moderator.agent_name,
+            role=moderator.role,
+            niche_role="moderator",
+            content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
+            round_number=0,
+        )
+        msg.seq = len(disc.messages)
+        disc.messages.append(msg)
+        await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+        return msg
 
     def _format_history(self, disc: Discussion) -> str:
         """格式化讨论历史为 prompt 可用的文本."""
