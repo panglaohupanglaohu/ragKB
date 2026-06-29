@@ -997,19 +997,10 @@ class PlazaEngine:
                 extra_prompt = self._build_interjection_supplementary_reply_prompt(
                     disc, extra_speaker, chosen, speaker_msg, user_message,
                 )
-                extra_msg = await self._agent_speak(
-                    disc,
-                    extra_speaker,
-                    extra_prompt,
-                    round_number=disc.current_round,
-                    niche_role=extra_speaker.niche_role.value,
+                extra_msg = await self._generate_interjection_supplementary_reply(
+                    disc, extra_speaker, extra_prompt, moderator, speaker_msg, moderator_msg,
                 )
                 if extra_msg:
-                    extra_msg.reply_to = speaker_msg.id if speaker_msg else moderator_msg.id
-                    extra_msg.metadata.update({
-                        "interjection_kind": "supplementary_reply",
-                        "prompted_by": moderator.agent_id,
-                    })
                     extra_replies.append(extra_msg)
 
             # ── 议事长生成修订后的执行计划 ──
@@ -1138,6 +1129,30 @@ class PlazaEngine:
                 "prompted_by": moderator.agent_id,
             })
         return speaker_msg
+
+    async def _generate_interjection_supplementary_reply(
+        self,
+        disc: Discussion,
+        extra_speaker: Participant,
+        extra_prompt: str,
+        moderator: Participant,
+        speaker_msg: Optional[PlazaMessage],
+        moderator_msg: PlazaMessage,
+    ) -> Optional[PlazaMessage]:
+        extra_msg = await self._agent_speak(
+            disc,
+            extra_speaker,
+            extra_prompt,
+            round_number=disc.current_round,
+            niche_role=extra_speaker.niche_role.value,
+        )
+        if extra_msg:
+            extra_msg.reply_to = speaker_msg.id if speaker_msg else moderator_msg.id
+            extra_msg.metadata.update({
+                "interjection_kind": "supplementary_reply",
+                "prompted_by": moderator.agent_id,
+            })
+        return extra_msg
 
     async def _publish_interjection_moderator_redirect(
         self,

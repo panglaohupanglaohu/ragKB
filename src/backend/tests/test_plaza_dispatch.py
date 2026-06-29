@@ -1108,3 +1108,68 @@ class TestDiscussionLifecycle:
             "prompted_by": "pm-1",
         }
         assert calls == [(disc.id, "qa-1", "请直接回应用户问题。", 3, chosen.niche_role.value)]
+
+    @pytest.mark.asyncio
+    async def test_generate_interjection_supplementary_reply_sets_link_metadata(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 3
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        extra_speaker = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        moderator_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="pm-1",
+            agent_name="主持人",
+            content="请测试回应。",
+            round_number=3,
+        )
+        speaker_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="qa-1",
+            agent_name="测试",
+            content="先补验收。",
+            round_number=3,
+        )
+        calls = []
+
+        async def fake_agent_speak(disc_arg, participant, prompt, round_number, niche_role):
+            calls.append((disc_arg.id, participant.agent_id, prompt, round_number, niche_role))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant.agent_id,
+                agent_name=participant.agent_name,
+                content="补充实现约束。",
+                round_number=round_number,
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "_agent_speak", fake_agent_speak)
+
+        msg = await isolated_plaza_engine._generate_interjection_supplementary_reply(
+            disc,
+            extra_speaker,
+            "请补充工程约束。",
+            moderator,
+            speaker_msg,
+            moderator_msg,
+        )
+
+        assert msg.reply_to == speaker_msg.id
+        assert msg.metadata == {
+            "interjection_kind": "supplementary_reply",
+            "prompted_by": "pm-1",
+        }
+        assert calls == [(disc.id, "dev-1", "请补充工程约束。", 3, extra_speaker.niche_role.value)]
