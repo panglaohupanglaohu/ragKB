@@ -1094,14 +1094,8 @@ class PlazaEngine:
         )
         speaker_msg = None
         if chosen:
-            speaker_msg = await self.publish_message(
-                disc,
-                chosen,
-                f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
-                round_number=disc.current_round,
-                niche_role=chosen.niche_role.value,
-                reply_to=moderator_msg.id,
-                metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
+            speaker_msg = await self._publish_simulated_interjection_speaker_reply(
+                disc, chosen, moderator, user_message, moderator_msg,
             )
         plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
         wrap_msg = await self._publish_interjection_plan_update(
@@ -1113,6 +1107,24 @@ class PlazaEngine:
             speaker_msg.id if speaker_msg else moderator_msg.id,
         )
         return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
+
+    async def _publish_simulated_interjection_speaker_reply(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        moderator: Participant,
+        user_message: str,
+        moderator_msg: PlazaMessage,
+    ) -> PlazaMessage:
+        return await self.publish_message(
+            disc,
+            chosen,
+            f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
+            round_number=disc.current_round,
+            niche_role=chosen.niche_role.value,
+            reply_to=moderator_msg.id,
+            metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
+        )
 
     async def _publish_interjection_moderator_redirect(
         self,

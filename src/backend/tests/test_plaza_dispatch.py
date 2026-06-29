@@ -989,3 +989,65 @@ class TestDiscussionLifecycle:
         assert published[0][2] == "请 开发者 先回应。"
         assert published[0][3]["round_number"] == 2
         assert published[0][3]["niche_role"] == "moderator"
+
+    @pytest.mark.asyncio
+    async def test_publish_simulated_interjection_speaker_reply_uses_stable_metadata(
+        self,
+        isolated_plaza_engine,
+        monkeypatch,
+    ):
+        plaza, disc = _seed_discussion(isolated_plaza_engine)
+        disc.current_round = 3
+        moderator = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "pm-1",
+            "主持人",
+            "project_manager",
+            niche_role=plaza_engine_module.NicheRole.MODERATOR,
+        )
+        chosen = isolated_plaza_engine.add_participant(
+            plaza.id,
+            "dev-1",
+            "开发者",
+            "developer",
+        )
+        moderator_msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id="pm-1",
+            agent_name="主持人",
+            content="请开发者回应。",
+            round_number=3,
+        )
+        published = []
+
+        async def fake_publish_message(disc_arg, participant, content, **kwargs):
+            published.append((disc_arg.id, participant.agent_id, content, kwargs))
+            return PlazaMessage(
+                discussion_id=disc_arg.id,
+                agent_id=participant.agent_id,
+                agent_name=participant.agent_name,
+                content=content,
+                round_number=kwargs["round_number"],
+                reply_to=kwargs["reply_to"],
+                metadata=kwargs["metadata"],
+            )
+
+        monkeypatch.setattr(isolated_plaza_engine, "publish_message", fake_publish_message)
+
+        msg = await isolated_plaza_engine._publish_simulated_interjection_speaker_reply(
+            disc,
+            chosen,
+            moderator,
+            "用户提出了一个很长的问题，需要限制模拟回复中引用的长度，避免内容过长影响消息展示。",
+            moderator_msg,
+        )
+
+        assert msg.reply_to == moderator_msg.id
+        assert msg.metadata == {
+            "interjection_kind": "nominated_reply",
+            "prompted_by": "pm-1",
+        }
+        assert published[0][2].startswith("我先回应这个插话：用户提出了一个很长的问题")
+        assert "当前更关键的是把它落到本轮的约束与方案上。" in published[0][2]
+        assert published[0][3]["round_number"] == 3
+        assert published[0][3]["niche_role"] == chosen.niche_role.value
