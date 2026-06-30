@@ -198,6 +198,7 @@ function clearScene(){
 function buildRoom(roomId){
   if(!initialized)return;
   clearScene();currentRoom=roomId;window._currentRoomId=roomId;
+  window._dt3dReinforceCount=0;   // 每次重建房间重置增援计数，外环铺开从头算
 
   var isKnown = false;
   switch(roomId){
@@ -1220,7 +1221,11 @@ window._dt3dDimAgent=function(agentId,dim){
 window._dt3dAddAgent=function(name,agentId,color){
   if(!scene||!agentId)return;
   if(agentMeshes.some(function(f){return f.userData&&f.userData.agentId===agentId;}))return; // 已存在
-  var n=agentMeshes.length;var angle=(Math.PI*2*n)/Math.max(n+1,6)-Math.PI/2;var r=4+Math.min(n,12)*0.5;
+  // 用黄金角在外环铺开，避免多次"增援"叠在同一点（黄金角≈137.5°，连续点永不聚簇）
+  window._dt3dReinforceCount=(window._dt3dReinforceCount||0)+1;
+  var k=window._dt3dReinforceCount;
+  var angle=k*2.39996323;                 // golden angle
+  var r=7.4+(k%3)*0.9;                     // 比主体智能体环更靠外，且半径轻微错层
   var fig=createAgentFigure(name||agentId,color||'#34d399',false);
   fig.position.set(r*Math.cos(angle),0.5,r*Math.sin(angle));fig.userData.baseY=0.5;fig.lookAt(0,1,0);
   fig.userData.agentId=agentId;scene.add(fig);agentMeshes.push(fig);
