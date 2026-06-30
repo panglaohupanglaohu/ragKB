@@ -1057,6 +1057,7 @@
     document.getElementById('secs-sim-status').textContent = '仿真运行中...';
     _paused = false;
     _sx.simRunning = true;
+    _setInjectEnabled(true);   // 运行中才允许注入：自动运行启动后(re)启用注入按钮，否则 智能体加入/离开/故障 点了无反应
 
     // 同步试炼导演台状态（仅在非running态时触发）
     if (window._DTS.trialStatus !== 'running') {

@@ -1441,5 +1441,19 @@
       "aesthetics"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-078",
+    "error_message": "自动运行后点『智能体加入/离开/注入故障』无反应",
+    "root_cause": "注入按钮在『运行中』(simRunning) 才可点；sexyAutoRun 把 simRunning 置 true 却没调 _setInjectEnabled(true)。若按钮此前被禁用(如运行前点过一次触发 guard→禁用)，自动运行不会重新启用→disabled 按钮点了无 onclick",
+    "fix": "sexyAutoRun 置 simRunning=true 后补 _setInjectEnabled(true)，运行期注入按钮恒可点",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "inject",
+      "auto-run",
+      "disabled"
+    ],
+    "date": "2026-06-23"
   }
 ]
