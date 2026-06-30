@@ -1226,7 +1226,9 @@ window._dt3dAddAgent=function(name,agentId,color){
   var k=window._dt3dReinforceCount;
   var angle=k*2.39996323;                 // golden angle
   var r=7.4+(k%3)*0.9;                     // 比主体智能体环更靠外，且半径轻微错层
-  var fig=createAgentFigure(name||agentId,color||'#34d399',false);
+  // 每个增援用不同颜色，不再清一色绿
+  var _addPalette=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa','#fb923c','#4ade80'];
+  var fig=createAgentFigure(name||agentId,color||_addPalette[(k-1)%_addPalette.length],false);
   fig.position.set(r*Math.cos(angle),0.5,r*Math.sin(angle));fig.userData.baseY=0.5;fig.lookAt(0,1,0);
   fig.userData.agentId=agentId;scene.add(fig);agentMeshes.push(fig);
   var infoEl=document.getElementById('env-3d-info');if(infoEl)infoEl.textContent=infoEl.textContent.replace(/\d+ 个智能体/,agentMeshes.length+' 个智能体');
