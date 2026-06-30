@@ -1195,6 +1195,37 @@ window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
   if(!camera||!controls)return;
   _camGoal=new THREE.Vector3(px,py,pz);_tgtGoal=new THREE.Vector3(tx,ty,tz);
 };
+// ── 混沌事件 → 3D 同步：离开移除、故障置灰、加入新增（让 3D agent 数与后端一致）──
+window._dt3dRemoveAgent=function(agentId){
+  if(!agentId||!scene)return false;
+  for(var i=agentMeshes.length-1;i>=0;i--){
+    if(agentMeshes[i].userData&&agentMeshes[i].userData.agentId===agentId){
+      var fig=agentMeshes[i];scene.remove(fig);
+      try{fig.traverse(function(o){if(o.geometry)o.geometry.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){m.dispose&&m.dispose()});}});}catch(e){}
+      agentMeshes.splice(i,1);
+      var infoEl=document.getElementById('env-3d-info');if(infoEl)infoEl.textContent=infoEl.textContent.replace(/\d+ 个智能体/,agentMeshes.length+' 个智能体');
+      return true;
+    }
+  }
+  return false;
+};
+window._dt3dDimAgent=function(agentId,dim){
+  if(!agentId)return;
+  agentMeshes.forEach(function(fig){
+    if(fig.userData&&fig.userData.agentId===agentId){
+      fig.traverse(function(o){if(o.material&&o.material.transparent!==undefined){o.material.transparent=true;o.material.opacity=dim?0.2:(o.userData._origOpacity!=null?o.userData._origOpacity:0.7);if(dim&&o.userData._origOpacity==null)o.userData._origOpacity=o.material.opacity;}});
+    }
+  });
+};
+window._dt3dAddAgent=function(name,agentId,color){
+  if(!scene||!agentId)return;
+  if(agentMeshes.some(function(f){return f.userData&&f.userData.agentId===agentId;}))return; // 已存在
+  var n=agentMeshes.length;var angle=(Math.PI*2*n)/Math.max(n+1,6)-Math.PI/2;var r=4+Math.min(n,12)*0.5;
+  var fig=createAgentFigure(name||agentId,color||'#34d399',false);
+  fig.position.set(r*Math.cos(angle),0.5,r*Math.sin(angle));fig.userData.baseY=0.5;fig.lookAt(0,1,0);
+  fig.userData.agentId=agentId;scene.add(fig);agentMeshes.push(fig);
+  var infoEl=document.getElementById('env-3d-info');if(infoEl)infoEl.textContent=infoEl.textContent.replace(/\d+ 个智能体/,agentMeshes.length+' 个智能体');
+};
 window._dt3dFocusAgent=function(agentId){
   const fig=agentMeshes.find(m=>m.userData.agentId===agentId);
   if(!fig||!camera)return;

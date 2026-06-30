@@ -1856,6 +1856,15 @@
       // 混沌响应详情
       if (d.chaos) {
         _logConsole('  ' + (d.detail||''), 'warn');
+        // 同步 3D：离开→移除、故障→置灰、加入→新增/恢复（让 3D agent 数与后端一致）
+        try {
+          if (d.type === 'agent_leave' && d.agent && window._dt3dRemoveAgent) window._dt3dRemoveAgent(d.agent);
+          else if (d.type === 'agent_failure' && d.agent && window._dt3dDimAgent) window._dt3dDimAgent(d.agent, true);
+          else if (d.type === 'agent_join' && d.agent && window._dt3dAddAgent && window._dt3dDimAgent) {
+            if (d.added_skills) window._dt3dAddAgent('增援·' + (d.agent || ''), d.agent);  // 新增增援
+            else window._dt3dDimAgent(d.agent, false);                                       // 恢复被禁用的
+          }
+        } catch (e) { /* 3D 同步失败不阻断注入 */ }
       }
       showToast('已注入: '+label, 'success');
     } catch(e) {

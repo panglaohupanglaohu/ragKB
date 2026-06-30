@@ -1478,5 +1478,19 @@
       "restart"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-080",
+    "error_message": "agent_leave 后端剩余N个，但3D里agent一个没少(故障/加入同理3D不动)",
+    "root_cause": "3D场景建一次后从不响应混沌事件；_doInjectEvent 只记日志不更新agentMeshes",
+    "fix": "新增 _dt3dRemoveAgent/_dt3dDimAgent/_dt3dAddAgent；_doInjectEvent 按 d.type+d.agent 同步:离开移除/故障置灰/加入新增或恢复，并同步 env-3d-info 计数",
+    "tags": [
+      "frontend",
+      "3d",
+      "chaos",
+      "sync",
+      "agent-leave"
+    ],
+    "date": "2026-06-23"
   }
 ]
