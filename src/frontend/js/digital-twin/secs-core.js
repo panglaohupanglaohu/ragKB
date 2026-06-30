@@ -719,6 +719,16 @@
     // 房间(room_*)/模式(__*)/SOP(sop_*) 不是真实场景，清空避免误传。
     window._sx = window._sx || {};
     window._sx.scenarioId = /^(room_|__|sop_|_dt)/.test(sceneId) ? '' : sceneId;
+    // 场景驱动 3D：选了真实场景 → 拉它的 world.rooms 切到该场景的 3D 房间预览
+    if (window._sx.scenarioId) {
+      (async function () {
+        try {
+          var sd = await (await fetch('/api/v1/scenarios/' + encodeURIComponent(window._sx.scenarioId))).json();
+          var rms = (sd.world && sd.world.rooms) || sd.rooms || [];
+          if (rms.length && typeof window.applyScenarioRooms === 'function') window.applyScenarioRooms(rms);
+        } catch (e) { /* 预览失败不阻断选择 */ }
+      })();
+    }
     var btn = document.getElementById('secs-scene-btn');
     btn.textContent = '🏟️ ' + sceneName;
     btn.style.color = 'var(--green)';

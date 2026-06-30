@@ -247,6 +247,23 @@ function buildGenericRoom(roomId){
   var roomName = room ? (room.icon||'🏠')+' '+room.name : roomId;
   var stage = room ? (room.stage!=null ? '阶段 '+room.stage : '') : '';
 
+  // 场景房间灯光（clearScene 会清掉灯，这里自带一套，避免通用房间渲染成黑屏）
+  _camGoal=new THREE.Vector3(0,9,18);_tgtGoal=new THREE.Vector3(0,1.4,0);
+  scene.background=new THREE.Color(0x0f1622);
+  scene.fog=new THREE.FogExp2(0x0f1622,0.018);
+  renderer.setClearColor(0x0f1622);
+  scene.add(new THREE.AmbientLight(0x9fb0c4,0.35));
+  var gKey=new THREE.DirectionalLight(0xdce6f2,0.7);gKey.position.set(6,16,10);gKey.castShadow=true;scene.add(gKey);
+  scene.add(new THREE.HemisphereLight(0x9fb4cc,0x1a2230,0.3));
+  var gFill=new THREE.DirectionalLight(0x88c8ff,0.25);gFill.position.set(-8,8,14);scene.add(gFill);
+  // 房间名称浮空标牌（让你一眼知道在哪个场景房间）
+  try {
+    var rlTex=new THREE.CanvasTexture((typeof makeColorLabel==='function')?makeColorLabel(roomName+(stage?(' · '+stage):''),'#cfe6ff'):makeTextCanvas(roomName,'#cfe6ff'));
+    rlTex.minFilter=THREE.LinearFilter;
+    var rlSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:rlTex,transparent:true,depthTest:false}));
+    rlSprite.position.set(0,6.4,0);rlSprite.scale.set(7,1.7,1);scene.add(rlSprite);
+  } catch(e){}
+
   // 深色圆形平台
   var platGeo = new THREE.CylinderGeometry(6, 6.5, 0.3, 48);
   var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,roughness:0.8,metalness:0.3}));
@@ -1157,6 +1174,22 @@ function animate(){
 window._dt3dBuildRoom=function(roomId){
   if(!initialized){initScene();setTimeout(()=>buildRoom(roomId),100)}
   else buildRoom(roomId);
+};
+// 场景驱动 3D：把所选演练场景的 world.rooms 接入 → 并入 S.rooms 供 buildGenericRoom 查找 → 切到首个场景房间预览
+window.applyScenarioRooms=function(rooms){
+  if(!Array.isArray(rooms)||!rooms.length)return;
+  window.S=window.S||{};window.S.rooms=window.S.rooms||[];
+  var norm=[];
+  rooms.forEach(function(r){
+    var id=r.room_id||r.id;if(!id)return;
+    var rec={id:id,name:r.name||id,icon:r.icon||'🏠',capacity:r.capacity||6,stage:r.stage};
+    norm.push(rec);
+    if(!window.S.rooms.find(function(x){return x.id===id;}))window.S.rooms.push(rec);
+    else window.S.rooms=window.S.rooms.map(function(x){return x.id===id?rec:x;});
+  });
+  window._scenarioRooms=norm;
+  var firstId=norm[0].id;
+  if(firstId)window._dt3dBuildRoom(firstId);
 };
 window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
   if(!camera||!controls)return;
