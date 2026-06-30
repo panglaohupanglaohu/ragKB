@@ -580,7 +580,7 @@ function buildWorkshop(){
       const angle=(Math.PI*2*i)/5-Math.PI/2;
       const fig=createAgentFigure(wsAgentNames[i],wsColorHex[i],i===0);
       fig.position.set(7*Math.cos(angle),0,7*Math.sin(angle));
-      fig.userData.baseY=0;fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
+      fig.userData.baseY=0;fig.userData.agentId='ws_demo_'+i;fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
       const sx=5*Math.cos(angle),sz=5*Math.sin(angle);
       const pts=[new THREE.Vector3(-screenW/2,-screenH/2,0),new THREE.Vector3(screenW/2,-screenH/2,0),
         new THREE.Vector3(screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,-screenH/2,0)];
