@@ -1455,5 +1455,28 @@
       "disabled"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "feat-016",
+    "error_message": "场景驱动 3D + 通用场景房间美化",
+    "root_cause": "applyScenarioRooms 被调用却未定义；buildGenericRoom 无灯光→黑屏；选场景不联动3D",
+    "fix": "定义 applyScenarioRooms(world.rooms→S.rooms→切首房间)；buildGenericRoom 补灯光+背景+房间名标牌；sexySelectScene 选场景拉 world.rooms 预览",
+    "tags": [
+      "frontend",
+      "3d",
+      "scenario"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-079",
+    "error_message": "点智能体加入报 unknown_event_type",
+    "root_cause": "旧后端 agent_join 无禁用Agent时不返回→落 unknown_event_type；feat-015 已修必返回",
+    "fix": "重启后端使 feat-015 生效",
+    "tags": [
+      "backend",
+      "restart"
+    ],
+    "date": "2026-06-23"
   }
 ]
