@@ -975,6 +975,7 @@
     document.getElementById('secs-sim-status').textContent = '通过试炼导演台创建...';
 
     _consoleLines = [];
+    if (window._dt2dChaosReset) window._dt2dChaosReset();   // 新一轮演练：清空上轮混沌对拓扑的增删
     _logConsole('══ 仿真启动 (统一入口 → 试炼导演台) ══', 'header');
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');
@@ -1858,13 +1859,21 @@
         _logConsole('  ' + (d.detail||''), 'warn');
         // 同步 3D：离开→移除、故障→置灰、加入→新增/恢复（让 3D agent 数与后端一致）
         try {
-          if (d.type === 'agent_leave' && d.agent && window._dt3dRemoveAgent) window._dt3dRemoveAgent(d.agent);
-          else if (d.type === 'agent_failure' && d.agent && window._dt3dDimAgent) window._dt3dDimAgent(d.agent, true);
-          else if (d.type === 'agent_join' && d.agent && window._dt3dAddAgent && window._dt3dDimAgent) {
-            if (d.added_skills) window._dt3dAddAgent('增援·' + (d.agent || ''), d.agent);  // 新增增援
-            else window._dt3dDimAgent(d.agent, false);                                       // 恢复被禁用的
+          if (d.type === 'agent_leave' && d.agent) {
+            if (window._dt3dRemoveAgent) window._dt3dRemoveAgent(d.agent);
+            if (window._dt2dChaosLeave) window._dt2dChaosLeave(d.agent);          // 协作拓扑同步移除
+          } else if (d.type === 'agent_failure' && d.agent && window._dt3dDimAgent) {
+            window._dt3dDimAgent(d.agent, true);
+          } else if (d.type === 'agent_join' && d.agent) {
+            if (d.added_skills) {                                                  // 新增增援
+              if (window._dt3dAddAgent) window._dt3dAddAgent('增援·' + d.agent, d.agent);
+              if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent, '增援·' + d.agent, d.added_skills);
+            } else {                                                              // 恢复被禁用的
+              if (window._dt3dDimAgent) window._dt3dDimAgent(d.agent, false);
+              if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent);
+            }
           }
-        } catch (e) { /* 3D 同步失败不阻断注入 */ }
+        } catch (e) { /* 同步失败不阻断注入 */ }
       }
       showToast('已注入: '+label, 'success');
     } catch(e) {

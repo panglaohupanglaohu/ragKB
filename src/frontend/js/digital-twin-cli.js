@@ -262,13 +262,25 @@ function showArchSub(tab,btn){
   if(tab==='dashboard')loadLiveMetrics();
 }
 
+// ── 混沌事件 → 协作拓扑同步（与 3D/后端 agent 数一致）──
+window._chaosTopoState = window._chaosTopoState || { removed:{}, added:[] };
+function _dt2dRefreshTopo(){ try{ var el=document.getElementById('arch-sub-topo'); if(el&&el.style.display!=='none'&&typeof renderTopology==='function') renderTopology(); }catch(e){} }
+window._dt2dChaosLeave=function(agentId){ if(!agentId)return; window._chaosTopoState.removed[agentId]=true; window._chaosTopoState.added=(window._chaosTopoState.added||[]).filter(function(a){return a.agent_id!==agentId;}); _dt2dRefreshTopo(); };
+window._dt2dChaosJoin=function(agentId,name,skills){ if(!agentId)return; var st=window._chaosTopoState; delete st.removed[agentId]; st.added=st.added||[]; if(!st.added.some(function(a){return a.agent_id===agentId;})) st.added.push({agent_id:agentId,name:name||agentId,skills:skills||[],_teamId:(S.selectedTeams&&S.selectedTeams[0])||''}); _dt2dRefreshTopo(); };
+window._dt2dChaosReset=function(){ window._chaosTopoState={removed:{},added:[]}; _dt2dRefreshTopo(); };
+
 function renderTopology(){
   const svg=document.getElementById('topo-svg');
   const W=svg.clientWidth||800,H=460;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const teamColors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
   // Filter agents by selected teams, matching left panel behavior
-  const visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId));
+  // 混沌同步：剔除演练中已离开的 agent，并并入增援 agent，让拓扑与 3D/后端一致
+  const _chaos=window._chaosTopoState||{removed:{},added:[]};
+  let visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId)&&!_chaos.removed[a.agent_id]);
+  (_chaos.added||[]).forEach(function(ad){
+    if(!visibleAgents.some(function(a){return a.agent_id===ad.agent_id;})) visibleAgents=visibleAgents.concat([ad]);
+  });
   if(!visibleAgents.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#576375" font-size="14">${S.agents.length?'请在左侧选择至少一个团队':'加载智能体数据后显示拓扑...'}</text>`;return}
   // Build team color map (matching left panel's teamColors)
   const teamColorMap={};
