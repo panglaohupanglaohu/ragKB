@@ -1492,5 +1492,19 @@
       "agent-leave"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "feat-017",
+    "error_message": "数字孪生 Tab 收口：协作拓扑并入交互Tab + 编排管线重构",
+    "root_cause": "协作拓扑错放系统状态(与交互流割裂);编排管线Tab显示的是技能萃取阶段(与萃取页重复、文不对题)",
+    "fix": "B:协作拓扑迁入「协作·交互」Tab双视图,系统状态只留实时仪表盘;B':renderPipeline 重构为场景 taskflow 的拓扑分层DAG+实时状态(近似步进比例),去掉萃取阶段复制品",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "tabs",
+      "pipeline",
+      "closed-loop"
+    ],
+    "date": "2026-06-23"
   }
 ]

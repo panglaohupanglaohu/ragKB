@@ -411,10 +411,31 @@ function renderSequenceDiagram(){
   svg.innerHTML=html;
 }
 
-function renderPipeline(){
-  const stages=[{id:'draft',icon:'📝',name:'草稿',desc:'初始创建'},{id:'extract',icon:'◈',name:'萃取',desc:'技能抽取'},{id:'review',icon:'◎',name:'评审',desc:'同行复核'},{id:'approval',icon:'✓',name:'批准',desc:'门禁通过'},{id:'published',icon:'◇',name:'发布',desc:'上线生效'}];
-  document.getElementById('pipeline-flow').innerHTML=stages.map((s,i)=>`${i>0?'<div class="pipeline-connector">→</div>':''}<div class="pipeline-step" id="pipe-step-${i}" data-stage="${s.id}"><div class="step-num">${i+1}</div><div class="step-icon">${s.icon}</div><div class="step-name">${s.name}</div><div class="step-desc">${s.desc}</div></div>`).join('');
-  loadPipelineState();
+// 编排管线 = 当前演练场景的「任务编排 DAG」+ 实时执行状态（不再复制技能萃取阶段）
+async function renderPipeline(){
+  const flow=document.getElementById('pipeline-flow');const bar=document.getElementById('pipeline-progress-bar');
+  if(!flow)return;
+  const sid=window._sx&&window._sx.scenarioId;
+  if(!sid){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态</div>';if(bar)bar.style.width='0%';renderExecLog();return;}
+  let scn;try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());}catch(e){return;}
+  const tf=(scn&&(scn.taskflow||scn.task_flow))||[];
+  if(!tf.length){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim)">该场景暂无任务流</div>';renderExecLog();return;}
+  // 拓扑分层（按 depends_on），含环保护
+  const byId={};tf.forEach(t=>byId[t.task_id]=t);const layer={};
+  function depth(id,seen){if(layer[id]!=null)return layer[id];const s=seen||new Set();if(s.has(id))return 0;s.add(id);const deps=(byId[id]&&byId[id].depends_on)||[];const d=deps.length?Math.max(...deps.map(x=>depth(x,new Set(s))))+1:0;layer[id]=d;return d;}
+  tf.forEach(t=>depth(t.task_id));const maxL=Math.max(...tf.map(t=>layer[t.task_id]||0));
+  const cols=[];for(let i=0;i<=maxL;i++)cols[i]=tf.filter(t=>(layer[t.task_id]||0)===i);
+  // 实时状态近似：按 trial 步进比例标 done/running/pending
+  let doneCount=0;try{const tr=await _af('/api/v1/twin-trials/'+(window._DTS&&window._DTS.activeTrialId)).then(r=>r.json());const mx=scn.recommended_max_steps||tr.max_steps||150;const prog=tr&&tr.total_steps?Math.min(1,tr.total_steps/mx):0;doneCount=Math.round(prog*tf.length);}catch(e){}
+  flow.innerHTML=cols.map((col,ci)=>{
+    const colHtml='<div style="display:flex;flex-direction:column;gap:8px">'+col.map(t=>{
+      const gi=tf.indexOf(t);const st=gi<doneCount?'done':(gi===doneCount?'running':'pending');
+      const c={done:'var(--green)',running:'var(--cyan)',pending:'var(--dim)'}[st];const txt={done:'✓ 完成',running:'▶ 进行中',pending:'待办'}[st];
+      return '<div class="pipeline-step" style="min-width:150px;text-align:left;border-left:3px solid '+c+'"><div class="step-name">'+esc(t.name||t.task_id)+'</div><div class="step-desc">'+esc(t.room_id||'')+(((t.required_skills||[]).length)?(' · '+esc((t.required_skills||[]).slice(0,2).join(','))):'')+'</div><div style="font-size:10px;color:'+c+'">'+txt+'</div></div>';
+    }).join('')+'</div>';
+    return (ci>0?'<div class="pipeline-connector">→</div>':'')+colHtml;
+  }).join('');
+  if(bar)bar.style.width=(tf.length?doneCount/tf.length*100:0)+'%';
   renderExecLog();
 }
 async function loadPipelineState(){
