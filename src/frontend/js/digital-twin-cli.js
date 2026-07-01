@@ -84,8 +84,9 @@ function toggleTeam(tid,btn){
   const turningOn = idx < 0;
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
   renderTeamSelector();renderAgentList();
-  // 同步刷新协作拓扑（如果当前可见）
-  if(document.getElementById('arch-sub-topo').style.display!=='none')renderTopology();
+  // 同步刷新协作拓扑（如果当前可见）——已迁到「协作·交互」Tab 的 interact-sub-topo
+  var _topoEl=document.getElementById('interact-sub-topo');
+  if(_topoEl&&_topoEl.style.display!=='none')renderTopology();
   // 重建当前3D房间以刷新智能体
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
   // 左→右 联动:把右侧 SECS「选择演练团队」同步为当前团队
@@ -255,16 +256,25 @@ function renderTaskQueue(){
 }
 
 function showArchSub(tab,btn){
-  document.querySelectorAll('#view-architecture .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-  document.getElementById('arch-sub-layers').style.display=tab==='dashboard'?'block':'none';
-  document.getElementById('arch-sub-topo').style.display=tab==='topo'?'block':'none';
-  if(tab==='topo')renderTopology();
-  if(tab==='dashboard')loadLiveMetrics();
+  // 系统状态现只剩「实时仪表盘」（协作拓扑已迁至「协作·交互」Tab）
+  var layers=document.getElementById('arch-sub-layers');if(layers)layers.style.display='block';
+  if(btn){document.querySelectorAll('#view-architecture .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+  loadLiveMetrics();
 }
+// 「协作·交互」Tab 子页切换：交互时间线 / 协作拓扑（同源交互数据的两个视角）
+window.showInteractSub=function(which,btn){
+  var tl=document.getElementById('interact-sub-timeline'),tp=document.getElementById('interact-sub-topo');
+  if(tl)tl.style.display=which==='timeline'?'':'none';
+  if(tp)tp.style.display=which==='topo'?'':'none';
+  ['isub-btn-timeline','isub-btn-topo'].forEach(function(id){var b=document.getElementById(id);if(b)b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  if(which==='topo'){if(typeof renderTopology==='function')renderTopology();}
+  else{if(typeof renderInteractions==='function')renderInteractions('all');}
+};
 
 // ── 混沌事件 → 协作拓扑同步（与 3D/后端 agent 数一致）──
 window._chaosTopoState = window._chaosTopoState || { removed:{}, added:[] };
-function _dt2dRefreshTopo(){ try{ var el=document.getElementById('arch-sub-topo'); if(el&&el.style.display!=='none'&&typeof renderTopology==='function') renderTopology(); }catch(e){} }
+function _dt2dRefreshTopo(){ try{ var el=document.getElementById('interact-sub-topo'); if(el&&el.style.display!=='none'&&typeof renderTopology==='function') renderTopology(); }catch(e){} }
 window._dt2dChaosLeave=function(agentId){ if(!agentId)return; window._chaosTopoState.removed[agentId]=true; window._chaosTopoState.added=(window._chaosTopoState.added||[]).filter(function(a){return a.agent_id!==agentId;}); _dt2dRefreshTopo(); };
 window._dt2dChaosJoin=function(agentId,name,skills){ if(!agentId)return; var st=window._chaosTopoState; delete st.removed[agentId]; st.added=st.added||[]; if(!st.added.some(function(a){return a.agent_id===agentId;})) st.added.push({agent_id:agentId,name:name||agentId,skills:skills||[],_teamId:(S.selectedTeams&&S.selectedTeams[0])||''}); _dt2dRefreshTopo(); };
 window._dt2dChaosReset=function(){ window._chaosTopoState={removed:{},added:[]}; _dt2dRefreshTopo(); };
