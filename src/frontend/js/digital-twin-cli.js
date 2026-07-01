@@ -134,6 +134,10 @@ function switchView(el){
   document.getElementById('rp-default').style.display = isEnv ? 'none' : '';
   document.getElementById('rp-secs').style.display = isEnv ? '' : 'none';
   if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
+  // 切到各 Tab 时按需刷新其内容（否则只在 init 时渲染过一次，选了场景/团队后不更新）
+  else if(el.dataset.view==='pipeline'&&typeof renderPipeline==='function'){renderPipeline();}
+  else if(el.dataset.view==='interaction'&&typeof renderInteractions==='function'){renderInteractions('all');}
+  else if(el.dataset.view==='architecture'&&typeof renderArchitecture==='function'){renderArchitecture();}
 }
 
 function renderAgentList(){

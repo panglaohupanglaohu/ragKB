@@ -728,6 +728,8 @@
           if (rms.length && typeof window.applyScenarioRooms === 'function') window.applyScenarioRooms(rms);
         } catch (e) { /* 预览失败不阻断选择 */ }
       })();
+      // 选了场景 → 刷新「编排管线」DAG（否则它只在页面 init 时渲染过一次，停在提示态）
+      try { if (typeof window.renderPipeline === 'function') window.renderPipeline(); } catch (e) {}
     }
     var btn = document.getElementById('secs-scene-btn');
     btn.textContent = '🏟️ ' + sceneName;
