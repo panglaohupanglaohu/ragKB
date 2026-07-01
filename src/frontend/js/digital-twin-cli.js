@@ -129,10 +129,10 @@ function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
   document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('view-'+el.dataset.view).classList.add('active');
-  // 右面板切换: 环境空间时显示 SECS 控制台
-  const isEnv = el.dataset.view === 'environment';
-  document.getElementById('rp-default').style.display = isEnv ? 'none' : '';
-  document.getElementById('rp-secs').style.display = isEnv ? '' : 'none';
+  // 演练配置/控制台(含「选择演练场景」)在所有 Tab 都常驻——否则在 编排管线/协作交互 等 Tab
+  // 提示"去右侧选场景"却看不到选场景入口(rp-default 是隐藏的旧面板)。
+  document.getElementById('rp-default').style.display = 'none';
+  document.getElementById('rp-secs').style.display = '';
   if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
   // 切到各 Tab 时按需刷新其内容（否则只在 init 时渲染过一次，选了场景/团队后不更新）
   else if(el.dataset.view==='pipeline'&&typeof renderPipeline==='function'){renderPipeline();}
