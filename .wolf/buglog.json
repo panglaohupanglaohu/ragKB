@@ -1520,5 +1520,19 @@
       "step"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "feat-018",
+    "error_message": "数字孪生 Tab↔右侧面板联动打地鼠(选团队/场景某Tab不跟着变)",
+    "root_cause": "各Tab渲染各自为政,无统一'上下文变→刷新当前Tab'入口;改团队/切Tab只零散补个别渲染,漏的不动",
+    "fix": "建 dtContext()+dtRefresh(reason) 调度器只刷当前可见Tab;switchView/选团队/选场景/选任务/每步/混沌 6处统一喊 dtRefresh(reason),替换零散补渲染。配 数字孪生联动plan/todos",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "linkage",
+      "dispatcher",
+      "refactor"
+    ],
+    "date": "2026-06-23"
   }
 ]

@@ -728,8 +728,8 @@
           if (rms.length && typeof window.applyScenarioRooms === 'function') window.applyScenarioRooms(rms);
         } catch (e) { /* 预览失败不阻断选择 */ }
       })();
-      // 选了场景 → 刷新「编排管线」DAG（否则它只在页面 init 时渲染过一次，停在提示态）
-      try { if (typeof window.renderPipeline === 'function') window.renderPipeline(); } catch (e) {}
+      // 选了场景 → 统一调度刷新当前可见 Tab（编排管线 DAG / 3D 场景房间等）
+      try { if (window.dtRefresh) window.dtRefresh('scenario'); } catch (e) {}
     }
     var btn = document.getElementById('secs-scene-btn');
     btn.textContent = '🏟️ ' + sceneName;
@@ -866,6 +866,7 @@
     btn.textContent = '📋 ' + taskTitle;
     btn.style.color = 'var(--cyan)';
     document.getElementById('o-task').style.display = 'none';
+    try { if (window.dtRefresh) window.dtRefresh('task'); } catch (e) {}
 
     showToast('已选择任务: ' + taskTitle, 'success');
   };
@@ -1193,8 +1194,8 @@
       _sx.steps = d.total_steps_executed || 0;
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
-      // 编排管线 DAG 随步进实时推进（仅当该 Tab 可见时重渲染，用缓存的场景不重复拉取）
-      try { var _pv = document.getElementById('view-pipeline'); if (_pv && _pv.classList.contains('active') && typeof window.renderPipeline === 'function') window.renderPipeline(); } catch (e) {}
+      // 每步统一调度：刷新当前可见 Tab（编排管线随步进推进 / 交互时间线追加 等）
+      try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
       var sc = d.evaluation?.global_score;
       if (sc !== undefined && sc !== null) setT('secs-session-score', Number(sc).toFixed(3));
       else setT('secs-session-score', '—');  // [fix] 评分缺失时明确显示 —
@@ -1878,6 +1879,7 @@
             }
           }
         } catch (e) { /* 同步失败不阻断注入 */ }
+        try { if (window.dtRefresh) window.dtRefresh('chaos'); } catch (e) {}
       }
       showToast('已注入: '+label, 'success');
     } catch(e) {

@@ -84,11 +84,10 @@ function toggleTeam(tid,btn){
   const turningOn = idx < 0;
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
   renderTeamSelector();renderAgentList();
-  // 同步刷新协作拓扑（如果当前可见）——已迁到「协作·交互」Tab 的 interact-sub-topo
-  var _topoEl=document.getElementById('interact-sub-topo');
-  if(_topoEl&&_topoEl.style.display!=='none')renderTopology();
-  // 重建当前3D房间以刷新智能体
+  // 重建当前3D房间以刷新智能体（3D 常在，独立于当前 Tab）
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
+  // 统一调度：刷新当前可见 Tab（拓扑/时间线/仪表盘/编排 均按团队联动）
+  if(window.dtRefresh)window.dtRefresh('team');
   // 左→右 联动:把右侧 SECS「选择演练团队」同步为当前团队
   // 注意:btn 为 null 时是由 sexySelectTeam 反向调用,跳过以免循环
   if(btn && window.secsSyncTeamFromLeft){
@@ -134,11 +133,26 @@ function switchView(el){
   document.getElementById('rp-default').style.display = 'none';
   document.getElementById('rp-secs').style.display = '';
   if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
-  // 切到各 Tab 时按需刷新其内容（否则只在 init 时渲染过一次，选了场景/团队后不更新）
-  else if(el.dataset.view==='pipeline'&&typeof renderPipeline==='function'){renderPipeline();}
-  else if(el.dataset.view==='interaction'&&typeof renderInteractions==='function'){renderInteractions('all');}
-  else if(el.dataset.view==='architecture'&&typeof renderArchitecture==='function'){renderArchitecture();}
+  // 统一走调度器刷新当前可见 Tab（替代逐个 renderXxx，杜绝"某 Tab 不联动"打地鼠）
+  if(window.dtRefresh)window.dtRefresh('tab');
 }
+
+// ── 联动调度器：右侧演练面板(团队/场景/步进/混沌) 变化 → 只刷新当前可见 Tab ──
+function dtContext(){return{team:window._selectedTeamId||'',scenarioId:(window._sx&&window._sx.scenarioId)||'',
+  steps:(window._sx&&window._sx.steps)||0,running:!!(window._sx&&window._sx.simRunning),
+  trialId:(window._DTS&&window._DTS.activeTrialId)||''};}
+window.dtContext=dtContext;
+window.dtRefresh=function(reason){
+  var p=document.querySelector('.view-panel.active');var v=p?p.id:'';
+  try{
+    if(v==='view-environment'){ if((reason==='team'||reason==='scenario'||reason==='tab')&&window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId); }
+    else if(v==='view-architecture'){ if(typeof renderArchitecture==='function')renderArchitecture(); }
+    else if(v==='view-interaction'){ var tp=document.getElementById('interact-sub-topo');
+      if(tp&&tp.style.display!=='none'){ if(typeof renderTopology==='function')renderTopology(); }
+      else { if(typeof renderInteractions==='function')renderInteractions('all'); } }
+    else if(v==='view-pipeline'){ if(typeof renderPipeline==='function')renderPipeline(); }
+  }catch(e){}
+};
 
 function renderAgentList(){
   const el=document.getElementById('agent-list');
