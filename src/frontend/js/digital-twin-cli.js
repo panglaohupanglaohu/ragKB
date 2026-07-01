@@ -339,18 +339,27 @@ function renderTopology(){
   svg.innerHTML=html;
 }
 
+// 交互按当前所选团队过滤（from/to 命中该团队 agent 名）——与右侧选团队联动，且与协作拓扑同口径
+function _scopedMsgs(){
+  if(!S.selectedTeams||!S.selectedTeams.length) return S.messages;
+  var names=new Set(S.agents.filter(a=>S.selectedTeams.includes(a._teamId)).map(a=>a.name));
+  if(!names.size) return S.messages;
+  var f=S.messages.filter(m=>names.has(m.from)||names.has(m.to));
+  return f.length?f:S.messages;   // 该团队暂无交互时退回全部，避免空白误解
+}
 function renderFlowStats(){
   const counts={'tool-call':0,'llm-call':0,'handoff':0,'broadcast':0,'response':0};
-  S.messages.forEach(m=>{if(counts[m.type]!==undefined)counts[m.type]++});
+  _scopedMsgs().forEach(m=>{if(counts[m.type]!==undefined)counts[m.type]++});
   const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
   const labels={'tool-call':'工具调用','llm-call':'LLM推理','handoff':'任务交接','broadcast':'广播','response':'响应'};
-  document.getElementById('flow-stats').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="flow-stat-item"><span class="flow-stat-dot" style="background:${colors[k]}"></span><span class="flow-stat-count">${v}</span><span class="flow-stat-label">${labels[k]}</span></div>`).join('')+`<div class="flow-stat-item" style="margin-left:auto"><span class="flow-stat-label">总计</span><span class="flow-stat-count" style="color:var(--text)">${S.messages.length}</span></div>`;
+  document.getElementById('flow-stats').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="flow-stat-item"><span class="flow-stat-dot" style="background:${colors[k]}"></span><span class="flow-stat-count">${v}</span><span class="flow-stat-label">${labels[k]}</span></div>`).join('')+`<div class="flow-stat-item" style="margin-left:auto"><span class="flow-stat-label">总计</span><span class="flow-stat-count" style="color:var(--text)">${_scopedMsgs().length}</span></div>`;
 }
 function renderInteractions(filter='all'){
   renderFlowStats();
   const el=document.getElementById('msg-timeline');
-  document.getElementById('msg-count').textContent=S.messages.length;
-  const msgs=filter==='all'?S.messages:S.messages.filter(m=>m.type===filter);
+  const scoped=_scopedMsgs();
+  document.getElementById('msg-count').textContent=scoped.length;
+  const msgs=filter==='all'?scoped:scoped.filter(m=>m.type===filter);
   if(!msgs.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--dim)">暂无交互记录<br><span style="font-size:11px">使用CLI或触发任务后显示</span></div>';return}
   const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
   el.innerHTML=msgs.slice(-50).map(m=>{const c=colors[m.type]||'var(--muted)';
