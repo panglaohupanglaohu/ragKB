@@ -1193,6 +1193,8 @@
       _sx.steps = d.total_steps_executed || 0;
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
+      // 编排管线 DAG 随步进实时推进（仅当该 Tab 可见时重渲染，用缓存的场景不重复拉取）
+      try { var _pv = document.getElementById('view-pipeline'); if (_pv && _pv.classList.contains('active') && typeof window.renderPipeline === 'function') window.renderPipeline(); } catch (e) {}
       var sc = d.evaluation?.global_score;
       if (sc !== undefined && sc !== null) setT('secs-session-score', Number(sc).toFixed(3));
       else setT('secs-session-score', '—');  // [fix] 评分缺失时明确显示 —

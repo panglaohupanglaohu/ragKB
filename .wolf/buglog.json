@@ -1506,5 +1506,19 @@
       "closed-loop"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "bug-085",
+    "error_message": "编排管线DAG不随步进推进(停在事故定级进行中)、执行日志0条",
+    "root_cause": "renderPipeline 只在切Tab/选场景时渲染一次;进度取 trial 接口字段没对上→doneCount=0;运行期不重渲染",
+    "fix": "进度改用 _sx.steps/_sx.maxSteps(每步更新的活值);场景缓存避免每步重拉;SECS 步进处若编排管线Tab可见则重渲染 → DAG 随步数实时推进",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "pipeline",
+      "live",
+      "step"
+    ],
+    "date": "2026-06-23"
   }
 ]

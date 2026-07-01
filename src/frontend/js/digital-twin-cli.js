@@ -421,7 +421,9 @@ async function renderPipeline(){
   if(!flow)return;
   const sid=window._sx&&window._sx.scenarioId;
   if(!sid){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态</div>';if(bar)bar.style.width='0%';renderExecLog();return;}
-  let scn;try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());}catch(e){return;}
+  // 场景缓存：每步重渲染时不再重复拉取
+  let scn=(window._pipeScnCache&&window._pipeScnCache.id===sid)?window._pipeScnCache.data:null;
+  if(!scn){try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());window._pipeScnCache={id:sid,data:scn};}catch(e){return;}}
   const tf=(scn&&(scn.taskflow||scn.task_flow))||[];
   if(!tf.length){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim)">该场景暂无任务流</div>';renderExecLog();return;}
   // 拓扑分层（按 depends_on），含环保护
@@ -429,8 +431,9 @@ async function renderPipeline(){
   function depth(id,seen){if(layer[id]!=null)return layer[id];const s=seen||new Set();if(s.has(id))return 0;s.add(id);const deps=(byId[id]&&byId[id].depends_on)||[];const d=deps.length?Math.max(...deps.map(x=>depth(x,new Set(s))))+1:0;layer[id]=d;return d;}
   tf.forEach(t=>depth(t.task_id));const maxL=Math.max(...tf.map(t=>layer[t.task_id]||0));
   const cols=[];for(let i=0;i<=maxL;i++)cols[i]=tf.filter(t=>(layer[t.task_id]||0)===i);
-  // 实时状态近似：按 trial 步进比例标 done/running/pending
-  let doneCount=0;try{const tr=await _af('/api/v1/twin-trials/'+(window._DTS&&window._DTS.activeTrialId)).then(r=>r.json());const mx=scn.recommended_max_steps||tr.max_steps||150;const prog=tr&&tr.total_steps?Math.min(1,tr.total_steps/mx):0;doneCount=Math.round(prog*tf.length);}catch(e){}
+  // 实时状态：直接用演练的当前步数(secs 每步更新的 _sx.steps)按比例标 done/running/pending
+  var _cur=(window._sx&&window._sx.steps)||0;var _mx=(window._sx&&window._sx.maxSteps)||scn.recommended_max_steps||150;
+  var doneCount=Math.round(Math.min(1,_mx?_cur/_mx:0)*tf.length);
   flow.innerHTML=cols.map((col,ci)=>{
     const colHtml='<div style="display:flex;flex-direction:column;gap:8px">'+col.map(t=>{
       const gi=tf.indexOf(t);const st=gi<doneCount?'done':(gi===doneCount?'running':'pending');
