@@ -31,19 +31,19 @@ window.dtRefresh=function(reason){
 - [VSCode] `_doInjectEvent` 混沌分支末尾：3D/拓扑同步后 `window.dtRefresh&&window.dtRefresh('chaos')`。
 - **验收**：grep 不到"选团队/切Tab 后手动逐个 renderXxx"；统一走 dtRefresh。
 
-## L3 · 系统状态(仪表盘) 团队/运行联动 ★★ [人工核 + VSCode]
+## L3 · 系统状态(仪表盘) 团队/运行联动 ★★ ✅已落地(当前演练摘要卡)
 - [人工核] `loadLiveMetrics` 现拉 `/tasks/stats` `/extraction/stats`——**是否需要按当前团队 / 当前 trial 过滤**？
   - 若指标是全局的：加一块"当前演练"卡（团队/会话/步数/评分，读 `dtContext()` + `_sx`）。
   - 若能按 team 过滤：`/tasks/stats?team_id=` 传 `dtContext().team`。
 - [VSCode] `renderArchitecture` 里追加"当前演练"摘要卡（team/步数/running/最优分），随 dtRefresh 刷新。
 - **验收**：切团队/跑演练时，系统状态顶部"当前演练"卡随之变。
 
-## L4 · 协作·交互 时间线运行时实时追加 ★★ [VSCode]
+## L4 · 协作·交互 时间线运行时实时追加 ★★ ✅已落地(step 的 agent_actions 喂入 S.messages)
 - [x] 团队过滤已做(bug-086)。
 - [VSCode] 步进时若在该 Tab：dtRefresh('step') 已会调 renderInteractions → 新消息自动追加（依赖 `S.messages` 被 SSE 追加）。**[人工核]** 确认演练 SSE 消息进了 `S.messages`（`loadDtState` 的 interactions 或 step 事件）；若没进，补一处 `S.messages.push(标准化消息)`。
 - **验收**：运行中在协作·交互 Tab，时间线随步数增长；切"协作拓扑"子页节点随混沌增删。
 
-## L5 · 编排管线 精确节点状态（可选，进阶）★ [人工核·需后端]
+## L5 · 编排管线 精确节点状态（可选，进阶）★ ⏸需后端(sim 需 emit active_task_id, 现为步进比例近似)
 - 现为"整体步进比例"近似。要精确到"T3 此刻在跑"：后端 step 事件带 `active_task_id/done_task_ids`，前端按之标状态。
 - **[需后端]** 标记为进阶项，不阻塞 L1~L4。
 

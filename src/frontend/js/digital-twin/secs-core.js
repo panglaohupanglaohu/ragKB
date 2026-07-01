@@ -1363,6 +1363,23 @@
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
 
+      // L4: 把本步 agent 行为喂进「协作·交互」时间线（from=agent 名，便于按团队过滤）
+      try {
+        if (d.agent_actions && window.S && Array.isArray(window.S.messages)) {
+          var _nm = {}; (window.S.agents || []).forEach(function (a) { _nm[a.agent_id] = a.name; });
+          var _ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          var _tmap = { claim_task: 'handoff', use_skill: 'tool-call', llm_call: 'llm-call', broadcast: 'broadcast', offer_help: 'handoff' };
+          Object.keys(d.agent_actions).forEach(function (aid) {
+            var a = d.agent_actions[aid] || {}; var act = a.action || a.skill || '';
+            if (!act || act === 'idle') return;
+            window.S.messages.push({ time: _ts, from: (_nm[aid] || aid), to: (a.target_agent && (_nm[a.target_agent] || a.target_agent)) || 'System', type: (_tmap[act] || 'tool-call'), content: (a.skill || act), duration: a.duration_ms || a.duration });
+          });
+          if (window.S.messages.length > 500) window.S.messages = window.S.messages.slice(-500);
+        }
+      } catch (e) {}
+      // 每步统一调度：刷新当前可见 Tab（时间线追加 / 编排管线推进 / 拓扑）
+      try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
+
       // ── 控制台 ──
       var rw = d.global_reward;
       var si = d.agent_skills || {};

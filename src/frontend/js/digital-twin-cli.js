@@ -219,7 +219,20 @@ function renderDashboard(){
   const taskFailed=liveMetrics.tasks.failed||0;
   const taskTotal=liveMetrics.tasks.total||0;
   const successRate=taskCompleted>0?Math.round(taskCompleted/(taskCompleted+taskFailed)*100):100;
-  el.innerHTML=`
+  // L3: 当前演练摘要（随右侧选团队/选场景/运行步进联动）
+  var _c=(window.dtContext?window.dtContext():{});
+  var _tn=(S.teams.find(t=>t.id===_c.team)||{}).name||_c.team||'未选团队';
+  var _sn=(window._pipeScnCache&&window._pipeScnCache.data&&window._pipeScnCache.data.name)||_c.scenarioId||'未选场景';
+  var _mx=(window._sx&&window._sx.maxSteps)||150;
+  var _rw=(window._sx&&window._sx.rewardPoints&&window._sx.rewardPoints.length)?window._sx.rewardPoints[window._sx.rewardPoints.length-1]:null;
+  var _drill=`<div style="background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(34,211,238,.02));border:1px solid var(--cyan);border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="font-size:12px;font-weight:600;color:var(--cyan)">◎ 当前演练</div>
+    <div style="font-size:12px;color:var(--text)">👥 ${esc(_tn)}</div>
+    <div style="font-size:12px;color:var(--text)">🎯 ${esc(_sn)}</div>
+    <div style="font-size:12px;color:${_c.running?'var(--green)':'var(--dim)'}">${_c.running?'▶ 运行中':'空闲'} · 步 ${_c.steps}/${_mx}</div>
+    ${_rw!=null?`<div style="font-size:12px;color:var(--amber)">收益 ${Number(_rw).toFixed(3)}</div>`:''}
+  </div>`;
+  el.innerHTML=_drill+`
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px">
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
         <div style="font-size:11px;color:var(--dim);margin-bottom:6px">智能体在线</div>

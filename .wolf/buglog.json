@@ -1534,5 +1534,19 @@
       "refactor"
     ],
     "date": "2026-06-23"
+  },
+  {
+    "id": "feat-019",
+    "error_message": "数字孪生联动 L3/L4 落地",
+    "root_cause": "仪表盘无当前演练摘要;交互时间线运行时不追加演练消息",
+    "fix": "L3 renderDashboard 顶部加'当前演练'卡(团队/场景/运行/步/收益,随dtRefresh刷新);L4 step事件把 agent_actions 规范化 push 进 S.messages(from=agent名,按团队过滤),dtRefresh('step')追加渲染。L5 精确节点状态需后端 emit active_task_id,标进阶",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "linkage",
+      "dashboard",
+      "timeline"
+    ],
+    "date": "2026-06-23"
   }
 ]
