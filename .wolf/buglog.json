@@ -1563,5 +1563,19 @@
    "tabs"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "feat-020",
+  "error_message": "场景房间(接单台/分类室/查询室…)3D 长得一模一样,无法区分",
+  "root_cause": "非内置房间全走 buildGenericRoom 同一套圆台+球顶+青色环,仅浮空名牌不同;rooms 无 type 字段,只有 stage/name/icon",
+  "fix": "新增 _scnRoomStyle(room) 按 room.stage(无则 id 哈希)映射6档配色,_scnPropGeo(shape) 按阶段给中心构件换6种基础几何(二十面体/立方/锥/八面体/环/十二面体,userData.spin 旋转);buildGenericRoom 的平台自发光边/外环/中心构件/粒子环全部用该阶段配色。纯数据驱动,不针对具体场景硬编码",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "rooms",
+   "3d",
+   "scenario"
+  ],
+  "date": "2026-07-02"
  }
 ]

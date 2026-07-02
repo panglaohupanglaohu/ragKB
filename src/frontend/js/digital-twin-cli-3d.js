@@ -242,11 +242,40 @@ function addAgentsToScene(){
   });
 }
 
+// 场景房间按「阶段(stage)」差异化外观：每个流水线阶段一套配色 + 中心构件形状。
+// 纯数据驱动(读 room.stage;无 stage 时按 id 哈希)，不针对具体场景硬编码。
+function _scnRoomStyle(room){
+  var palette=[
+    {c:0x22d3ee,e:0x0a3d4a}, // 阶段0 青
+    {c:0x34d399,e:0x0a3a2a}, // 阶段1 绿
+    {c:0xa78bfa,e:0x2a1f4a}, // 阶段2 紫
+    {c:0xfbbf24,e:0x4a3410}, // 阶段3 琥珀
+    {c:0xf472b6,e:0x4a1030}, // 阶段4 粉
+    {c:0x60a5fa,e:0x102a4a}, // 阶段5 蓝
+  ];
+  var idx;
+  if(room&&typeof room.stage==='number'){idx=room.stage;}
+  else{var s=(room&&room.id)||'';idx=0;for(var i=0;i<s.length;i++)idx+=s.charCodeAt(i);}
+  idx=((idx%palette.length)+palette.length)%palette.length;
+  return {color:palette[idx].c,emissive:palette[idx].e,shape:idx};
+}
+// 阶段 → 中心构件几何(6 种基础体，随阶段循环，避免每间都是同一个球)
+function _scnPropGeo(shape){
+  switch(shape){
+    case 0: return new THREE.IcosahedronGeometry(0.6,0);
+    case 1: return new THREE.BoxGeometry(0.85,0.85,0.85);
+    case 2: return new THREE.ConeGeometry(0.6,1.1,4);
+    case 3: return new THREE.OctahedronGeometry(0.7,0);
+    case 4: return new THREE.TorusGeometry(0.5,0.2,12,24);
+    default:return new THREE.DodecahedronGeometry(0.62,0);
+  }
+}
 // D-1.3: 场景房间通用3D视图 — 圆形平台 + 阶段标记 + 智能体环
 function buildGenericRoom(roomId){
   var room = (window.S&&window.S.rooms||[]).find(function(r){return r.id===roomId;});
   var roomName = room ? (room.icon||'🏠')+' '+room.name : roomId;
   var stage = room ? (room.stage!=null ? '阶段 '+room.stage : '') : '';
+  var st = _scnRoomStyle(room);
 
   // 场景房间灯光（clearScene 会清掉灯，这里自带一套，避免通用房间渲染成黑屏）
   _camGoal=new THREE.Vector3(0,9,18);_tgtGoal=new THREE.Vector3(0,1.4,0);
@@ -265,28 +294,27 @@ function buildGenericRoom(roomId){
     rlSprite.position.set(0,6.4,0);rlSprite.scale.set(7,1.7,1);scene.add(rlSprite);
   } catch(e){}
 
-  // 深色圆形平台
+  // 深色圆形平台（带该阶段配色的微弱自发光边）
   var platGeo = new THREE.CylinderGeometry(6, 6.5, 0.3, 48);
-  var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,roughness:0.8,metalness:0.3}));
+  var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,emissive:st.emissive,emissiveIntensity:0.35,roughness:0.8,metalness:0.3}));
   plat.position.y=-0.15;plat.receiveShadow=true;scene.add(plat);
 
-  // 外环
+  // 外环（阶段配色）
   var ringGeo = new THREE.TorusGeometry(6, 0.08, 16, 80);
-  var ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.3}));
+  var ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({color:st.color,emissive:st.emissive,roughness:0.3}));
   ring.rotation.x=Math.PI/2;ring.position.y=0.02;scene.add(ring);
 
-  // 中心支柱 + 铭牌
+  // 中心支柱 + 阶段构件（形状随阶段变化，避免每间都是同一个球）
   var poleGeo = new THREE.CylinderGeometry(0.2, 0.3, 4, 16);
   var pole = new THREE.Mesh(poleGeo, new THREE.MeshStandardMaterial({color:0x334155,roughness:0.6,metalness:0.5}));
   pole.position.y=2;pole.castShadow=true;scene.add(pole);
-  var capGeo = new THREE.SphereGeometry(0.6, 24, 24);
-  var cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.2,metalness:0.8}));
-  cap.position.y=4.3;scene.add(cap);
+  var cap = new THREE.Mesh(_scnPropGeo(st.shape), new THREE.MeshStandardMaterial({color:st.color,emissive:st.emissive,roughness:0.2,metalness:0.8}));
+  cap.position.y=4.4;cap.userData.spin=true;scene.add(cap);
 
-  // 粒子环（旋转光晕）
+  // 粒子环（阶段配色，旋转光晕）
   var pts=[];for(var i=0;i<80;i++){var a=Math.PI*2*i/80;pts.push(new THREE.Vector3(5.5*Math.cos(a),2.5+Math.sin(i*0.3)*0.3,5.5*Math.sin(a)));}
   var pGeo=new THREE.BufferGeometry().setFromPoints(pts);
-  var pLine=new THREE.Line(pGeo,new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:0.3}));
+  var pLine=new THREE.Line(pGeo,new THREE.LineBasicMaterial({color:st.color,transparent:true,opacity:0.3}));
   scene.add(pLine);
 
   // 场景房间的智能体：按位置放置
