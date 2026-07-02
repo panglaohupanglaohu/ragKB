@@ -1619,5 +1619,19 @@
    "lazy-render"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-089",
+  "error_message": "编排管线在演练运行中显示'请选择场景'占位,无任务编排DAG",
+  "root_cause": "renderPipeline 只读 _sx.scenarioId(仅场景选择器设置,初始undefined);运行中切房间/切场景或经非选择器路径起跑会使其为空 → 管线空白,即使后端试炼有真实场景taskflow在跑",
+  "fix": "createTrial 成功时把试炼实际场景捕获进 _sx.runScenarioId(只此处写,房间/场景导航不清它);renderPipeline sid 回退到 runScenarioId;createTrial 后 dtRefresh('scenario') 立即刷管线;resetForNew 清 runScenarioId;无场景基线运行时占位文案改为'无场景基线运行,无DAG'而非误导性'请选场景'",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "pipeline",
+   "trial",
+   "scenario"
+  ],
+  "date": "2026-07-02"
  }
 ]

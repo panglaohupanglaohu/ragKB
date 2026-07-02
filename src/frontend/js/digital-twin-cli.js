@@ -474,8 +474,17 @@ function renderSequenceDiagram(){
 async function renderPipeline(){
   const flow=document.getElementById('pipeline-flow');const bar=document.getElementById('pipeline-progress-bar');
   if(!flow)return;
-  const sid=window._sx&&window._sx.scenarioId;
-  if(!sid){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态</div>';if(bar)bar.style.width='0%';renderExecLog();return;}
+  // 场景来源：优先当前手选场景；否则回退到「正在运行试炼」创建时捕获的 runScenarioId
+  // （runScenarioId 只在 createTrial 里写，房间/场景导航不会清它 → 运行中切房间也不会把管线弄空）。
+  const _sxo=window._sx||{};
+  const sid=_sxo.scenarioId||_sxo.runScenarioId;
+  if(!sid){
+    const _running=!!(_sxo.sessionId&&_sxo.simRunning);
+    flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">'+(_running
+      ? '本次为<b>无场景基线运行</b>，没有任务编排 DAG。<br>如需查看 DAG，请在右侧「选择演练场景」选一个具体场景后运行。'
+      : '在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态')+'</div>';
+    if(bar)bar.style.width='0%';renderExecLog();return;
+  }
   // 场景缓存：每步重渲染时不再重复拉取
   let scn=(window._pipeScnCache&&window._pipeScnCache.id===sid)?window._pipeScnCache.data:null;
   if(!scn){try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());window._pipeScnCache={id:sid,data:scn};}catch(e){return;}}
