@@ -42,20 +42,53 @@ def _best_score_map() -> Dict[str, float]:
 
 
 @router.get("")
-async def list_scenarios(category: str = Query(default=""), tag: str = Query(default="")) -> Dict[str, Any]:
-    """B-1.1: 场景列表（含历史最佳分）."""
+async def list_scenarios(
+    category: str = Query(default=""),
+    tag: str = Query(default=""),
+    team_id: str = Query(default="", description="传入则按该团队角色/技能匹配度排序"),
+) -> Dict[str, Any]:
+    """B-1.1: 场景列表（含历史最佳分）。传 team_id 时附匹配度并按匹配度降序（闭环优化 C2′）。"""
     store = get_scenario_store()
     best = _best_score_map()
+    # 选团队时取一次团队快照，用于复用 match_team 算每个场景的匹配度
+    team_snapshot = None
+    if team_id:
+        try:
+            from agents.api import _tm
+            team = _tm().get_team(team_id)
+            if team:
+                agents_list = team.agents
+                if isinstance(agents_list, dict):
+                    agents_list = list(agents_list.values())
+                team_snapshot = {"agents": [
+                    {"id": getattr(a, "agent_id", ""), "role": getattr(a, "role", ""),
+                     "skills": getattr(a, "skills", []) or []}
+                    for a in agents_list
+                ]}
+        except Exception as e:
+            logger.warning(f"list_scenarios 团队快照失败: {e}")
     items = []
     for s in store.list(category=category, tag=tag):
-        items.append({
+        item = {
             "scenario_id": s.scenario_id, "name": s.name, "category": s.category,
             "description": s.description, "tags": s.tags, "difficulty": s.difficulty,
             "recommended_max_steps": s.recommended_max_steps, "source": s.source,
             "room_count": len(s.world.rooms), "task_count": len(s.taskflow),
             "chaos_phase_count": len(s.chaos_script),
             "best_score": best.get(s.scenario_id),
-        })
+        }
+        if team_snapshot is not None:
+            try:
+                m = match_team(s, team_snapshot)
+                item["match"] = {
+                    "skill_match_rate": m.get("skill_match_rate", 0),
+                    "missing_skills": m.get("missing_skills", []),
+                }
+            except Exception:
+                item["match"] = {"skill_match_rate": 0, "missing_skills": []}
+        items.append(item)
+    if team_snapshot is not None:
+        items.sort(key=lambda x: -(x.get("match", {}).get("skill_match_rate", 0)))
     return {"scenarios": items, "total": len(items), "load_errors": store.load_errors}
 
 

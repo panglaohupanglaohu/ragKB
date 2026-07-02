@@ -198,6 +198,7 @@ function clearScene(){
 function buildRoom(roomId){
   if(!initialized)return;
   clearScene();currentRoom=roomId;window._currentRoomId=roomId;
+  window._dt3dReinforceCount=0;   // 每次重建房间重置增援计数，外环铺开从头算
 
   var isKnown = false;
   switch(roomId){
@@ -241,34 +242,79 @@ function addAgentsToScene(){
   });
 }
 
+// 场景房间按「阶段(stage)」差异化外观：每个流水线阶段一套配色 + 中心构件形状。
+// 纯数据驱动(读 room.stage;无 stage 时按 id 哈希)，不针对具体场景硬编码。
+function _scnRoomStyle(room){
+  var palette=[
+    {c:0x22d3ee,e:0x0a3d4a}, // 阶段0 青
+    {c:0x34d399,e:0x0a3a2a}, // 阶段1 绿
+    {c:0xa78bfa,e:0x2a1f4a}, // 阶段2 紫
+    {c:0xfbbf24,e:0x4a3410}, // 阶段3 琥珀
+    {c:0xf472b6,e:0x4a1030}, // 阶段4 粉
+    {c:0x60a5fa,e:0x102a4a}, // 阶段5 蓝
+  ];
+  var idx;
+  if(room&&typeof room.stage==='number'){idx=room.stage;}
+  else{var s=(room&&room.id)||'';idx=0;for(var i=0;i<s.length;i++)idx+=s.charCodeAt(i);}
+  idx=((idx%palette.length)+palette.length)%palette.length;
+  return {color:palette[idx].c,emissive:palette[idx].e,shape:idx};
+}
+// 阶段 → 中心构件几何(6 种基础体，随阶段循环，避免每间都是同一个球)
+function _scnPropGeo(shape){
+  switch(shape){
+    case 0: return new THREE.IcosahedronGeometry(0.6,0);
+    case 1: return new THREE.BoxGeometry(0.85,0.85,0.85);
+    case 2: return new THREE.ConeGeometry(0.6,1.1,4);
+    case 3: return new THREE.OctahedronGeometry(0.7,0);
+    case 4: return new THREE.TorusGeometry(0.5,0.2,12,24);
+    default:return new THREE.DodecahedronGeometry(0.62,0);
+  }
+}
 // D-1.3: 场景房间通用3D视图 — 圆形平台 + 阶段标记 + 智能体环
 function buildGenericRoom(roomId){
   var room = (window.S&&window.S.rooms||[]).find(function(r){return r.id===roomId;});
   var roomName = room ? (room.icon||'🏠')+' '+room.name : roomId;
   var stage = room ? (room.stage!=null ? '阶段 '+room.stage : '') : '';
+  var st = _scnRoomStyle(room);
 
-  // 深色圆形平台
+  // 场景房间灯光（clearScene 会清掉灯，这里自带一套，避免通用房间渲染成黑屏）
+  _camGoal=new THREE.Vector3(0,9,18);_tgtGoal=new THREE.Vector3(0,1.4,0);
+  scene.background=new THREE.Color(0x0f1622);
+  scene.fog=new THREE.FogExp2(0x0f1622,0.018);
+  renderer.setClearColor(0x0f1622);
+  scene.add(new THREE.AmbientLight(0x9fb0c4,0.35));
+  var gKey=new THREE.DirectionalLight(0xdce6f2,0.7);gKey.position.set(6,16,10);gKey.castShadow=true;scene.add(gKey);
+  scene.add(new THREE.HemisphereLight(0x9fb4cc,0x1a2230,0.3));
+  var gFill=new THREE.DirectionalLight(0x88c8ff,0.25);gFill.position.set(-8,8,14);scene.add(gFill);
+  // 房间名称浮空标牌（让你一眼知道在哪个场景房间）
+  try {
+    var rlTex=new THREE.CanvasTexture((typeof makeColorLabel==='function')?makeColorLabel(roomName+(stage?(' · '+stage):''),'#cfe6ff'):makeTextCanvas(roomName,'#cfe6ff'));
+    rlTex.minFilter=THREE.LinearFilter;
+    var rlSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:rlTex,transparent:true,depthTest:false}));
+    rlSprite.position.set(0,6.4,0);rlSprite.scale.set(7,1.7,1);scene.add(rlSprite);
+  } catch(e){}
+
+  // 深色圆形平台（带该阶段配色的微弱自发光边）
   var platGeo = new THREE.CylinderGeometry(6, 6.5, 0.3, 48);
-  var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,roughness:0.8,metalness:0.3}));
+  var plat = new THREE.Mesh(platGeo, new THREE.MeshStandardMaterial({color:0x1a2744,emissive:st.emissive,emissiveIntensity:0.35,roughness:0.8,metalness:0.3}));
   plat.position.y=-0.15;plat.receiveShadow=true;scene.add(plat);
 
-  // 外环
+  // 外环（阶段配色）
   var ringGeo = new THREE.TorusGeometry(6, 0.08, 16, 80);
-  var ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.3}));
+  var ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({color:st.color,emissive:st.emissive,roughness:0.3}));
   ring.rotation.x=Math.PI/2;ring.position.y=0.02;scene.add(ring);
 
-  // 中心支柱 + 铭牌
+  // 中心支柱 + 阶段构件（形状随阶段变化，避免每间都是同一个球）
   var poleGeo = new THREE.CylinderGeometry(0.2, 0.3, 4, 16);
   var pole = new THREE.Mesh(poleGeo, new THREE.MeshStandardMaterial({color:0x334155,roughness:0.6,metalness:0.5}));
   pole.position.y=2;pole.castShadow=true;scene.add(pole);
-  var capGeo = new THREE.SphereGeometry(0.6, 24, 24);
-  var cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x0a3d4a,roughness:0.2,metalness:0.8}));
-  cap.position.y=4.3;scene.add(cap);
+  var cap = new THREE.Mesh(_scnPropGeo(st.shape), new THREE.MeshStandardMaterial({color:st.color,emissive:st.emissive,roughness:0.2,metalness:0.8}));
+  cap.position.y=4.4;cap.userData.spin=true;scene.add(cap);
 
-  // 粒子环（旋转光晕）
+  // 粒子环（阶段配色，旋转光晕）
   var pts=[];for(var i=0;i<80;i++){var a=Math.PI*2*i/80;pts.push(new THREE.Vector3(5.5*Math.cos(a),2.5+Math.sin(i*0.3)*0.3,5.5*Math.sin(a)));}
   var pGeo=new THREE.BufferGeometry().setFromPoints(pts);
-  var pLine=new THREE.Line(pGeo,new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:0.3}));
+  var pLine=new THREE.Line(pGeo,new THREE.LineBasicMaterial({color:st.color,transparent:true,opacity:0.3}));
   scene.add(pLine);
 
   // 场景房间的智能体：按位置放置
@@ -304,8 +350,8 @@ function buildCouncil(){
   renderer.setClearColor(0x1A2026);
   renderer.toneMappingExposure=1.0;
   // 光照 (照搬 plaza.html: restrained Ando-style)
-  scene.add(new THREE.AmbientLight(0x9099A2,0.06));
-  const mainLight=new THREE.DirectionalLight(0xC7D0D8,0.46);
+  scene.add(new THREE.AmbientLight(0x9099A2,0.22));   // 0.06→0.22 提亮，避免整厅黑成一团/中央黑坑
+  const mainLight=new THREE.DirectionalLight(0xC7D0D8,0.62);  // 0.46→0.62
   mainLight.position.set(3,30,5);mainLight.castShadow=true;
   mainLight.shadow.mapSize.set(2048,2048);
   mainLight.shadow.camera.near=1;mainLight.shadow.camera.far=60;
@@ -313,7 +359,10 @@ function buildCouncil(){
   mainLight.shadow.camera.top=25;mainLight.shadow.camera.bottom=-25;
   mainLight.shadow.bias=-0.001;mainLight.shadow.normalBias=0.02;
   scene.add(mainLight);
-  scene.add(new THREE.HemisphereLight(0x98A2AB,0x353D46,0.04));
+  scene.add(new THREE.HemisphereLight(0x98A2AB,0x353D46,0.20));   // 0.04→0.20 天光补亮地面/看台
+  // 正面柔和补光：把中央讲坛与前排照亮，消除"黑坑"观感（不抢主光的方向感）
+  var fillLight=new THREE.DirectionalLight(0xDCE4EC,0.28);
+  fillLight.position.set(0,12,26);scene.add(fillLight);
   // Raking architectural light
   const rakingLight=new THREE.SpotLight(0xCCD4DC,0.12,70,Math.PI/8,0.65,1.3);
   rakingLight.position.set(-18,24,-6);
@@ -560,7 +609,7 @@ function buildWorkshop(){
       const angle=(Math.PI*2*i)/5-Math.PI/2;
       const fig=createAgentFigure(wsAgentNames[i],wsColorHex[i],i===0);
       fig.position.set(7*Math.cos(angle),0,7*Math.sin(angle));
-      fig.userData.baseY=0;fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
+      fig.userData.baseY=0;fig.userData.agentId='ws_demo_'+i;fig.lookAt(0,0,0);scene.add(fig);agentMeshes.push(fig);
       const sx=5*Math.cos(angle),sz=5*Math.sin(angle);
       const pts=[new THREE.Vector3(-screenW/2,-screenH/2,0),new THREE.Vector3(screenW/2,-screenH/2,0),
         new THREE.Vector3(screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,screenH/2,0),new THREE.Vector3(-screenW/2,-screenH/2,0)];
@@ -1155,9 +1204,66 @@ window._dt3dBuildRoom=function(roomId){
   if(!initialized){initScene();setTimeout(()=>buildRoom(roomId),100)}
   else buildRoom(roomId);
 };
+// 场景驱动 3D：把所选演练场景的 world.rooms 接入 → 并入 S.rooms 供 buildGenericRoom 查找 → 切到首个场景房间预览
+window.applyScenarioRooms=function(rooms){
+  if(!Array.isArray(rooms)||!rooms.length)return;
+  window.S=window.S||{};window.S.rooms=window.S.rooms||[];
+  // 先移除上一个场景遗留的场景房间（_scn 标记），避免 tab 串台/累积
+  window.S.rooms=window.S.rooms.filter(function(x){return !(x&&x._scn);});
+  var norm=[];
+  rooms.forEach(function(r){
+    var id=r.room_id||r.id;if(!id)return;
+    var rec={id:id,name:r.name||id,icon:r.icon||'🏠',capacity:r.capacity||6,stage:r.stage,_scn:true};
+    norm.push(rec);
+    if(!window.S.rooms.find(function(x){return x.id===id;}))window.S.rooms.push(rec);
+    else window.S.rooms=window.S.rooms.map(function(x){return x.id===id?rec:x;});
+  });
+  window._scenarioRooms=norm;
+  var firstId=norm[0].id;
+  window._currentRoomId=firstId;               // tab 高亮跟随场景首个房间
+  if(typeof window.renderRoomTabs==='function')window.renderRoomTabs();  // tab 栏收口为「6 内置 + 当前场景」
+  if(firstId)window._dt3dBuildRoom(firstId);
+};
 window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
   if(!camera||!controls)return;
   _camGoal=new THREE.Vector3(px,py,pz);_tgtGoal=new THREE.Vector3(tx,ty,tz);
+};
+// ── 混沌事件 → 3D 同步：离开移除、故障置灰、加入新增（让 3D agent 数与后端一致）──
+window._dt3dRemoveAgent=function(agentId){
+  if(!agentId||!scene)return false;
+  for(var i=agentMeshes.length-1;i>=0;i--){
+    if(agentMeshes[i].userData&&agentMeshes[i].userData.agentId===agentId){
+      var fig=agentMeshes[i];scene.remove(fig);
+      try{fig.traverse(function(o){if(o.geometry)o.geometry.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){m.dispose&&m.dispose()});}});}catch(e){}
+      agentMeshes.splice(i,1);
+      var infoEl=document.getElementById('env-3d-info');if(infoEl)infoEl.textContent=infoEl.textContent.replace(/\d+ 个智能体/,agentMeshes.length+' 个智能体');
+      return true;
+    }
+  }
+  return false;
+};
+window._dt3dDimAgent=function(agentId,dim){
+  if(!agentId)return;
+  agentMeshes.forEach(function(fig){
+    if(fig.userData&&fig.userData.agentId===agentId){
+      fig.traverse(function(o){if(o.material&&o.material.transparent!==undefined){o.material.transparent=true;o.material.opacity=dim?0.2:(o.userData._origOpacity!=null?o.userData._origOpacity:0.7);if(dim&&o.userData._origOpacity==null)o.userData._origOpacity=o.material.opacity;}});
+    }
+  });
+};
+window._dt3dAddAgent=function(name,agentId,color){
+  if(!scene||!agentId)return;
+  if(agentMeshes.some(function(f){return f.userData&&f.userData.agentId===agentId;}))return; // 已存在
+  // 用黄金角在外环铺开，避免多次"增援"叠在同一点（黄金角≈137.5°，连续点永不聚簇）
+  window._dt3dReinforceCount=(window._dt3dReinforceCount||0)+1;
+  var k=window._dt3dReinforceCount;
+  var angle=k*2.39996323;                 // golden angle
+  var r=7.4+(k%3)*0.9;                     // 比主体智能体环更靠外，且半径轻微错层
+  // 每个增援用不同颜色，不再清一色绿
+  var _addPalette=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa','#fb923c','#4ade80'];
+  var fig=createAgentFigure(name||agentId,color||_addPalette[(k-1)%_addPalette.length],false);
+  fig.position.set(r*Math.cos(angle),0.5,r*Math.sin(angle));fig.userData.baseY=0.5;fig.lookAt(0,1,0);
+  fig.userData.agentId=agentId;scene.add(fig);agentMeshes.push(fig);
+  var infoEl=document.getElementById('env-3d-info');if(infoEl)infoEl.textContent=infoEl.textContent.replace(/\d+ 个智能体/,agentMeshes.length+' 个智能体');
 };
 window._dt3dFocusAgent=function(agentId){
   const fig=agentMeshes.find(m=>m.userData.agentId===agentId);

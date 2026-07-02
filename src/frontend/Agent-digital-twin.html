@@ -701,7 +701,7 @@ body {
   <div class="header-nav" style="flex-basis:100%;border-top:1px solid var(--border);background:var(--panel2)">
     <div class="nav-item nav-primary active" data-view="environment" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><span class="star">★</span> 环境空间</div>
     <div class="nav-item" data-view="architecture" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 系统状态</div>
-    <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 交互流 <span class="badge" id="msg-count">0"></span></div>
+    <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 协作·交互 <span class="badge" id="msg-count">0"></span></div>
     <div class="nav-item" data-view="pipeline" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg> 编排管线</div>
     <div class="nav-item" data-view="cli" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> CLI</div>
   </div>
@@ -721,10 +721,6 @@ body {
       <div class="arch-container">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
           <div class="arch-title">◈ 系统状态</div>
-          <div class="flow-controls">
-            <button class="flow-btn active" onclick="showArchSub('dashboard',this)">实时仪表盘</button>
-            <button class="flow-btn" onclick="showArchSub('topo',this)">协作拓扑</button>
-          </div>
         </div>
         <div id="arch-sub-layers">
           <div class="arch-subtitle">实时系统运行指标 · 数据每10秒自动刷新</div>
@@ -734,23 +730,21 @@ body {
             <div id="live-task-queue" style="max-height:280px;overflow-y:auto"></div>
           </div>
         </div>
-        <div id="arch-sub-topo" style="display:none">
-          <div class="arch-subtitle">智能体协作拓扑。节点=智能体，连线粗细=交互频次，颜色=团队。</div>
-          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#080c10">
-            <svg id="topo-svg" width="100%" height="460" style="display:block"></svg>
-          </div>
-          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)">
-            <span>● 节点大小 = 技能数</span><span>● 连线 = 交互历史</span><span>● 颜色 = 团队</span>
-          </div>
-        </div>
       </div>
     </div>
 
     <div class="view-panel" id="view-interaction">
       <div class="flow-container">
         <div class="flow-header">
-          <div class="flow-title">⇄ 智能体交互流</div>
+          <div class="flow-title">⇄ 协作 · 交互</div>
           <div class="flow-controls">
+            <button class="flow-btn active" id="isub-btn-timeline" onclick="showInteractSub('timeline',this)">交互时间线</button>
+            <button class="flow-btn" id="isub-btn-topo" onclick="showInteractSub('topo',this)">协作拓扑</button>
+          </div>
+        </div>
+        <!-- 子页①：交互时间线（时序视角） -->
+        <div id="interact-sub-timeline">
+          <div class="flow-controls" style="margin-bottom:12px">
             <button class="flow-btn active" onclick="filterMsgs('all')">全部</button>
             <button class="flow-btn" onclick="filterMsgs('tool-call')">工具调用</button>
             <button class="flow-btn" onclick="filterMsgs('llm-call')">LLM推理</button>
@@ -759,10 +753,20 @@ body {
             <button class="flow-btn" id="btn-view-timeline" onclick="switchFlowView('timeline',this)" style="font-size:11px">时间线</button>
             <button class="flow-btn" id="btn-view-sequence" onclick="switchFlowView('sequence',this)" style="font-size:11px">序列图</button>
           </div>
+          <div class="flow-stats" id="flow-stats"></div>
+          <div class="msg-timeline" id="msg-timeline"></div>
+          <div id="sequence-diagram" style="display:none;overflow-x:auto;padding:16px 0"><svg id="seq-svg" width="100%" height="400"></svg></div>
         </div>
-        <div class="flow-stats" id="flow-stats"></div>
-        <div class="msg-timeline" id="msg-timeline"></div>
-        <div id="sequence-diagram" style="display:none;overflow-x:auto;padding:16px 0"><svg id="seq-svg" width="100%" height="400"></svg></div>
+        <!-- 子页②：协作拓扑（图视角，由系统状态迁入） -->
+        <div id="interact-sub-topo" style="display:none">
+          <div class="arch-subtitle">智能体协作拓扑。节点=智能体，连线粗细=交互频次，颜色=团队。</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#080c10">
+            <svg id="topo-svg" width="100%" height="460" style="display:block"></svg>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)">
+            <span>● 节点大小 = 技能数</span><span>● 连线 = 交互历史</span><span>● 颜色 = 团队</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -927,10 +931,10 @@ body {
       </div>
       <!-- 注入按钮 -->
       <div style="display:flex;gap:4px;flex-wrap:wrap">
-        <button class="btn" id="btn-inject-fault" style="font-size:9px;padding:3px 6px">💥 注入故障</button>
-        <button class="btn" id="btn-inject-task" style="font-size:9px;padding:3px 6px">🔄 任务变更</button>
-        <button class="btn" id="btn-inject-join" style="font-size:9px;padding:3px 6px">➕ 智能体加入</button>
-        <button class="btn" id="btn-inject-leave" style="font-size:9px;padding:3px 6px">➖ 智能体离开</button>
+        <button class="btn" id="btn-inject-fault" title="混沌注入·演练韧性：随机让一个 Agent 下线 5 步，观察团队能否自愈/补位（运行中可点）" style="font-size:9px;padding:3px 6px">💥 注入故障</button>
+        <button class="btn" id="btn-inject-task" title="混沌注入·演练适应性：随机突变 50% 待办任务的所需技能，观察团队能否重规划/重路由（运行中可点）" style="font-size:9px;padding:3px 6px">🔄 任务变更</button>
+        <button class="btn" id="btn-inject-join" title="混沌注入·演练弹性扩张：优先恢复被禁用的 Agent；若无，则新增一个『增援』Agent，其技能对准当前待办任务的缺口，观察团队能否识别并用好对口新资源（运行中可点）" style="font-size:9px;padding:3px 6px">➕ 智能体加入</button>
+        <button class="btn" id="btn-inject-leave" title="混沌注入·演练抗减员：永久移除一个 Agent，观察团队能否重新分工兜住（运行中可点）" style="font-size:9px;padding:3px 6px">➖ 智能体离开</button>
       </div>
       <!-- 注入事件记录面板 -->
       <div id="inject-history" style="margin-top:6px;max-height:80px;overflow-y:auto;font-size:9px;color:var(--dim)">
@@ -940,7 +944,7 @@ body {
 
     <!-- ═══ 操作 ═══ -->
     <div class="rp-section" style="padding:8px 12px">
-      <button class="btn btn-primary" onclick="sexyCreateAndRun()" id="secs-btn-launch" style="width:100%;padding:12px 0;font-size:14px;font-weight:600">▶ 沙箱推演</button>
+      <button class="btn btn-primary" onclick="sexyCreateAndRun()" id="secs-btn-launch" title="可评分闭环：建试炼→运行(含3D可视化)→五维评分→SOP/反哺/进化→棘轮" style="width:100%;padding:12px 0;font-size:14px;font-weight:600">▶ 运行演练</button>
       <!-- 启动后的控制区（默认隐藏） -->
       <div id="secs-ctrl-panel" style="display:none;margin-top:6px">
         <div style="display:flex;gap:6px;margin-bottom:6px">
@@ -950,7 +954,8 @@ body {
         </div>
         <button class="btn" onclick="sexyStopSim()" id="secs-btn-stop" style="width:100%;padding:10px 0;font-size:13px">⏹ 停止演练</button>
       </div>
-      <button class="btn" onclick="_sexyRoomSim()" id="secs-dev-btn" style="width:100%;margin-top:6px;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,#fbbf24,#f472b6);color:#000;border:none;border-radius:6px;cursor:pointer">🎬 房间任务流程仿真</button>
+      <div style="font-size:9px;color:var(--dim);text-align:center;margin-top:6px;line-height:1.5">「运行演练」=可评分闭环(已含 3D 房间可视化)。下方仅在想<b>快速预览协作动画、不打分</b>时用：</div>
+      <button class="btn" onclick="_sexyRoomSim()" id="secs-dev-btn" title="纯前端动画预演：只看一眼协作流程，不创建评分试炼、不产出分数/SOP" style="width:100%;margin-top:4px;padding:6px 0;font-size:11px;color:var(--dim);background:transparent;border:1px dashed var(--border);border-radius:6px;cursor:pointer">🎬 仅可视化预演（不评分）</button>
       <!-- 隐藏的选择器：secsDevWorkflow 需要通过它们读团队/任务 -->
       <select id="secs-team-select" style="display:none"><option value="">—</option></select>
       <select id="secs-task-select" style="display:none"><option value="">—</option></select>

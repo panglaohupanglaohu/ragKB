@@ -20,8 +20,8 @@ async function init(){
   setInterval(loadLiveMetrics,10000);
   startSim();
 }
-async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
-async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
+async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
+async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch{}}
 async function syncAgentMove(agentId,roomId){
   const r=await _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})});
   let d={};try{d=await r.json()}catch{}
@@ -42,6 +42,7 @@ window._dtMoveTestHooks = { syncAgentMove, rollbackAgentMove, moveFailureText };
 function loadLocal(){
   const storedRooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null');
   S.rooms=(storedRooms&&storedRooms.length)?storedRooms:defaultRooms();
+  scopeRoomsToCurrentScenario();  // 剔除历史遗留的其他场景房间残留
   S.positions=JSON.parse(localStorage.getItem('dt2_positions')||'{}');
   S.messages=JSON.parse(localStorage.getItem('dt2_messages')||'[]').slice(-100);
   S.interactionCount=parseInt(localStorage.getItem('dt2_interactions')||'0');
@@ -54,6 +55,15 @@ function defaultRooms(){return[
   {id:'arena',name:'演练场',icon:'◎',desc:'A/B测试、技能验证与对抗演练',color:'var(--pink)'},
   {id:'rest',name:'休息区',icon:'◌',desc:'智能体待机、充能与状态恢复',color:'var(--dim)'},
 ]}
+// tab 房间 = 6 内置 + 自定义(r_开头) + 当前演练场景房间(_scn 标记)；其余场景残留一律剔除
+const BUILTIN_ROOM_IDS=['council','extraction','workshop','library','arena','rest'];
+window.BUILTIN_ROOM_IDS=BUILTIN_ROOM_IDS;
+function scopeRoomsToCurrentScenario(){
+  if(!S||!Array.isArray(S.rooms))return;
+  S.rooms=S.rooms.filter(function(r){return r&&(BUILTIN_ROOM_IDS.includes(r.id)||/^r_/.test(r.id||'')||r._scn);});
+  if(!S.rooms.length)S.rooms=defaultRooms();
+}
+window.scopeRoomsToCurrentScenario=scopeRoomsToCurrentScenario;
 async function loadTeamsAndAgents(){
   try{
     const teams=await _list(`${API}/teams`,200,0);
@@ -84,10 +94,10 @@ function toggleTeam(tid,btn){
   const turningOn = idx < 0;
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
   renderTeamSelector();renderAgentList();
-  // 同步刷新协作拓扑（如果当前可见）
-  if(document.getElementById('arch-sub-topo').style.display!=='none')renderTopology();
-  // 重建当前3D房间以刷新智能体
+  // 重建当前3D房间以刷新智能体（3D 常在，独立于当前 Tab）
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
+  // 统一调度：刷新当前可见 Tab（拓扑/时间线/仪表盘/编排 均按团队联动）
+  if(window.dtRefresh)window.dtRefresh('team');
   // 左→右 联动:把右侧 SECS「选择演练团队」同步为当前团队
   // 注意:btn 为 null 时是由 sexySelectTeam 反向调用,跳过以免循环
   if(btn && window.secsSyncTeamFromLeft){
@@ -128,12 +138,31 @@ function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
   document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('view-'+el.dataset.view).classList.add('active');
-  // 右面板切换: 环境空间时显示 SECS 控制台
-  const isEnv = el.dataset.view === 'environment';
-  document.getElementById('rp-default').style.display = isEnv ? 'none' : '';
-  document.getElementById('rp-secs').style.display = isEnv ? '' : 'none';
-  if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
+  // 演练配置/控制台(含「选择演练场景」)在所有 Tab 都常驻——否则在 编排管线/协作交互 等 Tab
+  // 提示"去右侧选场景"却看不到选场景入口(rp-default 是隐藏的旧面板)。
+  document.getElementById('rp-default').style.display = 'none';
+  document.getElementById('rp-secs').style.display = '';
+  if(el.dataset.view==='environment'){renderRoomTabs();const _scnFirst=(window._scenarioRooms&&window._scenarioRooms[0]&&window._scenarioRooms[0].id);setTimeout(()=>{switchRoom(_3dCurrentRoom||_scnFirst||'council')},50)}
+  // 统一走调度器刷新当前可见 Tab（替代逐个 renderXxx，杜绝"某 Tab 不联动"打地鼠）
+  if(window.dtRefresh)window.dtRefresh('tab');
 }
+
+// ── 联动调度器：右侧演练面板(团队/场景/步进/混沌) 变化 → 只刷新当前可见 Tab ──
+function dtContext(){return{team:window._selectedTeamId||'',scenarioId:(window._sx&&window._sx.scenarioId)||'',
+  steps:(window._sx&&window._sx.steps)||0,running:!!(window._sx&&window._sx.simRunning),
+  trialId:(window._DTS&&window._DTS.activeTrialId)||''};}
+window.dtContext=dtContext;
+window.dtRefresh=function(reason){
+  var p=document.querySelector('.view-panel.active');var v=p?p.id:'';
+  try{
+    if(v==='view-environment'){ if((reason==='team'||reason==='scenario'||reason==='tab')&&window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId); }
+    else if(v==='view-architecture'){ if(typeof renderArchitecture==='function')renderArchitecture(); }
+    else if(v==='view-interaction'){ var tp=document.getElementById('interact-sub-topo');
+      if(tp&&tp.style.display!=='none'){ if(typeof renderTopology==='function')renderTopology(); }
+      else { if(typeof renderInteractions==='function')renderInteractions('all'); } }
+    else if(v==='view-pipeline'){ if(typeof renderPipeline==='function')renderPipeline(); }
+  }catch(e){}
+};
 
 function renderAgentList(){
   const el=document.getElementById('agent-list');
@@ -200,7 +229,20 @@ function renderDashboard(){
   const taskFailed=liveMetrics.tasks.failed||0;
   const taskTotal=liveMetrics.tasks.total||0;
   const successRate=taskCompleted>0?Math.round(taskCompleted/(taskCompleted+taskFailed)*100):100;
-  el.innerHTML=`
+  // L3: 当前演练摘要（随右侧选团队/选场景/运行步进联动）
+  var _c=(window.dtContext?window.dtContext():{});
+  var _tn=(S.teams.find(t=>t.id===_c.team)||{}).name||_c.team||'未选团队';
+  var _sn=(window._pipeScnCache&&window._pipeScnCache.data&&window._pipeScnCache.data.name)||_c.scenarioId||'未选场景';
+  var _mx=(window._sx&&window._sx.maxSteps)||150;
+  var _rw=(window._sx&&window._sx.rewardPoints&&window._sx.rewardPoints.length)?window._sx.rewardPoints[window._sx.rewardPoints.length-1]:null;
+  var _drill=`<div style="background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(34,211,238,.02));border:1px solid var(--cyan);border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="font-size:12px;font-weight:600;color:var(--cyan)">◎ 当前演练</div>
+    <div style="font-size:12px;color:var(--text)">👥 ${esc(_tn)}</div>
+    <div style="font-size:12px;color:var(--text)">🎯 ${esc(_sn)}</div>
+    <div style="font-size:12px;color:${_c.running?'var(--green)':'var(--dim)'}">${_c.running?'▶ 运行中':'空闲'} · 步 ${_c.steps}/${_mx}</div>
+    ${_rw!=null?`<div style="font-size:12px;color:var(--amber)">收益 ${Number(_rw).toFixed(3)}</div>`:''}
+  </div>`;
+  el.innerHTML=_drill+`
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px">
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
         <div style="font-size:11px;color:var(--dim);margin-bottom:6px">智能体在线</div>
@@ -255,12 +297,28 @@ function renderTaskQueue(){
 }
 
 function showArchSub(tab,btn){
-  document.querySelectorAll('#view-architecture .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-  document.getElementById('arch-sub-layers').style.display=tab==='dashboard'?'block':'none';
-  document.getElementById('arch-sub-topo').style.display=tab==='topo'?'block':'none';
-  if(tab==='topo')renderTopology();
-  if(tab==='dashboard')loadLiveMetrics();
+  // 系统状态现只剩「实时仪表盘」（协作拓扑已迁至「协作·交互」Tab）
+  var layers=document.getElementById('arch-sub-layers');if(layers)layers.style.display='block';
+  if(btn){document.querySelectorAll('#view-architecture .flow-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+  loadLiveMetrics();
 }
+// 「协作·交互」Tab 子页切换：交互时间线 / 协作拓扑（同源交互数据的两个视角）
+window.showInteractSub=function(which,btn){
+  var tl=document.getElementById('interact-sub-timeline'),tp=document.getElementById('interact-sub-topo');
+  if(tl)tl.style.display=which==='timeline'?'':'none';
+  if(tp)tp.style.display=which==='topo'?'':'none';
+  ['isub-btn-timeline','isub-btn-topo'].forEach(function(id){var b=document.getElementById(id);if(b)b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  if(which==='topo'){if(typeof renderTopology==='function')renderTopology();}
+  else{if(typeof renderInteractions==='function')renderInteractions('all');}
+};
+
+// ── 混沌事件 → 协作拓扑同步（与 3D/后端 agent 数一致）──
+window._chaosTopoState = window._chaosTopoState || { removed:{}, added:[] };
+function _dt2dRefreshTopo(){ try{ var el=document.getElementById('interact-sub-topo'); if(el&&el.style.display!=='none'&&typeof renderTopology==='function') renderTopology(); }catch(e){} }
+window._dt2dChaosLeave=function(agentId){ if(!agentId)return; window._chaosTopoState.removed[agentId]=true; window._chaosTopoState.added=(window._chaosTopoState.added||[]).filter(function(a){return a.agent_id!==agentId;}); _dt2dRefreshTopo(); };
+window._dt2dChaosJoin=function(agentId,name,skills){ if(!agentId)return; var st=window._chaosTopoState; delete st.removed[agentId]; st.added=st.added||[]; if(!st.added.some(function(a){return a.agent_id===agentId;})) st.added.push({agent_id:agentId,name:name||agentId,skills:skills||[],_teamId:(S.selectedTeams&&S.selectedTeams[0])||''}); _dt2dRefreshTopo(); };
+window._dt2dChaosReset=function(){ window._chaosTopoState={removed:{},added:[]}; _dt2dRefreshTopo(); };
 
 function renderTopology(){
   const svg=document.getElementById('topo-svg');
@@ -268,7 +326,12 @@ function renderTopology(){
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const teamColors=['#22d3ee','#34d399','#a78bfa','#fbbf24','#f472b6','#60a5fa'];
   // Filter agents by selected teams, matching left panel behavior
-  const visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId));
+  // 混沌同步：剔除演练中已离开的 agent，并并入增援 agent，让拓扑与 3D/后端一致
+  const _chaos=window._chaosTopoState||{removed:{},added:[]};
+  let visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId)&&!_chaos.removed[a.agent_id]);
+  (_chaos.added||[]).forEach(function(ad){
+    if(!visibleAgents.some(function(a){return a.agent_id===ad.agent_id;})) visibleAgents=visibleAgents.concat([ad]);
+  });
   if(!visibleAgents.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#576375" font-size="14">${S.agents.length?'请在左侧选择至少一个团队':'加载智能体数据后显示拓扑...'}</text>`;return}
   // Build team color map (matching left panel's teamColors)
   const teamColorMap={};
@@ -313,18 +376,27 @@ function renderTopology(){
   svg.innerHTML=html;
 }
 
+// 交互按当前所选团队过滤（from/to 命中该团队 agent 名）——与右侧选团队联动，且与协作拓扑同口径
+function _scopedMsgs(){
+  if(!S.selectedTeams||!S.selectedTeams.length) return S.messages;
+  var names=new Set(S.agents.filter(a=>S.selectedTeams.includes(a._teamId)).map(a=>a.name));
+  if(!names.size) return S.messages;
+  var f=S.messages.filter(m=>names.has(m.from)||names.has(m.to));
+  return f.length?f:S.messages;   // 该团队暂无交互时退回全部，避免空白误解
+}
 function renderFlowStats(){
   const counts={'tool-call':0,'llm-call':0,'handoff':0,'broadcast':0,'response':0};
-  S.messages.forEach(m=>{if(counts[m.type]!==undefined)counts[m.type]++});
+  _scopedMsgs().forEach(m=>{if(counts[m.type]!==undefined)counts[m.type]++});
   const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
   const labels={'tool-call':'工具调用','llm-call':'LLM推理','handoff':'任务交接','broadcast':'广播','response':'响应'};
-  document.getElementById('flow-stats').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="flow-stat-item"><span class="flow-stat-dot" style="background:${colors[k]}"></span><span class="flow-stat-count">${v}</span><span class="flow-stat-label">${labels[k]}</span></div>`).join('')+`<div class="flow-stat-item" style="margin-left:auto"><span class="flow-stat-label">总计</span><span class="flow-stat-count" style="color:var(--text)">${S.messages.length}</span></div>`;
+  document.getElementById('flow-stats').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="flow-stat-item"><span class="flow-stat-dot" style="background:${colors[k]}"></span><span class="flow-stat-count">${v}</span><span class="flow-stat-label">${labels[k]}</span></div>`).join('')+`<div class="flow-stat-item" style="margin-left:auto"><span class="flow-stat-label">总计</span><span class="flow-stat-count" style="color:var(--text)">${_scopedMsgs().length}</span></div>`;
 }
 function renderInteractions(filter='all'){
   renderFlowStats();
   const el=document.getElementById('msg-timeline');
-  document.getElementById('msg-count').textContent=S.messages.length;
-  const msgs=filter==='all'?S.messages:S.messages.filter(m=>m.type===filter);
+  const scoped=_scopedMsgs();
+  document.getElementById('msg-count').textContent=scoped.length;
+  const msgs=filter==='all'?scoped:scoped.filter(m=>m.type===filter);
   if(!msgs.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--dim)">暂无交互记录<br><span style="font-size:11px">使用CLI或触发任务后显示</span></div>';return}
   const colors={'tool-call':'var(--green)','llm-call':'var(--purple)','handoff':'var(--blue)','broadcast':'var(--amber)','response':'var(--cyan)'};
   el.innerHTML=msgs.slice(-50).map(m=>{const c=colors[m.type]||'var(--muted)';
@@ -389,10 +461,34 @@ function renderSequenceDiagram(){
   svg.innerHTML=html;
 }
 
-function renderPipeline(){
-  const stages=[{id:'draft',icon:'📝',name:'草稿',desc:'初始创建'},{id:'extract',icon:'◈',name:'萃取',desc:'技能抽取'},{id:'review',icon:'◎',name:'评审',desc:'同行复核'},{id:'approval',icon:'✓',name:'批准',desc:'门禁通过'},{id:'published',icon:'◇',name:'发布',desc:'上线生效'}];
-  document.getElementById('pipeline-flow').innerHTML=stages.map((s,i)=>`${i>0?'<div class="pipeline-connector">→</div>':''}<div class="pipeline-step" id="pipe-step-${i}" data-stage="${s.id}"><div class="step-num">${i+1}</div><div class="step-icon">${s.icon}</div><div class="step-name">${s.name}</div><div class="step-desc">${s.desc}</div></div>`).join('');
-  loadPipelineState();
+// 编排管线 = 当前演练场景的「任务编排 DAG」+ 实时执行状态（不再复制技能萃取阶段）
+async function renderPipeline(){
+  const flow=document.getElementById('pipeline-flow');const bar=document.getElementById('pipeline-progress-bar');
+  if(!flow)return;
+  const sid=window._sx&&window._sx.scenarioId;
+  if(!sid){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态</div>';if(bar)bar.style.width='0%';renderExecLog();return;}
+  // 场景缓存：每步重渲染时不再重复拉取
+  let scn=(window._pipeScnCache&&window._pipeScnCache.id===sid)?window._pipeScnCache.data:null;
+  if(!scn){try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());window._pipeScnCache={id:sid,data:scn};}catch(e){return;}}
+  const tf=(scn&&(scn.taskflow||scn.task_flow))||[];
+  if(!tf.length){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim)">该场景暂无任务流</div>';renderExecLog();return;}
+  // 拓扑分层（按 depends_on），含环保护
+  const byId={};tf.forEach(t=>byId[t.task_id]=t);const layer={};
+  function depth(id,seen){if(layer[id]!=null)return layer[id];const s=seen||new Set();if(s.has(id))return 0;s.add(id);const deps=(byId[id]&&byId[id].depends_on)||[];const d=deps.length?Math.max(...deps.map(x=>depth(x,new Set(s))))+1:0;layer[id]=d;return d;}
+  tf.forEach(t=>depth(t.task_id));const maxL=Math.max(...tf.map(t=>layer[t.task_id]||0));
+  const cols=[];for(let i=0;i<=maxL;i++)cols[i]=tf.filter(t=>(layer[t.task_id]||0)===i);
+  // 实时状态：直接用演练的当前步数(secs 每步更新的 _sx.steps)按比例标 done/running/pending
+  var _cur=(window._sx&&window._sx.steps)||0;var _mx=(window._sx&&window._sx.maxSteps)||scn.recommended_max_steps||150;
+  var doneCount=Math.round(Math.min(1,_mx?_cur/_mx:0)*tf.length);
+  flow.innerHTML=cols.map((col,ci)=>{
+    const colHtml='<div style="display:flex;flex-direction:column;gap:8px">'+col.map(t=>{
+      const gi=tf.indexOf(t);const st=gi<doneCount?'done':(gi===doneCount?'running':'pending');
+      const c={done:'var(--green)',running:'var(--cyan)',pending:'var(--dim)'}[st];const txt={done:'✓ 完成',running:'▶ 进行中',pending:'待办'}[st];
+      return '<div class="pipeline-step" style="min-width:150px;text-align:left;border-left:3px solid '+c+'"><div class="step-name">'+esc(t.name||t.task_id)+'</div><div class="step-desc">'+esc(t.room_id||'')+(((t.required_skills||[]).length)?(' · '+esc((t.required_skills||[]).slice(0,2).join(','))):'')+'</div><div style="font-size:10px;color:'+c+'">'+txt+'</div></div>';
+    }).join('')+'</div>';
+    return (ci>0?'<div class="pipeline-connector">→</div>':'')+colHtml;
+  }).join('');
+  if(bar)bar.style.width=(tf.length?doneCount/tf.length*100:0)+'%';
   renderExecLog();
 }
 async function loadPipelineState(){
@@ -428,7 +524,8 @@ function renderExecLog(){
 function renderRoomTabs(){
   const el=document.getElementById('room-tabs');if(!el)return;
   if(!S.rooms||!S.rooms.length)S.rooms=defaultRooms();
-  el.innerHTML=S.rooms.map((r,i)=>`<button class="flow-btn${i===0?' active':''}" onclick="switchRoom('${r.id}',this)">${r.name}</button>`).join('');
+  const _cur=window._currentRoomId||(S.rooms[0]&&S.rooms[0].id);
+  el.innerHTML=S.rooms.map((r)=>`<button class="flow-btn${r.id===_cur?' active':''}" onclick="switchRoom('${r.id}',this)">${r.name}</button>`).join('');
 }
 function renderEnvironment(){
   const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
@@ -1200,7 +1297,7 @@ async function onDrop(ev,roomId){
 }
 document.addEventListener('dragend',()=>{document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null})
 
-function persist(){localStorage.setItem('dt2_rooms',JSON.stringify(S.rooms));localStorage.setItem('dt2_positions',JSON.stringify(S.positions));syncDtState()}
+function persist(){const persistRooms=(S.rooms||[]).filter(function(r){return !(r&&r._scn);});localStorage.setItem('dt2_rooms',JSON.stringify(persistRooms));localStorage.setItem('dt2_positions',JSON.stringify(S.positions));syncDtState()}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3000)}
 
@@ -1538,7 +1635,7 @@ async function secsLoadTeamTasks(){
 const _roomTaskConfig = {
   council: {
     label: '◇ 选择讨论议题',
-    btnText: '🎬 开始议事讨论',
+    btnText: '🎬 开始议事讨论 · 仅预演(不评分)',
     // 从真实任务提取议题 + 预置通用议题
     transform(tasks){
       const fromTasks = tasks.slice(0,5).map(t => ({
@@ -1556,7 +1653,7 @@ const _roomTaskConfig = {
   },
   workshop: {
     label: '□ 选择开发任务',
-    btnText: '🎬 运行开发流程仿真',
+    btnText: '🎬 运行开发流程仿真 · 仅预演(不评分)',
     transform(tasks){
       if(!tasks.length) return [{id:'_w1', title:'通用开发流程演示'}];
       return tasks.map(t => ({id: t.task_id, title: (t.title?.substring(0,38)||t.task_id) + ` [${t.status}]`}));
@@ -1564,7 +1661,7 @@ const _roomTaskConfig = {
   },
   extraction: {
     label: '○ 选择萃取目标',
-    btnText: '🎬 启动技能萃取仿真',
+    btnText: '🎬 启动技能萃取仿真 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: '萃取: ' + (t.title?.substring(0,28)||'技能')
@@ -1581,7 +1678,7 @@ const _roomTaskConfig = {
   },
   library: {
     label: '△ 选择检索主题',
-    btnText: '🎬 启动知识检索仿真',
+    btnText: '🎬 启动知识检索仿真 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: '检索: ' + (t.title?.substring(0,28)||'知识')
@@ -1598,7 +1695,7 @@ const _roomTaskConfig = {
   },
   arena: {
     label: '◎ 选择对抗命题',
-    btnText: '🎬 启动对抗演练',
+    btnText: '🎬 启动对抗演练 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.slice(0,3).map(t => ({
         id: t.task_id, title: 'PK: ' + (t.title?.substring(0,28)||'挑战')
@@ -1615,7 +1712,7 @@ const _roomTaskConfig = {
   },
   rest: {
     label: '◌ 选择复盘对象',
-    btnText: '🎬 启动复盘充能',
+    btnText: '🎬 启动复盘充能 · 仅预演(不评分)',
     transform(tasks){
       const fromTasks = tasks.filter(t=>t.status==='completed').slice(0,3).map(t => ({
         id: t.task_id, title: '复盘: ' + (t.title?.substring(0,28)||'项目')

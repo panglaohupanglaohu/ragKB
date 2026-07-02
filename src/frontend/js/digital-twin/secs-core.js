@@ -63,8 +63,8 @@
       launch.disabled = false;
       launch.style.opacity = '1';
       launch.style.cursor = 'pointer';
-      launch.textContent = '▶ 沙箱推演';
-      launch.title = '启动沙箱推演';
+      launch.textContent = '▶ 运行演练';
+      launch.title = '可评分闭环：建试炼→运行(含3D可视化)→五维评分→SOP/反哺/进化→棘轮';
     }
   }
 
@@ -597,6 +597,26 @@
     try {
       var sceneList = [];
 
+      // 0. 演练场景库（真实场景：含 taskflow + rubric，按所选团队匹配度排序）——闭环核心入口
+      try {
+        var _stid = window._selectedTeamId || '';
+        var scnR = await fetch('/api/v1/scenarios' + (_stid ? ('?team_id=' + encodeURIComponent(_stid)) : ''));
+        var scnD = await scnR.json();
+        (scnD.scenarios || []).forEach(function (s) {
+          var mtxt = '';
+          if (s.match) {
+            var pct = Math.round((s.match.skill_match_rate || 0) * 100);
+            mtxt = ' · 团队匹配 ' + pct + '%' + ((s.match.missing_skills && s.match.missing_skills.length) ? ' · 缺:' + s.match.missing_skills.slice(0, 2).join('/') : '');
+          }
+          sceneList.push({
+            id: s.scenario_id,
+            name: '🎯 ' + s.name,
+            desc: (s.description || '').slice(0, 46) + ' · 任务' + (s.task_count || 0) + ' · 难度' + (s.difficulty || '-') + mtxt,
+            type: 'scenario',
+          });
+        });
+      } catch (e) { /* 场景库不可用不阻断下方房间场景 */ }
+
       // 1. 获取数字孪生环境空间（房间 + Agent 位置）
       try {
         var dtR = await fetch('/api/v1/agent-config/digital-twin/state');
@@ -678,7 +698,7 @@
         return;
       }
 
-      var typeColor = { room:'#22d3ee', topo:'#a78bfa', default:'#34d399', mode:'#f59e0b', sop:'#f472b6', error:'#ef4444' };
+      var typeColor = { scenario:'#4ade80', room:'#22d3ee', topo:'#a78bfa', default:'#34d399', mode:'#f59e0b', sop:'#f472b6', error:'#ef4444' };
       listEl.innerHTML = sceneList.map(function(sc){
         var tc = typeColor[sc.type] || '#888';
         var isSel = _selectedSceneId === sc.id;
@@ -695,6 +715,22 @@
 
   window.sexySelectScene = function(sceneId, sceneName, sceneDesc) {
     _selectedSceneId = sceneId;
+    // 真实场景 id（capacity_incident 等）→ 设 _sx.scenarioId，createTrial 传给后端编译 taskflow/rubric；
+    // 房间(room_*)/模式(__*)/SOP(sop_*) 不是真实场景，清空避免误传。
+    window._sx = window._sx || {};
+    window._sx.scenarioId = /^(room_|__|sop_|_dt)/.test(sceneId) ? '' : sceneId;
+    // 场景驱动 3D：选了真实场景 → 拉它的 world.rooms 切到该场景的 3D 房间预览
+    if (window._sx.scenarioId) {
+      (async function () {
+        try {
+          var sd = await (await fetch('/api/v1/scenarios/' + encodeURIComponent(window._sx.scenarioId))).json();
+          var rms = (sd.world && sd.world.rooms) || sd.rooms || [];
+          if (rms.length && typeof window.applyScenarioRooms === 'function') window.applyScenarioRooms(rms);
+        } catch (e) { /* 预览失败不阻断选择 */ }
+      })();
+      // 选了场景 → 统一调度刷新当前可见 Tab（编排管线 DAG / 3D 场景房间等）
+      try { if (window.dtRefresh) window.dtRefresh('scenario'); } catch (e) {}
+    }
     var btn = document.getElementById('secs-scene-btn');
     btn.textContent = '🏟️ ' + sceneName;
     btn.style.color = 'var(--green)';
@@ -739,10 +775,30 @@
     }
 
     try {
+      // C3: 已选真实场景 → 顶部列出该场景任务流（整条流程 + 各任务），打通"团队→场景→任务"
+      var _scnHtml = '';
+      var _scnId = window._sx && window._sx.scenarioId;
+      if (_scnId) {
+        try {
+          var _scn = await (await fetch('/api/v1/scenarios/' + encodeURIComponent(_scnId))).json();
+          var _tf = _scn.taskflow || [];
+          if (_tf.length) {
+            _scnHtml = '<div style="padding:6px 12px;font-size:9px;color:var(--dim);background:var(--panel2)">📚 场景「' + esc(_scn.name || _scnId) + '」任务流 · 默认跑整条</div>'
+              + '<div class="modal-select__item" style="cursor:pointer;padding:10px 12px;border-bottom:1px solid var(--border)" data-task-id="__flow__" data-task-title="整条场景流程(' + _tf.length + '任务)" data-task-desc="按场景 DAG 跑完整任务流"><div style="font-weight:600;color:var(--green)">▶ 用整条场景流程（推荐）· ' + _tf.length + ' 任务</div></div>'
+              + _tf.map(function (t) {
+                  return '<div class="modal-select__item" style="cursor:pointer;padding:8px 12px;border-bottom:1px solid var(--border)" data-task-id="' + esc(t.task_id) + '" data-task-title="' + esc(t.name || t.task_id) + '" data-task-desc="' + esc((t.required_skills || []).join(',')) + '"><div style="color:var(--text)">🎯 ' + esc(t.name || t.task_id) + '</div><div style="font-size:9px;color:var(--dim)">技能 ' + esc((t.required_skills || []).join(', ') || '—') + '</div></div>';
+                }).join('');
+          }
+        } catch (e) { /* 场景任务流可选 */ }
+      }
+
       var r = await fetch('/api/v1/agent-config/teams/' + encodeURIComponent(_selectedTeamId) + '/tasks');
       var tasks = await r.json();
       if (!Array.isArray(tasks) || !tasks.length) {
-        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dim)">该团队暂无任务 — 请先在「任务」页面创建并派发</div>';
+        listEl.innerHTML = _scnHtml || '<div style="text-align:center;padding:20px;color:var(--dim)">该团队暂无任务 — 请先在「任务」页面创建并派发</div>';
+        listEl.querySelectorAll('.modal-select__item').forEach(function (el) {
+          el.addEventListener('click', function () { window.sexySelectTask(this.dataset.taskId, this.dataset.taskTitle, this.dataset.taskDesc); });
+        });
         return;
       }
 
@@ -751,7 +807,7 @@
         return (b.created_at || '').localeCompare(a.created_at || '');
       });
 
-      listEl.innerHTML = tasks.map(function(t) {
+      listEl.innerHTML = _scnHtml + (_scnHtml ? '<div style="padding:6px 12px;font-size:9px;color:var(--dim)">— 或选团队已派发任务 —</div>' : '') + tasks.map(function(t) {
         var isSel = t.task_id === _selectedTaskId;
         var statusColor = { pending:'var(--dim)', running:'var(--cyan)', completed:'var(--green)', failed:'var(--red)', cancelled:'var(--dim)' }[t.status] || 'var(--dim)';
         var desc = (t.description || '').slice(0, 80);
@@ -784,6 +840,16 @@
   };
 
   window.sexySelectTask = function(taskId, taskTitle, taskDesc) {
+    // 「整条场景流程」→ 不指定单任务，清空 override，让 createTrial 用场景默认 taskflow
+    if (taskId === '__flow__') {
+      _selectedTaskId = null; _selectedTaskTitle = ''; _selectedTaskGoal = null;
+      window._selectedTaskId = null; window._selectedTaskGoal = null;
+      var fb = document.getElementById('secs-task-btn');
+      if (fb) { fb.textContent = '📋 整条场景流程'; fb.style.color = 'var(--green)'; }
+      var ot = document.getElementById('o-task'); if (ot) ot.style.display = 'none';
+      showToast('已选择：整条场景流程', 'success');
+      return;
+    }
     _selectedTaskId = taskId;
     _selectedTaskTitle = taskTitle;
     // 构建 task_goal — 将任务信息带入试炼，让演练有明确的执行目标
@@ -800,6 +866,7 @@
     btn.textContent = '📋 ' + taskTitle;
     btn.style.color = 'var(--cyan)';
     document.getElementById('o-task').style.display = 'none';
+    try { if (window.dtRefresh) window.dtRefresh('task'); } catch (e) {}
 
     showToast('已选择任务: ' + taskTitle, 'success');
   };
@@ -891,7 +958,10 @@
 
     // 从 SECS 面板读取模式和参数
     var modeEl = document.querySelector('input[name="secs-mode"]:checked');
-    var mode = (modeEl && modeEl.value) || window._DTS.selectedMode || 'what_if';
+    // SECS radio 值 → 后端 TrialMode 合法值（并行=multi_branch，否则后端 TrialMode('parallel') 报 400→创建失败→不出自动/单步）
+    var _MODE_MAP = { what_if: 'what_if', parallel: 'multi_branch', evolutionary: 'evolutionary' };
+    var _raw = (modeEl && modeEl.value) || 'what_if';
+    var mode = _MODE_MAP[_raw] || window._DTS.selectedMode || 'what_if';
     var steps = parseInt(document.getElementById('secs-steps')?.value) || 150;
     var speed = parseInt(document.getElementById('secs-speed-slider')?.value) || 10;
 
@@ -908,6 +978,7 @@
     document.getElementById('secs-sim-status').textContent = '通过试炼导演台创建...';
 
     _consoleLines = [];
+    if (window._dt2dChaosReset) window._dt2dChaosReset();   // 新一轮演练：清空上轮混沌对拓扑的增删
     _logConsole('══ 仿真启动 (统一入口 → 试炼导演台) ══', 'header');
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');
@@ -930,7 +1001,7 @@
       );
       if (!confirmed) {
         btn.disabled = false;
-        btn.textContent = '▶ 沙箱推演';
+        btn.textContent = '▶ 运行演练';
         document.getElementById('secs-sim-status').textContent = '已取消';
         try { window.sexyPickScene(); } catch(e) {}
         return;
@@ -946,7 +1017,7 @@
     if (!(window._sx && window._sx.sessionId)) {
       // createTrial 失败，恢复 SECS 面板
       btn.disabled = false;
-      btn.textContent = '▶ 沙箱推演';
+      btn.textContent = '▶ 运行演练';
       document.getElementById('secs-sim-status').textContent = '创建失败';
       return;
     }
@@ -981,7 +1052,7 @@
     loadExerciseHistory();
 
     btn.disabled = false;
-    btn.textContent = '▶ 沙箱推演';
+    btn.textContent = '▶ 运行演练';
   };
 
   // ▶ 自动运行（统一入口：操作试炼 session）
@@ -1000,6 +1071,7 @@
     document.getElementById('secs-sim-status').textContent = '仿真运行中...';
     _paused = false;
     _sx.simRunning = true;
+    _setInjectEnabled(true);   // 运行中才允许注入：自动运行启动后(re)启用注入按钮，否则 智能体加入/离开/故障 点了无反应
 
     // 同步试炼导演台状态（仅在非running态时触发）
     if (window._DTS.trialStatus !== 'running') {
@@ -1122,6 +1194,8 @@
       _sx.steps = d.total_steps_executed || 0;
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
+      // 每步统一调度：刷新当前可见 Tab（编排管线随步进推进 / 交互时间线追加 等）
+      try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
       var sc = d.evaluation?.global_score;
       if (sc !== undefined && sc !== null) setT('secs-session-score', Number(sc).toFixed(3));
       else setT('secs-session-score', '—');  // [fix] 评分缺失时明确显示 —
@@ -1288,6 +1362,23 @@
       }
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
+
+      // L4: 把本步 agent 行为喂进「协作·交互」时间线（from=agent 名，便于按团队过滤）
+      try {
+        if (d.agent_actions && window.S && Array.isArray(window.S.messages)) {
+          var _nm = {}; (window.S.agents || []).forEach(function (a) { _nm[a.agent_id] = a.name; });
+          var _ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          var _tmap = { claim_task: 'handoff', use_skill: 'tool-call', llm_call: 'llm-call', broadcast: 'broadcast', offer_help: 'handoff' };
+          Object.keys(d.agent_actions).forEach(function (aid) {
+            var a = d.agent_actions[aid] || {}; var act = a.action || a.skill || '';
+            if (!act || act === 'idle') return;
+            window.S.messages.push({ time: _ts, from: (_nm[aid] || aid), to: (a.target_agent && (_nm[a.target_agent] || a.target_agent)) || 'System', type: (_tmap[act] || 'tool-call'), content: (a.skill || act), duration: a.duration_ms || a.duration });
+          });
+          if (window.S.messages.length > 500) window.S.messages = window.S.messages.slice(-500);
+        }
+      } catch (e) {}
+      // 每步统一调度：刷新当前可见 Tab（时间线追加 / 编排管线推进 / 拓扑）
+      try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
 
       // ── 控制台 ──
       var rw = d.global_reward;
@@ -1715,7 +1806,7 @@
   function _resetLaunchUI() {
     var launch = document.getElementById('secs-btn-launch');
     var ctrlPanel = document.getElementById('secs-ctrl-panel');
-    if (launch) { launch.style.display = 'block'; launch.disabled = false; launch.textContent = '▶ 沙箱推演'; }
+    if (launch) { launch.style.display = 'block'; launch.disabled = false; launch.textContent = '▶ 运行演练'; }
     if (ctrlPanel) ctrlPanel.style.display = 'none';
     // [fix] 保留 sessionId 用于报告按钮（延迟清除）
     var sidForReport = _sx.sessionId;
@@ -1788,6 +1879,24 @@
       // 混沌响应详情
       if (d.chaos) {
         _logConsole('  ' + (d.detail||''), 'warn');
+        // 同步 3D：离开→移除、故障→置灰、加入→新增/恢复（让 3D agent 数与后端一致）
+        try {
+          if (d.type === 'agent_leave' && d.agent) {
+            if (window._dt3dRemoveAgent) window._dt3dRemoveAgent(d.agent);
+            if (window._dt2dChaosLeave) window._dt2dChaosLeave(d.agent);          // 协作拓扑同步移除
+          } else if (d.type === 'agent_failure' && d.agent && window._dt3dDimAgent) {
+            window._dt3dDimAgent(d.agent, true);
+          } else if (d.type === 'agent_join' && d.agent) {
+            if (d.added_skills) {                                                  // 新增增援
+              if (window._dt3dAddAgent) window._dt3dAddAgent('增援·' + d.agent, d.agent);
+              if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent, '增援·' + d.agent, d.added_skills);
+            } else {                                                              // 恢复被禁用的
+              if (window._dt3dDimAgent) window._dt3dDimAgent(d.agent, false);
+              if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent);
+            }
+          }
+        } catch (e) { /* 同步失败不阻断注入 */ }
+        try { if (window.dtRefresh) window.dtRefresh('chaos'); } catch (e) {}
       }
       showToast('已注入: '+label, 'success');
     } catch(e) {

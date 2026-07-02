@@ -721,7 +721,7 @@ class TwinLoopEngine:
         elif event_type == "agent_join":
             disabled_agents = chaos.get("disabled_agents", {})
             if disabled_agents:
-                # 恢复一个被禁用的 Agent
+                # 优先恢复一个被禁用的 Agent
                 recover_id = next(iter(disabled_agents), None)
                 if recover_id:
                     del disabled_agents[recover_id]
@@ -731,6 +731,36 @@ class TwinLoopEngine:
                     return {"injected": True, "chaos": True, "type": "agent_join",
                             "agent": recover_id, "role": getattr(target, 'role', '?'),
                             "detail": f"Agent {recover_id} 已重新加入"}
+            # 无可恢复 → 新增「增援」孪生，技能对准当前缺口（演练团队能否纳入并用好新资源）
+            active = [t for t in session.twins if not self._is_twin_disabled(t, chaos, current_step)]
+            have = set(s for t in active for s in (t.skills or []))
+            sim_state = self._running_sim_states.get(session_id)
+            needed: Dict[str, int] = {}
+            if sim_state and getattr(sim_state, "pending_tasks", None):
+                for task in sim_state.pending_tasks:
+                    for s in (task.get("required_skills") or []):
+                        needed[s] = needed.get(s, 0) + 1
+            # 缺口技能 = 待办最需要、但活跃团队尚未覆盖的；无缺口则同质增援（复制现有常见技能）
+            gap = [s for s, _ in sorted(needed.items(), key=lambda kv: -kv[1]) if s not in have][:3]
+            if not gap:
+                gap = (list(active[0].skills)[:3] if active and active[0].skills else ["coordination"])
+            new_id = f"reinforce_{current_step}_{random.randint(100, 999)}"
+            new_twin = AgentTwin(
+                source_agent_id=new_id,
+                role="增援",
+                skills=list(gap),
+                tools=[],
+                state="idle",
+                current_task=None,
+                strategy_params={},
+                skill_proficiency={s: PROF_DEFAULT for s in gap},
+            )
+            session.twins.append(new_twin)
+            chaos["events"].append({"step": current_step, "type": "agent_join", "agent": new_id, "skills": list(gap)})
+            logger.info(f"➕ 混沌注入: 增援 Agent {new_id} 加入, 技能={gap}")
+            return {"injected": True, "chaos": True, "type": "agent_join",
+                    "agent": new_id, "role": "增援", "added_skills": list(gap),
+                    "detail": f"增援 Agent 加入, 技能 {gap} 对准当前缺口, 观察团队能否纳入并用好新资源"}
 
         elif event_type == "network_delay":
             # 网络延迟：所有 Agent 速度降低，持续 3 步
