@@ -1276,33 +1276,57 @@
   }
 
   // ── 协作图渲染 ──
+  // 数据源优先级：本次报告 twins > 缓存 twins > 当前团队 agent。
+  // 并叠加混沌状态(_chaosTopoState)：剔除已离开、并入增援 → 与 3D/协作拓扑同口径，
+  // 因此增/减 agent 会实时反映在协作图上（增援节点用虚线描边标注）。
   function _renderCollabGraph(twins) {
     var g = document.getElementById('secs-collab-nodes');
-    if (!g || !twins.length) return;
-    var cx=200, cy=70, r=110;
-    var n=twins.length;
+    if (!g) return;
+    if (twins && twins.length) _sx.lastTwins = twins;           // 缓存报告 twins 供混沌重渲染
+    var base = (twins && twins.length) ? twins : (_sx.lastTwins || []);
+    // 无 twins 时回退到当前所选团队 agent，避免空白
+    if (!base.length && window.S && S.agents && S.selectedTeams) {
+      base = S.agents.filter(function(a){return S.selectedTeams.indexOf(a._teamId)>=0;})
+        .map(function(a){return {source_agent_id:a.agent_id, role:a.role||'general', name:a.name};});
+    }
+    // 混沌同步：剔除离开、并入增援
+    var chaos = window._chaosTopoState || {removed:{}, added:[]};
+    var work = base.filter(function(t){return !chaos.removed[t.source_agent_id];});
+    (chaos.added||[]).forEach(function(ad){
+      if (!work.some(function(t){return t.source_agent_id===ad.agent_id;}))
+        work.push({source_agent_id:ad.agent_id, role:'general', name:ad.name, _reinforce:true});
+    });
+    // 动态标题计数
+    var titleEl = document.getElementById('secs-collab-title');
+    if (titleEl) titleEl.textContent = '🤝 协作图 [' + work.length + ']';
+    if (!work.length) { g.innerHTML = '<text x="200" y="72" text-anchor="middle" font-size="9" fill="#576375">选择团队并启动演练后显示协作图</text>'; return; }
+    // 椭圆布局适配 400x140 视窗（原 r=110 会上下裁切）
+    var cx=200, cy=70, rx=155, ry=48;
+    var n=work.length;
     var nodes='', edges='';
     var colors={'project_manager':'#22d3ee','researcher':'#a78bfa','architect':'#f59e0b','developer':'#34d399','qa_engineer':'#f472b6','devops':'#f97316','documentation':'#94a3b8'};
+    var pos=[];
     for (var i=0; i<n; i++) {
       var angle = (2*Math.PI*i/n) - Math.PI/2;
-      var x=cx + r*Math.cos(angle), y=cy + r*Math.sin(angle);
-      var role=twins[i].role||'general';
-      var color=colors[role]||'#888';
-      var label=(twins[i].source_agent_id||'').replace('build_','').slice(0,3);
-      nodes += '<circle cx="'+x.toFixed(0)+'" cy="'+y.toFixed(0)+'" r="14" fill="var(--panel2)" stroke="'+color+'" stroke-width="2"/>';
-      nodes += '<text x="'+x.toFixed(0)+'" y="'+(y+4).toFixed(0)+'" text-anchor="middle" font-size="7" fill="var(--text)">'+esc(label)+'</text>';
+      pos.push({x:cx + rx*Math.cos(angle), y:cy + ry*Math.sin(angle)});
     }
-    // 画连线（全连通）
+    // 连线（全连通）
     for (var i=0; i<n; i++) {
       for (var j=i+1; j<n; j++) {
-        var a1=2*Math.PI*i/n-Math.PI/2, a2=2*Math.PI*j/n-Math.PI/2;
-        var x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
-        var x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2);
-        edges += '<line x1="'+x1.toFixed(0)+'" y1="'+y1.toFixed(0)+'" x2="'+x2.toFixed(0)+'" y2="'+y2.toFixed(0)+'" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>';
+        edges += '<line x1="'+pos[i].x.toFixed(0)+'" y1="'+pos[i].y.toFixed(0)+'" x2="'+pos[j].x.toFixed(0)+'" y2="'+pos[j].y.toFixed(0)+'" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>';
       }
+    }
+    for (var i=0; i<n; i++) {
+      var role=work[i].role||'general';
+      var color=colors[role]||'#888';
+      var label=(work[i].source_agent_id||work[i].name||'').replace('build_','').replace('增援·','').slice(0,3);
+      var dash=work[i]._reinforce?' stroke-dasharray="3,2"':'';   // 增援节点虚线描边
+      nodes += '<circle cx="'+pos[i].x.toFixed(0)+'" cy="'+pos[i].y.toFixed(0)+'" r="13" fill="var(--panel2)" stroke="'+color+'" stroke-width="2"'+dash+'/>';
+      nodes += '<text x="'+pos[i].x.toFixed(0)+'" y="'+(pos[i].y+4).toFixed(0)+'" text-anchor="middle" font-size="7" fill="var(--text)">'+esc(label)+'</text>';
     }
     g.innerHTML = edges + nodes;
   }
+  window._secsRenderCollab = _renderCollabGraph;   // 供混沌注入等外部触发重渲染
 
   var _sseReconnectDelay = 1000;  // 指数退避初始间隔 ms
 
@@ -1895,7 +1919,8 @@
               if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent);
             }
           }
-        } catch (e) { /* 同步失败不阻断注入 */ }
+        } catch (e) { console.warn('[dt] 混沌同步', e); }
+        try { _renderCollabGraph(); } catch (e) {}        // 协作图实时反映增/减 agent
         try { if (window.dtRefresh) window.dtRefresh('chaos'); } catch (e) {}
       }
       showToast('已注入: '+label, 'success');

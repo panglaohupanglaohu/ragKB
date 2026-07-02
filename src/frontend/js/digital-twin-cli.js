@@ -15,7 +15,10 @@ async function _plazaDiscussions(plazaId){return _list(`${API}/plaza/${plazaId}/
 async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
-  renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
+  // P5: 冷启动只渲染常驻区 + 默认可见的「环境空间」Tab；architecture/interaction/pipeline
+  // 三个隐藏 Tab 改为进入时经 switchView→dtRefresh('tab') 惰性渲染，省掉冷启动 3 次无谓渲染。
+  renderAgentList();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
+  if(window._secsRenderCollab)window._secsRenderCollab();   // 协作图初始占位(不空白)
   secsInitTeamDropdown();
   setInterval(()=>{if(document.hidden)return;loadLiveMetrics();},10000);
   // 重新可见时立即补刷，避免回到页面看到过期数据（对齐仓库既有 document.hidden 约定）
@@ -26,8 +29,8 @@ async function init(){
   });
   startSim();
 }
-async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
-async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch{}}
+async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch(e){console.warn('[dt] loadDtState',e)}}
+async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch(e){console.warn('[dt] syncDtState',e)}}
 async function syncAgentMove(agentId,roomId){
   const r=await _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})});
   let d={};try{d=await r.json()}catch{}
@@ -78,7 +81,7 @@ async function loadTeamsAndAgents(){
     S.teams=[];S.agents=[];
     const fetches=teams.map(async t=>{
       const tid=t.team_id||t.id;
-      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch{}
+      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch(e){console.warn('[dt] 加载团队 agent 失败',tid,e)}
     });
     await Promise.all(fetches);
     console.log('[DT] loaded',S.teams.length,'teams,',S.agents.length,'agents');
@@ -137,8 +140,8 @@ window.addEventListener('storage', function(e) {
   }
 });
 window.dtGetCurrentTeam = dtGetCurrentTeam; window.dtSetCurrentTeam = dtSetCurrentTeam;
-async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch{}}
-async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch{}}
+async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch(e){console.warn('[dt] loadSkills',e)}}
+async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch(e){console.warn('[dt] loadTools',e)}}
 
 function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
@@ -221,7 +224,7 @@ async function loadLiveMetrics(){
     const[taskR,extR]=await Promise.allSettled([_af(`${API}/tasks/stats`),_af('/api/v1/extraction/stats')]);
     if(taskR.status==='fulfilled'&&taskR.value.ok){const d=await taskR.value.json();Object.assign(liveMetrics.tasks,d)}
     if(extR.status==='fulfilled'&&extR.value.ok){const d=await extR.value.json();if(d.funnel)Object.assign(liveMetrics.extraction,d.funnel)}
-  }catch{}
+  }catch(e){console.warn('[dt] loadLiveMetrics',e)}
   liveMetrics.lastRefresh=new Date();
   renderDashboard();
 }

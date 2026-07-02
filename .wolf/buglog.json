@@ -1591,5 +1591,33 @@
    "visibility"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-088",
+  "error_message": "右侧「协作图 [5v7]」空白,不反映增/减 agent,标题硬编码",
+  "root_cause": "_renderCollabGraph 仅评分报告返回时调一次,if(!twins.length)return 无数据即空白;标题[5v7]是HTML硬编码;不接_chaosTopoState,故 agent_join/leave 不反映;r=110 在400x140视窗上下裁切",
+  "fix": "数据源 报告twins>缓存_sx.lastTwins>当前团队agent回退;叠加_chaosTopoState剔离开+并增援(增援虚线描边);动态标题#secs-collab-title显示[n]+空态提示;椭圆布局rx155/ry48;_doInjectEvent末尾调_renderCollabGraph()实时重渲染;暴露window._secsRenderCollab供init占位。注:协作·交互Tab的#topo-svg早已反映增减,本次补齐右侧这张",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "collab-graph",
+   "chaos",
+   "secs"
+  ],
+  "date": "2026-07-02"
+ },
+ {
+  "id": "feat-022",
+  "error_message": "数字孪生 P4(空catch吞异常)/P5(冷启动全量渲染) 优化",
+  "root_cause": "P4:30处空catch排障困难;P5:init冷启动渲染全部Tab但默认只environment可见,architecture/interaction/pipeline三次渲染无谓",
+  "fix": "P4定向:cli.js 6处网络/状态加载路径(loadDtState/syncDtState/加载团队agent/loadSkills/loadTools/loadLiveMetrics)+secs-core混沌同步补 console.warn('[dt]',e);纯UI防御catch保持静默。P5:init只渲染常驻区+默认environment Tab,其余三Tab进入时经switchView→dtRefresh('tab')惰性渲染",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "logging",
+   "performance",
+   "lazy-render"
+  ],
+  "date": "2026-07-02"
  }
 ]
