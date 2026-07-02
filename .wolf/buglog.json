@@ -1633,5 +1633,18 @@
    "scenario"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-090",
+  "error_message": "全局模型(build_system/codebuddy)不出现在其它团队(AWS运维)的模型与连接列表",
+  "root_cause": "loadModels 表格只 map 本团队 /teams/{tid}/models;全局模型属于别团队,不在本团队列表,故只在顶部横幅显示、列表里看不到",
+  "fix": "loadModels 先读 /llm/global-model;若全局模型不属于本团队,拉源团队 models 取详情,在列表顶部补一行只读引用(背景高亮,操作列标'🌐 全局·来自<team>'),让每个团队都能看到实际生效的全局模型;空列表但有全局时也显示该行",
+  "tags": [
+   "frontend",
+   "agent-team-config",
+   "global-model",
+   "llm"
+  ],
+  "date": "2026-07-02"
  }
 ]
