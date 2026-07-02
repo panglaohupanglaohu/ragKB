@@ -1994,15 +1994,25 @@ async def _real_task_executor(task) -> Any:
     return {"message": f"Workflow started with {len(wf)} steps", "first_session": first_step.get("session_id")}
 
 
-@router.post(
-    "/teams/{team_id}/tasks",
-    summary="Submit a task for execution",
-    status_code=status.HTTP_201_CREATED,
-)
-async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
-    _get_team_or_404(team_id)
-    if req.agent_id:
-        _get_agent_or_404(team_id, req.agent_id)
+async def _submit_internal_task(
+    team_id: str,
+    *,
+    agent_id: str = "",
+    title: str = "",
+    description: str = "",
+    priority: int = 2,
+    dependencies: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    auto_start: bool = True,
+) -> AgentTask:
+    """内部任务提交（REST submit_task 与广场派发 dispatch 共用的单一实现）。
+
+    创建 AgentTask → 生成 workflow → 入队；auto_start=True 时启动首个步骤 +
+    harness 监控，auto_start=False 时只创建/入队不执行。返回 AgentTask 对象。
+
+    历史上此函数从 api.py 丢失，plaza_routes 仍 `from .api import _submit_internal_task`
+    → ImportError → 广场「拆解/拆解并执行」500。此处补回并让 submit_task 复用。
+    """
     engine = _te()
     if not engine._running:
         await engine.start()
@@ -2014,20 +2024,17 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
         tf = _TF.instance()
         tf_status = await tf.ensure_ready()
         token_ready = tf_status.get("ready", False)
-        _harness_log.info("[submit_task] Token Factory ready=%s, providers=%s",
-                          token_ready,
-                          [n for n, p in tf._provider_health.items() if p.reachable])
     except Exception as _tf_err:
-        _harness_log.warning("[submit_task] Token Factory check failed: %s", _tf_err)
+        _harness_log.warning("[_submit_internal_task] Token Factory check failed: %s", _tf_err)
 
     task = AgentTask(
-        agent_id=req.agent_id,
+        agent_id=agent_id,
         team_id=team_id,
-        title=req.title,
-        description=req.description,
-        priority=req.priority,
-        dependencies=list(req.dependencies),
-        metadata=dict(req.metadata),
+        title=title,
+        description=description,
+        priority=priority,
+        dependencies=list(dependencies or []),
+        metadata=dict(metadata or {}),
     )
     # Auto-generate workflow steps
     wf = _generate_workflow(task, team_id)
@@ -2036,10 +2043,10 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
 
     # Pre-seed pipeline workspace with project context
     try:
-        _seed_project_context(task.task_id, req.title, req.description or "")
+        _seed_project_context(task.task_id, title, description or "")
         task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
     except Exception as _ctx_err:
-        _harness_log.warning("[submit_task] Context seeding failed: %s", _ctx_err)
+        _harness_log.warning("[_submit_internal_task] Context seeding failed: %s", _ctx_err)
 
     # 写入任务启动 handoff 文件
     _write_handoff(task.task_id, "task_init", {
@@ -2047,24 +2054,27 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
         "title": task.title,
         "description": task.description,
         "team_id": team_id,
-        "agent_id": req.agent_id,
+        "agent_id": agent_id,
         "token_factory_ready": token_ready,
         "workflow_steps": [s["key"] for s in wf] if wf else [],
     })
 
     await engine.submit_task(task)
 
+    if not auto_start:
+        return task
+
     # ── Token Factory 不就绪时检查是否有直连 API 可用 ──
     if not token_ready:
         api_key, _, _ = _get_deepseek_credentials()
         if api_key:
-            _harness_log.info("[submit_task] Token Factory not ready but direct DeepSeek API available — proceeding")
+            _harness_log.info("[_submit_internal_task] Token Factory not ready but direct DeepSeek API available — proceeding")
             token_ready = True  # Override: direct API works
         else:
-            _harness_log.warning("[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
+            _harness_log.warning("[_submit_internal_task] Token Factory NOT ready — task %s queued but NOT started. "
                                  "请先确保 Ollama / LLM 推理后端可用。", task.task_id)
             task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
-            return task.to_dict()
+            return task
 
     # Auto-start Claude Code for the first active step
     if wf:
@@ -2078,7 +2088,7 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
             if agent:
                 sid = str(_uuid.uuid4())[:12]
                 step_prompt = _build_step_prompt(task, first_step, wf)
-                _harness_log.info("[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
+                _harness_log.info("[_submit_internal_task] Starting Claude session %s for step '%s' (agent: %s)",
                                   sid, first_step["key"], agent.name)
                 _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
                 first_step["session_id"] = sid
@@ -2091,6 +2101,28 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
         # Mark task as running and start harness monitor
         await engine.start_task(task.task_id)
         _start_harness_monitor(task.task_id, team_id)
+    return task
+
+
+@router.post(
+    "/teams/{team_id}/tasks",
+    summary="Submit a task for execution",
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    if req.agent_id:
+        _get_agent_or_404(team_id, req.agent_id)
+    task = await _submit_internal_task(
+        team_id,
+        agent_id=req.agent_id,
+        title=req.title,
+        description=req.description,
+        priority=req.priority,
+        dependencies=list(req.dependencies),
+        metadata=dict(req.metadata),
+        auto_start=True,
+    )
     return task.to_dict()
 
 

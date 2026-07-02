@@ -1660,5 +1660,19 @@
    "secs"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-092",
+  "error_message": "广场「拆解并执行」失败(拆解执行失败·请求ID) — dispatch-and-execute 500",
+  "root_cause": "plaza_routes._dispatch_discussion_tasks 内 `from .api import _submit_internal_task`,但该函数早已从 api.py 移除(仅剩 submit_task REST 端点与测试 mock)→ ImportError→500;智能拆解/拆解并执行 走同一函数,均受影响",
+  "fix": "在 api.py 补回 _submit_internal_task(team_id,*,agent_id,title,description,priority,dependencies,metadata,auto_start) 作单一实现(建AgentTask→生成workflow→入队→auto_start时启动首步+harness监控);submit_task REST 端点改为复用该 helper。需重启后端生效",
+  "tags": [
+   "backend",
+   "plaza",
+   "dispatch",
+   "import-error",
+   "tasks"
+  ],
+  "date": "2026-07-02"
  }
 ]
