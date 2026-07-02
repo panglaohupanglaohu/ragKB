@@ -865,8 +865,18 @@
   function renderEfficiencyView(payload) {
     var host = $('efficiency-panel');
     if (!host) return;
+    // 13.3: 默认「最需优化优先」——有消耗且效率最低的团队顶上来（北极星反指标）；
+    // 无消耗(no_data)团队沉底。可切到「效率最高优先」。
+    state.effSort = state.effSort || 'worst';
+    var _effRank = function (t) {
+      var spend = Number(t.tokens_consumed || 0);
+      var eff = Number(t.token_efficiency || 0);
+      if (spend <= 0) return { g: 2, v: 0 };                       // 无消耗沉底
+      return { g: 0, v: state.effSort === 'worst' ? eff : -eff };  // worst:升序 best:降序
+    };
     var teams = asItems(payload, 'teams').slice().sort(function (a, b) {
-      return Number(b.token_efficiency || 0) - Number(a.token_efficiency || 0);
+      var ra = _effRank(a), rb = _effRank(b);
+      return ra.g - rb.g || ra.v - rb.v;
     });
     if (!teams.length) {
       host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无可持续性评估数据</div></div>';
@@ -893,10 +903,20 @@
         + '<i style="width:' + (lc.skill_pct * 100).toFixed(0) + '%;background:var(--koke);display:block"></i>'
         + '<i style="width:' + (lc.collab_pct * 100).toFixed(0) + '%;background:var(--kitsune);display:block"></i>'
         + '</div>';
+      // 13.5: 该动哪个杠杆 —— 按主导 token 杠杆给"下一步"链接（仅对有消耗团队显示）
+      var _pct = function (x) { return Math.round((x || 0) * 100); };
+      var hasSpend = Number(team.tokens_consumed || 0) > 0;
+      var leverHint = '';
+      if (hasSpend && ((lc.skill || 0) + (lc.collab || 0)) > 0) {
+        var skillHeavy = (lc.skill_pct || 0) >= (lc.collab_pct || 0);
+        leverHint = skillHeavy
+          ? '<div class="lever-next" style="font-size:10px;color:var(--sumi-3);margin-top:3px">技能杠杆重(' + _pct(lc.skill_pct) + '%) → <a href="/skill-extract.html" style="color:var(--koke);text-decoration:none">去技能萃取固化重复 skill▸</a></div>'
+          : '<div class="lever-next" style="font-size:10px;color:var(--sumi-3);margin-top:3px">协作杠杆重(' + _pct(lc.collab_pct) + '%) → <a href="/plaza.html" style="color:var(--koke);text-decoration:none">去议事广场复盘协作▸</a></div>';
+      }
       return [
         '<div class="efficiency-row" title="' + esc(formulaTitle) + '">',
         '  <div class="efficiency-rank">#' + String(index + 1).padStart(2, '0') + '</div>',
-        '  <div class="efficiency-team"><b>' + esc(teamLabel(team.team_id)) + '</b><span>' + dqText + ' · ' + compactNumber(team.tokens_consumed || 0) + ' tokens</span>' + leverBar + '</div>',
+        '  <div class="efficiency-team"><b>' + esc(teamLabel(team.team_id)) + '</b><span>' + dqText + ' · ' + compactNumber(team.tokens_consumed || 0) + ' tokens</span>' + leverBar + leverHint + '</div>',
         '  <div class="efficiency-score" title="' + esc(formulaTitle) + '">' + Number(team.token_efficiency || 0).toFixed(4) + '</div>',
         '  <div class="efficiency-grade efficiency-grade--' + esc(grade) + '">' + esc(grade) + '</div>',
         '</div>',
@@ -919,8 +939,13 @@
         + (uaWarn ? ' — 有 LLM 调用未带 team_id，部分团队效率被低估；让议事/萃取/演练调用带上 token_scope(team_id)，归因占比应 <5%。' : ' · 归因健康')
         + '</div>';
     }
+    // 13.3: 排序切换（最需优化优先 ⇄ 效率最高优先）
+    var sortBar = '<div style="font-size:11px;color:var(--sumi-3);margin-bottom:8px">排序：'
+      + '<b style="color:var(--sumi-1)">' + (state.effSort === 'worst' ? '最需优化优先（低效在前）' : '效率最高优先') + '</b>'
+      + ' · <a href="javascript:void(0)" onclick="toggleEffSort()" style="color:var(--koke);text-decoration:none">切换为' + (state.effSort === 'worst' ? '效率最高优先' : '最需优化优先') + '▸</a></div>';
     host.innerHTML = [
       uaBanner,
+      sortBar,
       scoreNote,
       '<div class="efficiency-grid">',
       '  <div class="efficiency-list">' + rows + '</div>',
@@ -1514,6 +1539,10 @@
     window.runCostGateSelfCheck = runCostGateSelfCheck;
     window.generateLabelPatch = generateLabelPatch;
     window.loadEfficiencyView = loadEfficiencyView;
+    window.toggleEffSort = function () {
+      state.effSort = state.effSort === 'worst' ? 'best' : 'worst';
+      if (state.sustainability) renderEfficiencyView(state.sustainability);
+    };
 
     // Budget UI wiring
     initBudgetUI();
