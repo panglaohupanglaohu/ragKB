@@ -1577,5 +1577,19 @@
    "scenario"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "feat-021",
+  "error_message": "数字孪生模块后台轮询不随页面可见性暂停,隐藏时仍空转打后端",
+  "root_cause": "cli.js 3个 setInterval(指标10s/频率图2s/智能体30s)+director.js 2个(健康2s/团队镜像1s)均无 document.hidden 守卫;而仓库其它模块(nav-sidebar/cost-dashboard/agent-team-config/sandbox-twin)早已统一门控——数字孪生漏了,是性能+一致性缺口",
+  "fix": "5个轮询回调首行加 if(document.hidden)return;syncTeam 1000ms→2000ms;cli.js 加 visibilitychange 监听,重新可见时 loadLiveMetrics()+dtRefresh('tab') 补刷。对齐既有约定,低风险。产出 docs/数字孪生优化plan.md + todos.md,P4空catch/P5冷启动重渲染标延后(理由见plan)",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "polling",
+   "performance",
+   "visibility"
+  ],
+  "date": "2026-07-02"
  }
 ]

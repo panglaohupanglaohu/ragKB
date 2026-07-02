@@ -223,7 +223,7 @@ window._dtRoomMapHealth = function(){
 window._dtRoomMapHealth();
 window.addEventListener('DOMContentLoaded', window._dtRoomMapHealth);
 window.addEventListener('load', window._dtRoomMapHealth);
-setInterval(window._dtRoomMapHealth, 2000);  // 引用断裂检测 + 页面诊断刷新
+setInterval(function(){ if(document.hidden) return; window._dtRoomMapHealth(); }, 2000);  // 引用断裂检测 + 页面诊断刷新（隐藏时暂停）
 
 var _BG={idle:'<div style="width:100%;text-align:center;font-size:11px;color:var(--dim);padding:8px 0;line-height:1.5">👆 点上方绿色「▶ 沙箱推演」按钮创建并就绪试炼<br>（统一创建入口：读取仿真参数 + 场景守卫）</div>',
 creating:'<button class="btn-disabled" disabled style="width:100%">⏳ 创建中...</button>',
@@ -252,6 +252,6 @@ window.addEventListener('DOMContentLoaded',function(){
     }
   };
   syncTeam();
-  // 定期同步（SECS选择团队后）
-  setInterval(syncTeam, 1000);
+  // 定期同步（SECS选择团队后）——纯 UI 镜像，2s 足够，隐藏时暂停
+  setInterval(function(){ if(document.hidden) return; syncTeam(); }, 2000);
 });

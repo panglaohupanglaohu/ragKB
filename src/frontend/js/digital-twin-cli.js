@@ -17,7 +17,13 @@ async function init(){
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
   renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
   secsInitTeamDropdown();
-  setInterval(loadLiveMetrics,10000);
+  setInterval(()=>{if(document.hidden)return;loadLiveMetrics();},10000);
+  // 重新可见时立即补刷，避免回到页面看到过期数据（对齐仓库既有 document.hidden 约定）
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden)return;
+    loadLiveMetrics();
+    if(window.dtRefresh)window.dtRefresh('tab');
+  });
   startSim();
 }
 async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
@@ -1233,9 +1239,10 @@ function startSim(){
   let _freqBucket=0;
   const _origFetch=window.fetch;
   window.fetch=function(...args){_freqBucket++;return _origFetch.apply(this,args)};
-  setInterval(()=>{S.freqData.push(_freqBucket);_freqBucket=0;S.freqData.shift();renderFreqChart()},2000);
+  setInterval(()=>{if(document.hidden)return;S.freqData.push(_freqBucket);_freqBucket=0;S.freqData.shift();renderFreqChart()},2000);
   // Auto-refresh agent states every 30s
   setInterval(async()=>{
+    if(document.hidden)return;
     await loadTeamsAndAgents();renderAgentList();renderStats();renderDashboard();
   },30000);
 }
