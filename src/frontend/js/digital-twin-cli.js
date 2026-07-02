@@ -20,8 +20,8 @@ async function init(){
   setInterval(loadLiveMetrics,10000);
   startSim();
 }
-async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6)S.rooms=d.rooms;if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
-async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:S.rooms,positions:S.positions})})}catch{}}
+async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
+async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch{}}
 async function syncAgentMove(agentId,roomId){
   const r=await _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})});
   let d={};try{d=await r.json()}catch{}
@@ -42,6 +42,7 @@ window._dtMoveTestHooks = { syncAgentMove, rollbackAgentMove, moveFailureText };
 function loadLocal(){
   const storedRooms=JSON.parse(localStorage.getItem('dt2_rooms')||'null');
   S.rooms=(storedRooms&&storedRooms.length)?storedRooms:defaultRooms();
+  scopeRoomsToCurrentScenario();  // 剔除历史遗留的其他场景房间残留
   S.positions=JSON.parse(localStorage.getItem('dt2_positions')||'{}');
   S.messages=JSON.parse(localStorage.getItem('dt2_messages')||'[]').slice(-100);
   S.interactionCount=parseInt(localStorage.getItem('dt2_interactions')||'0');
@@ -54,6 +55,15 @@ function defaultRooms(){return[
   {id:'arena',name:'演练场',icon:'◎',desc:'A/B测试、技能验证与对抗演练',color:'var(--pink)'},
   {id:'rest',name:'休息区',icon:'◌',desc:'智能体待机、充能与状态恢复',color:'var(--dim)'},
 ]}
+// tab 房间 = 6 内置 + 自定义(r_开头) + 当前演练场景房间(_scn 标记)；其余场景残留一律剔除
+const BUILTIN_ROOM_IDS=['council','extraction','workshop','library','arena','rest'];
+window.BUILTIN_ROOM_IDS=BUILTIN_ROOM_IDS;
+function scopeRoomsToCurrentScenario(){
+  if(!S||!Array.isArray(S.rooms))return;
+  S.rooms=S.rooms.filter(function(r){return r&&(BUILTIN_ROOM_IDS.includes(r.id)||/^r_/.test(r.id||'')||r._scn);});
+  if(!S.rooms.length)S.rooms=defaultRooms();
+}
+window.scopeRoomsToCurrentScenario=scopeRoomsToCurrentScenario;
 async function loadTeamsAndAgents(){
   try{
     const teams=await _list(`${API}/teams`,200,0);
@@ -132,7 +142,7 @@ function switchView(el){
   // 提示"去右侧选场景"却看不到选场景入口(rp-default 是隐藏的旧面板)。
   document.getElementById('rp-default').style.display = 'none';
   document.getElementById('rp-secs').style.display = '';
-  if(el.dataset.view==='environment'){renderRoomTabs();setTimeout(()=>{switchRoom(_3dCurrentRoom||'council')},50)}
+  if(el.dataset.view==='environment'){renderRoomTabs();const _scnFirst=(window._scenarioRooms&&window._scenarioRooms[0]&&window._scenarioRooms[0].id);setTimeout(()=>{switchRoom(_3dCurrentRoom||_scnFirst||'council')},50)}
   // 统一走调度器刷新当前可见 Tab（替代逐个 renderXxx，杜绝"某 Tab 不联动"打地鼠）
   if(window.dtRefresh)window.dtRefresh('tab');
 }
@@ -514,7 +524,8 @@ function renderExecLog(){
 function renderRoomTabs(){
   const el=document.getElementById('room-tabs');if(!el)return;
   if(!S.rooms||!S.rooms.length)S.rooms=defaultRooms();
-  el.innerHTML=S.rooms.map((r,i)=>`<button class="flow-btn${i===0?' active':''}" onclick="switchRoom('${r.id}',this)">${r.name}</button>`).join('');
+  const _cur=window._currentRoomId||(S.rooms[0]&&S.rooms[0].id);
+  el.innerHTML=S.rooms.map((r)=>`<button class="flow-btn${r.id===_cur?' active':''}" onclick="switchRoom('${r.id}',this)">${r.name}</button>`).join('');
 }
 function renderEnvironment(){
   const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
@@ -1286,7 +1297,7 @@ async function onDrop(ev,roomId){
 }
 document.addEventListener('dragend',()=>{document.querySelectorAll('.agent-card.dragging').forEach(c=>c.classList.remove('dragging'));_dragAgentId=null})
 
-function persist(){localStorage.setItem('dt2_rooms',JSON.stringify(S.rooms));localStorage.setItem('dt2_positions',JSON.stringify(S.positions));syncDtState()}
+function persist(){const persistRooms=(S.rooms||[]).filter(function(r){return !(r&&r._scn);});localStorage.setItem('dt2_rooms',JSON.stringify(persistRooms));localStorage.setItem('dt2_positions',JSON.stringify(S.positions));syncDtState()}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3000)}
 

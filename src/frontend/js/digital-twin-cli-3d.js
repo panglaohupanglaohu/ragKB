@@ -1180,16 +1180,20 @@ window._dt3dBuildRoom=function(roomId){
 window.applyScenarioRooms=function(rooms){
   if(!Array.isArray(rooms)||!rooms.length)return;
   window.S=window.S||{};window.S.rooms=window.S.rooms||[];
+  // 先移除上一个场景遗留的场景房间（_scn 标记），避免 tab 串台/累积
+  window.S.rooms=window.S.rooms.filter(function(x){return !(x&&x._scn);});
   var norm=[];
   rooms.forEach(function(r){
     var id=r.room_id||r.id;if(!id)return;
-    var rec={id:id,name:r.name||id,icon:r.icon||'🏠',capacity:r.capacity||6,stage:r.stage};
+    var rec={id:id,name:r.name||id,icon:r.icon||'🏠',capacity:r.capacity||6,stage:r.stage,_scn:true};
     norm.push(rec);
     if(!window.S.rooms.find(function(x){return x.id===id;}))window.S.rooms.push(rec);
     else window.S.rooms=window.S.rooms.map(function(x){return x.id===id?rec:x;});
   });
   window._scenarioRooms=norm;
   var firstId=norm[0].id;
+  window._currentRoomId=firstId;               // tab 高亮跟随场景首个房间
+  if(typeof window.renderRoomTabs==='function')window.renderRoomTabs();  // tab 栏收口为「6 内置 + 当前场景」
   if(firstId)window._dt3dBuildRoom(firstId);
 };
 window._dt3dSetCamera=function(px,py,pz,tx,ty,tz){
