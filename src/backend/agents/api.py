@@ -14,6 +14,7 @@ Tab-based organization:
 from __future__ import annotations
 
 import asyncio
+import json as _json
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
@@ -2082,6 +2083,7 @@ async def bridge_command(req: BridgeCommandRequest) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════
 
 from .task_engine import AgentTask, TaskStatus, get_task_engine
+from . import task_trace as _task_trace
 
 
 class SubmitTaskRequest(BaseModel):
@@ -2140,6 +2142,39 @@ def _build_task_from_request(team_id: str, req: SubmitTaskRequest) -> AgentTask:
         dependencies=list(req.dependencies),
         metadata=dict(req.metadata),
     )
+
+
+async def _submit_internal_task(
+    team_id: str,
+    *,
+    agent_id: str = "",
+    title: str,
+    description: str = "",
+    priority: int = 2,
+    dependencies: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    auto_start: bool = False,
+) -> AgentTask:
+    task = _build_task_from_request(
+        team_id,
+        SubmitTaskRequest(
+            agent_id=agent_id,
+            title=title,
+            description=description,
+            priority=priority,
+            dependencies=list(dependencies or []),
+            metadata=dict(metadata or {}),
+        ),
+    )
+    workflow = _initialize_task_workflow(task, team_id)
+    await _ensure_task_engine_running()
+    _seed_task_pipeline(task)
+    await _te().submit_task(task)
+    if auto_start and workflow:
+        _start_first_workflow_step(task, team_id, workflow)
+        await _te().start_task(task.task_id)
+        _start_harness_monitor(task.task_id, team_id)
+    return task
 
 
 def _initialize_task_workflow(task: AgentTask, team_id: str) -> List[Dict[str, Any]]:
@@ -2828,6 +2863,12 @@ def _emit_pipeline_event(task_id: str, event_type: str, data: Dict[str, Any]) ->
     # Keep last 200 events per task
     if len(_pipeline_events[task_id]) > 200:
         _pipeline_events[task_id] = _pipeline_events[task_id][-200:]
+    task = _te().get_task(task_id)
+    if task is not None:
+        task.metadata.setdefault("trace_events", []).append(_trace_event_payload(task_id, evt))
+        if len(task.metadata["trace_events"]) > 200:
+            task.metadata["trace_events"] = task.metadata["trace_events"][-200:]
+    _persist_trace_event(task_id, evt)
     # Push to SSE subscribers
     for q in _pipeline_subscribers.get(task_id, []):
         try:
@@ -6197,15 +6238,194 @@ async def get_task_tool_traces(task_id: str) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════════
 
 
+def _project_root_path() -> str:
+    return _task_trace.project_root_path(__file__)
+
+
+def _global_trace_events_path() -> str:
+    return _task_trace.global_trace_events_path(_project_root_path())
+
+
 def _build_trace_context(task) -> Dict[str, Any]:
     """从 task metadata 提取 trace_context。"""
+    return _task_trace.build_trace_context(task)
+
+
+def _append_jsonl(path: str, payload: Dict[str, Any]) -> None:
+    _task_trace.append_jsonl(path, payload)
+
+
+def _trace_event_payload(task_id: str, evt: Dict[str, Any]) -> Dict[str, Any]:
+    task = _te().get_task(task_id)
+    return _task_trace.trace_event_payload(task_id, evt, task)
+
+
+def _persist_trace_event(task_id: str, evt: Dict[str, Any]) -> None:
+    task = _te().get_task(task_id)
+    _task_trace.persist_trace_event(
+        task_id,
+        evt,
+        task=task,
+        global_path=_global_trace_events_path(),
+    )
+
+
+def _workflow_summary(workflow: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _task_trace.workflow_summary(workflow)
+
+
+def _collect_changed_files(workflow: List[Dict[str, Any]]) -> List[str]:
+    return _task_trace.collect_changed_files(workflow)
+
+
+def _extract_test_result(workflow: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _task_trace.extract_test_result(workflow)
+
+
+def _build_diff_preview(workflow: List[Dict[str, Any]]) -> tuple[Dict[str, List[str]], str]:
+    return _task_trace.build_diff_preview(workflow, repo_root=_project_root_path())
+
+
+def _attach_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
     meta = task.metadata or {}
-    return {
-        "source": meta.get("source", "manual"),
-        "discussion_id": meta.get("discussion_id", ""),
-        "plaza_id": meta.get("plaza_id", ""),
-        "pipeline_dir": meta.get("pipeline_dir", ""),
-    }
+    artifact_dir = str(meta.get("pipeline_dir") or _pipeline_dir(task.task_id))
+    return _task_trace.attach_task_execution_artifacts(
+        task,
+        artifact_dir=artifact_dir,
+        repo_root=_project_root_path(),
+    )
+
+
+def _linked_evolution_items(task: AgentTask) -> List[Dict[str, Any]]:
+    try:
+        from agent_team_api import _evolution_engine
+    except Exception:
+        _evolution_engine = None
+    if not _evolution_engine:
+        return []
+    items = []
+    for item in _evolution_engine.evolution_items.values():
+        if task.task_id not in item.source_task_ids:
+            continue
+        items.append({
+            "id": item.id,
+            "status": item.status,
+            "title": item.title,
+            "verify_test_name": item.verify_test_name,
+            "verify_result": item.verify_result,
+            "verify_detail": item.verify_detail,
+            "retry_count": item.retry_count,
+            "max_retries": item.max_retries,
+        })
+    return items
+
+
+async def _broadcast_task_verification_state(task: AgentTask, synced_item_ids: List[str]) -> None:
+    meta = task.metadata or {}
+    discussion_id = meta.get("discussion_id", "")
+    if not discussion_id:
+        return
+    try:
+        from agent_team_api import _evolution_engine
+        from .plaza_routes import _build_discussion_verification_state_payload
+        from .plaza_engine import get_plaza_engine
+
+        if not _evolution_engine:
+            return
+        payload = _build_discussion_verification_state_payload(
+            _evolution_engine,
+            plaza_id=meta.get("plaza_id", ""),
+            discussion_id=discussion_id,
+            trigger="task_finalized",
+            synced_item_ids=synced_item_ids,
+        )
+        await get_plaza_engine()._broadcast(discussion_id, payload)
+        _emit_pipeline_event(task.task_id, "verification_state_broadcasted", {
+            "discussion_id": discussion_id,
+            "synced_item_ids": synced_item_ids,
+        })
+    except Exception:
+        return
+
+
+async def _finalize_task_terminal_state(task: AgentTask) -> Optional[AgentTask]:
+    artifacts = _attach_task_execution_artifacts(task)
+    terminal_state = _task_trace.terminal_sync_state(artifacts)
+    if terminal_state["task_status"] == "failed":
+        task.status = TaskStatus.FAILED
+    else:
+        task.status = TaskStatus.COMPLETED
+    task.error = terminal_state["task_error"]
+    task.completed_at = datetime.now(timezone.utc).isoformat()
+    task.result = artifacts
+
+    synced_item_ids: List[str] = []
+    try:
+        from agent_team_api import _evolution_engine
+
+        if _evolution_engine:
+            sync_kwargs = _task_trace.evolution_sync_kwargs(
+                task,
+                artifacts,
+                sync_status=terminal_state["sync_status"],
+            )
+            synced_item_ids = _evolution_engine.sync_task_outcome(
+                sync_kwargs.pop("task_id"),
+                **sync_kwargs,
+            )
+            if synced_item_ids:
+                task.metadata["evolution_item_ids"] = synced_item_ids
+    except Exception:
+        synced_item_ids = []
+
+    _emit_pipeline_event(task.task_id, "task_finalized", {
+        "status": task.status.value,
+        "changed_files": artifacts["changed_files"],
+        "synced_item_ids": synced_item_ids,
+    })
+    if synced_item_ids:
+        _emit_pipeline_event(task.task_id, "evolution_synced", {"synced_item_ids": synced_item_ids})
+        await _broadcast_task_verification_state(task, synced_item_ids)
+    _te()._store.save_task(task)
+    return task
+
+
+def _task_trace_summary(task: AgentTask) -> Dict[str, Any]:
+    events = [_trace_event_payload(task.task_id, evt) for evt in _pipeline_events.get(task.task_id, [])]
+    return _task_trace.task_trace_summary(task, events, _linked_evolution_items(task))
+
+
+def _get_team_task_or_404(team_id: str, task_id: str) -> AgentTask:
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.get("/teams/{team_id}/tasks/{task_id}/trace-summary", summary="Task trace summary")
+def get_task_trace_summary(team_id: str, task_id: str) -> Dict[str, Any]:
+    return _task_trace_summary(_get_team_task_or_404(team_id, task_id))
+
+
+@router.get("/teams/{team_id}/tasks/{task_id}/trace-events", summary="Task trace events")
+def get_task_trace_events(team_id: str, task_id: str) -> Dict[str, Any]:
+    task = _get_team_task_or_404(team_id, task_id)
+    events = [_trace_event_payload(task_id, evt) for evt in _pipeline_events.get(task_id, [])]
+    return _task_trace.task_trace_events_payload(task, events)
+
+
+@router.get("/teams/{team_id}/discussions/{discussion_id}/trace-summary", summary="Discussion trace summary")
+def get_discussion_trace_summary(team_id: str, discussion_id: str) -> Dict[str, Any]:
+    tasks = [
+        task
+        for task in _te().list_tasks()
+        if task.team_id == team_id and (task.metadata or {}).get("discussion_id") == discussion_id
+    ]
+    return _task_trace.discussion_trace_summary_payload(
+        team_id=team_id,
+        discussion_id=discussion_id,
+        task_summaries=[_task_trace_summary(task) for task in tasks],
+    )
 
 
 @router.get("/traces/recent", summary="Recent trace summaries")
@@ -6217,37 +6437,12 @@ def get_recent_trace_summaries(
     """返回最近的任务追踪摘要（按时间倒序）。"""
     engine = _te()
     all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
-    # 过滤
-    filtered = []
-    for t in all_tasks:
-        if team_id and t.team_id != team_id:
-            continue
-        meta = t.metadata or {}
-        if source and meta.get("source", "manual") != source:
-            continue
-        filtered.append(t)
-    # 按 created_at 倒序
-    filtered.sort(key=lambda t: getattr(t, "created_at", ""), reverse=True)
-    filtered = filtered[:limit]
-    traces = []
-    for t in filtered:
-        meta = t.metadata or {}
-        wf = meta.get("workflow", [])
-        completed = sum(1 for s in wf if s.get("status") == "completed")
-        failed = sum(1 for s in wf if s.get("status") == "failed")
-        traces.append({
-            "task_id": t.task_id,
-            "team_id": t.team_id,
-            "title": t.title,
-            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
-            "source": meta.get("source", "manual"),
-            "trace_context": _build_trace_context(t),
-            "workflow_steps": len(wf),
-            "completed_steps": completed,
-            "failed_steps": failed,
-            "created_at": getattr(t, "created_at", ""),
-        })
-    return {"count": len(traces), "traces": traces}
+    return _task_trace.recent_trace_summaries(
+        all_tasks,
+        limit=limit,
+        team_id=team_id,
+        source=source,
+    )
 
 
 @router.get("/traces/recent-events", summary="Recent trace events")
@@ -6258,47 +6453,26 @@ def get_recent_trace_events(
     event_type: str = Query(default=""),
 ) -> Dict[str, Any]:
     """返回最近的管道事件（按时间倒序）。"""
-    engine = _te()
-    all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
-    # 建 task_id → (team_id, source) 映射
-    task_map = {}
-    for t in all_tasks:
-        meta = t.metadata or {}
-        task_map[t.task_id] = {
-            "team_id": t.team_id,
-            "source": meta.get("source", "manual"),
-            "discussion_id": meta.get("discussion_id", ""),
-            "plaza_id": meta.get("plaza_id", ""),
-            "title": t.title,
-        }
-    # 从 _pipeline_events 收集事件
-    events = []
-    for task_id, evts in _pipeline_events.items():
-        info = task_map.get(task_id, {})
-        if team_id and info.get("team_id") != team_id:
-            continue
-        if source and info.get("source") != source:
-            continue
-        for evt in evts:
-            if event_type and evt.get("type") != event_type:
-                continue
-            events.append({
-                "task_id": task_id,
-                "team_id": info.get("team_id", ""),
-                "title": info.get("title", ""),
-                "type": evt.get("type", ""),
-                "ts": evt.get("ts", 0),
-                "trace_context": {
-                    "source": info.get("source", "manual"),
-                    "discussion_id": info.get("discussion_id", ""),
-                    "plaza_id": info.get("plaza_id", ""),
-                },
-                "data": {k: v for k, v in evt.items() if k not in ("type", "ts")},
-            })
-    # 按 ts 倒序
-    events.sort(key=lambda e: e.get("ts", 0), reverse=True)
-    events = events[:limit]
-    return {"count": len(events), "events": events}
+    return _task_trace.recent_trace_events(
+        _pipeline_events,
+        _te().get_task,
+        limit=limit,
+        team_id=team_id,
+        source=source,
+        event_type=event_type,
+    )
+
+
+@router.get("/traces/log-tail", summary="Tail persisted trace event log")
+def get_trace_log_tail(
+    limit: int = Query(default=100, ge=1, le=5000),
+    event_type: str = Query(default=""),
+) -> Dict[str, Any]:
+    return _task_trace.trace_log_tail(
+        _global_trace_events_path(),
+        limit=limit,
+        event_type=event_type,
+    )
 
 
 @router.get("/traces/export", summary="Export trace data as NDJSON")
@@ -6308,21 +6482,36 @@ def export_traces(
     limit: int = Query(default=500, ge=1, le=5000),
 ):
     """导出追踪数据为 NDJSON 流。"""
-    import json as _json
     from fastapi.responses import StreamingResponse
 
     def gen():
-        # summaries
         summaries = get_recent_trace_summaries(limit=limit, team_id=team_id, source=source)
-        for t in summaries["traces"]:
-            yield _json.dumps({"kind": "summary", **t}, ensure_ascii=False) + "\n"
-        # events
         events = get_recent_trace_events(limit=limit * 5, team_id=team_id, source=source)
-        for e in events["events"]:
-            yield _json.dumps({"kind": "event", **e}, ensure_ascii=False) + "\n"
+        yield from _task_trace.iter_trace_export_lines(summaries, events)
 
     return StreamingResponse(gen(), media_type="application/x-ndjson",
                              headers={"Content-Disposition": "attachment; filename=traces.ndjson"})
+
+
+@router.get("/traces/events/export", summary="Export trace events as NDJSON")
+def export_trace_events(
+    limit: int = Query(default=500, ge=1, le=5000),
+    team_id: str = Query(default=""),
+    source: str = Query(default=""),
+    event_type: str = Query(default=""),
+):
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        events = get_recent_trace_events(
+            limit=limit,
+            team_id=team_id,
+            source=source,
+            event_type=event_type,
+        )
+        yield from _task_trace.iter_trace_event_export_lines(events)
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
 @router.post(

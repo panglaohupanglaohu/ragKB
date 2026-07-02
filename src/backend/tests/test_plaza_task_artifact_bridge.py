@@ -12,6 +12,7 @@ import pytest
 import agent_team_api as agent_team_api_module
 from agents import api as api_module
 from agents import plaza_engine as plaza_engine_module
+from agents import task_trace
 from agents import task_engine as task_engine_module
 from agents.task_engine import AgentTask, TaskEngine, TaskStatus
 from agents.task_store import TaskStore
@@ -93,7 +94,11 @@ class TestTaskArtifacts:
                 },
             )
 
-            artifacts = api_module._attach_task_execution_artifacts(task)
+            artifacts = task_trace.attach_task_execution_artifacts(
+                task,
+                artifact_dir=tmpdir,
+                repo_root=str(Path(api_module.__file__).resolve().parents[3]),
+            )
 
             assert artifacts["artifact_dir"] == tmpdir
             assert artifacts["changed_files"] == ["src/backend/main.py"]
@@ -138,7 +143,11 @@ class TestTaskArtifacts:
                     },
                 )
 
-                artifacts = api_module._attach_task_execution_artifacts(task)
+                artifacts = task_trace.attach_task_execution_artifacts(
+                    task,
+                    artifact_dir=tmpdir,
+                    repo_root=str(repo_root),
+                )
 
                 assert rel_path in artifacts["diff_by_file"]
                 assert "-old line" in "\n".join(artifacts["diff_by_file"][rel_path])
@@ -168,7 +177,11 @@ class TestTaskArtifacts:
                 },
             )
 
-            artifacts = api_module._attach_task_execution_artifacts(task)
+            artifacts = task_trace.attach_task_execution_artifacts(
+                task,
+                artifact_dir=tmpdir,
+                repo_root=str(Path(api_module.__file__).resolve().parents[3]),
+            )
 
             assert artifacts["trace_context"]["task_id"] == "task-trace-context"
             assert artifacts["trace_context"]["discussion_id"] == "disc-1"
@@ -179,6 +192,217 @@ class TestTaskArtifacts:
             persisted = json.loads(trace_file.read_text(encoding="utf-8"))
             assert persisted["trace_context"]["task_id"] == "task-trace-context"
             assert persisted["trace_context"]["evolution_item_ids"] == ["evo-1", "evo-2"]
+
+
+class TestTaskTraceHelpers:
+    def test_trace_event_payload_and_persistence_write_pipeline_and_global_logs(self):
+        with TemporaryDirectory() as tmpdir:
+            pipeline_dir = Path(tmpdir) / "pipeline"
+            global_log = Path(tmpdir) / "global" / "trace_events.jsonl"
+            task = AgentTask(
+                task_id="task-event",
+                team_id="team-build",
+                title="事件任务",
+                metadata={
+                    "source": "plaza",
+                    "discussion_id": "disc-event",
+                    "pipeline_dir": str(pipeline_dir),
+                },
+            )
+            event = {"type": "pipeline_started", "ts": 123}
+
+            payload = task_trace.trace_event_payload(task.task_id, event, task)
+            task_trace.persist_trace_event(
+                task.task_id,
+                event,
+                task=task,
+                global_path=str(global_log),
+            )
+
+            assert payload["task_id"] == "task-event"
+            assert payload["team_id"] == "team-build"
+            assert payload["title"] == "事件任务"
+            assert payload["source"] == "plaza"
+            assert payload["trace_context"]["discussion_id"] == "disc-event"
+
+            pipeline_events = [
+                json.loads(line)
+                for line in (pipeline_dir / "trace_events.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            global_events = [
+                json.loads(line)
+                for line in global_log.read_text(encoding="utf-8").splitlines()
+            ]
+            assert pipeline_events == [payload]
+            assert global_events == [payload]
+
+    def test_terminal_and_evolution_sync_helpers_build_stable_payloads(self):
+        task = AgentTask(
+            task_id="task-sync",
+            team_id="team-build",
+            title="同步任务",
+            error="boom",
+        )
+        artifacts = {
+            "workflow_summary": {"failed_steps": ["test"]},
+            "changed_files": ["src/backend/main.py"],
+            "artifact_dir": "storage/pipeline/task-sync",
+        }
+
+        terminal_state = task_trace.terminal_sync_state(artifacts)
+        kwargs = task_trace.evolution_sync_kwargs(task, artifacts, sync_status=terminal_state["sync_status"])
+
+        assert terminal_state == {
+            "task_status": "failed",
+            "task_error": "workflow_failed:test",
+            "sync_status": "failed",
+        }
+        assert kwargs == {
+            "task_id": "task-sync",
+            "status": "failed",
+            "code_changes": ["src/backend/main.py"],
+            "artifact_dir": "storage/pipeline/task-sync",
+            "build_artifacts": artifacts,
+            "error": "boom",
+        }
+
+    def test_trace_payload_builders_preserve_counts_and_context(self):
+        task = AgentTask(
+            task_id="task-payload",
+            team_id="team-build",
+            title="Payload 任务",
+            metadata={"source": "plaza", "discussion_id": "disc-payload"},
+        )
+        events = [{"type": f"event-{idx}", "ts": idx} for idx in range(12)]
+        linked = [{"id": "evo-1", "status": "closed"}]
+
+        summary = task_trace.task_trace_summary(task, events, linked)
+        events_payload = task_trace.task_trace_events_payload(task, events)
+        discussion_payload = task_trace.discussion_trace_summary_payload(
+            team_id="team-build",
+            discussion_id="disc-payload",
+            task_summaries=[summary],
+        )
+
+        assert summary["task_id"] == "task-payload"
+        assert summary["trace_event_count"] == 12
+        assert [event["type"] for event in summary["recent_trace_events"]] == [f"event-{idx}" for idx in range(2, 12)]
+        assert summary["trace_context"]["discussion_id"] == "disc-payload"
+        assert summary["linked_evolution_items"] == linked
+        assert events_payload == {"task_id": "task-payload", "count": 12, "events": events}
+        assert discussion_payload == {
+            "team_id": "team-build",
+            "discussion_id": "disc-payload",
+            "count": 1,
+            "tasks": [summary],
+        }
+
+    def test_recent_trace_summaries_filters_and_orders_tasks(self):
+        older = AgentTask(
+            task_id="manual-old",
+            team_id="team-build",
+            title="旧手动任务",
+            created_at="2026-01-01T00:00:00+00:00",
+            metadata={"source": "manual", "workflow": []},
+        )
+        newer = AgentTask(
+            task_id="plaza-new",
+            team_id="team-build",
+            title="新 Plaza 任务",
+            created_at="2026-01-02T00:00:00+00:00",
+            metadata={
+                "source": "plaza",
+                "discussion_id": "disc-new",
+                "workflow": [
+                    {"key": "develop", "status": "completed"},
+                    {"key": "test", "status": "failed"},
+                ],
+            },
+        )
+
+        payload = task_trace.recent_trace_summaries(
+            [older, newer],
+            limit=10,
+            team_id="team-build",
+            source="plaza",
+        )
+
+        assert payload["count"] == 1
+        assert payload["traces"][0]["task_id"] == "plaza-new"
+        assert payload["traces"][0]["completed_steps"] == 1
+        assert payload["traces"][0]["failed_steps"] == 1
+        assert payload["traces"][0]["trace_context"]["discussion_id"] == "disc-new"
+
+    def test_recent_trace_events_filters_and_enriches_events(self):
+        plaza_task = AgentTask(
+            task_id="task-plaza",
+            team_id="team-build",
+            title="Plaza 事件",
+            metadata={"source": "plaza", "discussion_id": "disc-events"},
+        )
+        manual_task = AgentTask(
+            task_id="task-manual",
+            team_id="team-build",
+            title="Manual 事件",
+            metadata={"source": "manual"},
+        )
+        tasks = {plaza_task.task_id: plaza_task, manual_task.task_id: manual_task}
+        events = {
+            "task-plaza": [
+                {"type": "pipeline_started", "ts": 1},
+                {"type": "task_finalized", "ts": 3},
+            ],
+            "task-manual": [{"type": "pipeline_started", "ts": 2}],
+        }
+
+        payload = task_trace.recent_trace_events(
+            events,
+            tasks.get,
+            limit=5,
+            team_id="team-build",
+            source="plaza",
+            event_type="pipeline_started",
+        )
+
+        assert payload["count"] == 1
+        assert payload["events"][0]["task_id"] == "task-plaza"
+        assert payload["events"][0]["title"] == "Plaza 事件"
+        assert payload["events"][0]["trace_context"]["discussion_id"] == "disc-events"
+
+    def test_trace_log_tail_filters_invalid_lines_and_event_type(self):
+        with TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "trace_events.jsonl"
+            log_path.write_text(
+                "\n".join([
+                    json.dumps({"type": "pipeline_started", "task_id": "a"}),
+                    "not-json",
+                    json.dumps({"type": "task_finalized", "task_id": "b"}),
+                    json.dumps({"type": "pipeline_started", "task_id": "c"}),
+                ]),
+                encoding="utf-8",
+            )
+
+            payload = task_trace.trace_log_tail(str(log_path), limit=1, event_type="pipeline_started")
+
+            assert payload == {
+                "count": 1,
+                "events": [{"type": "pipeline_started", "task_id": "c"}],
+            }
+
+    def test_trace_export_iterators_emit_ndjson(self):
+        summaries = {"traces": [{"task_id": "task-1"}]}
+        events = {"events": [{"task_id": "task-1", "type": "pipeline_started"}]}
+
+        export_lines = list(task_trace.iter_trace_export_lines(summaries, events))
+        event_lines = list(task_trace.iter_trace_event_export_lines(events))
+
+        assert [json.loads(line) for line in export_lines] == [
+            {"kind": "summary", "task_id": "task-1"},
+            {"kind": "event", "task_id": "task-1", "type": "pipeline_started"},
+        ]
+        assert [json.loads(line) for line in event_lines] == [
+            {"task_id": "task-1", "type": "pipeline_started"},
+        ]
 
 
 class TestPlazaEvolutionSync:

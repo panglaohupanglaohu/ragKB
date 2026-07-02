@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -18,6 +17,18 @@ from channels.system_evolution import EvolutionStatus
 
 from .plaza import PRESET_TOPICS, SeatTier, NicheRole, DiscussionStatus
 from .plaza_engine import get_plaza_engine
+from .plaza_stream import (
+    build_stream_heartbeat_event as _build_stream_heartbeat_event,
+    build_stream_status_event as _build_stream_status_event,
+    format_live_stream_event as _format_live_stream_event,
+    format_sse_event as _format_sse_event,
+    is_discussion_end_event as _is_discussion_end_event,
+    iter_closed_discussion_events as _iter_closed_discussion_events,
+    iter_replay_message_events as _iter_replay_message_events,
+    parse_last_event_id as _parse_last_event_id,
+    subscribe_discussion_stream as _subscribe_discussion_stream,
+    unsubscribe_discussion_stream as _unsubscribe_discussion_stream,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plaza", tags=["Plaza"])
@@ -448,6 +459,39 @@ def _link_tasks_to_evolution_items(
         metadata["trace_context"] = trace_context
         task.metadata = metadata
         engine._store.save_task(task)
+
+
+def _build_discussion_verification_state_payload(
+    evolution_engine,
+    *,
+    plaza_id: str,
+    discussion_id: str,
+    trigger: str,
+    synced_item_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    queue = evolution_engine.get_verification_queue(
+        source_plaza_id=plaza_id,
+        source_discussion_id=discussion_id,
+    )
+    alerts = evolution_engine.get_verification_alerts(
+        source_plaza_id=plaza_id,
+        source_discussion_id=discussion_id,
+    )
+    status_counts: Dict[str, int] = {}
+    for item in queue:
+        item_status = str(item.get("status", ""))
+        status_counts[item_status] = status_counts.get(item_status, 0) + 1
+    return {
+        "type": "verification_state_updated",
+        "plaza_id": plaza_id,
+        "discussion_id": discussion_id,
+        "trigger": trigger,
+        "synced_item_ids": list(synced_item_ids or []),
+        "status_counts": status_counts,
+        "queue_count": len(queue),
+        "alert_count": len(alerts),
+        "alerts": alerts,
+    }
 
 
 # ── 广场 CRUD ──────────────────────────────────────────────
@@ -1135,8 +1179,6 @@ async def evolve_from_discussion(
 
     # 触发演化周期
     cycle_result = _evolution_engine.run_evolution_cycle()
-    from .api import _build_discussion_verification_state_payload
-
     payload = _build_discussion_verification_state_payload(
         _evolution_engine,
         plaza_id=plaza_id,
@@ -1261,8 +1303,6 @@ async def run_discussion_verification_queue(plaza_id: str, disc_id: str) -> Dict
         source_plaza_id=plaza_id,
         source_discussion_id=disc_id,
     )
-    from .api import _build_discussion_verification_state_payload
-
     payload = _build_discussion_verification_state_payload(
         _evolution_engine,
         plaza_id=plaza_id,
@@ -1459,25 +1499,6 @@ def _schedule_discussion_run(engine, plaza_id: str, disc_id: str):
     asyncio.create_task(engine.run_discussion(plaza_id, disc_id))
 
 
-def _format_sse_event(payload: Dict[str, Any], event_id: str = "") -> str:
-    id_line = f"id: {event_id}\n" if event_id else ""
-    return f"{id_line}data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
-def _parse_last_event_id(last_event_id: str) -> int:
-    return int(last_event_id) if last_event_id and last_event_id.isdigit() else -1
-
-
-def _iter_replay_message_events(disc, last_seq: int):
-    for msg in disc.messages:
-        if msg.seq >= 0 and msg.seq <= last_seq:
-            continue
-        yield _format_sse_event(
-            {"type": "message", "message": msg.to_dict()},
-            str(msg.seq),
-        )
-
-
 @router.get("/{plaza_id}/discussions/{disc_id}/stream", summary="SSE 实时消息流")
 async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     """Server-Sent Events 实时推送讨论消息.
@@ -1490,7 +1511,7 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    q = engine.subscribe(disc_id)
+    q = _subscribe_discussion_stream(engine, disc_id)
 
     # 断点续传：只重放 Last-Event-ID 之后的消息
     last_seq = _parse_last_event_id(request.headers.get("Last-Event-ID", ""))
@@ -1502,21 +1523,14 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
                 yield event
 
             # 推送当前状态（给跳过的 seq 使用虚拟 id）
-            status_seq = max(msg.seq + 1 for msg in disc.messages) if disc.messages else 0
-            yield _format_sse_event({"type": "status", "status": disc.status.value}, str(status_seq))
+            status_seq, status_event = _build_stream_status_event(disc)
+            yield status_event
 
             # 如果讨论已结束，推送合成的 plan_updated + discussion_end 事件
             # （SSE 连接时讨论可能已经跑完，需确保前端知道结果）
             if disc.status == DiscussionStatus.CLOSED:
-                if disc.plan:
-                    end_seq = status_seq + 1
-                    yield _format_sse_event({"type": "plan_updated", "plan": disc.plan}, str(end_seq))
-                    status_seq = end_seq
-                end_seq_final = status_seq + 1
-                yield _format_sse_event(
-                    {"type": "discussion_end", "summary": disc.summary},
-                    str(end_seq_final),
-                )
+                for event in _iter_closed_discussion_events(disc, status_seq):
+                    yield event
                 # 讨论已结束，不需要等待实时事件
                 return
 
@@ -1524,15 +1538,13 @@ async def stream_discussion(plaza_id: str, disc_id: str, request: Request):
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=30.0)
-                    msg = event.get("message")
-                    evt_seq = str(msg.seq) if msg and hasattr(msg, 'seq') and msg.seq >= 0 else ""
-                    yield _format_sse_event(event, evt_seq)
-                    if event.get("type") == "discussion_end":
+                    yield _format_live_stream_event(event)
+                    if _is_discussion_end_event(event):
                         break
                 except asyncio.TimeoutError:
-                    yield _format_sse_event({"type": "heartbeat"})
+                    yield _build_stream_heartbeat_event()
         finally:
-            engine.unsubscribe(disc_id, q)
+            _unsubscribe_discussion_stream(engine, disc_id, q)
 
     return StreamingResponse(
         event_stream(),

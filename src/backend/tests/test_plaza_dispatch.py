@@ -11,6 +11,7 @@ import pytest
 from agents import api as api_module
 from agents import plaza_engine as plaza_engine_module
 from agents import plaza_routes
+from agents import plaza_stream
 from agents import task_engine as task_engine_module
 from agents.plaza import DiscussionStatus, PlazaMessage
 from agents.plaza_engine import PlazaEngine
@@ -317,18 +318,18 @@ class TestDiscussionLifecycle:
         assert len(scheduled) == 1
 
     def test_format_sse_event_preserves_optional_id_and_unicode_payload(self):
-        assert plaza_routes._format_sse_event({"type": "heartbeat"}) == (
+        assert plaza_stream.format_sse_event({"type": "heartbeat"}) == (
             'data: {"type": "heartbeat"}\n\n'
         )
-        assert plaza_routes._format_sse_event({"type": "message", "text": "议事"}, "7") == (
+        assert plaza_stream.format_sse_event({"type": "message", "text": "议事"}, "7") == (
             'id: 7\ndata: {"type": "message", "text": "议事"}\n\n'
         )
 
     def test_parse_last_event_id_matches_existing_digit_only_behavior(self):
-        assert plaza_routes._parse_last_event_id("") == -1
-        assert plaza_routes._parse_last_event_id("abc") == -1
-        assert plaza_routes._parse_last_event_id("-1") == -1
-        assert plaza_routes._parse_last_event_id("12") == 12
+        assert plaza_stream.parse_last_event_id("") == -1
+        assert plaza_stream.parse_last_event_id("abc") == -1
+        assert plaza_stream.parse_last_event_id("-1") == -1
+        assert plaza_stream.parse_last_event_id("12") == 12
 
     def test_iter_replay_message_events_skips_received_non_negative_seq(self, isolated_plaza_engine):
         _, disc = _seed_discussion(isolated_plaza_engine)
@@ -338,12 +339,94 @@ class TestDiscussionLifecycle:
             msg.seq = seq
             disc.messages.append(msg)
 
-        events = list(plaza_routes._iter_replay_message_events(disc, 0))
+        events = list(plaza_stream.iter_replay_message_events(disc, 0))
 
         assert len(events) == 2
         assert '"agent_id": "pending"' in events[0]
         assert '"agent_id": "next"' in events[1]
         assert '"agent_id": "old"' not in "".join(events)
+
+    def test_build_stream_status_event_uses_next_message_sequence(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.messages = []
+        assert plaza_stream.build_stream_status_event(disc) == (
+            0,
+            'id: 0\ndata: {"type": "status", "status": "open"}\n\n',
+        )
+
+        msg = PlazaMessage(discussion_id=disc.id, agent_id="a-1", content="消息")
+        msg.seq = 4
+        disc.messages.append(msg)
+
+        assert plaza_stream.build_stream_status_event(disc) == (
+            5,
+            'id: 5\ndata: {"type": "status", "status": "open"}\n\n',
+        )
+
+    def test_iter_closed_discussion_events_emits_end_after_status(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.status = plaza_routes.DiscussionStatus.CLOSED
+        disc.summary = "结论"
+        disc.plan = {}
+
+        assert list(plaza_stream.iter_closed_discussion_events(disc, 7)) == [
+            'id: 8\ndata: {"type": "discussion_end", "summary": "结论"}\n\n',
+        ]
+
+    def test_iter_closed_discussion_events_emits_plan_before_end(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        disc.status = plaza_routes.DiscussionStatus.CLOSED
+        disc.summary = "结论"
+        disc.plan = {"content": "执行计划"}
+
+        assert list(plaza_stream.iter_closed_discussion_events(disc, 7)) == [
+            'id: 8\ndata: {"type": "plan_updated", "plan": {"content": "执行计划"}}\n\n',
+            'id: 9\ndata: {"type": "discussion_end", "summary": "结论"}\n\n',
+        ]
+
+    def test_format_live_stream_event_uses_non_negative_message_sequence(self, isolated_plaza_engine):
+        _, disc = _seed_discussion(isolated_plaza_engine)
+        msg = PlazaMessage(discussion_id=disc.id, agent_id="live", content="实时")
+        msg.seq = 3
+
+        event = plaza_stream.format_live_stream_event({"type": "message", "message": msg})
+
+        assert event.startswith("id: 3\n")
+        assert '"agent_id": "live"' in event
+        assert '"content": "实时"' in event
+        assert '"seq": 3' in event
+
+        msg.seq = -1
+        assert plaza_stream.format_live_stream_event({"type": "message", "message": msg}).startswith(
+            'data: {"type": "message"'
+        )
+
+    def test_discussion_end_and_heartbeat_stream_helpers(self):
+        assert plaza_stream.is_discussion_end_event({"type": "discussion_end"}) is True
+        assert plaza_stream.is_discussion_end_event({"type": "message"}) is False
+        assert plaza_stream.build_stream_heartbeat_event() == 'data: {"type": "heartbeat"}\n\n'
+
+    def test_discussion_stream_subscription_helpers_delegate_to_engine(self):
+        calls = []
+        queue = object()
+
+        class FakeEngine:
+            def subscribe(self, disc_id):
+                calls.append(("subscribe", disc_id))
+                return queue
+
+            def unsubscribe(self, disc_id, q):
+                calls.append(("unsubscribe", disc_id, q))
+
+        engine = FakeEngine()
+
+        assert plaza_stream.subscribe_discussion_stream(engine, "disc-1") is queue
+        plaza_stream.unsubscribe_discussion_stream(engine, "disc-1", queue)
+
+        assert calls == [
+            ("subscribe", "disc-1"),
+            ("unsubscribe", "disc-1", queue),
+        ]
 
     @pytest.mark.asyncio
     async def test_run_discussion_startup_uses_simulated_path_without_chat_fn(
