@@ -5,6 +5,14 @@ from datetime import datetime, timezone
 from typing import Dict
 
 
+def _utc_timestamp() -> float:
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _utc_date_from_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+
+
 @dataclass
 class TokenBudget:
     per_session_max: int = 200_000
@@ -38,11 +46,11 @@ class UsageRecord:
     skill_id: str = ""
     scenario_id: str = ""
     run_id: str = ""
-    timestamp: float = field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
+    timestamp: float = field(default_factory=_utc_timestamp)
 
     @property
     def date(self) -> str:
-        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).date().isoformat()
+        return _utc_date_from_timestamp(self.timestamp)
 
 
 @dataclass
@@ -53,8 +61,8 @@ class BudgetEvent:
     value: int = 0
     limit: int = 0
     message: str = ""
-    timestamp: float = field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
+    timestamp: float = field(default_factory=_utc_timestamp)
 
     @property
     def date(self) -> str:
-        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).date().isoformat()
+        return _utc_date_from_timestamp(self.timestamp)

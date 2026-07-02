@@ -167,6 +167,99 @@ def _record_usage(
     return usage
 
 
+def _parse_json_args(args_raw: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return json.loads(args_raw or "{}")
+    except json.JSONDecodeError:
+        return fallback
+
+
+def _append_unique(values: List[str], value: str) -> None:
+    if value and value not in values:
+        values.append(value)
+
+
+def _record_finish_call(
+    *,
+    tool_call_id: str,
+    name: str,
+    args_raw: str,
+    summary: str,
+    files_changed: List[str],
+    tool_log: List[Dict[str, Any]],
+    messages: List[Dict[str, Any]],
+) -> str:
+    payload = _parse_json_args(args_raw, {"summary": args_raw[:500]})
+    next_summary = payload.get("summary", summary)
+    for changed in payload.get("files_changed") or []:
+        _append_unique(files_changed, changed)
+    tool_log.append({"name": name, "args": args_raw, "ok": True})
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": name,
+            "content": json.dumps({"ok": True, "ack": "finished"}, ensure_ascii=False),
+        }
+    )
+    return next_summary
+
+
+def _dispatch_runtime_tool(
+    *,
+    name: str,
+    args_raw: str,
+    tool_name_set: set[str],
+    permission_context: Optional[ToolPermissionContext],
+) -> Dict[str, Any]:
+    if name not in tool_name_set or (permission_context and permission_context.blocks(name)):
+        return {
+            "ok": False,
+            "error": f"tool blocked by runtime permissions: {name}",
+        }
+    return dispatch_tool_call(name, args_raw)
+
+
+def _record_changed_file_from_tool(
+    *,
+    name: str,
+    args_raw: str,
+    tool_result: Dict[str, Any],
+    files_changed: List[str],
+) -> None:
+    if name not in {"write_file", "patch_file"} or not tool_result.get("ok"):
+        return
+    payload = _parse_json_args(args_raw, {})
+    _append_unique(files_changed, payload.get("path", ""))
+
+
+def _append_regular_tool_result(
+    *,
+    tool_call_id: str,
+    name: str,
+    args_raw: str,
+    tool_result: Dict[str, Any],
+    tool_log: List[Dict[str, Any]],
+    messages: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    log_entry = {
+        "name": name,
+        "args": args_raw[:1000],
+        "ok": bool(tool_result.get("ok")),
+        "summary": _summarize_result(name, tool_result),
+    }
+    tool_log.append(log_entry)
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": name,
+            "content": json.dumps(tool_result, ensure_ascii=False)[:32000],
+        }
+    )
+    return log_entry
+
+
 async def run_tool_loop(
     *,
     prompt: str,
@@ -318,66 +411,45 @@ async def run_tool_loop(
             emit_event("tool_call", {"name": name, "args": args_raw[:500]})
 
             if name == "finish":
-                try:
-                    payload = json.loads(args_raw or "{}")
-                except json.JSONDecodeError:
-                    payload = {"summary": args_raw[:500]}
-                summary = payload.get("summary", summary)
-                for changed in payload.get("files_changed") or []:
-                    if changed and changed not in files_changed:
-                        files_changed.append(changed)
-                tool_log.append({"name": name, "args": args_raw, "ok": True})
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "name": name,
-                        "content": json.dumps({"ok": True, "ack": "finished"}, ensure_ascii=False),
-                    }
+                summary = _record_finish_call(
+                    tool_call_id=tool_call_id,
+                    name=name,
+                    args_raw=args_raw,
+                    summary=summary,
+                    files_changed=files_changed,
+                    tool_log=tool_log,
+                    messages=messages,
                 )
                 finished = True
                 continue
 
-            if name not in tool_name_set or (permission_context and permission_context.blocks(name)):
-                tool_result = {
-                    "ok": False,
-                    "error": f"tool blocked by runtime permissions: {name}",
-                }
-            else:
-                tool_result = dispatch_tool_call(name, args_raw)
-
-            if name in {"write_file", "patch_file"} and tool_result.get("ok"):
-                try:
-                    payload = json.loads(args_raw or "{}")
-                except json.JSONDecodeError:
-                    payload = {}
-                path = payload.get("path", "")
-                if path and path not in files_changed:
-                    files_changed.append(path)
-
-            tool_log.append(
-                {
-                    "name": name,
-                    "args": args_raw[:1000],
-                    "ok": bool(tool_result.get("ok")),
-                    "summary": _summarize_result(name, tool_result),
-                }
+            tool_result = _dispatch_runtime_tool(
+                name=name,
+                args_raw=args_raw,
+                tool_name_set=tool_name_set,
+                permission_context=permission_context,
+            )
+            _record_changed_file_from_tool(
+                name=name,
+                args_raw=args_raw,
+                tool_result=tool_result,
+                files_changed=files_changed,
+            )
+            log_entry = _append_regular_tool_result(
+                tool_call_id=tool_call_id,
+                name=name,
+                args_raw=args_raw,
+                tool_result=tool_result,
+                tool_log=tool_log,
+                messages=messages,
             )
             emit_event(
                 "tool_result",
                 {
                     "name": name,
                     "ok": bool(tool_result.get("ok")),
-                    "summary": tool_log[-1]["summary"],
+                    "summary": log_entry["summary"],
                 },
-            )
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "name": name,
-                    "content": json.dumps(tool_result, ensure_ascii=False)[:32000],
-                }
             )
 
         if finished:

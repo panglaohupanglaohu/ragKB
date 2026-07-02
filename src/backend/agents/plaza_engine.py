@@ -18,7 +18,8 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from .plaza import (
@@ -502,57 +503,19 @@ class PlazaEngine:
            b. Moderator 总结本轮观点
         3. 最终轮: Moderator 生成全局总结 + 关键结论
         """
-        plaza = self._plazas.get(plaza_id)
-        if not plaza:
+        run_state = await self._prepare_discussion_run(plaza_id, discussion_id)
+        if run_state is None:
             return None
-        disc = plaza.discussions.get(discussion_id)
-        if not disc:
-            return None
-        if disc.status not in (DiscussionStatus.OPEN,):
+        plaza, disc, moderator, speakers, should_continue = run_state
+        if not should_continue:
             return disc
-
-        disc.status = DiscussionStatus.IN_PROGRESS
-        disc.started_at = datetime.now(timezone.utc).isoformat()
-
-        # Give event loop a chance to process SSE client connections
-        await asyncio.sleep(0.1)
-
-        await self._broadcast(disc.id, {
-            "type": "discussion_start",
-            "discussion_id": disc.id,
-            "topic": disc.topic,
-        })
-
-        participants = list(plaza.participants.values())
-        moderator = None
-        speakers = []
-
-        moderator = self._resolve_moderator(plaza, disc, participants)
-        speakers = self._sort_speakers(participants, moderator)
 
         if not self._chat_fn:
             # 无 LLM 时使用模拟回复
-            await self._run_simulated(disc, moderator, speakers)
-            self._store.save_plaza(plaza)  # 持久化模拟讨论结果
+            await self._run_simulated_discussion(plaza, disc, moderator, speakers)
             return disc
 
-        # ── 开场: Moderator 引导话题 ──
-        opening_prompt = (
-            f"你是本场讨论的议事长（主持人）。\n"
-            f"讨论话题: 「{disc.topic}」\n"
-            f"{f'话题描述: {disc.description}' if disc.description else ''}\n"
-            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
-            f"参与者: {', '.join(p.agent_name or p.agent_id for p in speakers)}\n\n"
-            f"请开场:\n"
-            f"- 用 2-4 句话点明讨论的核心问题\n"
-            f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
-            f"- 然后向参与者提出第一个需要讨论的具体问题\n"
-            f"- 说人话，像一个项目经理在主持会议"
-        )
-        opening = await self._speak_with_lock(
-            disc, moderator, opening_prompt, round_number=0,
-            niche_role="moderator",
-        )
+        await self._run_discussion_opening(disc, moderator, speakers)
 
         # ── 多轮讨论 (辩论式交锋) ──
         _consecutive_fallback = 0  # 连续 fallback 计数，超过阈值则终止讨论
@@ -573,22 +536,8 @@ class PlazaEngine:
                     round_speakers, ex_idx, _SPEAKERS_PER_EXCHANGE,
                 )
                 for speaker in ex_speakers:
-                    # 获取最近 5 条作为即时上下文 (短窗口促进针锋相对)
-                    recent = self._format_recent(disc, limit=5)
-                    context_block = f"背景描述: {disc.description}\n" if disc.description else ""
-                    goal_block = f"讨论目标: {disc.goal}\n" if disc.goal else ""
-                    speak_prompt = (
-                        f"你正在参与关于「{disc.topic}」的团队讨论。\n"
-                        f"{context_block}{goal_block}"
-                        f"你是 {speaker.agent_name}（{speaker.role}）。"
-                        f"第 {round_num} 轮，第 {ex_idx+1} 次发言。\n\n"
-                        f"刚才的讨论:\n{recent}\n\n"
-                        f"发言要求:\n"
-                        f"- 结合你的专业背景，给出有实质内容的观点或建议\n"
-                        f"- 回应上面讨论中你认为重要的点，然后补充你的看法\n"
-                        f"- 可以提出具体的方案、步骤、注意事项\n"
-                        f"- 说 3-5 句话，100-200 字左右，不要太短也不要写论文\n"
-                        f"- 像在开会发言一样自然表达，不要用列表和标题"
+                    speak_prompt = self._build_round_speaker_prompt(
+                        disc, speaker, round_num, ex_idx,
                     )
                     await self._speak_with_lock(
                         disc, speaker, speak_prompt, round_number=round_num,
@@ -598,27 +547,9 @@ class PlazaEngine:
                     if self._last_call_was_fallback:
                         _consecutive_fallback += 1
                         if _consecutive_fallback >= _FALLBACK_ABORT_THRESHOLD:
-                            logger.warning(
-                                "讨论 %s 在第 %d 轮因 LLM 连续 %d 次 fallback 而提前终止",
-                                disc.id[:8], round_num, _consecutive_fallback,
+                            await self._abort_discussion_for_fallback(
+                                disc, moderator, round_num, _consecutive_fallback,
                             )
-                            # 通知前端 LLM 不可用，讨论提前结束
-                            abort_msg = PlazaMessage(
-                                discussion_id=disc.id,
-                                agent_id=moderator.agent_id if moderator else "system",
-                                agent_name=(moderator.agent_name if moderator else "系统") or "系统",
-                                role="moderator",
-                                niche_role="moderator",
-                                content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
-                                round_number=round_num,
-                            )
-                            abort_msg.seq = len(disc.messages)
-                            disc.messages.append(abort_msg)
-                            await self._broadcast(disc.id, {
-                                "type": "message", "message": abort_msg.to_dict(),
-                            })
-                            # 跳到最终总结（用已有发言生成计划）
-                            disc.max_rounds = round_num
                             break
                     else:
                         _consecutive_fallback = 0  # LLM 成功，重置计数
@@ -628,14 +559,7 @@ class PlazaEngine:
 
             # Moderator 收束本轮 (非最后一轮时)
             if round_num < disc.max_rounds:
-                summary_prompt = (
-                    f"你是主持人。第 {round_num} 轮讨论已结束。\n\n"
-                    f"本轮讨论:\n{self._format_round_messages(disc, round_num)}\n\n"
-                    f"请小结本轮要点:\n"
-                    f"- 总结大家达成的共识和仍有分歧的地方\n"
-                    f"- 提出下一轮需要重点讨论的问题\n"
-                    f"- 用 2-3 句话，自然表达"
-                )
+                summary_prompt = self._build_round_summary_prompt(disc, round_num)
                 await self._speak_with_lock(
                     disc, moderator, summary_prompt, round_number=round_num,
                     niche_role="moderator",
@@ -645,7 +569,181 @@ class PlazaEngine:
         disc.status = DiscussionStatus.SUMMARIZING
         await self._broadcast(disc.id, {"type": "summarizing"})
 
-        final_prompt = (
+        final_prompt = self._build_final_summary_prompt(disc)
+        disc.summary = await self._generate_agent_content(
+            moderator,
+            final_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.max_rounds,
+            bypass_degraded=True,  # 最终总结是最重要的调用，绕过降级窗口强制尝试 LLM
+        )
+        if not self._has_actionable_plan(disc.summary):
+            self._apply_deterministic_summary_fallback(disc, moderator, speakers)
+        # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
+        disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
+
+        await self._close_discussion_with_summary(disc, moderator)
+
+        # 持久化讨论结果
+        self._store.save_plaza(plaza)
+
+        # 全局 G1-1: 共识达成 → 自动创建萃取管线（settings.auto_extract_on_consensus 可关）
+        try:
+            await self._auto_extract_on_consensus(disc)
+        except Exception as e:
+            logger.warning(f"自动萃取钩子失败 (非致命): {e}")
+
+        logger.info(
+            f"✅ 讨论完成: {disc.topic[:30]} — "
+            f"{len(disc.messages)} 条消息, {disc.max_rounds} 轮"
+        )
+        return disc
+
+    async def _prepare_discussion_run(
+        self,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Optional[Tuple[Plaza, Discussion, Optional[Participant], List[Participant], bool]]:
+        plaza = self._plazas.get(plaza_id)
+        if not plaza:
+            return None
+        disc = plaza.discussions.get(discussion_id)
+        if not disc:
+            return None
+        if disc.status not in (DiscussionStatus.OPEN,):
+            return plaza, disc, None, [], False
+
+        self._mark_discussion_started(disc)
+        await asyncio.sleep(0.1)
+        await self._broadcast_discussion_start(disc)
+        participants = list(plaza.participants.values())
+        moderator = self._resolve_moderator(plaza, disc, participants)
+        speakers = self._sort_speakers(participants, moderator)
+        return plaza, disc, moderator, speakers, True
+
+    @staticmethod
+    def _mark_discussion_started(disc: Discussion) -> None:
+        disc.status = DiscussionStatus.IN_PROGRESS
+        disc.started_at = datetime.now(timezone.utc).isoformat()
+
+    async def _broadcast_discussion_start(self, disc: Discussion) -> None:
+        await self._broadcast(disc.id, {
+            "type": "discussion_start",
+            "discussion_id": disc.id,
+            "topic": disc.topic,
+        })
+
+    async def _run_simulated_discussion(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
+        await self._run_simulated(disc, moderator, speakers)
+        self._store.save_plaza(plaza)
+
+    async def _run_discussion_opening(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+    ) -> Optional[PlazaMessage]:
+        opening_prompt = self._build_discussion_opening_prompt(disc, speakers)
+        return await self._speak_with_lock(
+            disc, moderator, opening_prompt, round_number=0,
+            niche_role="moderator",
+        )
+
+    @staticmethod
+    def _build_discussion_opening_prompt(disc: Discussion, speakers: List[Participant]) -> str:
+        return (
+            f"你是本场讨论的议事长（主持人）。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'话题描述: {disc.description}' if disc.description else ''}\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
+            f"参与者: {', '.join(p.agent_name or p.agent_id for p in speakers)}\n\n"
+            f"请开场:\n"
+            f"- 用 2-4 句话点明讨论的核心问题\n"
+            f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
+            f"- 然后向参与者提出第一个需要讨论的具体问题\n"
+            f"- 说人话，像一个项目经理在主持会议"
+        )
+
+    def _build_round_speaker_prompt(
+        self,
+        disc: Discussion,
+        speaker: Participant,
+        round_num: int,
+        exchange_index: int,
+    ) -> str:
+        recent = self._format_recent(disc, limit=5)
+        context_block = f"背景描述: {disc.description}\n" if disc.description else ""
+        goal_block = f"讨论目标: {disc.goal}\n" if disc.goal else ""
+        return (
+            f"你正在参与关于「{disc.topic}」的团队讨论。\n"
+            f"{context_block}{goal_block}"
+            f"你是 {speaker.agent_name}（{speaker.role}）。"
+            f"第 {round_num} 轮，第 {exchange_index+1} 次发言。\n\n"
+            f"刚才的讨论:\n{recent}\n\n"
+            f"发言要求:\n"
+            f"- 结合你的专业背景，给出有实质内容的观点或建议\n"
+            f"- 回应上面讨论中你认为重要的点，然后补充你的看法\n"
+            f"- 可以提出具体的方案、步骤、注意事项\n"
+            f"- 说 3-5 句话，100-200 字左右，不要太短也不要写论文\n"
+            f"- 像在开会发言一样自然表达，不要用列表和标题"
+        )
+
+    async def _abort_discussion_for_fallback(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        round_num: int,
+        consecutive_fallback: int,
+    ) -> None:
+        logger.warning(
+            "讨论 %s 在第 %d 轮因 LLM 连续 %d 次 fallback 而提前终止",
+            disc.id[:8], round_num, consecutive_fallback,
+        )
+        abort_msg = self._build_fallback_abort_message(disc, moderator, round_num)
+        abort_msg.seq = len(disc.messages)
+        disc.messages.append(abort_msg)
+        await self._broadcast(disc.id, {
+            "type": "message", "message": abort_msg.to_dict(),
+        })
+        disc.max_rounds = round_num
+
+    @staticmethod
+    def _build_fallback_abort_message(
+        disc: Discussion,
+        moderator: Optional[Participant],
+        round_num: int,
+    ) -> PlazaMessage:
+        return PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id if moderator else "system",
+            agent_name=(moderator.agent_name if moderator else "系统") or "系统",
+            role="moderator",
+            niche_role="moderator",
+            content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
+            round_number=round_num,
+        )
+
+    def _build_round_summary_prompt(self, disc: Discussion, round_num: int) -> str:
+        return (
+            f"你是主持人。第 {round_num} 轮讨论已结束。\n\n"
+            f"本轮讨论:\n{self._format_round_messages(disc, round_num)}\n\n"
+            f"请小结本轮要点:\n"
+            f"- 总结大家达成的共识和仍有分歧的地方\n"
+            f"- 提出下一轮需要重点讨论的问题\n"
+            f"- 用 2-3 句话，自然表达"
+        )
+
+    def _build_final_summary_prompt(self, disc: Discussion) -> str:
+        return (
             f"你是议事长。关于「{disc.topic}」的讨论已经完成 {disc.max_rounds} 轮。\n"
             f"{f'背景描述: {disc.description}' if disc.description else ''}\n"
             f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
@@ -670,41 +768,31 @@ class PlazaEngine:
             f"1 句话补充说明即可\n\n"
             f"请用 Markdown 输出，简洁有力，能直接作为任务单下发。"
         )
-        disc.summary = await self._generate_agent_content(
-            moderator,
-            final_prompt,
-            plaza_id=plaza_id,
-            discussion_id=discussion_id,
-            discussion_topic=disc.topic,
-            round_number=disc.max_rounds,
-            bypass_degraded=True,  # 最终总结是最重要的调用，绕过降级窗口强制尝试 LLM
-        )
-        if not self._has_actionable_plan(disc.summary):
-            participants_for_plan = ([moderator] if moderator else []) + speakers
-            disc.summary = self._build_deterministic_plan_content(
-                disc,
-                participants_for_plan,
-                "LLM 不可用或未返回结构化计划",
-            )
-            disc.key_conclusions = [
-                f"围绕「{disc.topic}」明确目标与关键约束",
-                "分步推进方案设计、验证与执行",
-                "演练通过后再进入实际派发",
-            ]
-        # 将最终总结中的执行计划提取到 disc.plan，供前端和派发使用
-        disc.plan = self._build_plan_payload(disc, disc.summary, "讨论收敛")
-        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
 
-        closing_msg = PlazaMessage(
-            discussion_id=disc.id,
-            agent_id=moderator.agent_id,
-            agent_name=moderator.agent_name or moderator.agent_id,
-            role=moderator.role,
-            niche_role="moderator",
-            content=self._build_closing_brief(disc.summary),
-            round_number=disc.max_rounds + 1,
-            metadata={"summary_kind": "closing_brief"},
+    def _apply_deterministic_summary_fallback(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
+        participants_for_plan = ([moderator] if moderator else []) + speakers
+        disc.summary = self._build_deterministic_plan_content(
+            disc,
+            participants_for_plan,
+            "LLM 不可用或未返回结构化计划",
         )
+        disc.key_conclusions = [
+            f"围绕「{disc.topic}」明确目标与关键约束",
+            "分步推进方案设计、验证与执行",
+            "演练通过后再进入实际派发",
+        ]
+
+    async def _close_discussion_with_summary(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        closing_msg = self._build_closing_message(disc, moderator)
         closing_msg.seq = len(disc.messages)
         disc.messages.append(closing_msg)
         await self._broadcast(disc.id, {
@@ -718,21 +806,23 @@ class PlazaEngine:
             "type": "discussion_end",
             "summary": disc.summary,
         })
+        return closing_msg
 
-        # 持久化讨论结果
-        self._store.save_plaza(plaza)
-
-        # 全局 G1-1: 共识达成 → 自动创建萃取管线（settings.auto_extract_on_consensus 可关）
-        try:
-            await self._auto_extract_on_consensus(disc)
-        except Exception as e:
-            logger.warning(f"自动萃取钩子失败 (非致命): {e}")
-
-        logger.info(
-            f"✅ 讨论完成: {disc.topic[:30]} — "
-            f"{len(disc.messages)} 条消息, {disc.max_rounds} 轮"
+    def _build_closing_message(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        return PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id,
+            agent_name=moderator.agent_name or moderator.agent_id,
+            role=moderator.role,
+            niche_role="moderator",
+            content=self._build_closing_brief(disc.summary),
+            round_number=disc.max_rounds + 1,
+            metadata={"summary_kind": "closing_brief"},
         )
-        return disc
 
     async def _auto_extract_on_consensus(self, disc) -> None:
         """全局 G1-1/G1-2: 讨论闭幕后自动建萃取管线，产物默认入储备池.
@@ -741,35 +831,38 @@ class PlazaEngine:
         - 管线 created_by=plaza:{discussion_id}，tags 含 plaza_auto 与
           classification:reserve（萃取出的技能由 G2 分类器默认归入储备池）
         """
-        # 开关检查
-        try:
-            import json as _json
-            from pathlib import Path as _Path
-            settings_path = _Path(__file__).resolve().parents[3] / "config" / "settings.json"
-            settings = _json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
-            if not settings.get("auto_extract_on_consensus", True):
-                return
-        except Exception:
-            pass  # settings 不可读时默认开启
+        if not self._auto_extract_enabled():
+            return
 
         from .extraction_store import get_extraction_store
         store = get_extraction_store()
-        plan_text = ""
-        if disc.plan:
-            plan_text = str(disc.plan.get("content", ""))[:1500] if isinstance(disc.plan, dict) else str(disc.plan)[:1500]
-        description = (
-            f"[议事广场自动萃取] 议题: {disc.topic}\n\n"
-            f"共识摘要:\n{(disc.summary or '')[:1500]}\n\n"
-            f"执行计划:\n{plan_text}"
-        )
         pipeline = await store.create_pipeline(
             name=f"Plaza萃取: {disc.topic[:40]}",
-            description=description,
+            description=self._build_auto_extract_description(disc),
             team_id=getattr(disc, "team_id", "") or "",
             created_by=f"plaza:{disc.id}",
             tags=["plaza_auto", "classification:reserve", f"plaza:{disc.plaza_id}"],
         )
         logger.info(f"🔗 G1-1: 共识自动萃取管线已创建 {pipeline.pipeline_id} ← discussion {disc.id[:8]}")
+
+    def _auto_extract_enabled(self) -> bool:
+        try:
+            settings_path = Path(__file__).resolve().parents[3] / "config" / "settings.json"
+            settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+            return bool(settings.get("auto_extract_on_consensus", True))
+        except Exception:
+            return True
+
+    @staticmethod
+    def _build_auto_extract_description(disc: Discussion) -> str:
+        plan_text = ""
+        if disc.plan:
+            plan_text = str(disc.plan.get("content", ""))[:1500] if isinstance(disc.plan, dict) else str(disc.plan)[:1500]
+        return (
+            f"[议事广场自动萃取] 议题: {disc.topic}\n\n"
+            f"共识摘要:\n{(disc.summary or '')[:1500]}\n\n"
+            f"执行计划:\n{plan_text}"
+        )
 
     async def _agent_speak(
         self, disc: Discussion, participant: Participant,
@@ -856,6 +949,32 @@ class PlazaEngine:
         user_message: str,
         user_msg_id: str,
     ) -> Dict[str, Optional[PlazaMessage]]:
+        plaza, disc, moderator, speakers = self._prepare_interjection_context(plaza_id, discussion_id)
+
+        async with self._get_discussion_lock(disc.id):
+            await self._broadcast_interjection_paused(disc)
+
+            if not self._chat_fn:
+                return await self._handle_simulated_interjection(
+                    plaza, disc, moderator, speakers, user_message, user_msg_id,
+                )
+
+            return await self._handle_llm_interjection(
+                plaza,
+                disc,
+                moderator,
+                speakers,
+                user_message,
+                user_msg_id,
+                plaza_id,
+                discussion_id,
+            )
+
+    def _prepare_interjection_context(
+        self,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Tuple[Plaza, Discussion, Participant, List[Participant]]:
         plaza = self._plazas.get(plaza_id)
         if not plaza:
             raise ValueError("广场不存在")
@@ -868,218 +987,354 @@ class PlazaEngine:
         if not moderator:
             raise ValueError("广场没有议事长")
         speakers = self._sort_speakers(participants, moderator)
+        return plaza, disc, moderator, speakers
 
-        async with self._get_discussion_lock(disc.id):
-            await self._broadcast(disc.id, {
-                "type": "interjection_state",
-                "state": "paused",
-                "message": "议事长正在纠偏当前讨论节奏",
+    async def _broadcast_interjection_paused(self, disc: Discussion) -> None:
+        await self._broadcast(disc.id, {
+            "type": "interjection_state",
+            "state": "paused",
+            "message": "议事长正在纠偏当前讨论节奏",
+        })
+
+    async def _handle_simulated_interjection(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+        user_message: str,
+        user_msg_id: str,
+    ) -> Dict[str, Any]:
+        chosen = speakers[0] if speakers else None
+        moderator_text = "这个追问有效，我先把当前节奏拧回主线上。"
+        if chosen:
+            moderator_text += f"请 {chosen.agent_name} 先正面回应。"
+        moderator_msg = await self._publish_interjection_moderator_redirect(
+            disc, moderator, moderator_text, user_msg_id, chosen,
+        )
+        speaker_msg = None
+        if chosen:
+            speaker_msg = await self._publish_simulated_interjection_speaker_reply(
+                disc, chosen, moderator, user_message, moderator_msg,
+            )
+        plan_content = self._build_simulated_interjection_plan_content(user_message, chosen)
+        wrap_msg = await self._publish_interjection_plan_update(
+            plaza,
+            disc,
+            moderator,
+            plan_content,
+            user_message,
+            speaker_msg.id if speaker_msg else moderator_msg.id,
+        )
+        return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
+
+    async def _handle_llm_interjection(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        speakers: List[Participant],
+        user_message: str,
+        user_msg_id: str,
+        plaza_id: str,
+        discussion_id: str,
+    ) -> Dict[str, Any]:
+        chosen = self._pick_interjection_speaker(disc, speakers, user_message)
+        redirect_prompt = self._build_interjection_redirect_prompt(disc, speakers, user_message)
+        decision_text = await self._generate_agent_content(
+            moderator,
+            redirect_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round,
+        )
+        moderator_reply_text, chosen = self._parse_interjection_decision(
+            decision_text,
+            speakers,
+            chosen,
+        )
+        moderator_reply_text = self._ensure_interjection_nomination_prefix(
+            moderator_reply_text, chosen,
+        )
+        moderator_msg = await self._publish_interjection_moderator_redirect(
+            disc, moderator, moderator_reply_text, user_msg_id, chosen,
+        )
+
+        speaker_msg = None
+        if chosen:
+            speaker_prompt = self._build_interjection_nominated_reply_prompt(
+                disc, chosen, user_message, moderator_reply_text,
+            )
+            speaker_msg = await self._generate_interjection_nominated_reply(
+                disc, chosen, speaker_prompt, moderator, moderator_msg,
+            )
+
+        extra_replies: List[PlazaMessage] = []
+        remaining_speakers = [speaker for speaker in speakers if speaker != chosen][:2]
+        for extra_speaker in remaining_speakers:
+            extra_prompt = self._build_interjection_supplementary_reply_prompt(
+                disc, extra_speaker, chosen, speaker_msg, user_message,
+            )
+            extra_msg = await self._generate_interjection_supplementary_reply(
+                disc, extra_speaker, extra_prompt, moderator, speaker_msg, moderator_msg,
+            )
+            if extra_msg:
+                extra_replies.append(extra_msg)
+
+        plan_prompt = self._build_interjection_revised_plan_prompt(
+            disc, user_message, chosen, speaker_msg, extra_replies,
+        )
+        plan_text = await self._generate_agent_content(
+            moderator,
+            plan_prompt,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round,
+        )
+
+        wrap_msg = await self._publish_interjection_plan_update(
+            plaza,
+            disc,
+            moderator,
+            plan_text,
+            user_message,
+            extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
+        )
+        return {
+            "moderator_reply": moderator_msg,
+            "nominated_reply": speaker_msg,
+            "extra_replies": extra_replies,
+            "moderator_resume": wrap_msg,
+        }
+
+    async def _publish_simulated_interjection_speaker_reply(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        moderator: Participant,
+        user_message: str,
+        moderator_msg: PlazaMessage,
+    ) -> PlazaMessage:
+        return await self.publish_message(
+            disc,
+            chosen,
+            f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
+            round_number=disc.current_round,
+            niche_role=chosen.niche_role.value,
+            reply_to=moderator_msg.id,
+            metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
+        )
+
+    async def _generate_interjection_nominated_reply(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        speaker_prompt: str,
+        moderator: Participant,
+        moderator_msg: PlazaMessage,
+    ) -> Optional[PlazaMessage]:
+        speaker_msg = await self._agent_speak(
+            disc,
+            chosen,
+            speaker_prompt,
+            round_number=disc.current_round,
+            niche_role=chosen.niche_role.value,
+        )
+        if speaker_msg:
+            speaker_msg.reply_to = moderator_msg.id
+            speaker_msg.metadata.update({
+                "interjection_kind": "nominated_reply",
+                "prompted_by": moderator.agent_id,
             })
+        return speaker_msg
 
-            if not self._chat_fn:
-                chosen = speakers[0] if speakers else None
-                moderator_text = "这个追问有效，我先把当前节奏拧回主线上。"
-                if chosen:
-                    moderator_text += f"请 {chosen.agent_name} 先正面回应。"
-                moderator_msg = await self.publish_message(
-                    disc,
-                    moderator,
-                    moderator_text,
-                    round_number=disc.current_round,
-                    niche_role="moderator",
-                    reply_to=user_msg_id,
-                    metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
-                )
-                speaker_msg = None
-                if chosen:
-                    speaker_msg = await self.publish_message(
-                        disc,
-                        chosen,
-                        f"我先回应这个插话：{user_message[:60]}。当前更关键的是把它落到本轮的约束与方案上。",
-                        round_number=disc.current_round,
-                        niche_role=chosen.niche_role.value,
-                        reply_to=moderator_msg.id,
-                        metadata={"interjection_kind": "nominated_reply", "prompted_by": moderator.agent_id},
-                    )
-                # 模拟模式也生成执行计划
-                plan_content = (
-                    f"## 修订说明\n针对用户问题「{user_message[:40]}」修订\n\n"
-                    f"## 执行计划\n"
-                    f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-                    f"|---|---|---|---|---|---|\n"
-                    f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
-                )
-                disc.plan = self._build_plan_payload(disc, plan_content, user_message)
-                wrap_msg = await self.publish_message(
-                    disc,
-                    moderator,
-                    plan_content,
-                    round_number=disc.current_round,
-                    niche_role="moderator",
-                    reply_to=speaker_msg.id if speaker_msg else moderator_msg.id,
-                    metadata={"interjection_kind": "revised_plan"},
-                )
-                await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
-                await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
-                self._store.save_plaza(plaza)
-                return {"moderator_reply": moderator_msg, "nominated_reply": speaker_msg, "extra_replies": [], "moderator_resume": wrap_msg}
-
-            chosen = self._pick_interjection_speaker(disc, speakers, user_message)
-            candidate_lines = "\n".join(
-                f"- {speaker.agent_id} | {speaker.agent_name} | {speaker.role}"
-                for speaker in speakers[:8]
-            )
-            redirect_prompt = (
-                f"你是本场讨论的议事长，当前讨论正在进行中，需要立刻纠偏。\n"
-                f"讨论话题: 「{disc.topic}」\n"
-                f"当前轮次: {disc.current_round}\n"
-                f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
-                f"用户插话: 「{user_message}」\n\n"
-                f"候选回应者（必须从这里选一个 agent_id）:\n{candidate_lines}\n\n"
-                f"严格输出：\n"
-                f"REPLY: 你给用户和全场的纠偏回应，最后一句必须明确点名下一位回应者\n"
-                f"NEXT: 候选中的 agent_id\n"
-                f"只输出这两行。"
-            )
-            decision_text = await self._generate_agent_content(
-                moderator,
-                redirect_prompt,
-                plaza_id=plaza_id,
-                discussion_id=discussion_id,
-                discussion_topic=disc.topic,
-                round_number=disc.current_round,
-            )
-            moderator_reply_text, chosen = self._parse_interjection_decision(
-                decision_text,
-                speakers,
-                chosen,
-            )
-            if chosen:
-                nomination_prefix = f"请 {chosen.agent_name} 先回应。"
-                if not moderator_reply_text.startswith(nomination_prefix):
-                    moderator_reply_text = f"{nomination_prefix}{moderator_reply_text}"
-            moderator_msg = await self.publish_message(
-                disc,
-                moderator,
-                moderator_reply_text,
-                round_number=disc.current_round,
-                niche_role="moderator",
-                reply_to=user_msg_id,
-                metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
-            )
-
-            speaker_msg = None
-            if chosen:
-                speaker_prompt = (
-                    f"你是 {chosen.agent_name}（{chosen.role}）。主持人刚刚点名你，要求你优先回应一次插话纠偏。\n"
-                    f"讨论话题: 「{disc.topic}」\n"
-                    f"用户插话: 「{user_message}」\n"
-                    f"主持人刚才的话: 「{moderator_reply_text}」\n"
-                    f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
-                    f"请用 2-4 句直接回应，必须回答用户的具体问题，给出可落地的方案或约束，不要泛泛而谈。"
-                )
-                speaker_msg = await self._agent_speak(
-                    disc,
-                    chosen,
-                    speaker_prompt,
-                    round_number=disc.current_round,
-                    niche_role=chosen.niche_role.value,
-                )
-                if speaker_msg:
-                    speaker_msg.reply_to = moderator_msg.id
-                    speaker_msg.metadata.update({
-                        "interjection_kind": "nominated_reply",
-                        "prompted_by": moderator.agent_id,
-                    })
-
-            # ── 追加 1-2 位相关智能体讨论用户问题 ──
-            extra_replies: List[PlazaMessage] = []
-            remaining_speakers = [s for s in speakers if s != chosen][:2]
-            for extra_speaker in remaining_speakers:
-                extra_prompt = (
-                    f"你是 {extra_speaker.agent_name}（{extra_speaker.role}）。\n"
-                    f"讨论话题: 「{disc.topic}」\n"
-                    f"用户刚才提出了问题/建议: 「{user_message}」\n"
-                    f"主持人点名的 {chosen.agent_name if chosen else '无'} 已回应: 「{speaker_msg.content if speaker_msg else '无'}」\n"
-                    f"最近讨论: \n{self._format_recent(disc, limit=6)}\n\n"
-                    f"请从你的专业角度补充 1-2 句，针对用户问题给出你的判断或补充方案。不要重复已有观点。"
-                )
-                extra_msg = await self._agent_speak(
-                    disc,
-                    extra_speaker,
-                    extra_prompt,
-                    round_number=disc.current_round,
-                    niche_role=extra_speaker.niche_role.value,
-                )
-                if extra_msg:
-                    extra_msg.reply_to = speaker_msg.id if speaker_msg else moderator_msg.id
-                    extra_msg.metadata.update({
-                        "interjection_kind": "supplementary_reply",
-                        "prompted_by": moderator.agent_id,
-                    })
-                    extra_replies.append(extra_msg)
-
-            # ── 议事长生成修订后的执行计划 ──
-            all_responses = []
-            if speaker_msg:
-                all_responses.append(f"{chosen.agent_name}: {speaker_msg.content}")
-            for er in extra_replies:
-                all_responses.append(f"{er.agent_name}: {er.content}")
-            responses_text = "\n".join(all_responses) if all_responses else "无回应"
-
-            plan_prompt = (
-                f"你是议事长。你刚刚针对用户的插话完成了一次纠偏讨论。\n"
-                f"讨论话题: 「{disc.topic}」\n"
-                f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
-                f"用户插话: 「{user_message}」\n"
-                f"各位回应:\n{responses_text}\n\n"
-                f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
-                f"请根据以上讨论结果，输出修订后的执行计划。严格按以下格式:\n"
-                f"## 修订说明\n"
-                f"1 句话说明本次修订的原因和变更要点\n\n"
-                f"## 执行计划\n"
-                f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
-                f"|---|---|---|---|---|---|\n"
-                f"列出 3-6 个任务，按优先级排序。必须体现用户刚提出的问题/建议的处理方式。\n\n"
-                f"只输出以上内容，不要客套。"
-            )
-            plan_text = await self._generate_agent_content(
-                moderator,
-                plan_prompt,
-                plaza_id=plaza_id,
-                discussion_id=discussion_id,
-                discussion_topic=disc.topic,
-                round_number=disc.current_round,
-            )
-
-            # 存储修订计划
-            disc.plan = self._build_plan_payload(disc, plan_text, user_message)
-
-            # 议事长发出修订后的执行计划作为消息
-            wrap_msg = await self.publish_message(
-                disc,
-                moderator,
-                plan_text,
-                round_number=disc.current_round,
-                niche_role="moderator",
-                reply_to=extra_replies[-1].id if extra_replies else (speaker_msg.id if speaker_msg else moderator_msg.id),
-                metadata={"interjection_kind": "revised_plan"},
-            )
-
-            # 广播计划更新事件，前端可即时刷新
-            await self._broadcast(disc.id, {
-                "type": "plan_updated",
-                "plan": disc.plan,
+    async def _generate_interjection_supplementary_reply(
+        self,
+        disc: Discussion,
+        extra_speaker: Participant,
+        extra_prompt: str,
+        moderator: Participant,
+        speaker_msg: Optional[PlazaMessage],
+        moderator_msg: PlazaMessage,
+    ) -> Optional[PlazaMessage]:
+        extra_msg = await self._agent_speak(
+            disc,
+            extra_speaker,
+            extra_prompt,
+            round_number=disc.current_round,
+            niche_role=extra_speaker.niche_role.value,
+        )
+        if extra_msg:
+            extra_msg.reply_to = speaker_msg.id if speaker_msg else moderator_msg.id
+            extra_msg.metadata.update({
+                "interjection_kind": "supplementary_reply",
+                "prompted_by": moderator.agent_id,
             })
+        return extra_msg
 
-            await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
-            self._store.save_plaza(plaza)
-            return {
-                "moderator_reply": moderator_msg,
-                "nominated_reply": speaker_msg,
-                "extra_replies": extra_replies,
-                "moderator_resume": wrap_msg,
-            }
+    async def _publish_interjection_moderator_redirect(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+        moderator_text: str,
+        user_msg_id: str,
+        chosen: Optional[Participant],
+    ) -> PlazaMessage:
+        return await self.publish_message(
+            disc,
+            moderator,
+            moderator_text,
+            round_number=disc.current_round,
+            niche_role="moderator",
+            reply_to=user_msg_id,
+            metadata={"interjection_kind": "moderator_redirect", "nominated_agent_id": chosen.agent_id if chosen else ""},
+        )
+
+    @staticmethod
+    def _ensure_interjection_nomination_prefix(
+        moderator_reply_text: str,
+        chosen: Optional[Participant],
+    ) -> str:
+        if not chosen:
+            return moderator_reply_text
+        nomination_prefix = f"请 {chosen.agent_name} 先回应。"
+        if moderator_reply_text.startswith(nomination_prefix):
+            return moderator_reply_text
+        return f"{nomination_prefix}{moderator_reply_text}"
+
+    async def _publish_interjection_plan_update(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        plan_text: str,
+        revision_reason: str,
+        reply_to: str,
+    ) -> PlazaMessage:
+        disc.plan = self._build_plan_payload(disc, plan_text, revision_reason)
+        wrap_msg = await self.publish_message(
+            disc,
+            moderator,
+            plan_text,
+            round_number=disc.current_round,
+            niche_role="moderator",
+            reply_to=reply_to,
+            metadata={"interjection_kind": "revised_plan"},
+        )
+        await self._broadcast(disc.id, {"type": "plan_updated", "plan": disc.plan})
+        await self._broadcast(disc.id, {"type": "interjection_state", "state": "resumed"})
+        self._store.save_plaza(plaza)
+        return wrap_msg
+
+    @staticmethod
+    def _build_simulated_interjection_plan_content(
+        user_message: str,
+        chosen: Optional[Participant],
+    ) -> str:
+        return (
+            f"## 修订说明\n针对用户问题「{user_message[:40]}」修订\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"| 1 | 回应用户问题 | {chosen.agent_name if chosen else '待定'} | P0 | 无 | 方案落地 |\n"
+        )
+
+    def _build_interjection_redirect_prompt(
+        self,
+        disc: Discussion,
+        speakers: List[Participant],
+        user_message: str,
+    ) -> str:
+        candidate_lines = "\n".join(
+            f"- {speaker.agent_id} | {speaker.agent_name} | {speaker.role}"
+            for speaker in speakers[:8]
+        )
+        return (
+            f"你是本场讨论的议事长，当前讨论正在进行中，需要立刻纠偏。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"当前轮次: {disc.current_round}\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
+            f"用户插话: 「{user_message}」\n\n"
+            f"候选回应者（必须从这里选一个 agent_id）:\n{candidate_lines}\n\n"
+            f"严格输出：\n"
+            f"REPLY: 你给用户和全场的纠偏回应，最后一句必须明确点名下一位回应者\n"
+            f"NEXT: 候选中的 agent_id\n"
+            f"只输出这两行。"
+        )
+
+    def _build_interjection_nominated_reply_prompt(
+        self,
+        disc: Discussion,
+        chosen: Participant,
+        user_message: str,
+        moderator_reply_text: str,
+    ) -> str:
+        return (
+            f"你是 {chosen.agent_name}（{chosen.role}）。主持人刚刚点名你，要求你优先回应一次插话纠偏。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"用户插话: 「{user_message}」\n"
+            f"主持人刚才的话: 「{moderator_reply_text}」\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=8)}\n\n"
+            f"请用 2-4 句直接回应，必须回答用户的具体问题，给出可落地的方案或约束，不要泛泛而谈。"
+        )
+
+    def _build_interjection_supplementary_reply_prompt(
+        self,
+        disc: Discussion,
+        extra_speaker: Participant,
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        user_message: str,
+    ) -> str:
+        return (
+            f"你是 {extra_speaker.agent_name}（{extra_speaker.role}）。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"用户刚才提出了问题/建议: 「{user_message}」\n"
+            f"主持人点名的 {chosen.agent_name if chosen else '无'} 已回应: 「{speaker_msg.content if speaker_msg else '无'}」\n"
+            f"最近讨论: \n{self._format_recent(disc, limit=6)}\n\n"
+            f"请从你的专业角度补充 1-2 句，针对用户问题给出你的判断或补充方案。不要重复已有观点。"
+        )
+
+    def _build_interjection_revised_plan_prompt(
+        self,
+        disc: Discussion,
+        user_message: str,
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        extra_replies: List[PlazaMessage],
+    ) -> str:
+        responses_text = self._format_interjection_responses(chosen, speaker_msg, extra_replies)
+        return (
+            f"你是议事长。你刚刚针对用户的插话完成了一次纠偏讨论。\n"
+            f"讨论话题: 「{disc.topic}」\n"
+            f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
+            f"用户插话: 「{user_message}」\n"
+            f"各位回应:\n{responses_text}\n\n"
+            f"现有执行计划:\n{json.dumps(disc.plan, ensure_ascii=False) if disc.plan else '无'}\n\n"
+            f"请根据以上讨论结果，输出修订后的执行计划。严格按以下格式:\n"
+            f"## 修订说明\n"
+            f"1 句话说明本次修订的原因和变更要点\n\n"
+            f"## 执行计划\n"
+            f"| 序号 | 任务 | 负责角色 | 优先级 | 依赖 | 预期产出 |\n"
+            f"|---|---|---|---|---|---|\n"
+            f"列出 3-6 个任务，按优先级排序。必须体现用户刚提出的问题/建议的处理方式。\n\n"
+            f"只输出以上内容，不要客套。"
+        )
+
+    @staticmethod
+    def _format_interjection_responses(
+        chosen: Optional[Participant],
+        speaker_msg: Optional[PlazaMessage],
+        extra_replies: List[PlazaMessage],
+    ) -> str:
+        all_responses = []
+        if speaker_msg and chosen:
+            all_responses.append(f"{chosen.agent_name}: {speaker_msg.content}")
+        for reply in extra_replies:
+            all_responses.append(f"{reply.agent_name}: {reply.content}")
+        return "\n".join(all_responses) if all_responses else "无回应"
 
     async def _generate_agent_content(
         self,
@@ -1093,72 +1348,170 @@ class PlazaEngine:
         bypass_degraded: bool = False,
     ) -> str:
         # 最终总结等重要调用可绕过降级窗口，强制尝试 LLM
-        if not bypass_degraded and time.monotonic() < self._llm_degraded_until:
-            self._last_call_was_fallback = True
-            return self._build_fallback_agent_content(participant, prompt)
+        degraded_content = self._degraded_agent_content(
+            participant,
+            prompt,
+            bypass_degraded=bypass_degraded,
+        )
+        if degraded_content is not None:
+            return degraded_content
+
         # 包 token_scope：广场发言的 LLM token 归因到 phase=plaza + 本次讨论的 run_id。
         # discussion_id 作 run_id 种子，同一讨论的多次发言/重试落到同一 run，便于聚合。
-        plaza_run_id = f"plaza_{discussion_id}" if discussion_id else "plaza"
         with token_scope(
-            run_id=plaza_run_id,
+            run_id=self._plaza_run_id(discussion_id),
             phase="plaza",
             team_id=participant.team_id,
             agent_id=participant.agent_id,
         ):
-            last_error = None
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    result = await asyncio.wait_for(
-                        self._chat_fn(
-                            prompt,
-                            agent_id=participant.agent_id,
-                            system_prompt=self._build_agent_system_prompt(participant),
-                        ),
-                        timeout=_LLM_CALL_TIMEOUT,
-                    )
-                    if result and result.response:
-                        if self._is_unusable_llm_text(result.response):
-                            logger.warning(
-                                "Agent %s received provider fallback text; using deterministic content",
-                                participant.agent_id,
-                            )
-                            self._mark_llm_degraded()
-                            self._last_call_was_fallback = True
-                            return self._build_fallback_agent_content(participant, prompt)
-                        return result.response
-                    last_error = Exception("empty response")
-                except Exception as e:
-                    last_error = e
-                    logger.warning(
-                        f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
-                    )
-                    if isinstance(e, asyncio.TimeoutError):
-                        self._mark_llm_degraded()
-                        self._escalate_failure(
-                            participant,
-                            prompt,
-                            e,
-                            plaza_id=plaza_id,
-                            discussion_id=discussion_id,
-                            discussion_topic=discussion_topic,
-                            round_number=round_number,
-                        )
-                        self._last_call_was_fallback = True
-                        return self._build_fallback_agent_content(participant, prompt)
-                if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
-
-            # All retries exhausted — escalate
-            self._escalate_failure(
+            return await self._generate_agent_content_with_retries(
                 participant,
                 prompt,
-                last_error,
                 plaza_id=plaza_id,
                 discussion_id=discussion_id,
                 discussion_topic=discussion_topic,
                 round_number=round_number,
             )
-            return f"[{participant.agent_name} 暂时离线]"
+
+    async def _generate_agent_content_with_retries(
+        self,
+        participant: Participant,
+        prompt: str,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        last_error = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = await self._call_agent_chat(participant, prompt)
+                content = self._usable_agent_response(participant, prompt, response)
+                if content is not None:
+                    return content
+                last_error = Exception("empty response")
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Agent {participant.agent_id} 发言失败 (attempt {attempt+1}/{_MAX_RETRIES}): {e}"
+                )
+                if isinstance(e, asyncio.TimeoutError):
+                    return self._timeout_agent_fallback(
+                        participant,
+                        prompt,
+                        e,
+                        plaza_id=plaza_id,
+                        discussion_id=discussion_id,
+                        discussion_topic=discussion_topic,
+                        round_number=round_number,
+                    )
+            if attempt < _MAX_RETRIES - 1:
+                await self._sleep_before_retry(attempt)
+
+        return self._offline_agent_content(
+            participant,
+            prompt,
+            last_error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
+
+    def _degraded_agent_content(
+        self,
+        participant: Participant,
+        prompt: str,
+        *,
+        bypass_degraded: bool,
+    ) -> Optional[str]:
+        if bypass_degraded or time.monotonic() >= self._llm_degraded_until:
+            return None
+        self._last_call_was_fallback = True
+        return self._build_fallback_agent_content(participant, prompt)
+
+    @staticmethod
+    def _plaza_run_id(discussion_id: str) -> str:
+        return f"plaza_{discussion_id}" if discussion_id else "plaza"
+
+    async def _call_agent_chat(self, participant: Participant, prompt: str):
+        return await asyncio.wait_for(
+            self._chat_fn(
+                prompt,
+                agent_id=participant.agent_id,
+                system_prompt=self._build_agent_system_prompt(participant),
+            ),
+            timeout=_LLM_CALL_TIMEOUT,
+        )
+
+    def _usable_agent_response(
+        self,
+        participant: Participant,
+        prompt: str,
+        result: Any,
+    ) -> Optional[str]:
+        if not result or not result.response:
+            return None
+        if self._is_unusable_llm_text(result.response):
+            logger.warning(
+                "Agent %s received provider fallback text; using deterministic content",
+                participant.agent_id,
+            )
+            self._mark_llm_degraded()
+            self._last_call_was_fallback = True
+            return self._build_fallback_agent_content(participant, prompt)
+        return result.response
+
+    def _timeout_agent_fallback(
+        self,
+        participant: Participant,
+        prompt: str,
+        error: Exception,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        self._mark_llm_degraded()
+        self._escalate_failure(
+            participant,
+            prompt,
+            error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
+        self._last_call_was_fallback = True
+        return self._build_fallback_agent_content(participant, prompt)
+
+    @staticmethod
+    async def _sleep_before_retry(attempt: int) -> None:
+        await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+
+    def _offline_agent_content(
+        self,
+        participant: Participant,
+        prompt: str,
+        error: Exception | None,
+        *,
+        plaza_id: str,
+        discussion_id: str,
+        discussion_topic: str,
+        round_number: int,
+    ) -> str:
+        self._escalate_failure(
+            participant,
+            prompt,
+            error,
+            plaza_id=plaza_id,
+            discussion_id=discussion_id,
+            discussion_topic=discussion_topic,
+            round_number=round_number,
+        )
+        return f"[{participant.agent_name} 暂时离线]"
 
     def _escalate_failure(
         self,
@@ -1210,24 +1563,28 @@ class PlazaEngine:
         if not disc:
             return {"error": "讨论不存在"}
 
-        moderator = None
-        if disc.moderator_agent_id:
-            moderator = plaza.participants.get(disc.moderator_agent_id)
-        if not moderator:
-            moderator = next(
-                (p for p in plaza.participants.values() if p.niche_role.value == "moderator"),
-                None,
-            )
+        moderator = self._resolve_regenerate_plan_moderator(plaza, disc)
         if not moderator:
             return {"error": "无议事长"}
 
-        # 收集全部对话（含用户插话）
-        recent = "\n".join(
-            f"[{m.agent_name}] {m.content[:200]}"
-            for m in disc.messages[-30:]
+        plan_prompt = self._build_regenerate_plan_prompt(disc)
+        plan_text = await self._generate_agent_content(
+            moderator,
+            plan_prompt,
+            plaza_id=plaza_id,
+            discussion_id=disc_id,
+            discussion_topic=disc.topic,
+            round_number=disc.current_round or 1,
+            bypass_degraded=True,  # 刷新计划也是关键调用，绕过降级窗口
         )
+        if not self._has_actionable_plan(plan_text):
+            plan_text = self._build_regenerate_plan_fallback(plaza, disc)
 
-        plan_prompt = (
+        return await self._publish_regenerated_plan(plaza, disc, moderator, plan_text)
+
+    def _build_regenerate_plan_prompt(self, disc: Discussion) -> str:
+        recent = self._format_recent_plan_context(disc)
+        return (
             f"你是议事长。请根据以下全部对话记录，重新生成一份完整的执行计划。\n"
             f"讨论话题: 「{disc.topic}」\n"
             f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
@@ -1242,26 +1599,46 @@ class PlazaEngine:
             f"列出 3-6 个任务，按优先级排序。\n\n"
             f"只输出以上内容，不要客套。"
         )
-        plan_text = await self._generate_agent_content(
-            moderator,
-            plan_prompt,
-            plaza_id=plaza_id,
-            discussion_id=disc_id,
-            discussion_topic=disc.topic,
-            round_number=disc.current_round or 1,
-            bypass_degraded=True,  # 刷新计划也是关键调用，绕过降级窗口
-        )
-        if not self._has_actionable_plan(plan_text):
-            participants = list(plaza.participants.values())
-            plan_text = self._build_deterministic_plan_content(
-                disc,
-                participants,
-                "刷新计划时 LLM 不可用或未返回结构化计划",
-            )
 
+    @staticmethod
+    def _format_recent_plan_context(disc: Discussion) -> str:
+        return "\n".join(
+            f"[{m.agent_name}] {m.content[:200]}"
+            for m in disc.messages[-30:]
+        )
+
+    @staticmethod
+    def _resolve_regenerate_plan_moderator(
+        plaza: Plaza,
+        disc: Discussion,
+    ) -> Optional[Participant]:
+        moderator = None
+        if disc.moderator_agent_id:
+            moderator = plaza.participants.get(disc.moderator_agent_id)
+        if not moderator:
+            moderator = next(
+                (p for p in plaza.participants.values() if p.niche_role.value == "moderator"),
+                None,
+            )
+        return moderator
+
+    def _build_regenerate_plan_fallback(self, plaza: Plaza, disc: Discussion) -> str:
+        participants = list(plaza.participants.values())
+        return self._build_deterministic_plan_content(
+            disc,
+            participants,
+            "刷新计划时 LLM 不可用或未返回结构化计划",
+        )
+
+    async def _publish_regenerated_plan(
+        self,
+        plaza: Plaza,
+        disc: Discussion,
+        moderator: Participant,
+        plan_text: str,
+    ) -> dict:
         disc.plan = self._build_plan_payload(disc, plan_text, "用户请求刷新执行计划")
 
-        # 议事长发出修订计划作为消息
         plan_msg = await self.publish_message(
             disc,
             moderator,
@@ -1287,35 +1664,77 @@ class PlazaEngine:
         """无 LLM 时的模拟讨论."""
 
         if moderator:
-            msg = PlazaMessage(
-                discussion_id=disc.id, agent_id=moderator.agent_id,
-                agent_name=moderator.agent_name, role=moderator.role,
-                niche_role="moderator", content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
-                round_number=0,
-            )
-            msg.seq = len(disc.messages)
-            disc.messages.append(msg)
-            await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+            await self._publish_simulated_opening(disc, moderator)
 
         for round_num in range(1, min(disc.max_rounds + 1, 3)):
-            disc.current_round = round_num
-            await self._broadcast(disc.id, {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds})
-            for i, speaker in enumerate(speakers):
-                content = self._build_fallback_agent_content(
-                    speaker,
-                    f"{disc.topic}\n{disc.description}\n{disc.goal}",
-                )
-                msg = PlazaMessage(
-                    discussion_id=disc.id, agent_id=speaker.agent_id,
-                    agent_name=speaker.agent_name, role=speaker.role,
-                    niche_role=speaker.niche_role.value, content=content,
-                    round_number=round_num,
-                )
-                msg.seq = len(disc.messages)
-                disc.messages.append(msg)
-                await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
-                await asyncio.sleep(0.1)
+            await self._run_simulated_round(disc, speakers, round_num)
 
+        await self._complete_simulated_discussion(disc, moderator, speakers)
+
+    async def _publish_simulated_opening(
+        self,
+        disc: Discussion,
+        moderator: Participant,
+    ) -> PlazaMessage:
+        msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=moderator.agent_id,
+            agent_name=moderator.agent_name,
+            role=moderator.role,
+            niche_role="moderator",
+            content=f"欢迎各位参与「{disc.topic}」的讨论。让我们开始吧。",
+            round_number=0,
+        )
+        msg.seq = len(disc.messages)
+        disc.messages.append(msg)
+        await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+        return msg
+
+    async def _publish_simulated_round_message(
+        self,
+        disc: Discussion,
+        speaker: Participant,
+        round_num: int,
+    ) -> PlazaMessage:
+        content = self._build_fallback_agent_content(
+            speaker,
+            f"{disc.topic}\n{disc.description}\n{disc.goal}",
+        )
+        msg = PlazaMessage(
+            discussion_id=disc.id,
+            agent_id=speaker.agent_id,
+            agent_name=speaker.agent_name,
+            role=speaker.role,
+            niche_role=speaker.niche_role.value,
+            content=content,
+            round_number=round_num,
+        )
+        msg.seq = len(disc.messages)
+        disc.messages.append(msg)
+        await self._broadcast(disc.id, {"type": "message", "message": msg.to_dict()})
+        return msg
+
+    async def _run_simulated_round(
+        self,
+        disc: Discussion,
+        speakers: List[Participant],
+        round_num: int,
+    ) -> None:
+        disc.current_round = round_num
+        await self._broadcast(
+            disc.id,
+            {"type": "round_start", "round": round_num, "max_rounds": disc.max_rounds},
+        )
+        for speaker in speakers:
+            await self._publish_simulated_round_message(disc, speaker, round_num)
+            await asyncio.sleep(0.1)
+
+    async def _complete_simulated_discussion(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> None:
         participants_for_plan = ([moderator] if moderator else []) + speakers
         disc.summary = self._build_deterministic_plan_content(
             disc,

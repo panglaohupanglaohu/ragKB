@@ -36,21 +36,35 @@ class CostTargetTracker:
         try:
             payload = event.payload
             metadata = getattr(payload, "metadata", {}) or {}
-            tid = metadata.get("target_id")
-            if not tid:
-                ct = metadata.get("cost_target")
-                tid = ct.get("id") if isinstance(ct, dict) else None
+            tid = _target_id_from_metadata(metadata)
             if not tid:
                 return
             from .cost_targets import get_target_store
             # get_progress 内部复测 current，并在达标时自动推进 cost_efficiency 棘轮(8R.6)
             prog = get_target_store().get_progress(tid)
-            logger.info(
-                "🎯 cost target %s 复测：current=%s progress=%s status=%s",
-                tid, prog.get("current"), prog.get("progress"), prog.get("status"),
-            )
+            _log_progress(tid, prog)
         except Exception as e:
             logger.debug("CostTargetTracker 处理失败(非致命): %s", e)
+
+
+def _target_id_from_metadata(metadata: dict) -> str | None:
+    tid = metadata.get("target_id")
+    if tid:
+        return tid
+    cost_target = metadata.get("cost_target")
+    if isinstance(cost_target, dict):
+        return cost_target.get("id")
+    return None
+
+
+def _log_progress(target_id: str, progress: dict) -> None:
+    logger.info(
+        "🎯 cost target %s 复测：current=%s progress=%s status=%s",
+        target_id,
+        progress.get("current"),
+        progress.get("progress"),
+        progress.get("status"),
+    )
 
 
 _tracker = None

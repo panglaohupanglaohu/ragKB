@@ -324,6 +324,50 @@ class TestTaskEngine:
             assert received[0].payload.error == "boom"
         asyncio.run(_test())
 
+    def test_status_callback_receives_updated_task_fields(self, task_engine):
+        async def _test():
+            transitions = []
+            task_engine.on_status_change(
+                lambda task, old, new: transitions.append(
+                    {
+                        "old": old,
+                        "new": new,
+                        "status": task.status,
+                        "result": task.result,
+                        "completed_at": task.completed_at,
+                    }
+                )
+            )
+
+            task = await task_engine.submit_task(
+                AgentTask(title="Callback Fields", agent_id="a1")
+            )
+            await task_engine.complete_task(task.task_id, result={"ok": True})
+
+            assert transitions[-1]["old"] == TaskStatus.PENDING
+            assert transitions[-1]["new"] == TaskStatus.COMPLETED
+            assert transitions[-1]["status"] == TaskStatus.COMPLETED
+            assert transitions[-1]["result"] == {"ok": True}
+            assert transitions[-1]["completed_at"]
+        asyncio.run(_test())
+
+    def test_execute_without_executor_reverts_to_pending(self, task_engine):
+        async def _test():
+            transitions = []
+            task_engine.on_status_change(
+                lambda task, old, new: transitions.append((old, new, task.started_at, task.result))
+            )
+            task = AgentTask(task_id="manual-exec", title="No Executor", agent_id="a1")
+
+            await task_engine._execute(task)
+
+            assert task.status == TaskStatus.PENDING
+            assert task.started_at == ""
+            assert task.result == {"message": "No executor registered"}
+            assert transitions[-1][0] == TaskStatus.RUNNING
+            assert transitions[-1][1] == TaskStatus.PENDING
+        asyncio.run(_test())
+
 
 # ═══════════════════════════════════════════════════
 # TaskStatus 和 TaskPriority 枚举测试

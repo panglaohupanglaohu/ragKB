@@ -1123,55 +1123,90 @@ class SystemEvolutionChannel(MarineChannel):
         new_items: List[str] = []
 
         for rule in self.audit_rules:
-            channel = self if rule.target_channel == self.name else registry.get(rule.target_channel)
-            if not channel:
-                results.append({
-                    "rule": rule.id, "status": "skip",
-                    "reason": f"Channel '{rule.target_channel}' 未注册",
-                })
-                continue
+            audit_detail = self._run_audit_rule(rule, registry)
+            results.append(audit_detail)
+            new_item_id = self._maybe_create_evolution_item(rule, audit_detail)
+            if new_item_id:
+                new_items.append(new_item_id)
 
-            if rule.check_fn is None:
-                results.append({"rule": rule.id, "status": "skip", "reason": "无检查函数"})
-                continue
+        result = self._build_audit_result(results, new_items)
+        self._enrich_audit_result(result, results)
+        self._record_audit_completion(result, len(new_items))
+        return result
 
-            try:
-                passed, detail = rule.check_fn(channel)
-            except Exception as exc:
-                passed, detail = False, f"审查异常: {exc}"
+    def _run_audit_rule(self, rule: AuditRule, registry) -> Dict[str, Any]:
+        channel = self if rule.target_channel == self.name else registry.get(rule.target_channel)
+        if not channel:
+            return self._skipped_audit_result(
+                rule,
+                f"Channel '{rule.target_channel}' 未注册",
+            )
+        if rule.check_fn is None:
+            return self._skipped_audit_result(rule, "无检查函数")
 
-            results.append({
-                "rule": rule.id, "passed": passed, "detail": detail,
-            })
+        try:
+            passed, detail = rule.check_fn(channel)
+        except Exception as exc:
+            passed, detail = False, f"审查异常: {exc}"
 
-            # ── Phase 3: 升级机制跟踪 ──
-            self._update_escalation(rule.id, passed)
+        self._update_escalation(rule.id, passed)
+        return {
+            "rule": rule.id,
+            "passed": passed,
+            "detail": detail,
+        }
 
-            if not passed:
-                # 避免重复创建
-                existing = self._find_item_by_rule(rule.id)
-                if existing and existing.status not in (
-                    EvolutionStatus.CLOSED.value, EvolutionStatus.FAILED.value
-                ):
-                    continue
+    @staticmethod
+    def _skipped_audit_result(rule: AuditRule, reason: str) -> Dict[str, Any]:
+        return {
+            "rule": rule.id,
+            "status": "skip",
+            "reason": reason,
+        }
 
-                item = EvolutionItem(
-                    title=rule.title,
-                    description=rule.description,
-                    target_channel=rule.target_channel,
-                    audit_domain=rule.domain,
-                    severity=rule.severity,
-                    reference_standard=rule.reference,
-                    current_behavior=detail,
-                    expected_behavior=rule.description,
-                    verify_test_name=f"test_evo_{rule.id.lower().replace('-', '_')}",
-                )
-                item.build_task_id = rule.id
-                self.evolution_items[item.id] = item
-                self.total_discovered += 1
-                new_items.append(item.id)
+    def _maybe_create_evolution_item(
+        self,
+        rule: AuditRule,
+        audit_detail: Dict[str, Any],
+    ) -> str:
+        if audit_detail.get("passed") is not False:
+            return ""
+        existing = self._find_item_by_rule(rule.id)
+        if existing and existing.status not in (
+            EvolutionStatus.CLOSED.value, EvolutionStatus.FAILED.value
+        ):
+            return ""
 
-        result = AwaitableDict({
+        item = self._new_evolution_item_from_rule(
+            rule,
+            str(audit_detail.get("detail", "")),
+        )
+        self.evolution_items[item.id] = item
+        self.total_discovered += 1
+        return item.id
+
+    @staticmethod
+    def _new_evolution_item_from_rule(rule: AuditRule, detail: str) -> EvolutionItem:
+        item = EvolutionItem(
+            title=rule.title,
+            description=rule.description,
+            target_channel=rule.target_channel,
+            audit_domain=rule.domain,
+            severity=rule.severity,
+            reference_standard=rule.reference,
+            current_behavior=detail,
+            expected_behavior=rule.description,
+            verify_test_name=f"test_evo_{rule.id.lower().replace('-', '_')}",
+        )
+        item.build_task_id = rule.id
+        return item
+
+    def _build_audit_result(
+        self,
+        results: List[Dict[str, Any]],
+        new_items: List[str],
+    ) -> AwaitableDict:
+        return AwaitableDict({
             "audit_run": self.total_audits,
             "rules_checked": len(results),
             "passed": sum(1 for r in results if r.get("passed")),
@@ -1181,37 +1216,36 @@ class SystemEvolutionChannel(MarineChannel):
             "details": results,
         })
 
-        # ── Phase 3: 计算合规评级 ──
+    def _enrich_audit_result(
+        self,
+        result: Dict[str, Any],
+        results: List[Dict[str, Any]],
+    ) -> None:
         rating_result = self.calculate_compliance_rating(results)
         result["compliance_rating"] = rating_result["rating"]
         result["compliance_score"] = rating_result["score"]
         result["domain_scores"] = rating_result.get("domain_scores", {})
         result["escalation"] = self.get_escalation_status()
 
-        # 记录审计轨迹
+    def _record_audit_completion(self, result: Dict[str, Any], new_items_count: int) -> None:
         self._record_trail(
             "audit_run",
             detail=f"审查 #{self.total_audits}: {result['passed']} pass, "
-                   f"{result['failed']} fail, 评级 {rating_result['rating']} "
-                   f"({rating_result['score']}分)",
-            compliance_rating=rating_result["rating"],
+                   f"{result['failed']} fail, 评级 {result['compliance_rating']} "
+                   f"({result['compliance_score']}分)",
+            compliance_rating=result["compliance_rating"],
         )
         self._last_monitoring_time = time.time()
-
-        # Record in history
         self.audit_history.append({
             "run": self.total_audits,
             "time": datetime.now().isoformat(),
             "passed": result["passed"],
             "failed": result["failed"],
             "skipped": result["skipped"],
-            "new_items": len(new_items),
+            "new_items": new_items_count,
         })
-        # Keep last 50 audits
         if len(self.audit_history) > 50:
             self.audit_history = self.audit_history[-50:]
-
-        return result
 
     def _find_item_by_rule(self, rule_id: str) -> Optional[EvolutionItem]:
         for item in self.evolution_items.values():
@@ -1227,61 +1261,83 @@ class SystemEvolutionChannel(MarineChannel):
         registry = get_default_registry()
         build_mgr = registry.get("build_team_manager")
 
-        # Agent assignment strategy based on domain and severity
-        _AGENT_MAP = {
-            AuditDomain.DATACENTER.value: "code_writer",
-            AuditDomain.GENERAL.value: "dev_lead",
-        }
-        _SEVERITY_OVERRIDE = {
-            Severity.CRITICAL.value: "chief_director",  # Critical → 总监亲自跟踪
-        }
-        # Per-rule agent override for balanced distribution
-        _RULE_AGENT_OVERRIDE: Dict[str, str] = {}
-
-        for item in self.evolution_items.values():
-            if item.status != EvolutionStatus.DISCOVERED.value:
-                continue
-
-            item.status = EvolutionStatus.DISPATCHED.value
-            item.dispatched_at = datetime.now().isoformat()
-            self.total_dispatched += 1
-
-            # Assign agent: per-rule override > severity override > domain map
-            if item.build_task_id in _RULE_AGENT_OVERRIDE:
-                item.assigned_agent = _RULE_AGENT_OVERRIDE[item.build_task_id]
-            elif item.severity == Severity.CRITICAL.value:
-                item.assigned_agent = _SEVERITY_OVERRIDE[item.severity]
-            else:
-                item.assigned_agent = _AGENT_MAP.get(item.audit_domain, "code_writer")
-
-            # 如果 Build 团队 Channel 存在，下发任务
-            if build_mgr and hasattr(build_mgr, "assign_task"):
-                task_desc = f"evolution_fix:{item.build_task_id}:{item.title}"
-                build_mgr.assign_task(item.assigned_agent, task_desc)
-
+        for item in self._pending_dispatch_items():
+            self._dispatch_evolution_item(item)
+            self._assign_build_task(build_mgr, item)
             dispatched.append(item.id)
 
         return {"dispatched": dispatched, "count": len(dispatched)}
+
+    def _pending_dispatch_items(self) -> List[EvolutionItem]:
+        return [
+            item
+            for item in self.evolution_items.values()
+            if item.status == EvolutionStatus.DISCOVERED.value
+        ]
+
+    def _dispatch_evolution_item(self, item: EvolutionItem) -> None:
+        item.status = EvolutionStatus.DISPATCHED.value
+        item.dispatched_at = datetime.now().isoformat()
+        self.total_dispatched += 1
+        item.assigned_agent = self._assigned_build_agent(item)
+
+    @staticmethod
+    def _assigned_build_agent(item: EvolutionItem) -> str:
+        agent_by_domain = {
+            AuditDomain.DATACENTER.value: "code_writer",
+            AuditDomain.GENERAL.value: "dev_lead",
+        }
+        agent_by_severity = {
+            Severity.CRITICAL.value: "chief_director",
+        }
+        agent_by_rule: Dict[str, str] = {}
+
+        if item.build_task_id in agent_by_rule:
+            return agent_by_rule[item.build_task_id]
+        if item.severity == Severity.CRITICAL.value:
+            return agent_by_severity[item.severity]
+        return agent_by_domain.get(item.audit_domain, "code_writer")
+
+    def _assign_build_task(self, build_mgr, item: EvolutionItem) -> None:
+        if not build_mgr or not hasattr(build_mgr, "assign_task"):
+            return
+        build_mgr.assign_task(item.assigned_agent, self._build_task_description(item))
+
+    @staticmethod
+    def _build_task_description(item: EvolutionItem) -> str:
+        return f"evolution_fix:{item.build_task_id}:{item.title}"
 
     async def dispatch_item(self, item_id: str) -> Optional[EvolutionItem]:
         """Async compatibility helper to dispatch a single evolution item."""
         item = self.evolution_items.get(item_id)
         if item is None:
             return None
-        status = item.status.value if isinstance(item.status, EvolutionStatus) else item.status
-        if status == EvolutionStatus.DISCOVERED.value:
-            item.status = EvolutionStatus.DISPATCHED.value
-            item.dispatched_at = datetime.now().isoformat()
-            self.total_dispatched += 1
-            self._record_trail(
-                "dispatch",
-                item_id=item.id,
-                actor="system",
-                old_value=EvolutionStatus.DISCOVERED.value,
-                new_value=EvolutionStatus.DISPATCHED.value,
-                detail=f"单项派发: {item.title}",
-            )
+        if self._is_discovered_item(item):
+            self._dispatch_single_item(item)
         return item
+
+    @staticmethod
+    def _item_status_value(item: EvolutionItem) -> str:
+        return item.status.value if isinstance(item.status, EvolutionStatus) else item.status
+
+    def _is_discovered_item(self, item: EvolutionItem) -> bool:
+        return self._item_status_value(item) == EvolutionStatus.DISCOVERED.value
+
+    def _dispatch_single_item(self, item: EvolutionItem) -> None:
+        item.status = EvolutionStatus.DISPATCHED.value
+        item.dispatched_at = datetime.now().isoformat()
+        self.total_dispatched += 1
+        self._record_single_dispatch_trail(item)
+
+    def _record_single_dispatch_trail(self, item: EvolutionItem) -> None:
+        self._record_trail(
+            "dispatch",
+            item_id=item.id,
+            actor="system",
+            old_value=EvolutionStatus.DISCOVERED.value,
+            new_value=EvolutionStatus.DISPATCHED.value,
+            detail=f"单项派发: {item.title}",
+        )
 
     def mark_in_progress(self, item_id: str) -> bool:
         """Build 团队标记开始工作。"""
@@ -1479,8 +1535,25 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> Dict[str, Any]:
         """Run verification for a filtered set of pending items."""
         results: List[Dict[str, Any]] = []
-        item_id_filter = set(item_ids or [])
+        for item in self._verification_candidates(
+            item_ids=item_ids,
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            result = self._verify_one_pending_item(item)
+            results.append(result)
 
+        return {"verified": results, "count": len(results)}
+
+    def _verification_candidates(
+        self,
+        *,
+        item_ids: Optional[List[str]],
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        item_id_filter = set(item_ids or [])
+        candidates = []
         for item in self.evolution_items.values():
             if item.status != EvolutionStatus.VERIFY_PENDING.value:
                 continue
@@ -1490,69 +1563,93 @@ class SystemEvolutionChannel(MarineChannel):
                 continue
             if source_discussion_id and item.source_discussion_id != source_discussion_id:
                 continue
+            candidates.append(item)
+        return candidates
 
-            test_fn = self._verify_registry.get(item.verify_test_name)
-            if test_fn is None:
-                # 也可以回退到重新运行 audit rule
-                rule = self._get_rule_by_id(item.build_task_id)
-                if rule and rule.check_fn:
-                    channel = get_default_registry().get(item.target_channel)
-                    if channel:
-                        test_fn = lambda ch=channel, fn=rule.check_fn: fn(ch)
+    def _verify_one_pending_item(self, item: EvolutionItem) -> Dict[str, Any]:
+        test_fn = self._resolve_verify_test(item)
+        if test_fn is None:
+            return self._missing_verify_test_result(item)
 
-            if test_fn is None:
-                evidence_run_id = self._record_evolution_verify_evidence(
-                    item,
-                    status="blocked",
-                    detail=f"验证函数 '{item.verify_test_name}' 未注册",
-                    exit_code=None,
-                )
-                results.append({
-                    "item_id": item.id, "status": "skip",
-                    "reason": f"验证函数 '{item.verify_test_name}' 未注册",
-                    "evidence_run_id": evidence_run_id,
-                })
-                continue
+        passed, detail = self._run_verify_test(test_fn)
+        self._apply_verify_outcome(item, passed, detail)
+        evidence_run_id = self._record_evolution_verify_evidence(
+            item,
+            status="passed" if passed else "failed",
+            detail=detail,
+            exit_code=0 if passed else 1,
+        )
+        return self._verify_result_payload(item, passed, detail, evidence_run_id)
 
-            try:
-                passed, detail = test_fn()
-            except Exception as exc:
-                passed, detail = False, f"验证异常: {exc}"
+    def _resolve_verify_test(self, item: EvolutionItem) -> Optional[Callable]:
+        test_fn = self._verify_registry.get(item.verify_test_name)
+        if test_fn is not None:
+            return test_fn
+        rule = self._get_rule_by_id(item.build_task_id)
+        if not rule or not rule.check_fn:
+            return None
+        channel = get_default_registry().get(item.target_channel)
+        if not channel:
+            return None
+        return lambda ch=channel, fn=rule.check_fn: fn(ch)
 
-            item.verify_result = "passed" if passed else "failed"
-            item.verify_detail = detail
-            self._update_item_escalation(item, passed)
+    def _missing_verify_test_result(self, item: EvolutionItem) -> Dict[str, Any]:
+        reason = f"验证函数 '{item.verify_test_name}' 未注册"
+        evidence_run_id = self._record_evolution_verify_evidence(
+            item,
+            status="blocked",
+            detail=reason,
+            exit_code=None,
+        )
+        return {
+            "item_id": item.id,
+            "status": "skip",
+            "reason": reason,
+            "evidence_run_id": evidence_run_id,
+        }
 
-            if passed:
-                item.status = EvolutionStatus.VERIFIED.value
-                item.completed_at = datetime.now().isoformat()
-                self.total_verified += 1
-            else:
-                item.retry_count += 1
-                if item.retry_count >= item.max_retries:
-                    item.status = EvolutionStatus.FAILED.value
-                    item.verify_detail = f"{detail} (max retries exhausted)"
-                    self.total_failed += 1
-                else:
-                    # 退回给 Build 团队重做
-                    item.status = EvolutionStatus.DISPATCHED.value
-                    item.verify_detail = (
-                        f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
-                    )
+    @staticmethod
+    def _run_verify_test(test_fn: Callable) -> Tuple[bool, str]:
+        try:
+            return test_fn()
+        except Exception as exc:
+            return False, f"验证异常: {exc}"
 
-            evidence_run_id = self._record_evolution_verify_evidence(
-                item,
-                status="passed" if passed else "failed",
-                detail=detail,
-                exit_code=0 if passed else 1,
+    def _apply_verify_outcome(self, item: EvolutionItem, passed: bool, detail: str) -> None:
+        item.verify_result = "passed" if passed else "failed"
+        item.verify_detail = detail
+        self._update_item_escalation(item, passed)
+        if passed:
+            item.status = EvolutionStatus.VERIFIED.value
+            item.completed_at = datetime.now().isoformat()
+            self.total_verified += 1
+            return
+
+        item.retry_count += 1
+        if item.retry_count >= item.max_retries:
+            item.status = EvolutionStatus.FAILED.value
+            item.verify_detail = f"{detail} (max retries exhausted)"
+            self.total_failed += 1
+        else:
+            item.status = EvolutionStatus.DISPATCHED.value
+            item.verify_detail = (
+                f"{detail} (retry queued {item.retry_count}/{item.max_retries})"
             )
-            results.append({
-                "item_id": item.id, "passed": passed, "detail": detail,
-                "retry_count": item.retry_count,
-                "evidence_run_id": evidence_run_id,
-            })
 
-        return {"verified": results, "count": len(results)}
+    @staticmethod
+    def _verify_result_payload(
+        item: EvolutionItem,
+        passed: bool,
+        detail: str,
+        evidence_run_id: str,
+    ) -> Dict[str, Any]:
+        return {
+            "item_id": item.id,
+            "passed": passed,
+            "detail": detail,
+            "retry_count": item.retry_count,
+            "evidence_run_id": evidence_run_id,
+        }
 
     def _build_verification_alert(self, item: EvolutionItem) -> Optional[Dict[str, Any]]:
         """Summarize verification follow-up required for an evolution item."""
@@ -1602,21 +1699,14 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[Dict[str, Any]]:
         """Return pending/failing verification items that need follow-up."""
         alerts: List[Dict[str, Any]] = []
-        for item in self.evolution_items.values():
-            if source_plaza_id and item.source_plaza_id != source_plaza_id:
-                continue
-            if source_discussion_id and item.source_discussion_id != source_discussion_id:
-                continue
+        for item in self._source_filtered_items(
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
             alert = self._build_verification_alert(item)
             if alert:
                 alerts.append(alert)
-        alerts.sort(
-            key=lambda alert: (
-                0 if alert["alert_level"] == "critical" else 1,
-                0 if alert["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
-                alert["item_id"],
-            )
-        )
+        alerts.sort(key=self._verification_alert_sort_key)
         return alerts
 
     def get_verification_queue(
@@ -1627,39 +1717,64 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[Dict[str, Any]]:
         """Return linked evolution items, prioritizing entries still waiting on verification."""
         items: List[Dict[str, Any]] = []
+        for item in self._source_filtered_items(
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            items.append(self._verification_queue_item(item))
+
+        items.sort(key=self._verification_queue_sort_key)
+        return items
+
+    def _source_filtered_items(
+        self,
+        *,
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        items = []
         for item in self.evolution_items.values():
             if source_plaza_id and item.source_plaza_id != source_plaza_id:
                 continue
             if source_discussion_id and item.source_discussion_id != source_discussion_id:
                 continue
-            items.append(
-                {
-                    "id": item.id,
-                    "title": item.title,
-                    "status": item.status,
-                    "verify_test_name": item.verify_test_name,
-                    "verify_result": item.verify_result,
-                    "verify_detail": item.verify_detail,
-                    "retry_count": item.retry_count,
-                    "max_retries": item.max_retries,
-                    "source_task_ids": list(item.source_task_ids),
-                    "requires_manual_verify": bool(
-                        item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
-                    ),
-                    "consecutive_failures": item.consecutive_failures,
-                    "escalation_tier": item.escalation_tier,
-                    "escalation_label": self._escalation_label(item.escalation_tier),
-                }
-            )
-
-        items.sort(
-            key=lambda item: (
-                0 if item["requires_manual_verify"] else 1,
-                0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
-                item["id"],
-            )
-        )
+            items.append(item)
         return items
+
+    @staticmethod
+    def _verification_alert_sort_key(alert: Dict[str, Any]) -> tuple[int, int, str]:
+        return (
+            0 if alert["alert_level"] == "critical" else 1,
+            0 if alert["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+            alert["item_id"],
+        )
+
+    def _verification_queue_item(self, item: EvolutionItem) -> Dict[str, Any]:
+        return {
+            "id": item.id,
+            "title": item.title,
+            "status": item.status,
+            "verify_test_name": item.verify_test_name,
+            "verify_result": item.verify_result,
+            "verify_detail": item.verify_detail,
+            "retry_count": item.retry_count,
+            "max_retries": item.max_retries,
+            "source_task_ids": list(item.source_task_ids),
+            "requires_manual_verify": bool(
+                item.verify_test_name and item.status == EvolutionStatus.VERIFY_PENDING.value
+            ),
+            "consecutive_failures": item.consecutive_failures,
+            "escalation_tier": item.escalation_tier,
+            "escalation_label": self._escalation_label(item.escalation_tier),
+        }
+
+    @staticmethod
+    def _verification_queue_sort_key(item: Dict[str, Any]) -> tuple[int, int, str]:
+        return (
+            0 if item["requires_manual_verify"] else 1,
+            0 if item["status"] == EvolutionStatus.VERIFY_PENDING.value else 1,
+            item["id"],
+        )
 
     def close_verified(self) -> List[str]:
         """关闭所有已验证通过的演进项。"""
@@ -1676,22 +1791,59 @@ class SystemEvolutionChannel(MarineChannel):
     ) -> List[str]:
         """Close a filtered set of verified items."""
         closed: List[str] = []
-        item_id_filter = set(item_ids or [])
-        for item in self.evolution_items.values():
-            if item.status == EvolutionStatus.VERIFIED.value:
-                if item_id_filter and item.id not in item_id_filter:
-                    continue
-                if source_plaza_id and item.source_plaza_id != source_plaza_id:
-                    continue
-                if source_discussion_id and item.source_discussion_id != source_discussion_id:
-                    continue
-                item.status = EvolutionStatus.CLOSED.value
-                item.closed_at = datetime.now().isoformat()
-                item.close_reason = close_reason or "verified improvement accepted"
-                item.close_verify_conclusion = verify_conclusion or (item.verify_detail or item.verify_result or "")
-                self.total_closed += 1
-                closed.append(item.id)
+        for item in self._verified_close_candidates(
+            item_ids=item_ids,
+            source_plaza_id=source_plaza_id,
+            source_discussion_id=source_discussion_id,
+        ):
+            self._close_verified_item(
+                item,
+                close_reason=close_reason,
+                verify_conclusion=verify_conclusion,
+            )
+            closed.append(item.id)
         return closed
+
+    def _verified_close_candidates(
+        self,
+        *,
+        item_ids: Optional[List[str]],
+        source_plaza_id: str,
+        source_discussion_id: str,
+    ) -> List[EvolutionItem]:
+        item_id_filter = set(item_ids or [])
+        candidates = []
+        for item in self.evolution_items.values():
+            if item.status != EvolutionStatus.VERIFIED.value:
+                continue
+            if item_id_filter and item.id not in item_id_filter:
+                continue
+            if source_plaza_id and item.source_plaza_id != source_plaza_id:
+                continue
+            if source_discussion_id and item.source_discussion_id != source_discussion_id:
+                continue
+            candidates.append(item)
+        return candidates
+
+    def _close_verified_item(
+        self,
+        item: EvolutionItem,
+        *,
+        close_reason: str,
+        verify_conclusion: str,
+    ) -> None:
+        item.status = EvolutionStatus.CLOSED.value
+        item.closed_at = datetime.now().isoformat()
+        item.close_reason = close_reason or "verified improvement accepted"
+        item.close_verify_conclusion = self._close_verify_conclusion(
+            item,
+            verify_conclusion,
+        )
+        self.total_closed += 1
+
+    @staticmethod
+    def _close_verify_conclusion(item: EvolutionItem, verify_conclusion: str) -> str:
+        return verify_conclusion or (item.verify_detail or item.verify_result or "")
 
     def _get_rule_by_id(self, rule_id: Optional[str]) -> Optional[AuditRule]:
         if not rule_id:
@@ -1705,18 +1857,23 @@ class SystemEvolutionChannel(MarineChannel):
 
     def run_evolution_cycle(self) -> Dict[str, Any]:
         """一键运行完整的审查→派发→验证→关闭循环。"""
-        audit_result = self.run_full_audit()
-        dispatch_result = self.dispatch_all_pending()
+        return self._build_evolution_cycle_result(self._run_evolution_cycle_steps())
 
-        verify_result = self.verify_all_pending()
-        closed = self.close_verified()
+    def _run_evolution_cycle_steps(self) -> Dict[str, Any]:
+        return {
+            "audit": self.run_full_audit(),
+            "dispatch": self.dispatch_all_pending(),
+            "verify": self.verify_all_pending(),
+            "closed": self.close_verified(),
+        }
 
+    def _build_evolution_cycle_result(self, steps: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "cycle": self.total_audits,
-            "audit": audit_result,
-            "dispatch": dispatch_result,
-            "verify": verify_result,
-            "closed": closed,
+            "audit": steps["audit"],
+            "dispatch": steps["dispatch"],
+            "verify": steps["verify"],
+            "closed": steps["closed"],
             "summary": self.get_evolution_summary(),
         }
 

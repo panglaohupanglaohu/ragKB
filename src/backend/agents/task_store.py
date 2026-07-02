@@ -23,11 +23,10 @@ class TaskStore:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def save_task(self, task: AgentTask):
-        path = self._dir / f"{task.task_id}.json"
-        path.write_text(json.dumps(task.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_task_file(task.task_id, task.to_dict())
 
     def delete_task(self, task_id: str):
-        path = self._dir / f"{task_id}.json"
+        path = self._task_path(task_id)
         if path.exists():
             path.unlink()
 
@@ -35,13 +34,26 @@ class TaskStore:
         tasks: Dict[str, AgentTask] = {}
         for path in self._dir.glob("*.json"):
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = self._read_task_file(path)
                 tasks[data["task_id"]] = self._deserialize(data)
             except Exception as e:
                 logger.warning(f"加载任务失败 {path.name}: {e}")
         if tasks:
             logger.info(f"📂 任务加载: {len(tasks)} 个任务")
         return tasks
+
+    def _task_path(self, task_id: str) -> Path:
+        return self._dir / f"{task_id}.json"
+
+    def _write_task_file(self, task_id: str, data: dict) -> None:
+        self._task_path(task_id).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _read_task_file(path: Path) -> dict:
+        return json.loads(path.read_text(encoding="utf-8"))
 
     @staticmethod
     def _deserialize(data: dict) -> AgentTask:

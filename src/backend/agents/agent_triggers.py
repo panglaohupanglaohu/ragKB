@@ -185,12 +185,8 @@ def is_due(trigger: AgentTrigger, now: Optional[datetime] = None) -> bool:
 
 # ── EB-4: Focus 绑定约束 ───────────────────────────────────
 
-def validate_trigger(trigger: AgentTrigger, focus_checker=None) -> List[str]:
-    """返回字段级错误列表，空 = 通过."""
+def _validate_trigger_config(trigger: AgentTrigger) -> List[str]:
     errors: List[str] = []
-    if trigger.trigger_type not in TRIGGER_TYPES:
-        errors.append(f"trigger_type: 非法 ({trigger.trigger_type})，允许 {TRIGGER_TYPES}")
-        return errors
     cfg = trigger.config or {}
     if trigger.trigger_type == "cron":
         try:
@@ -203,49 +199,83 @@ def validate_trigger(trigger: AgentTrigger, focus_checker=None) -> List[str]:
         if int(cfg.get("every_minutes", 0) or 0) < 1:
             errors.append("config.every_minutes: 必须 >= 1")
     if trigger.trigger_type == "poll":
-        url = cfg.get("url", "")
-        safe = is_url_safe(url)
+        safe = is_url_safe(cfg.get("url", ""))
         if not safe["safe"]:
             errors.append(f"config.url: {safe['reason']}")
     if trigger.trigger_type == "on_message":
         if not cfg.get("from_agent") and not cfg.get("from_user"):
             errors.append("config.from_agent/from_user: 至少填一个")
-    # 核心约束: 任务型必须绑定 focus 条目
-    if trigger.trigger_type in TASK_TYPES:
-        if not trigger.focus_item.strip():
-            errors.append("focus_item: 任务型 Trigger 必须绑定 focus.md 条目（杜绝无目的闹钟）")
-        elif focus_checker is not None:
-            try:
-                if not focus_checker(trigger.agent_id, trigger.focus_item):
-                    errors.append(f"focus_item: '{trigger.focus_item}' 不在该 Agent 的 focus.md 中，请先添加")
-            except Exception as e:
-                logger.debug(f"focus 校验降级跳过: {e}")
+    return errors
+
+
+def _validate_trigger_focus(trigger: AgentTrigger, focus_checker=None) -> List[str]:
+    if trigger.trigger_type not in TASK_TYPES:
+        return []
+    if not trigger.focus_item.strip():
+        return ["focus_item: 任务型 Trigger 必须绑定 focus.md 条目（杜绝无目的闹钟）"]
+    if focus_checker is None:
+        return []
+    try:
+        if not focus_checker(trigger.agent_id, trigger.focus_item):
+            return [f"focus_item: '{trigger.focus_item}' 不在该 Agent 的 focus.md 中，请先添加"]
+    except Exception as e:
+        logger.debug(f"focus 校验降级跳过: {e}")
+    return []
+
+
+def validate_trigger(trigger: AgentTrigger, focus_checker=None) -> List[str]:
+    """返回字段级错误列表，空 = 通过."""
+    errors: List[str] = []
+    if trigger.trigger_type not in TRIGGER_TYPES:
+        errors.append(f"trigger_type: 非法 ({trigger.trigger_type})，允许 {TRIGGER_TYPES}")
+        return errors
+    errors.extend(_validate_trigger_config(trigger))
+    errors.extend(_validate_trigger_focus(trigger, focus_checker))
     return errors
 
 
 # ── EB-6: SSRF 防护 ────────────────────────────────────────
 
+def _url_safety_error(reason: str) -> Dict[str, Any]:
+    return {"safe": False, "reason": reason}
+
+
+def _url_safety_ok() -> Dict[str, Any]:
+    return {"safe": True, "reason": ""}
+
+
+def _is_safe_url_scheme(scheme: str) -> bool:
+    return scheme in ("http", "https")
+
+
+def _is_blocked_host(host: str) -> Optional[str]:
+    if not host:
+        return "缺少 host"
+    if host.lower() in ("localhost",):
+        return "拒绝 localhost"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_unspecified):
+        return f"拒绝私网/保留地址 {host}"
+    return None
+
+
 def is_url_safe(url: str) -> Dict[str, Any]:
     """poll URL 安全检查：仅 http/https，拒绝私网/环回/链路本地."""
     try:
         parsed = urlparse(url or "")
-        if parsed.scheme not in ("http", "https"):
-            return {"safe": False, "reason": f"仅允许 http/https (got {parsed.scheme or '空'})"}
+        if not _is_safe_url_scheme(parsed.scheme):
+            return _url_safety_error(f"仅允许 http/https (got {parsed.scheme or '空'})")
         host = parsed.hostname or ""
-        if not host:
-            return {"safe": False, "reason": "缺少 host"}
-        if host.lower() in ("localhost",):
-            return {"safe": False, "reason": "拒绝 localhost"}
-        try:
-            ip = ipaddress.ip_address(host)
-            if (ip.is_private or ip.is_loopback or ip.is_link_local
-                    or ip.is_reserved or ip.is_unspecified):
-                return {"safe": False, "reason": f"拒绝私网/保留地址 {host}"}
-        except ValueError:
-            pass  # 域名（不做 DNS 解析级防护，留给执行期）
-        return {"safe": True, "reason": ""}
+        blocked_reason = _is_blocked_host(host)
+        if blocked_reason:
+            return _url_safety_error(blocked_reason)
+        return _url_safety_ok()
     except Exception as e:
-        return {"safe": False, "reason": f"URL 解析失败: {e}"}
+        return _url_safety_error(f"URL 解析失败: {e}")
 
 
 # ── EB-2: TriggerStore ─────────────────────────────────────
@@ -273,7 +303,7 @@ class TriggerStore:
         p = self._path(team_id)
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(p)
+        tmp.replace(p)
 
     def add(self, trigger: AgentTrigger) -> AgentTrigger:
         data = self._load(trigger.team_id)
@@ -337,25 +367,34 @@ class TriggerDaemon:
         """单次扫描，返回唤醒事件列表 (EB-5)."""
         now = now or datetime.now(timezone.utc)
         self._tick_count += 1
-        events: List[Dict[str, Any]] = []
-
-        for team_id in self._store.list_teams():
-            for trg in self._store.list_enabled(team_id):
-                if trg.trigger_type in ("on_message", "webhook"):
-                    continue  # 事件驱动，不参与定时扫描
-                if not is_due(trg, now):
-                    continue
-                # 30s 去重窗口
-                last = self._last_wake.get(trg.agent_id)
-                if last and (now - last).total_seconds() < DEDUP_WINDOW_SEC:
-                    continue
-                event = self._fire(trg, now, reason=trg.trigger_type)
-                events.append(event)
+        events = self._collect_due_trigger_events(now)
 
         # 心跳: 每 4 tick 检查
-        if self._tick_count % 4 == 0 and self._heartbeat_config_fn:
+        if self._should_check_heartbeats():
             events.extend(self._check_heartbeats(now))
         return events
+
+    @staticmethod
+    def _is_periodic_trigger(trg: AgentTrigger) -> bool:
+        return trg.trigger_type not in ("on_message", "webhook")
+
+    def _is_deduped(self, trg: AgentTrigger, now: datetime) -> bool:
+        last = self._last_wake.get(trg.agent_id)
+        return bool(last and (now - last).total_seconds() < DEDUP_WINDOW_SEC)
+
+    def _should_fire_trigger(self, trg: AgentTrigger, now: datetime) -> bool:
+        return self._is_periodic_trigger(trg) and is_due(trg, now) and not self._is_deduped(trg, now)
+
+    def _collect_due_trigger_events(self, now: datetime) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for team_id in self._store.list_teams():
+            for trg in self._store.list_enabled(team_id):
+                if self._should_fire_trigger(trg, now):
+                    events.append(self._fire(trg, now, reason=trg.trigger_type))
+        return events
+
+    def _should_check_heartbeats(self) -> bool:
+        return self._tick_count % 4 == 0 and bool(self._heartbeat_config_fn)
 
     def _fire(self, trg: AgentTrigger, now: datetime, reason: str) -> Dict[str, Any]:
         trg.last_fired_at = now.isoformat()

@@ -331,37 +331,39 @@ class CostAggregator:
         Handles both old (/model/allocation) and new (/allocation) response formats.
         """
         pods: List[PodCostItem] = []
+        for entry in self._allocation_items(data):
+            for pod_data in self._pod_entry_candidates(entry):
+                pod = self._safe_pod_from_entry(pod_data)
+                if pod is not None:
+                    pods.append(pod)
+        return self._sort_and_limit_pods(pods)
+
+    @staticmethod
+    def _allocation_items(data: Dict[str, Any]) -> List[Any]:
         items = data if isinstance(data, list) else data.get("data", [])
         if isinstance(items, dict):
-            items = list(items.values())
+            return list(items.values())
+        return list(items) if isinstance(items, list) else []
 
-        for entry in items:
-            if not isinstance(entry, dict):
-                continue
-            # Determine entry format:
-            # A) Single-entry wrap: {"allocID": {data}} → unwrap
-            # B) Multi-pod aggregate: {"podA": {data}, "podB": {data}} → iterate values
-            # C) Direct data: {name, properties, costs} → use as-is
-            all_values_are_dicts = all(isinstance(v, dict) for v in entry.values()) if entry else False
-            if all_values_are_dicts:
-                # Case A or B — iterate all values
-                for pod_data in entry.values():
-                    try:
-                        pod = self._pod_from_entry(pod_data)
-                        if pod is not None:
-                            pods.append(pod)
-                    except Exception:
-                        continue
-            else:
-                # Case C — direct data dict
-                try:
-                    pod = self._pod_from_entry(entry)
-                    if pod is not None:
-                        pods.append(pod)
-                except Exception:
-                    continue
+    @staticmethod
+    def _is_wrapped_allocation_entry(entry: Dict[str, Any]) -> bool:
+        return bool(entry) and all(isinstance(value, dict) for value in entry.values())
 
-        # Sort by total cost descending
+    def _pod_entry_candidates(self, entry: Any) -> List[Dict[str, Any]]:
+        if not isinstance(entry, dict):
+            return []
+        if self._is_wrapped_allocation_entry(entry):
+            return list(entry.values())
+        return [entry]
+
+    def _safe_pod_from_entry(self, entry: Dict[str, Any]) -> Optional[PodCostItem]:
+        try:
+            return self._pod_from_entry(entry)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _sort_and_limit_pods(pods: List[PodCostItem]) -> List[PodCostItem]:
         pods.sort(key=lambda p: p.total_cost, reverse=True)
         return pods[:MAX_POD_ITEMS]
 
@@ -374,75 +376,29 @@ class CostAggregator:
         """
         name = entry.get("name", "")
         props = entry.get("properties", entry)
-
-        # Labels may be in properties.labels or top-level labels
-        labels_raw = props.get("labels", {}) if isinstance(props, dict) else {}
-        if not labels_raw:
-            labels_raw = entry.get("labels", {})
-
-        labels = self._normalize_labels(labels_raw)
-
-        # Fallback: derive service/env/team from namespace when OpenCost doesn't return labels
+        labels = self._labels_from_entry(entry, props)
         namespace = labels.get("namespace", props.get("namespace", ""))
-        if not labels.get("service") and namespace:
-            if namespace == "agentsgroup":
-                labels.setdefault("service", "agentsgroup-backend")
-                labels.setdefault("app", "agentsgroup2026")
-                labels.setdefault("component", "backend")
-            elif namespace == "opencost":
-                labels.setdefault("service", "opencost")
-                labels.setdefault("component", "monitoring")
-            elif namespace == "prometheus-system":
-                labels.setdefault("service", "prometheus")
-                labels.setdefault("component", "monitoring")
-            elif namespace == "kube-system":
-                labels.setdefault("service", "kubernetes")
-                labels.setdefault("component", "infrastructure")
-            else:
-                labels.setdefault("service", namespace)
-            labels.setdefault("environment", "production")
+        self._apply_namespace_label_fallback(labels, namespace)
+        self._apply_team_label_fallback(labels, props, name, namespace)
 
-        # Derive team from pod name: agentsgroup-{team}-{hash}
-        if not labels.get("team") or labels.get("team") == "platform":
-            pod_name = props.get("pod", name.rsplit("/", 1)[-1] if "/" in name else name)
-            # K8s deployment names convert "_" to "-", so pod name
-            # "agentsgroup-build-system-xxx" maps to team_id "build_system"
-            _team_map = {
-                "build-system": "build_system",
-                "ai-coding": "ai_coding",
-                "energy": "energy",
-                "xops": "xops",
-                "cloud-ops": "cloud_ops",
-            }
-            for segment, team_id in _team_map.items():
-                if f"agentsgroup-{segment}-" in pod_name:
-                    labels.setdefault("team", team_id)
-                    break
-            if not labels.get("team") and namespace == "agentsgroup":
-                labels.setdefault("team", "platform")
-
-        # Extract costs — try top-level first (new API), fall back to properties (old API)
-        _cost = lambda key: float(entry.get(key, props.get(key, 0)) or 0)
-        cpu_cost = _cost("cpuCost")
-        ram_cost = _cost("ramCost")
-        pv_cost = _cost("pvCost")
-        network_cost = _cost("networkCost")
-        gpu_cost = _cost("gpuCost")
-        total_cost = _cost("totalCost")
+        cpu_cost = self._entry_cost(entry, props, "cpuCost")
+        ram_cost = self._entry_cost(entry, props, "ramCost")
+        pv_cost = self._entry_cost(entry, props, "pvCost")
+        network_cost = self._entry_cost(entry, props, "networkCost")
+        gpu_cost = self._entry_cost(entry, props, "gpuCost")
+        total_cost = self._entry_cost(entry, props, "totalCost")
 
         # If total not provided, sum components
         if total_cost == 0:
             total_cost = cpu_cost + ram_cost + pv_cost + network_cost + gpu_cost
 
-        cpu_core_hours = _cost("cpuCoreHours")
-        ram_gb_hours = 0.0
-        ram_byte_hours = entry.get("ramByteHours", props.get("ramByteHours", 0)) or 0
-        if ram_byte_hours:
-            ram_gb_hours = float(ram_byte_hours) / (1024 ** 3)
+        cpu_core_hours = self._entry_cost(entry, props, "cpuCoreHours")
+        ram_gb_hours = self._ram_gb_hours(entry, props)
 
         namespace = labels.get("namespace", props.get("namespace", ""))
         pod_name = props.get("pod", "") or name.rsplit("/", 1)[-1] if "/" in name else name
         container = props.get("container", entry.get("container", ""))
+        window_start, window_end = self._entry_window(entry)
 
         return PodCostItem(
             pod=pod_name,
@@ -457,9 +413,79 @@ class CostAggregator:
             cpu_core_hours=round(cpu_core_hours, 6),
             ram_gb_hours=round(ram_gb_hours, 6),
             labels=labels,
-            window_start=entry.get("window", {}).get("start", "") if isinstance(entry.get("window"), dict) else "",
-            window_end=entry.get("window", {}).get("end", "") if isinstance(entry.get("window"), dict) else "",
+            window_start=window_start,
+            window_end=window_end,
         )
+
+    def _labels_from_entry(self, entry: Dict[str, Any], props: Dict[str, Any]) -> Dict[str, str]:
+        labels_raw = props.get("labels", {}) if isinstance(props, dict) else {}
+        if not labels_raw:
+            labels_raw = entry.get("labels", {})
+        return self._normalize_labels(labels_raw)
+
+    @staticmethod
+    def _apply_namespace_label_fallback(labels: Dict[str, str], namespace: str) -> None:
+        if labels.get("service") or not namespace:
+            return
+        if namespace == "agentsgroup":
+            labels.setdefault("service", "agentsgroup-backend")
+            labels.setdefault("app", "agentsgroup2026")
+            labels.setdefault("component", "backend")
+        elif namespace == "opencost":
+            labels.setdefault("service", "opencost")
+            labels.setdefault("component", "monitoring")
+        elif namespace == "prometheus-system":
+            labels.setdefault("service", "prometheus")
+            labels.setdefault("component", "monitoring")
+        elif namespace == "kube-system":
+            labels.setdefault("service", "kubernetes")
+            labels.setdefault("component", "infrastructure")
+        else:
+            labels.setdefault("service", namespace)
+        labels.setdefault("environment", "production")
+
+    @staticmethod
+    def _apply_team_label_fallback(
+        labels: Dict[str, str],
+        props: Dict[str, Any],
+        name: str,
+        namespace: str,
+    ) -> None:
+        if labels.get("team") and labels.get("team") != "platform":
+            return
+        pod_name = props.get("pod", name.rsplit("/", 1)[-1] if "/" in name else name)
+        # K8s deployment names convert "_" to "-", so pod name
+        # "agentsgroup-build-system-xxx" maps to team_id "build_system"
+        team_map = {
+            "build-system": "build_system",
+            "ai-coding": "ai_coding",
+            "energy": "energy",
+            "xops": "xops",
+            "cloud-ops": "cloud_ops",
+        }
+        for segment, team_id in team_map.items():
+            if f"agentsgroup-{segment}-" in pod_name:
+                labels.setdefault("team", team_id)
+                break
+        if not labels.get("team") and namespace == "agentsgroup":
+            labels.setdefault("team", "platform")
+
+    @staticmethod
+    def _entry_cost(entry: Dict[str, Any], props: Dict[str, Any], key: str) -> float:
+        return float(entry.get(key, props.get(key, 0)) or 0)
+
+    def _ram_gb_hours(self, entry: Dict[str, Any], props: Dict[str, Any]) -> float:
+        ram_byte_hours = entry.get("ramByteHours", props.get("ramByteHours", 0)) or 0
+        if not ram_byte_hours:
+            return 0.0
+        return float(ram_byte_hours) / (1024 ** 3)
+
+    @staticmethod
+    def _entry_window(entry: Dict[str, Any]) -> Tuple[str, str]:
+        window = entry.get("window", {})
+        if not isinstance(window, dict):
+            return "", ""
+        return window.get("start", ""), window.get("end", "")
 
     def _normalize_labels(self, raw_labels: Dict[str, str]) -> Dict[str, str]:
         """Normalize Kubernetes labels to standard cost label keys."""
@@ -496,39 +522,80 @@ class CostAggregator:
                 window_end=we,
             )
 
-        # Calculate totals
-        total = sum(p.total_cost for p in pods)
-        cpu = sum(p.cpu_cost for p in pods)
-        ram = sum(p.ram_cost for p in pods)
-        pv = sum(p.pv_cost for p in pods)
-        net = sum(p.network_cost for p in pods)
-        gpu = sum(p.gpu_cost for p in pods)
-
-        # Aggregations
-        by_service = self._aggregate(pods, "service", total)
-        by_environment = self._aggregate(pods, "environment", total)
-        by_team = self._aggregate(pods, "team", total)
-
-        # Trends — compute daily trend for primary aggregation
+        totals = self._cost_totals(pods)
+        by_service = self._aggregate(pods, "service", totals["total"])
+        by_environment = self._aggregate(pods, "environment", totals["total"])
+        by_team = self._aggregate(pods, "team", totals["total"])
         trends = self._compute_trends(
             pods, params.aggregation, params.granularity, params.window
         )
 
-        return CostSummary(
-            total_cost=round(total, 4),
-            cpu_cost=round(cpu, 4),
-            ram_cost=round(ram, 4),
-            pv_cost=round(pv, 4),
-            network_cost=round(net, 4),
-            gpu_cost=round(gpu, 4),
-            pod_count=len(pods),
-            container_count=sum(1 for p in pods if p.container),
-            service_count=len(by_service),
-            environment_count=len(by_environment),
-            team_count=len(by_team),
-            namespace_count=len(set(p.namespace for p in pods if p.namespace)),
+        return self._build_summary(
+            pods=pods,
+            totals=totals,
+            by_service=by_service,
+            by_environment=by_environment,
+            by_team=by_team,
+            trends=trends,
             window_start=ws,
             window_end=we,
+        )
+
+    @staticmethod
+    def _cost_totals(pods: List[PodCostItem]) -> Dict[str, float]:
+        return {
+            "total": sum(p.total_cost for p in pods),
+            "cpu": sum(p.cpu_cost for p in pods),
+            "ram": sum(p.ram_cost for p in pods),
+            "pv": sum(p.pv_cost for p in pods),
+            "net": sum(p.network_cost for p in pods),
+            "gpu": sum(p.gpu_cost for p in pods),
+        }
+
+    @staticmethod
+    def _summary_counts(
+        pods: List[PodCostItem],
+        by_service: List[AggregatedCostItem],
+        by_environment: List[AggregatedCostItem],
+        by_team: List[AggregatedCostItem],
+    ) -> Dict[str, int]:
+        return {
+            "pod_count": len(pods),
+            "container_count": sum(1 for p in pods if p.container),
+            "service_count": len(by_service),
+            "environment_count": len(by_environment),
+            "team_count": len(by_team),
+            "namespace_count": len(set(p.namespace for p in pods if p.namespace)),
+        }
+
+    def _build_summary(
+        self,
+        *,
+        pods: List[PodCostItem],
+        totals: Dict[str, float],
+        by_service: List[AggregatedCostItem],
+        by_environment: List[AggregatedCostItem],
+        by_team: List[AggregatedCostItem],
+        trends: List[CostTrendSeries],
+        window_start: str,
+        window_end: str,
+    ) -> CostSummary:
+        counts = self._summary_counts(pods, by_service, by_environment, by_team)
+        return CostSummary(
+            total_cost=round(totals["total"], 4),
+            cpu_cost=round(totals["cpu"], 4),
+            ram_cost=round(totals["ram"], 4),
+            pv_cost=round(totals["pv"], 4),
+            network_cost=round(totals["net"], 4),
+            gpu_cost=round(totals["gpu"], 4),
+            pod_count=counts["pod_count"],
+            container_count=counts["container_count"],
+            service_count=counts["service_count"],
+            environment_count=counts["environment_count"],
+            team_count=counts["team_count"],
+            namespace_count=counts["namespace_count"],
+            window_start=window_start,
+            window_end=window_end,
             by_service=by_service[:10],
             by_environment=by_environment[:10],
             by_team=by_team[:10],
@@ -545,42 +612,55 @@ class CostAggregator:
         })
 
         for pod in pods:
-            value = pod.labels.get(dimension, "")
-            if not value:
-                value = getattr(pod, dimension, "") if hasattr(pod, dimension) else ""
-            if not value:
-                value = "(unknown)"
-
-            b = buckets[value]
-            b["cpu"] += pod.cpu_cost
-            b["ram"] += pod.ram_cost
-            b["pv"] += pod.pv_cost
-            b["net"] += pod.network_cost
-            b["gpu"] += pod.gpu_cost
-            b["total"] += pod.total_cost
-            b["pods"].add(pod.pod)
-            if pod.container:
-                b["containers"].add(pod.container)
+            self._add_pod_to_bucket(buckets[self._aggregate_value(pod, dimension)], pod)
 
         result = []
         for value, b in buckets.items():
-            pct = (b["total"] / total * 100) if total > 0 else 0.0
-            result.append(AggregatedCostItem(
-                dimension=dimension,
-                value=value,
-                cpu_cost=round(b["cpu"], 4),
-                ram_cost=round(b["ram"], 4),
-                pv_cost=round(b["pv"], 4),
-                network_cost=round(b["net"], 4),
-                gpu_cost=round(b["gpu"], 4),
-                total_cost=round(b["total"], 4),
-                pod_count=len(b["pods"]),
-                container_count=len(b["containers"]),
-                percentage=round(pct, 2),
-            ))
+            result.append(self._bucket_to_cost_item(dimension, value, b, total))
 
         result.sort(key=lambda x: x.total_cost, reverse=True)
         return result
+
+    @staticmethod
+    def _aggregate_value(pod: PodCostItem, dimension: str) -> str:
+        value = pod.labels.get(dimension, "")
+        if not value:
+            value = getattr(pod, dimension, "") if hasattr(pod, dimension) else ""
+        return value or "(unknown)"
+
+    @staticmethod
+    def _add_pod_to_bucket(bucket: Dict[str, Any], pod: PodCostItem) -> None:
+        bucket["cpu"] += pod.cpu_cost
+        bucket["ram"] += pod.ram_cost
+        bucket["pv"] += pod.pv_cost
+        bucket["net"] += pod.network_cost
+        bucket["gpu"] += pod.gpu_cost
+        bucket["total"] += pod.total_cost
+        bucket["pods"].add(pod.pod)
+        if pod.container:
+            bucket["containers"].add(pod.container)
+
+    @staticmethod
+    def _bucket_to_cost_item(
+        dimension: str,
+        value: str,
+        bucket: Dict[str, Any],
+        total: float,
+    ) -> AggregatedCostItem:
+        pct = (bucket["total"] / total * 100) if total > 0 else 0.0
+        return AggregatedCostItem(
+            dimension=dimension,
+            value=value,
+            cpu_cost=round(bucket["cpu"], 4),
+            ram_cost=round(bucket["ram"], 4),
+            pv_cost=round(bucket["pv"], 4),
+            network_cost=round(bucket["net"], 4),
+            gpu_cost=round(bucket["gpu"], 4),
+            total_cost=round(bucket["total"], 4),
+            pod_count=len(bucket["pods"]),
+            container_count=len(bucket["containers"]),
+            percentage=round(pct, 2),
+        )
 
     def _compute_trends(
         self,
@@ -603,44 +683,58 @@ class CostAggregator:
         if window_days <= 0:
             window_days = 7
 
-        # Group by aggregation dimension
-        grouped: Dict[str, List[PodCostItem]] = defaultdict(list)
-        for pod in pods:
-            value = pod.labels.get(aggregation, "(unknown)")
-            grouped[value].append(pod)
+        grouped = self._group_pods_for_trends(pods, aggregation)
 
         trends = []
         for value, group_pods in list(grouped.items())[:5]:  # Top 5
-            total = sum(p.total_cost for p in group_pods)
-            daily_avg = total / window_days if window_days > 0 else total
-
-            # Build trend points (simulated daily distribution)
-            points = []
-            now = datetime.now(timezone.utc)
-            for day_offset in range(window_days, -1, -1):
-                day = now - timedelta(days=day_offset)
-                # Simple linear distribution
-                day_cost = daily_avg
-                cpu_day = sum(p.cpu_cost for p in group_pods) / window_days
-                ram_day = sum(p.ram_cost for p in group_pods) / window_days
-
-                points.append(CostTrendPoint(
-                    timestamp=day.strftime("%Y-%m-%d"),
-                    total_cost=round(day_cost, 4),
-                    cpu_cost=round(cpu_day, 4),
-                    ram_cost=round(ram_day, 4),
-                ))
-
-            trends.append(CostTrendSeries(
-                dimension=aggregation,
-                value=value,
-                points=points,
-                total=round(total, 4),
-                avg_daily=round(daily_avg, 4),
-            ))
+            trends.append(self._trend_series(aggregation, value, group_pods, window_days))
 
         trends.sort(key=lambda t: t.total, reverse=True)
         return trends[:10]
+
+    @staticmethod
+    def _group_pods_for_trends(pods: List[PodCostItem], aggregation: str) -> Dict[str, List[PodCostItem]]:
+        grouped: Dict[str, List[PodCostItem]] = defaultdict(list)
+        for pod in pods:
+            grouped[pod.labels.get(aggregation, "(unknown)")].append(pod)
+        return grouped
+
+    def _trend_series(
+        self,
+        aggregation: str,
+        value: str,
+        pods: List[PodCostItem],
+        window_days: int,
+    ) -> CostTrendSeries:
+        total = sum(p.total_cost for p in pods)
+        daily_avg = total / window_days if window_days > 0 else total
+        return CostTrendSeries(
+            dimension=aggregation,
+            value=value,
+            points=self._trend_points(pods, window_days, daily_avg),
+            total=round(total, 4),
+            avg_daily=round(daily_avg, 4),
+        )
+
+    @staticmethod
+    def _trend_points(
+        pods: List[PodCostItem],
+        window_days: int,
+        daily_avg: float,
+    ) -> List[CostTrendPoint]:
+        points = []
+        now = datetime.now(timezone.utc)
+        cpu_day = sum(p.cpu_cost for p in pods) / window_days
+        ram_day = sum(p.ram_cost for p in pods) / window_days
+        for day_offset in range(window_days, -1, -1):
+            day = now - timedelta(days=day_offset)
+            points.append(CostTrendPoint(
+                timestamp=day.strftime("%Y-%m-%d"),
+                total_cost=round(daily_avg, 4),
+                cpu_cost=round(cpu_day, 4),
+                ram_cost=round(ram_day, 4),
+            ))
+        return points
 
     @staticmethod
     def _parse_window_days(window: str) -> int:

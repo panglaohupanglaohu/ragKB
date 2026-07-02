@@ -115,8 +115,12 @@ class TestEvolutionCycleGuards:
 
         result = channel.run_evolution_cycle()
 
+        assert list(result.keys()) == ["cycle", "audit", "dispatch", "verify", "closed", "summary"]
+        assert result["cycle"] == 1
         assert result["dispatch"]["count"] == 1
         assert result["verify"]["count"] == 0
+        assert result["closed"] == []
+        assert result["summary"]["total_items"] >= 1
         assert channel.evolution_items[item.id].status == EvolutionStatus.DISPATCHED.value
 
     def test_mark_build_complete_requires_artifacts(self):

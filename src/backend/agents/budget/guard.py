@@ -54,6 +54,41 @@ def save_budget_settings(budget: TokenBudget) -> TokenBudget:
     return budget
 
 
+@dataclass(frozen=True)
+class _UsageTotals:
+    session: int
+    agent: int
+    team: int
+
+
+def _utc_today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _read_usage_totals(
+    store: UsageStore,
+    *,
+    session_id: str,
+    agent_id: str,
+    team_id: str,
+    today: str,
+) -> _UsageTotals:
+    return _UsageTotals(
+        session=store.get_session_total(session_id),
+        agent=store.get_agent_daily_total(agent_id, today),
+        team=store.get_team_daily_total(team_id, today),
+    )
+
+
+def _record_events(store: UsageStore, events: List[BudgetEvent]) -> None:
+    for event in events:
+        store.record_event(event)
+
+
+def _has_halt_event(events: List[BudgetEvent]) -> bool:
+    return any(event.level == "halt" for event in events)
+
+
 class BudgetGuard:
     def __init__(self, budget: TokenBudget, store: Optional[UsageStore] = None) -> None:
         self.budget = budget
@@ -71,17 +106,19 @@ class BudgetGuard:
         estimated_tokens: int,
     ) -> BudgetCheckResult:
         events: List[BudgetEvent] = []
-        today = datetime.now(timezone.utc).date().isoformat()
-
-        session_used = self.store.get_session_total(session_id)
-        agent_used = self.store.get_agent_daily_total(agent_id, today)
-        team_used = self.store.get_team_daily_total(team_id, today)
+        totals = _read_usage_totals(
+            self.store,
+            session_id=session_id,
+            agent_id=agent_id,
+            team_id=team_id,
+            today=_utc_today(),
+        )
 
         self._check_limit(
             events,
             scope="session",
             scope_id=session_id,
-            current_total=session_used,
+            current_total=totals.session,
             incoming=estimated_tokens,
             limit=self.budget.per_session_max,
         )
@@ -89,7 +126,7 @@ class BudgetGuard:
             events,
             scope="agent",
             scope_id=agent_id,
-            current_total=agent_used,
+            current_total=totals.agent,
             incoming=estimated_tokens,
             limit=self.budget.per_agent_daily_max,
         )
@@ -97,16 +134,13 @@ class BudgetGuard:
             events,
             scope="team",
             scope_id=team_id,
-            current_total=team_used,
+            current_total=totals.team,
             incoming=estimated_tokens,
             limit=self.budget.per_team_daily_max,
         )
 
-        for event in events:
-            self.store.record_event(event)
-
-        blocked = any(event.level == "halt" for event in events)
-        return BudgetCheckResult(allowed=not blocked, events=events)
+        _record_events(self.store, events)
+        return BudgetCheckResult(allowed=not _has_halt_event(events), events=events)
 
     def record_usage(self, record: UsageRecord) -> None:
         self.store.record_usage(record)

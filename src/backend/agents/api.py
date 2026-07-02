@@ -14,6 +14,7 @@ Tab-based organization:
 from __future__ import annotations
 
 import asyncio
+import json as _json
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
@@ -51,6 +52,9 @@ from .chat_harness import (
     ProviderConfig,
     get_chat_harness,
 )
+from .budget.guard import get_budget_guard, save_budget_settings
+from .budget.models import TokenBudget
+from .budget.store import get_usage_store
 from .execution_registry import (
     ToolPermissionContext,
     PortRuntime,
@@ -393,6 +397,77 @@ class UpdateChannelsRequest(BaseModel):
     channels: List[ChannelItem] = Field(default_factory=list)
 
 
+class UsageBudgetUpdateRequest(BaseModel):
+    per_session_max: int = Field(default=200_000, ge=0)
+    per_agent_daily_max: int = Field(default=2_000_000, ge=0)
+    per_team_daily_max: int = Field(default=10_000_000, ge=0)
+    on_exceed: str = "halt"
+    alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class EditToolRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    requires_approval: Optional[bool] = None
+    category: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class EditSkillRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    instructions: Optional[str] = None
+    slug: Optional[str] = None
+    category: Optional[str] = None
+    required_tools: Optional[List[str]] = None
+
+
+class DigitalTwinMoveRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1)
+    room_id: str = Field(..., min_length=1)
+
+
+class DigitalTwinInteractRequest(BaseModel):
+    from_: str = Field(default="", alias="from")
+    to: str = ""
+    type: str = "handoff"
+    content: str = ""
+
+
+@router.post("/usage/budget", summary="Update token usage budget")
+def update_usage_budget(req: UsageBudgetUpdateRequest) -> Dict[str, object]:
+    budget = save_budget_settings(
+        TokenBudget(
+            per_session_max=req.per_session_max,
+            per_agent_daily_max=req.per_agent_daily_max,
+            per_team_daily_max=req.per_team_daily_max,
+            on_exceed=req.on_exceed,
+            alert_threshold=req.alert_threshold,
+        )
+    )
+    get_budget_guard().update_budget(budget)
+    return {"budget": budget.to_dict()}
+
+
+@router.get("/usage/summary", summary="Get token usage summary")
+def get_usage_summary(
+    agent_id: str = "",
+    team_id: str = "",
+    from_date: str = "",
+    to_date: str = "",
+) -> Dict[str, object]:
+    filters = {
+        "agent_id": agent_id,
+        "team_id": team_id,
+        "from_date": from_date,
+        "to_date": to_date,
+    }
+    summary = get_usage_store().summarize_usage(**filters)
+    return {**summary, "filters": filters}
+
+
 # TAB 1 -- TEAM INFO
 
 
@@ -683,22 +758,23 @@ def disable_tool(team_id: str, tool_id: str) -> Dict[str, Any]:
     "/teams/{team_id}/tools/{tool_id}",
     summary="Edit tool properties",
 )
-def edit_tool(team_id: str, tool_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_tool(team_id: str, tool_id: str, req: EditToolRequest = Body(default_factory=EditToolRequest)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     tool = team.tools.get(tool_id)
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tool not found in team")
+    updates = req.model_dump(exclude_unset=True)
     # Update allowed fields
     for field in ("name", "description", "icon", "requires_approval"):
-        if field in req:
-            setattr(tool, field, req[field])
-    if "category" in req:
+        if field in updates:
+            setattr(tool, field, updates[field])
+    if "category" in updates:
         try:
-            tool.category = ToolCategory(req["category"])
+            tool.category = ToolCategory(updates["category"])
         except ValueError:
             pass
-    if "parameters" in req and isinstance(req["parameters"], dict):
-        tool.parameters = req["parameters"]
+    if "parameters" in updates and isinstance(updates["parameters"], dict):
+        tool.parameters = updates["parameters"]
     _tm()._persist()
     return tool.to_dict()
 
@@ -1127,7 +1203,7 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     "/teams/{team_id}/skills/{skill_id}",
     summary="Edit skill properties",
 )
-def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+def edit_skill(team_id: str, skill_id: str, req: EditSkillRequest = Body(default_factory=EditSkillRequest)) -> Dict[str, Any]:
     team = _get_team_or_404(team_id)
     skill = team.skills.get(skill_id)
     if skill is None:
@@ -1140,19 +1216,20 @@ def edit_skill(team_id: str, skill_id: str, req: Dict[str, Any] = Body(default={
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
         # Add to team for editing
         team.skills[skill_id] = skill
+    updates = req.model_dump(exclude_unset=True)
     # Update allowed fields
     for field in ("name", "description", "icon", "instructions", "slug"):
-        if field in req:
-            setattr(skill, field, req[field])
-    if "category" in req:
+        if field in updates:
+            setattr(skill, field, updates[field])
+    if "category" in updates:
         try:
-            skill.category = SkillCategory(req["category"])
+            skill.category = SkillCategory(updates["category"])
         except ValueError:
             pass
-    if "required_tools" in req and isinstance(req["required_tools"], list):
-        skill.required_tools = req["required_tools"]
+    if "required_tools" in updates and isinstance(updates["required_tools"], list):
+        skill.required_tools = updates["required_tools"]
     # Bump version on instruction edit
-    if "instructions" in req:
+    if "instructions" in updates:
         skill.version = getattr(skill, "version", 0) + 1
     _tm()._persist()
     # Also update skill store if available
@@ -1218,9 +1295,9 @@ def dt_put_state(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
 
 
 @router.post("/digital-twin/move", summary="Move agent to room")
-def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    agent_id = req.get("agent_id", "")
-    room_id = req.get("room_id", "")
+def dt_move_agent(req: DigitalTwinMoveRequest) -> Dict[str, Any]:
+    agent_id = req.agent_id
+    room_id = req.room_id
     if not agent_id or not room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
     _dt_state["positions"][agent_id] = room_id
@@ -1228,11 +1305,11 @@ def dt_move_agent(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
 
 
 @router.post("/digital-twin/interact", summary="Record agent interaction")
-def dt_interact(req: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    from_agent = req.get("from", "")
-    to_agent = req.get("to", "")
-    msg_type = req.get("type", "handoff")
-    content = req.get("content", "")
+def dt_interact(req: DigitalTwinInteractRequest) -> Dict[str, Any]:
+    from_agent = req.from_
+    to_agent = req.to
+    msg_type = req.type
+    content = req.content
     ts = datetime.now(timezone.utc).isoformat()
     interaction = {"from": from_agent, "to": to_agent, "type": msg_type, "content": content, "time": ts}
     _dt_state["interactions"].append(interaction)
@@ -1586,71 +1663,9 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
     Injects bound skill instructions into system prompt.
     """
     harness = get_chat_harness()
-
-    # If team has a default model, ensure harness uses it
-    if team_id:
-        team = _tm().get_team(team_id)
-        if team:
-            _sync_default_model_to_harness(team)
-
-    # Build tool schemas for function calling from agent's bound tools
-    tools_for_llm = None
-    tool_names_bound = set(agent.tools) if agent.tools else set()
-    if tool_names_bound:
-        all_tools = _tr().list_all()
-        tools_for_llm = []
-        for t in all_tools:
-            if t.name in tool_names_bound or t.tool_id in tool_names_bound:
-                # Build OpenAI function calling schema
-                props = {}
-                required_params = []
-                for pname, pdef in (t.parameters or {}).items():
-                    ptype = pdef.get("type", "string")
-                    if ptype == "integer":
-                        ptype = "number"
-                    if ptype == "object":
-                        ptype = "string"
-                    if ptype == "array":
-                        ptype = "string"
-                    props[pname] = {
-                        "type": ptype,
-                        "description": pdef.get("description", ""),
-                    }
-                    if pdef.get("required"):
-                        required_params.append(pname)
-                fn_schema = {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": props,
-                            "required": required_params,
-                        },
-                    },
-                }
-                tools_for_llm.append(fn_schema)
-
-    # Build system prompt from agent metadata + skill instructions
-    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
-    system_prompt = (
-        f"你是 {agent.name}，角色: {agent.role}。\n"
-        f"技能: {skills_str}\n"
-        f"你是 AgentsGroup2026 智能体团队管理平台的核心智能体之一。\n"
-        f"请用中文回答，专业但易懂。"
-    )
-
-    # Inject bound skill instructions into system prompt
-    skill_names_bound = set(agent.skills) if agent.skills else set()
-    if skill_names_bound:
-        all_skills = _sr().list_all()
-        skill_instructions = []
-        for s in all_skills:
-            if (s.name in skill_names_bound or s.skill_id in skill_names_bound) and s.instructions:
-                skill_instructions.append(f"### {s.name}\n{s.instructions}")
-        if skill_instructions:
-            system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
+    _sync_team_default_model(team_id)
+    tools_for_llm = _build_agent_tool_schemas(agent, team_id)
+    system_prompt = _build_agent_response_system_prompt(agent, team_id)
 
     result = await harness.chat(
         content,
@@ -1663,25 +1678,174 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
 
     # If LLM returned tool calls, execute them and feed results back
     if result.tool_invocations:
-        from .tool_executor import get_tool_executor
-        executor = get_tool_executor()
-        tool_outputs = []
-        for inv in result.tool_invocations:
-            tr = await executor.execute(inv.tool_name, inv.arguments, agent_id=agent.agent_id)
-            inv.result = tr.output if tr.success else f"Error: {tr.error}"
-            tool_outputs.append(f"[{inv.tool_name}] {'✅' if tr.success else '❌'}: {inv.result[:500]}")
-        # Append tool results and get a follow-up response
-        tool_summary = "\n\n".join(tool_outputs)
-        followup = await harness.chat(
-            f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
-            agent_id=agent.agent_id,
-            team_id=team_id,  # 归因：工具回执后续调用同样落团队
+        return await _generate_tool_followup_response(
+            harness,
+            agent,
+            result.tool_invocations,
+            team_id=team_id,
             session_id=session_id,
             system_prompt=system_prompt,
         )
-        return followup.response, followup
 
     return result.response, result
+
+
+def _sync_team_default_model(team_id: str) -> None:
+    if not team_id:
+        return
+    team = _tm().get_team(team_id)
+    if team:
+        _sync_default_model_to_harness(team)
+
+
+def _build_agent_permission_context(agent) -> ToolPermissionContext:
+    from .security.permission_resolver import PermissionResolver
+
+    return PermissionResolver().build_context(agent)
+
+
+def _build_agent_tool_schemas(agent, team_id: str = "") -> Optional[List[Dict[str, Any]]]:
+    tool_names_bound = _agent_bound_tool_names(agent, team_id)
+    if not tool_names_bound:
+        return None
+    permission_context = _build_agent_permission_context(agent)
+    tools_for_llm = []
+    for tool in _tr().list_all():
+        if (
+            tool.name in tool_names_bound or tool.tool_id in tool_names_bound
+        ) and not permission_context.blocks(tool.name):
+            tools_for_llm.append(_build_tool_function_schema(tool))
+    return tools_for_llm
+
+
+def _agent_bound_tool_names(agent, team_id: str = "") -> set[str]:
+    tool_names = set(agent.tools) if agent.tools else set()
+    for skill in _agent_bound_skills(agent, team_id):
+        tool_names.update(skill.required_tools or [])
+    return tool_names
+
+
+def _build_tool_function_schema(tool) -> Dict[str, Any]:
+    props, required_params = _build_tool_parameter_schema(tool.parameters or {})
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": required_params,
+            },
+        },
+    }
+
+
+def _build_tool_parameter_schema(parameters: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
+    props = {}
+    required_params = []
+    for pname, pdef in parameters.items():
+        ptype = _llm_tool_param_type(pdef.get("type", "string"))
+        props[pname] = {
+            "type": ptype,
+            "description": pdef.get("description", ""),
+        }
+        if pdef.get("required"):
+            required_params.append(pname)
+    return props, required_params
+
+
+def _llm_tool_param_type(param_type: str) -> str:
+    if param_type == "integer":
+        return "number"
+    if param_type in {"object", "array"}:
+        return "string"
+    return param_type
+
+
+def _build_agent_response_system_prompt(agent, team_id: str = "") -> str:
+    skills_str = ", ".join(agent.skills) if agent.skills else "通用"
+    system_prompt = (
+        f"你是 {agent.name}，角色: {agent.role}。\n"
+        f"技能: {skills_str}\n"
+        f"你是 AgentsGroup2026 智能体团队管理平台的核心智能体之一。\n"
+        f"请用中文回答，专业但易懂。"
+    )
+    skill_instructions = _agent_skill_instructions(agent, team_id)
+    if skill_instructions:
+        system_prompt += "\n\n## 已启用技能指令\n\n" + "\n\n".join(skill_instructions)
+    return system_prompt
+
+
+def _agent_skill_instructions(agent, team_id: str = "") -> List[str]:
+    return [
+        f"### {skill.name}\n{skill.instructions}"
+        for skill in _agent_bound_skills(agent, team_id)
+        if skill.instructions
+    ]
+
+
+def _agent_bound_skills(agent, team_id: str = "") -> List[Any]:
+    skill_names_bound = set(agent.skills) if agent.skills else set()
+    if not skill_names_bound:
+        return []
+    skills = []
+    seen = set()
+    for skill in _iter_team_and_registry_skills(team_id):
+        if (
+            skill.name in skill_names_bound or skill.skill_id in skill_names_bound
+        ) and skill.skill_id not in seen:
+            skills.append(skill)
+            seen.add(skill.skill_id)
+    return skills
+
+
+def _iter_team_and_registry_skills(team_id: str = "") -> List[Any]:
+    skills = []
+    if team_id:
+        team = _tm().get_team(team_id)
+        if team:
+            skills.extend(team.skills.values())
+    skills.extend(_sr().list_all())
+    return skills
+
+
+async def _generate_tool_followup_response(
+    harness,
+    agent,
+    tool_invocations: List[Any],
+    *,
+    team_id: str,
+    session_id: str,
+    system_prompt: str,
+):
+    tool_summary = "\n\n".join(await _execute_agent_tool_invocations(agent, tool_invocations))
+    followup = await harness.chat(
+        f"工具执行结果:\n\n{tool_summary}\n\n请基于以上工具返回结果，回答用户的问题。",
+        agent_id=agent.agent_id,
+        team_id=team_id,  # 归因：工具回执后续调用同样落团队
+        session_id=session_id,
+        system_prompt=system_prompt,
+    )
+    return followup.response, followup
+
+
+async def _execute_agent_tool_invocations(agent, tool_invocations: List[Any]) -> List[str]:
+    from .tool_executor import get_tool_executor
+
+    executor = get_tool_executor()
+    tool_outputs = []
+    for invocation in tool_invocations:
+        result = await executor.execute(
+            invocation.tool_name,
+            invocation.arguments,
+            agent_id=agent.agent_id,
+        )
+        invocation.result = result.output if result.success else f"Error: {result.error}"
+        tool_outputs.append(
+            f"[{invocation.tool_name}] {'✅' if result.success else '❌'}: {invocation.result[:500]}"
+        )
+    return tool_outputs
 
 
 @router.post(
@@ -1692,58 +1856,87 @@ async def _generate_agent_response(agent, content, session_id="", team_id=""):
 async def send_session_message(
     team_id: str, agent_id: str, session_id: str, req: SessionMessageRequest
 ) -> Dict[str, Any]:
-    import uuid
-    session = _sessions.get(session_id)
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    msg = {
-        "message_id": str(uuid.uuid4())[:8],
-        "role": req.role,
-        "content": req.content,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    session = _get_session_or_404(session_id)
+    msg = _build_session_message(req.role, req.content)
     session["messages"].append(msg)
     agent = _get_agent_or_404(team_id, agent_id)
     _bump_metric(agent_id, "messages_sent")
     _log_agent_action(agent_id, "message_received", f"session={session_id}")
     reply_text, turn_result = await _generate_agent_response(agent, req.content, session_id, team_id)
     if reply_text:
-        reply_msg = {
-            "message_id": str(uuid.uuid4())[:8],
-            "role": "assistant",
-            "content": reply_text,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "model": turn_result.model if turn_result else "",
-            "provider": turn_result.provider if turn_result else "",
-            "latency_ms": turn_result.latency_ms if turn_result else 0,
-        }
-        session["messages"].append(reply_msg)
-        # Track real token usage from harness
-        real_usage = turn_result.usage if turn_result else None
-        if real_usage and real_usage.total_tokens > 0:
-            _bump_metric(agent_id, "today_llm_calls")
-            _bump_metric(agent_id, "today_tokens", real_usage.total_tokens)
-            _bump_metric(agent_id, "month_tokens", real_usage.total_tokens)
-            _bump_metric(agent_id, "total_tokens", real_usage.total_tokens)
-        else:
-            _bump_metric(agent_id, "today_llm_calls")
-            estimated_tokens = len(req.content) + len(reply_text)
-            _bump_metric(agent_id, "today_tokens", estimated_tokens)
-            _bump_metric(agent_id, "month_tokens", estimated_tokens)
-            _bump_metric(agent_id, "total_tokens", estimated_tokens)
-        # Check for tool invocations from harness or text
-        if turn_result and turn_result.tool_invocations:
-            _bump_metric(agent_id, "tools_invoked", len(turn_result.tool_invocations))
-            _log_agent_action(agent_id, "tools_invoked",
-                              ", ".join(t.tool_name for t in turn_result.tool_invocations))
-        else:
-            tool_invocations = _parse_tool_invocations(reply_text)
-            if tool_invocations:
-                _bump_metric(agent_id, "tools_invoked", len(tool_invocations))
-                _log_agent_action(agent_id, "tools_invoked",
-                                  ", ".join(t["tool"] for t in tool_invocations))
+        session["messages"].append(_build_assistant_session_message(reply_text, turn_result))
+        _record_session_response_metrics(agent_id, req.content, reply_text, turn_result)
 
     return msg
+
+
+def _get_session_or_404(session_id: str) -> Dict[str, Any]:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return session
+
+
+def _build_session_message(role: str, content: str) -> Dict[str, Any]:
+    import uuid
+
+    return {
+        "message_id": str(uuid.uuid4())[:8],
+        "role": role,
+        "content": content,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _build_assistant_session_message(reply_text: str, turn_result) -> Dict[str, Any]:
+    msg = _build_session_message("assistant", reply_text)
+    msg.update({
+        "model": turn_result.model if turn_result else "",
+        "provider": turn_result.provider if turn_result else "",
+        "latency_ms": turn_result.latency_ms if turn_result else 0,
+    })
+    return msg
+
+
+def _record_session_response_metrics(
+    agent_id: str,
+    request_content: str,
+    reply_text: str,
+    turn_result,
+) -> None:
+    _record_session_token_metrics(agent_id, request_content, reply_text, turn_result)
+    _record_session_tool_metrics(agent_id, reply_text, turn_result)
+
+
+def _record_session_token_metrics(
+    agent_id: str,
+    request_content: str,
+    reply_text: str,
+    turn_result,
+) -> None:
+    real_usage = turn_result.usage if turn_result else None
+    if real_usage and real_usage.total_tokens > 0:
+        token_count = real_usage.total_tokens
+    else:
+        token_count = len(request_content) + len(reply_text)
+    _bump_metric(agent_id, "today_llm_calls")
+    _bump_metric(agent_id, "today_tokens", token_count)
+    _bump_metric(agent_id, "month_tokens", token_count)
+    _bump_metric(agent_id, "total_tokens", token_count)
+
+
+def _record_session_tool_metrics(agent_id: str, reply_text: str, turn_result) -> None:
+    tool_names = _session_tool_invocation_names(reply_text, turn_result)
+    if not tool_names:
+        return
+    _bump_metric(agent_id, "tools_invoked", len(tool_names))
+    _log_agent_action(agent_id, "tools_invoked", ", ".join(tool_names))
+
+
+def _session_tool_invocation_names(reply_text: str, turn_result) -> List[str]:
+    if turn_result and turn_result.tool_invocations:
+        return [invocation.tool_name for invocation in turn_result.tool_invocations]
+    return [item["tool"] for item in _parse_tool_invocations(reply_text)]
 
 
 @router.get("/teams/{team_id}/delegations", summary="List delegations for a team")
@@ -1890,6 +2083,7 @@ async def bridge_command(req: BridgeCommandRequest) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════
 
 from .task_engine import AgentTask, TaskStatus, get_task_engine
+from . import task_trace as _task_trace
 
 
 class SubmitTaskRequest(BaseModel):
@@ -1903,6 +2097,206 @@ class SubmitTaskRequest(BaseModel):
 
 class SubmitBatchRequest(BaseModel):
     tasks: List[SubmitTaskRequest] = Field(..., min_length=1)
+
+
+async def _ensure_task_engine_running():
+    engine = _te()
+    if not engine._running:
+        await engine.start()
+    return engine
+
+
+async def _check_token_factory_ready(log_prefix: str) -> bool:
+    try:
+        from token_factory import TokenFactory as _TF
+        tf = _TF.instance()
+        tf_status = await tf.ensure_ready()
+        token_ready = tf_status.get("ready", False)
+        _harness_log.info(
+            "[%s] Token Factory ready=%s, providers=%s",
+            log_prefix,
+            token_ready,
+            [n for n, p in tf._provider_health.items() if p.reachable],
+        )
+        return token_ready
+    except Exception as exc:
+        _harness_log.warning("[%s] Token Factory check failed: %s", log_prefix, exc)
+        return False
+
+
+def _has_execution_backend(log_prefix: str) -> bool:
+    api_key, _, _ = _get_deepseek_credentials()
+    if api_key:
+        _harness_log.info("[%s] Token Factory not ready but direct DeepSeek API available — proceeding", log_prefix)
+        return True
+    return False
+
+
+def _build_task_from_request(team_id: str, req: SubmitTaskRequest) -> AgentTask:
+    return AgentTask(
+        agent_id=req.agent_id,
+        team_id=team_id,
+        title=req.title,
+        description=req.description,
+        priority=req.priority,
+        dependencies=list(req.dependencies),
+        metadata=dict(req.metadata),
+    )
+
+
+async def _submit_internal_task(
+    team_id: str,
+    *,
+    agent_id: str = "",
+    title: str,
+    description: str = "",
+    priority: int = 2,
+    dependencies: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    auto_start: bool = False,
+) -> AgentTask:
+    task = _build_task_from_request(
+        team_id,
+        SubmitTaskRequest(
+            agent_id=agent_id,
+            title=title,
+            description=description,
+            priority=priority,
+            dependencies=list(dependencies or []),
+            metadata=dict(metadata or {}),
+        ),
+    )
+    workflow = _initialize_task_workflow(task, team_id)
+    await _ensure_task_engine_running()
+    _seed_task_pipeline(task)
+    await _te().submit_task(task)
+    if auto_start and workflow:
+        _start_first_workflow_step(task, team_id, workflow)
+        await _te().start_task(task.task_id)
+        _start_harness_monitor(task.task_id, team_id)
+    return task
+
+
+def _initialize_task_workflow(task: AgentTask, team_id: str) -> List[Dict[str, Any]]:
+    workflow = _generate_workflow(task, team_id)
+    if workflow:
+        task.metadata["workflow"] = workflow
+    return workflow
+
+
+def _seed_task_pipeline(task: AgentTask) -> None:
+    try:
+        _seed_project_context(task.task_id, task.title, task.description or "")
+        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
+    except Exception as exc:
+        _harness_log.warning("[submit_task] Context seeding failed: %s", exc)
+
+
+def _write_task_init_handoff(
+    task: AgentTask,
+    *,
+    team_id: str,
+    requested_agent_id: str,
+    token_ready: bool,
+    workflow: List[Dict[str, Any]],
+) -> None:
+    _write_handoff(task.task_id, "task_init", {
+        "task_id": task.task_id,
+        "title": task.title,
+        "description": task.description,
+        "team_id": team_id,
+        "agent_id": requested_agent_id,
+        "token_factory_ready": token_ready,
+        "workflow_steps": [s["key"] for s in workflow] if workflow else [],
+    })
+
+
+def _mark_task_backend_unavailable(task: AgentTask) -> None:
+    _harness_log.warning(
+        "[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
+        "请先确保 Ollama / LLM 推理后端可用。",
+        task.task_id,
+    )
+    task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
+
+
+def _start_first_workflow_step(task: AgentTask, team_id: str, workflow: List[Dict[str, Any]]) -> None:
+    if not workflow:
+        return
+    first_step = workflow[0]
+    if first_step.get("status") != "active" or not first_step.get("agent_id"):
+        return
+
+    import uuid as _uuid
+
+    sr = _sr()
+    skill = sr.get_by_slug("code_implementation")
+    cfg = dict(skill.config or {}) if skill else {}
+    agent = _tm().get_agent(team_id, first_step["agent_id"])
+    if not agent:
+        return
+
+    sid = str(_uuid.uuid4())[:12]
+    step_prompt = _build_step_prompt(task, first_step, workflow)
+    _harness_log.info(
+        "[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
+        sid,
+        first_step["key"],
+        agent.name,
+    )
+    _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+    first_step["session_id"] = sid
+    task.metadata["workflow"] = workflow
+    _emit_pipeline_event(task.task_id, "step_started", {
+        "step": first_step["key"],
+        "label": first_step.get("label", ""),
+        "agent": agent.name,
+    })
+
+
+def _active_workflow_step(workflow: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for step in workflow:
+        if step.get("status") == "active":
+            return step
+    return None
+
+
+def _code_implementation_skill_config() -> Dict[str, Any]:
+    skill = _sr().get_by_slug("code_implementation")
+    return dict(skill.config or {}) if skill else {}
+
+
+def _start_workflow_step_session(
+    *,
+    task: AgentTask,
+    team_id: str,
+    step: Dict[str, Any],
+    workflow: List[Dict[str, Any]],
+    log_prefix: str,
+) -> Optional[str]:
+    import uuid as _uuid
+
+    agent = _tm().get_agent(team_id, step.get("agent_id", ""))
+    if not agent:
+        return None
+    sid = str(_uuid.uuid4())[:12]
+    step_prompt = _build_step_prompt(task, step, workflow)
+    _harness_log.info(
+        "[%s] Starting Claude session %s for step '%s' (agent: %s)",
+        log_prefix,
+        sid,
+        step["key"],
+        agent.name,
+    )
+    _start_claude_session(sid, step_prompt, _code_implementation_skill_config(), agent, task.task_id)
+    step["session_id"] = sid
+    task.metadata["workflow"] = workflow
+    return sid
+
+
+def _persist_workflow_and_monitor(task: AgentTask, team_id: str, workflow: List[Dict[str, Any]]) -> None:
+    task.metadata["workflow"] = workflow
+    _start_harness_monitor(task.task_id, team_id)
 
 
 def _te():
@@ -2003,92 +2397,27 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
     _get_team_or_404(team_id)
     if req.agent_id:
         _get_agent_or_404(team_id, req.agent_id)
-    engine = _te()
-    if not engine._running:
-        await engine.start()
-
-    # ── Token Factory 预检: 确保 LLM 推理后端可用 ──
-    token_ready = False
-    try:
-        from token_factory import TokenFactory as _TF
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        token_ready = tf_status.get("ready", False)
-        _harness_log.info("[submit_task] Token Factory ready=%s, providers=%s",
-                          token_ready,
-                          [n for n, p in tf._provider_health.items() if p.reachable])
-    except Exception as _tf_err:
-        _harness_log.warning("[submit_task] Token Factory check failed: %s", _tf_err)
-
-    task = AgentTask(
-        agent_id=req.agent_id,
+    engine = await _ensure_task_engine_running()
+    token_ready = await _check_token_factory_ready("submit_task")
+    task = _build_task_from_request(team_id, req)
+    workflow = _initialize_task_workflow(task, team_id)
+    _seed_task_pipeline(task)
+    _write_task_init_handoff(
+        task,
         team_id=team_id,
-        title=req.title,
-        description=req.description,
-        priority=req.priority,
-        dependencies=list(req.dependencies),
-        metadata=dict(req.metadata),
+        requested_agent_id=req.agent_id,
+        token_ready=token_ready,
+        workflow=workflow,
     )
-    # Auto-generate workflow steps
-    wf = _generate_workflow(task, team_id)
-    if wf:
-        task.metadata["workflow"] = wf
-
-    # Pre-seed pipeline workspace with project context
-    try:
-        _seed_project_context(task.task_id, req.title, req.description or "")
-        task.metadata["pipeline_dir"] = _pipeline_dir(task.task_id)
-    except Exception as _ctx_err:
-        _harness_log.warning("[submit_task] Context seeding failed: %s", _ctx_err)
-
-    # 写入任务启动 handoff 文件
-    _write_handoff(task.task_id, "task_init", {
-        "task_id": task.task_id,
-        "title": task.title,
-        "description": task.description,
-        "team_id": team_id,
-        "agent_id": req.agent_id,
-        "token_factory_ready": token_ready,
-        "workflow_steps": [s["key"] for s in wf] if wf else [],
-    })
 
     await engine.submit_task(task)
 
-    # ── Token Factory 不就绪时检查是否有直连 API 可用 ──
-    if not token_ready:
-        api_key, _, _ = _get_deepseek_credentials()
-        if api_key:
-            _harness_log.info("[submit_task] Token Factory not ready but direct DeepSeek API available — proceeding")
-            token_ready = True  # Override: direct API works
-        else:
-            _harness_log.warning("[submit_task] Token Factory NOT ready — task %s queued but NOT started. "
-                                 "请先确保 Ollama / LLM 推理后端可用。", task.task_id)
-            task.metadata["token_factory_error"] = "LLM 推理后端不可用，任务已创建但未启动执行"
-            return task.to_dict()
+    if not token_ready and not _has_execution_backend("submit_task"):
+        _mark_task_backend_unavailable(task)
+        return task.to_dict()
 
-    # Auto-start Claude Code for the first active step
-    if wf:
-        first_step = wf[0]
-        if first_step.get("status") == "active" and first_step.get("agent_id"):
-            import uuid as _uuid
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            agent = _tm().get_agent(team_id, first_step["agent_id"])
-            if agent:
-                sid = str(_uuid.uuid4())[:12]
-                step_prompt = _build_step_prompt(task, first_step, wf)
-                _harness_log.info("[submit_task] Starting Claude session %s for step '%s' (agent: %s)",
-                                  sid, first_step["key"], agent.name)
-                _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
-                first_step["session_id"] = sid
-                task.metadata["workflow"] = wf
-                _emit_pipeline_event(task.task_id, "step_started", {
-                    "step": first_step["key"],
-                    "label": first_step.get("label", ""),
-                    "agent": agent.name,
-                })
-        # Mark task as running and start harness monitor
+    if workflow:
+        _start_first_workflow_step(task, team_id, workflow)
         await engine.start_task(task.task_id)
         _start_harness_monitor(task.task_id, team_id)
     return task.to_dict()
@@ -2347,19 +2676,15 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
         next_step = wf[active_idx + 1]
         # Auto-start Claude Code for EVERY step
         if next_step.get("agent_id"):
-            import uuid as _uuid
-            sr = _sr()
-            skill = sr.get_by_slug("code_implementation")
-            cfg = dict(skill.config or {}) if skill else {}
-            agent = _tm().get_agent(team_id, next_step["agent_id"])
-            if agent:
-                sid = str(_uuid.uuid4())[:12]
-                step_prompt = _build_step_prompt(task, next_step, wf)
-                _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-                next_step["session_id"] = sid
-    task.metadata["workflow"] = wf
+            _start_workflow_step_session(
+                task=task,
+                team_id=team_id,
+                step=next_step,
+                workflow=wf,
+                log_prefix="advance_workflow",
+            )
     # Ensure harness monitor is running
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
     # Check if all completed
     all_done = all(s["status"] in ("completed", "skipped") for s in wf)
     # Auto-complete the task when all workflow steps are done
@@ -2403,31 +2728,24 @@ async def run_claude_for_task(team_id: str, task_id: str) -> Dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
     wf = task.metadata.get("workflow", [])
     # Find any active step
-    active_step = None
-    for s in wf:
-        if s.get("status") == "active":
-            active_step = s
-            break
+    active_step = _active_workflow_step(wf)
     if not active_step:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No active step")
     if active_step.get("session_id"):
         return {"session_id": active_step["session_id"], "status": "already_running"}
 
-    import uuid as _uuid
-    sr = _sr()
-    skill = sr.get_by_slug("code_implementation")
-    cfg = dict(skill.config or {}) if skill else {}
-    agent = _tm().get_agent(team_id, active_step.get("agent_id", ""))
-    if not agent:
+    sid = _start_workflow_step_session(
+        task=task,
+        team_id=team_id,
+        step=active_step,
+        workflow=wf,
+        log_prefix="run_claude_for_task",
+    )
+    if not sid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Agent not found for this step")
 
-    sid = str(_uuid.uuid4())[:12]
-    step_prompt = _build_step_prompt(task, active_step, wf)
-    _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-    active_step["session_id"] = sid
-    task.metadata["workflow"] = wf
     # Ensure harness monitor is running
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
     return {"session_id": sid, "status": "started"}
 
 
@@ -2474,24 +2792,18 @@ async def resume_blocked_task(team_id: str, task_id: str) -> Dict[str, Any]:
     # Clear token factory error
     task.metadata.pop("token_factory_error", None)
 
-    import uuid as _uuid
-    sr = _sr()
-    skill = sr.get_by_slug("code_implementation")
-    cfg = dict(skill.config or {}) if skill else {}
-    agent = _tm().get_agent(team_id, resume_step.get("agent_id", ""))
-    if agent:
-        sid = str(_uuid.uuid4())[:12]
-        step_prompt = _build_step_prompt(task, resume_step, wf)
-        _harness_log.info("[Resume] Resuming task %s at step '%s' (session %s)",
-                          task_id, resume_step["key"], sid)
-        _start_claude_session(sid, step_prompt, cfg, agent, task_id)
-        resume_step["session_id"] = sid
-    task.metadata["workflow"] = wf
+    _start_workflow_step_session(
+        task=task,
+        team_id=team_id,
+        step=resume_step,
+        workflow=wf,
+        log_prefix="Resume",
+    )
 
     # Ensure running state
     if task.status.value == "pending":
         await _te().start_task(task_id)
-    _start_harness_monitor(task_id, team_id)
+    _persist_workflow_and_monitor(task, team_id, wf)
 
     _write_handoff(task_id, "pipeline_resumed", {
         "step": resume_step["key"],
@@ -2551,6 +2863,12 @@ def _emit_pipeline_event(task_id: str, event_type: str, data: Dict[str, Any]) ->
     # Keep last 200 events per task
     if len(_pipeline_events[task_id]) > 200:
         _pipeline_events[task_id] = _pipeline_events[task_id][-200:]
+    task = _te().get_task(task_id)
+    if task is not None:
+        task.metadata.setdefault("trace_events", []).append(_trace_event_payload(task_id, evt))
+        if len(task.metadata["trace_events"]) > 200:
+            task.metadata["trace_events"] = task.metadata["trace_events"][-200:]
+    _persist_trace_event(task_id, evt)
     # Push to SSE subscribers
     for q in _pipeline_subscribers.get(task_id, []):
         try:
@@ -5391,9 +5709,9 @@ def _run_tool_loop(
     and execute the codebase via tool calls instead of single-shot text completion.
     """
     try:
-        from agents.agent_loop import AgentLoop
+        from agents.runtime import run_tool_loop_sync_with_provider
     except ImportError:
-        from .agent_loop import AgentLoop  # type: ignore
+        from .runtime import run_tool_loop_sync_with_provider  # type: ignore
 
     session["lines"].append(f"🔗 API: {api_base_url}\n模型: {model}\n角色: {role}\n")
     session["lines"].append(f"{'─'*60}\n\n")
@@ -5438,14 +5756,16 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
-    loop = AgentLoop(
-        api_key=api_key, api_base_url=api_base_url, model=model,
+    result = run_tool_loop_sync_with_provider(
+        prompt=prompt,
+        api_key=api_key,
+        api_base_url=api_base_url,
+        model=model,
         role=role, system_prompt=system,
         max_iterations=max_iterations,
         max_tokens=max_tokens, temperature=temperature,
         on_event=on_event,
     )
-    result = loop.run(prompt)
 
     session["tool_loop_log"] = result.get("log", [])
     session["files_changed"] = result.get("files_changed", [])
@@ -5918,15 +6238,194 @@ async def get_task_tool_traces(task_id: str) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════════
 
 
+def _project_root_path() -> str:
+    return _task_trace.project_root_path(__file__)
+
+
+def _global_trace_events_path() -> str:
+    return _task_trace.global_trace_events_path(_project_root_path())
+
+
 def _build_trace_context(task) -> Dict[str, Any]:
     """从 task metadata 提取 trace_context。"""
+    return _task_trace.build_trace_context(task)
+
+
+def _append_jsonl(path: str, payload: Dict[str, Any]) -> None:
+    _task_trace.append_jsonl(path, payload)
+
+
+def _trace_event_payload(task_id: str, evt: Dict[str, Any]) -> Dict[str, Any]:
+    task = _te().get_task(task_id)
+    return _task_trace.trace_event_payload(task_id, evt, task)
+
+
+def _persist_trace_event(task_id: str, evt: Dict[str, Any]) -> None:
+    task = _te().get_task(task_id)
+    _task_trace.persist_trace_event(
+        task_id,
+        evt,
+        task=task,
+        global_path=_global_trace_events_path(),
+    )
+
+
+def _workflow_summary(workflow: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _task_trace.workflow_summary(workflow)
+
+
+def _collect_changed_files(workflow: List[Dict[str, Any]]) -> List[str]:
+    return _task_trace.collect_changed_files(workflow)
+
+
+def _extract_test_result(workflow: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _task_trace.extract_test_result(workflow)
+
+
+def _build_diff_preview(workflow: List[Dict[str, Any]]) -> tuple[Dict[str, List[str]], str]:
+    return _task_trace.build_diff_preview(workflow, repo_root=_project_root_path())
+
+
+def _attach_task_execution_artifacts(task: AgentTask) -> Dict[str, Any]:
     meta = task.metadata or {}
-    return {
-        "source": meta.get("source", "manual"),
-        "discussion_id": meta.get("discussion_id", ""),
-        "plaza_id": meta.get("plaza_id", ""),
-        "pipeline_dir": meta.get("pipeline_dir", ""),
-    }
+    artifact_dir = str(meta.get("pipeline_dir") or _pipeline_dir(task.task_id))
+    return _task_trace.attach_task_execution_artifacts(
+        task,
+        artifact_dir=artifact_dir,
+        repo_root=_project_root_path(),
+    )
+
+
+def _linked_evolution_items(task: AgentTask) -> List[Dict[str, Any]]:
+    try:
+        from agent_team_api import _evolution_engine
+    except Exception:
+        _evolution_engine = None
+    if not _evolution_engine:
+        return []
+    items = []
+    for item in _evolution_engine.evolution_items.values():
+        if task.task_id not in item.source_task_ids:
+            continue
+        items.append({
+            "id": item.id,
+            "status": item.status,
+            "title": item.title,
+            "verify_test_name": item.verify_test_name,
+            "verify_result": item.verify_result,
+            "verify_detail": item.verify_detail,
+            "retry_count": item.retry_count,
+            "max_retries": item.max_retries,
+        })
+    return items
+
+
+async def _broadcast_task_verification_state(task: AgentTask, synced_item_ids: List[str]) -> None:
+    meta = task.metadata or {}
+    discussion_id = meta.get("discussion_id", "")
+    if not discussion_id:
+        return
+    try:
+        from agent_team_api import _evolution_engine
+        from .plaza_routes import _build_discussion_verification_state_payload
+        from .plaza_engine import get_plaza_engine
+
+        if not _evolution_engine:
+            return
+        payload = _build_discussion_verification_state_payload(
+            _evolution_engine,
+            plaza_id=meta.get("plaza_id", ""),
+            discussion_id=discussion_id,
+            trigger="task_finalized",
+            synced_item_ids=synced_item_ids,
+        )
+        await get_plaza_engine()._broadcast(discussion_id, payload)
+        _emit_pipeline_event(task.task_id, "verification_state_broadcasted", {
+            "discussion_id": discussion_id,
+            "synced_item_ids": synced_item_ids,
+        })
+    except Exception:
+        return
+
+
+async def _finalize_task_terminal_state(task: AgentTask) -> Optional[AgentTask]:
+    artifacts = _attach_task_execution_artifacts(task)
+    terminal_state = _task_trace.terminal_sync_state(artifacts)
+    if terminal_state["task_status"] == "failed":
+        task.status = TaskStatus.FAILED
+    else:
+        task.status = TaskStatus.COMPLETED
+    task.error = terminal_state["task_error"]
+    task.completed_at = datetime.now(timezone.utc).isoformat()
+    task.result = artifacts
+
+    synced_item_ids: List[str] = []
+    try:
+        from agent_team_api import _evolution_engine
+
+        if _evolution_engine:
+            sync_kwargs = _task_trace.evolution_sync_kwargs(
+                task,
+                artifacts,
+                sync_status=terminal_state["sync_status"],
+            )
+            synced_item_ids = _evolution_engine.sync_task_outcome(
+                sync_kwargs.pop("task_id"),
+                **sync_kwargs,
+            )
+            if synced_item_ids:
+                task.metadata["evolution_item_ids"] = synced_item_ids
+    except Exception:
+        synced_item_ids = []
+
+    _emit_pipeline_event(task.task_id, "task_finalized", {
+        "status": task.status.value,
+        "changed_files": artifacts["changed_files"],
+        "synced_item_ids": synced_item_ids,
+    })
+    if synced_item_ids:
+        _emit_pipeline_event(task.task_id, "evolution_synced", {"synced_item_ids": synced_item_ids})
+        await _broadcast_task_verification_state(task, synced_item_ids)
+    _te()._store.save_task(task)
+    return task
+
+
+def _task_trace_summary(task: AgentTask) -> Dict[str, Any]:
+    events = [_trace_event_payload(task.task_id, evt) for evt in _pipeline_events.get(task.task_id, [])]
+    return _task_trace.task_trace_summary(task, events, _linked_evolution_items(task))
+
+
+def _get_team_task_or_404(team_id: str, task_id: str) -> AgentTask:
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.get("/teams/{team_id}/tasks/{task_id}/trace-summary", summary="Task trace summary")
+def get_task_trace_summary(team_id: str, task_id: str) -> Dict[str, Any]:
+    return _task_trace_summary(_get_team_task_or_404(team_id, task_id))
+
+
+@router.get("/teams/{team_id}/tasks/{task_id}/trace-events", summary="Task trace events")
+def get_task_trace_events(team_id: str, task_id: str) -> Dict[str, Any]:
+    task = _get_team_task_or_404(team_id, task_id)
+    events = [_trace_event_payload(task_id, evt) for evt in _pipeline_events.get(task_id, [])]
+    return _task_trace.task_trace_events_payload(task, events)
+
+
+@router.get("/teams/{team_id}/discussions/{discussion_id}/trace-summary", summary="Discussion trace summary")
+def get_discussion_trace_summary(team_id: str, discussion_id: str) -> Dict[str, Any]:
+    tasks = [
+        task
+        for task in _te().list_tasks()
+        if task.team_id == team_id and (task.metadata or {}).get("discussion_id") == discussion_id
+    ]
+    return _task_trace.discussion_trace_summary_payload(
+        team_id=team_id,
+        discussion_id=discussion_id,
+        task_summaries=[_task_trace_summary(task) for task in tasks],
+    )
 
 
 @router.get("/traces/recent", summary="Recent trace summaries")
@@ -5938,37 +6437,12 @@ def get_recent_trace_summaries(
     """返回最近的任务追踪摘要（按时间倒序）。"""
     engine = _te()
     all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
-    # 过滤
-    filtered = []
-    for t in all_tasks:
-        if team_id and t.team_id != team_id:
-            continue
-        meta = t.metadata or {}
-        if source and meta.get("source", "manual") != source:
-            continue
-        filtered.append(t)
-    # 按 created_at 倒序
-    filtered.sort(key=lambda t: getattr(t, "created_at", ""), reverse=True)
-    filtered = filtered[:limit]
-    traces = []
-    for t in filtered:
-        meta = t.metadata or {}
-        wf = meta.get("workflow", [])
-        completed = sum(1 for s in wf if s.get("status") == "completed")
-        failed = sum(1 for s in wf if s.get("status") == "failed")
-        traces.append({
-            "task_id": t.task_id,
-            "team_id": t.team_id,
-            "title": t.title,
-            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
-            "source": meta.get("source", "manual"),
-            "trace_context": _build_trace_context(t),
-            "workflow_steps": len(wf),
-            "completed_steps": completed,
-            "failed_steps": failed,
-            "created_at": getattr(t, "created_at", ""),
-        })
-    return {"count": len(traces), "traces": traces}
+    return _task_trace.recent_trace_summaries(
+        all_tasks,
+        limit=limit,
+        team_id=team_id,
+        source=source,
+    )
 
 
 @router.get("/traces/recent-events", summary="Recent trace events")
@@ -5979,47 +6453,26 @@ def get_recent_trace_events(
     event_type: str = Query(default=""),
 ) -> Dict[str, Any]:
     """返回最近的管道事件（按时间倒序）。"""
-    engine = _te()
-    all_tasks = engine.list_tasks() if hasattr(engine, "list_tasks") else []
-    # 建 task_id → (team_id, source) 映射
-    task_map = {}
-    for t in all_tasks:
-        meta = t.metadata or {}
-        task_map[t.task_id] = {
-            "team_id": t.team_id,
-            "source": meta.get("source", "manual"),
-            "discussion_id": meta.get("discussion_id", ""),
-            "plaza_id": meta.get("plaza_id", ""),
-            "title": t.title,
-        }
-    # 从 _pipeline_events 收集事件
-    events = []
-    for task_id, evts in _pipeline_events.items():
-        info = task_map.get(task_id, {})
-        if team_id and info.get("team_id") != team_id:
-            continue
-        if source and info.get("source") != source:
-            continue
-        for evt in evts:
-            if event_type and evt.get("type") != event_type:
-                continue
-            events.append({
-                "task_id": task_id,
-                "team_id": info.get("team_id", ""),
-                "title": info.get("title", ""),
-                "type": evt.get("type", ""),
-                "ts": evt.get("ts", 0),
-                "trace_context": {
-                    "source": info.get("source", "manual"),
-                    "discussion_id": info.get("discussion_id", ""),
-                    "plaza_id": info.get("plaza_id", ""),
-                },
-                "data": {k: v for k, v in evt.items() if k not in ("type", "ts")},
-            })
-    # 按 ts 倒序
-    events.sort(key=lambda e: e.get("ts", 0), reverse=True)
-    events = events[:limit]
-    return {"count": len(events), "events": events}
+    return _task_trace.recent_trace_events(
+        _pipeline_events,
+        _te().get_task,
+        limit=limit,
+        team_id=team_id,
+        source=source,
+        event_type=event_type,
+    )
+
+
+@router.get("/traces/log-tail", summary="Tail persisted trace event log")
+def get_trace_log_tail(
+    limit: int = Query(default=100, ge=1, le=5000),
+    event_type: str = Query(default=""),
+) -> Dict[str, Any]:
+    return _task_trace.trace_log_tail(
+        _global_trace_events_path(),
+        limit=limit,
+        event_type=event_type,
+    )
 
 
 @router.get("/traces/export", summary="Export trace data as NDJSON")
@@ -6029,21 +6482,36 @@ def export_traces(
     limit: int = Query(default=500, ge=1, le=5000),
 ):
     """导出追踪数据为 NDJSON 流。"""
-    import json as _json
     from fastapi.responses import StreamingResponse
 
     def gen():
-        # summaries
         summaries = get_recent_trace_summaries(limit=limit, team_id=team_id, source=source)
-        for t in summaries["traces"]:
-            yield _json.dumps({"kind": "summary", **t}, ensure_ascii=False) + "\n"
-        # events
         events = get_recent_trace_events(limit=limit * 5, team_id=team_id, source=source)
-        for e in events["events"]:
-            yield _json.dumps({"kind": "event", **e}, ensure_ascii=False) + "\n"
+        yield from _task_trace.iter_trace_export_lines(summaries, events)
 
     return StreamingResponse(gen(), media_type="application/x-ndjson",
                              headers={"Content-Disposition": "attachment; filename=traces.ndjson"})
+
+
+@router.get("/traces/events/export", summary="Export trace events as NDJSON")
+def export_trace_events(
+    limit: int = Query(default=500, ge=1, le=5000),
+    team_id: str = Query(default=""),
+    source: str = Query(default=""),
+    event_type: str = Query(default=""),
+):
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        events = get_recent_trace_events(
+            limit=limit,
+            team_id=team_id,
+            source=source,
+            event_type=event_type,
+        )
+        yield from _task_trace.iter_trace_event_export_lines(events)
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
 @router.post(
