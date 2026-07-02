@@ -424,7 +424,8 @@ function switchFlowView(view,btn){
 }
 function renderSequenceDiagram(){
   const svg=document.getElementById('seq-svg');if(!svg)return;
-  const msgs=S.messages.slice(-30);
+  // 与时间线同口径：按所选团队过滤（bug-086），避免序列图串入别团队/演示消息
+  const msgs=(typeof _scopedMsgs==='function'?_scopedMsgs():S.messages).slice(-30);
   if(!msgs.length){svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#576375" font-size="13">暂无交互记录</text>';return}
   // Collect unique participants
   const participants=[...new Set(msgs.flatMap(m=>[m.from,m.to||'System'].filter(Boolean)))];

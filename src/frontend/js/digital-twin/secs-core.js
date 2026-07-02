@@ -979,6 +979,10 @@
 
     _consoleLines = [];
     if (window._dt2dChaosReset) window._dt2dChaosReset();   // 新一轮演练：清空上轮混沌对拓扑的增删
+    // 新一轮演练：清空上轮/CLI 演示遗留的交互记录（stress-test/模拟交互），
+    // 让 协作·交互 时间线 + 序列图 只反映本次运行，而非旧的 build 演示消息。
+    try { if (window.S && Array.isArray(window.S.messages)) { window.S.messages.length = 0; localStorage.removeItem('dt2_messages'); } } catch (e) {}
+    try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
     _logConsole('══ 仿真启动 (统一入口 → 试炼导演台) ══', 'header');
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');

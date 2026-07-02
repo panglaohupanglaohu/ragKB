@@ -1646,5 +1646,19 @@
    "llm"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-091",
+  "error_message": "协作·交互 序列图显示的是旧 build 演示交互(stress-test/模拟交互),与所选场景/任务不符",
+  "root_cause": "renderSequenceDiagram 用 S.messages.slice(-30) 全量渲染,既没按团队过滤(时间线 bug-086 已过滤但序列图漏了),又混入 CLI simulate 生成并持久化到 localStorage(dt2_messages) 的 stress-test/模拟交互 演示消息",
+  "fix": "renderSequenceDiagram 改用 _scopedMsgs()(团队过滤,与时间线同口径);sexyCreateAndRun 新一轮演练启动时清空 S.messages+localStorage.dt2_messages(与 _dt2dChaosReset 同处),dtRefresh('step') 刷新 → 时间线/序列图只反映本次运行",
+  "tags": [
+   "frontend",
+   "digital-twin",
+   "sequence-diagram",
+   "interaction",
+   "secs"
+  ],
+  "date": "2026-07-02"
  }
 ]
