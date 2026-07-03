@@ -1688,5 +1688,19 @@
    "north-star"
   ],
   "date": "2026-07-02"
+ },
+ {
+  "id": "bug-093",
+  "error_message": "技能注入不给任何 agent — 只显示'已注入沙箱',看不到注入到了谁",
+  "root_cause": "twin_loop.inject_chaos_event 的 skill_inject 分支只把事件记进 chaos.events 并返回'技能X已注入沙箱',从未把技能写给任何 twin;前端也只显示 skill_id,故用户无法知道注入到哪个 agent(实际上没注入到任何 agent)",
+  "fix": "skill_inject 改为把技能真正加到在役 twin 的 skills(target_agent 指定则只给该 agent,否则全体在役),记录 targets,detail 改为'技能X已注入N个在役Agent: 名单';前端 _doInjectSkill 显示 d.targets 数量并用 d.detail 做 toast。需重启后端生效",
+  "tags": [
+   "backend",
+   "frontend",
+   "digital-twin",
+   "skill-inject",
+   "twin-loop"
+  ],
+  "date": "2026-07-02"
  }
 ]

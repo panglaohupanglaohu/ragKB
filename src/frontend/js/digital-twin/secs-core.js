@@ -1956,9 +1956,10 @@
         throw new Error(ej.detail||'HTTP '+r.status);
       }
       var d = await r.json();
-      document.getElementById('skill-inject-result').textContent = '✓ 已注入: '+skillId.slice(0,12);
+      var _tgt = (d.targets && d.targets.length) ? (' → '+d.targets.length+' 个 agent') : '';
+      document.getElementById('skill-inject-result').textContent = '✓ 已注入: '+skillId.slice(0,12)+_tgt;
       _appendInjectRecord('💉 技能: '+skillName.slice(0,30), d.detail||'');
-      showToast('技能已注入!', 'success');
+      showToast(d.detail || '技能已注入!', 'success');
     } catch(e) {
       _appendInjectRecord('❌ 💉 技能注入', '失败: '+e.message);
       showToast('注入失败: '+e.message, 'error');

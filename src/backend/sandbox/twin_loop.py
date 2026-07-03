@@ -707,14 +707,32 @@ class TwinLoopEngine:
         elif event_type == "skill_inject":
             if not skill_id:
                 return {"error": "missing_skill_id"}
+            # 真正把技能发给在役 twin（全队获得该技能），并记录目标 → 前端可显示"注入到了谁"。
+            # 若指定 target_agent 则只给该 agent，否则给全体在役 agent。
+            active_twins = [t for t in session.twins if not self._is_twin_disabled(t, chaos, current_step)]
+            if target_agent:
+                active_twins = [t for t in active_twins if t.source_agent_id == target_agent]
+            targets: List[str] = []
+            for t in active_twins:
+                try:
+                    if skill_id not in (t.skills or []):
+                        t.skills = list(t.skills or []) + [skill_id]
+                except Exception:
+                    pass
+                targets.append(t.source_agent_id)
             chaos["events"].append({
                 "step": current_step, "type": "skill_inject",
-                "skill_id": skill_id,
+                "skill_id": skill_id, "targets": list(targets),
             })
+            if targets:
+                _names = ", ".join(targets[:6]) + (f" 等{len(targets)}个" if len(targets) > 6 else "")
+                _detail = f"技能 {skill_id} 已注入 {len(targets)} 个在役 Agent: {_names}"
+            else:
+                _detail = f"技能 {skill_id} 已记录（当前无在役 Agent 可接收）"
             return {
                 "injected": True, "chaos": True, "type": "skill_inject",
-                "skill_id": skill_id,
-                "detail": f"技能 {skill_id} 已注入沙箱",
+                "skill_id": skill_id, "targets": list(targets),
+                "detail": _detail,
             }
 
         # ── 扩展混沌事件类型（前端演练面板）──
