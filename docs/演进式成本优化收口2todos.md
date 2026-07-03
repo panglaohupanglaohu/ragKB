@@ -3,8 +3,8 @@
 > 配套 `docs/演进式成本优化收口2plan.md`。本轮 = 前端两处"下一步引导"缺口；重后端项单列延后。
 > 标注：**[VSCode]** 机械低风险；**[人工核]** 需联机；**[需后端]** 要改后端 + 重启。
 
-## T1 · 效率视角每团队「该动哪个杠杆」链接 ★★ [VSCode]（cost-dashboard.js renderEfficiencyView）
-- [ ] 在 leverBar 之后，为**有消耗**的团队按主导杠杆追加一行下一步链接。
+## T1 · 效率视角每团队「该动哪个杠杆」链接 ★★ [VSCode]（cost-dashboard.js renderEfficiencyView）✅已落地(feat-023)
+- [x] 在 leverBar 之后，为**有消耗**的团队按主导杠杆追加一行下一步链接。
 ```js
 var _pct=function(x){return Math.round((x||0)*100);};
 var hasSpend = Number(team.tokens_consumed||0) > 0;
@@ -19,8 +19,8 @@ if (hasSpend && ((lc.skill||0)+(lc.collab||0))>0){
 ```
 - **验收**：技能占比高的行现"去技能萃取"，协作占比高现"去议事广场"，点击跳转。
 
-## T2 · 效率视角「低效优先」排序 + 切换 ★ [VSCode]
-- [ ] 默认排序改为「最需优化优先」：有消耗且效率最低在前，`no_data`（无消耗）沉底。
+## T2 · 效率视角「低效优先」排序 + 切换 ★ [VSCode]✅已落地(feat-023)
+- [x] 默认排序改为「最需优化优先」：有消耗且效率最低在前，`no_data`（无消耗）沉底。
 ```js
 state.effSort = state.effSort || 'worst';
 function _effRank(t){var e=Number(t.token_efficiency||0);var spend=Number(t.tokens_consumed||0);
@@ -28,12 +28,12 @@ function _effRank(t){var e=Number(t.token_efficiency||0);var spend=Number(t.toke
   return {g:0, v: state.effSort==='worst'? e : -e};}  // worst:升序 best:降序
 teams.sort(function(a,b){var ra=_effRank(a),rb=_effRank(b); return ra.g-rb.g || ra.v-rb.v;});
 ```
-- [ ] 面板标题旁加小按钮切换 `worst⇄best`，切换后 `renderEfficiencyView(state.sustainability)` 重渲染。
+- [x] 面板标题旁加小按钮切换 `worst⇄best`，切换后 `renderEfficiencyView(state.sustainability)` 重渲染（`toggleEffSort`）。
 - **验收**：默认第一行=有消耗效率最低团队；切到「效率最高」回到最优在前；无数据团队始终垫底。
 
-## T3 · 验收 ★ [VSCode]
-- [ ] `node --check src/frontend/js/cost-dashboard.js` 通过；控制台无报错。
-- [ ] 目检：效率视角链接跳对页；排序切换生效。
+## T3 · 验收 ★
+- [x] **[VSCode]** `node --check src/frontend/js/cost-dashboard.js` 通过。
+- [ ] **[人工核]** 目检：效率视角链接跳对页；排序切换生效（需在浏览器打开页面，我这边未跑）。
 
 ## 延后（[需后端] + [人工核]，见 plan 第 3 节）
 - 13.1 归因零遗漏（4 路径强制 team_id）
