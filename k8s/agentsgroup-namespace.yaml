@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentsgroup
+  labels:
+    app: agentsgroup
+    environment: production
+  annotations:
+    cost.opencost.io/environment: production
+    cost.opencost.io/team: platform

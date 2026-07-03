@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体数字孪生 — AgentsGroup2026</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   AgentsGroup2026 Digital Twin — Agent Interaction Visualization
+   Design: NVIDIA-inspired layered architecture + real-time flow
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #0d1117;
+  --bg2: #111820;
+  --panel: #161d27;
+  --panel2: #1e2636;
+  --panel3: #263040;
+  --border: #2d3a4d;
+  --border-active: #40587a;
+  --text: #e2e8f0;
+  --text2: #cbd5e1;
+  --muted: #8b9ab5;
+  --dim: #576375;
+  --cyan: #22d3ee;
+  --cyan-dim: rgba(34,211,238,0.15);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.12);
+  --blue: #60a5fa;
+  --blue-dim: rgba(96,165,250,0.12);
+  --purple: #a78bfa;
+  --purple-dim: rgba(167,139,250,0.12);
+  --amber: #fbbf24;
+  --amber-dim: rgba(251,191,36,0.10);
+  --pink: #f472b6;
+  --pink-dim: rgba(244,114,182,0.10);
+  --red: #f87171;
+  --layer-ui: var(--cyan);
+  --layer-orchestrator: var(--blue);
+  --layer-llm: var(--purple);
+  --layer-memory: var(--amber);
+  --layer-tool: var(--green);
+  --layer-env: var(--pink);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --glow-cyan: 0 0 20px rgba(34,211,238,0.15);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', 'Noto Sans SC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  flex-shrink: 0;
+}
+.header-brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; }
+.header-brand .logo {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--cyan), var(--blue));
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: #000;
+}
+.header-brand h1 { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+.header-nav { display: flex; gap: 2px; flex: 1; padding: 0 24px; height: 40px; align-items: center; }
+.nav-item {
+  padding: 8px 16px; font-size: 12.5px; font-weight: 500; color: var(--muted);
+  cursor: pointer; border-radius: 6px; transition: all 0.25s cubic-bezier(.4,0,.2,1);
+  display: flex; align-items: center; gap: 7px; position: relative;
+}
+.nav-item:hover { color: var(--text); background: var(--panel2); }
+.nav-item.active { color: var(--cyan); background: var(--cyan-dim); }
+.nav-item.active::after { content:''; position:absolute; bottom:-1px; left:16px; right:16px; height:2px; background:var(--cyan); border-radius:2px; }
+/* P1: 主舞台导航 — 环境空间特殊高亮 */
+.nav-item.nav-primary { font-weight: 600; color: var(--text); }
+.nav-item.nav-primary .star { color: #fbbf24; font-size: 13px; text-shadow: 0 0 8px rgba(251,191,36,0.5); }
+
+/* 阶段三：导演台 */
+.director-panel{background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;max-width:320px;}
+#trial-director-panel{position:absolute;top:14px;left:14px;z-index:22;width:300px;max-height:calc(100% - 28px);overflow-y:auto;margin-top:0;}
+.dp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+.dp-title{font-size:13px;font-weight:700;color:var(--text);}
+.dp-status-badge{font-size:10px;color:var(--green);font-family:monospace;}
+.dp-header-status{display:flex;align-items:center;gap:6px;}
+.dt-health-badge{border:1px solid var(--border);background:rgba(15,23,42,.75);color:var(--dim);border-radius:6px;padding:2px 6px;font-size:9px;line-height:1.4;font-family:monospace;cursor:pointer;}
+.dt-health-badge--ok{border-color:rgba(52,211,153,.45);color:var(--green);background:rgba(6,78,59,.22);}
+.dt-health-badge--pending{border-color:rgba(148,163,184,.45);color:var(--dim);background:rgba(51,65,85,.22);}
+.dt-health-badge--bad{border-color:rgba(239,68,68,.55);color:var(--red);background:rgba(127,29,29,.28);}
+.dp-section{margin-bottom:12px;}
+.dp-label{display:block;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;font-weight:600;}
+.dp-label-sm{display:block;font-size:8px;color:var(--dim);margin-bottom:2px;}
+.dp-select,.dp-input,.dp-textarea{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;outline:none;border-color:.2s transition;}
+.dp-select:focus,.dp-input:focus,.dp-textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(34,211,238,.15);}
+.dp-textarea{resize:vertical;min-height:40px;}
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.mode-card{background:rgba(255,255,255,.03);border:1px solid transparent;border-radius:8px;padding:8px 6px;cursor:pointer;text-align:center;transition:all .2s;}
+.mode-card:hover{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.2);}
+.mode-card.mode-active{background:rgba(34,211,238,.1);border-color:var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.1);}
+/* scenario cards (v4 D-1.1) — reuse mode-card base, extend with match badge + stars */
+.scenario-card{position:relative}
+.scenario-card .sc-match{position:absolute;top:-4px;right:-4px;font-size:8px;padding:1px 5px;border-radius:6px;color:#000;font-weight:600}
+.scenario-card .sc-stars{font-size:8px;color:var(--amber);margin-top:2px;display:block}
+.scenario-card .sc-best{font-size:8px;color:var(--dim);margin-top:1px;display:block}
+.scenario-card.sc-active{background:rgba(34,211,238,.1);border-color:var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.1);}
+.scenario-card.sc-free{border-style:dashed;opacity:.7}
+.scenario-card.sc-free.sc-active{opacity:1}
+.mode-icon{font-size:16px;display:block;margin-bottom:2px;}
+.mode-name{font-size:10px;font-weight:600;color:var(--text);display:block;}
+.mode-desc{font-size:8px;color:var(--dim);display:block;margin-top:1px;}
+.dp-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+.dp-field{display:flex;flex-direction:column;}
+.dp-input-sm{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-size:11px;outline:none;text-align:center;}
+.dp-input-sm:focus{border-color:var(--cyan);}
+.dp-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.btn-primary{background:linear-gradient(135deg,#22d3ee,#34d399);color:#000;border:none;border-radius:6px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;}
+.btn-accent{background:rgba(34,211,238,.15);color:var(--cyan);border:1px solid var(--cyan);border-radius:6px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;}
+.btn-warning{background:rgba(245,166,35,.15);color:var(--amber);border:1px solid rgba(245,166,35,.4);border-radius:6px;padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-danger{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.4);border-radius:6px;padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-success{background:rgba(52,211,153,.15);color:var(--green);border:1px solid rgba(52,211,153,.4);border-radius:6px;padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-info{background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.4);border-radius:6px;padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-secondary{background:rgba(255,255,255,.06);color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-disabled{background:rgba(255,255,255,.04);color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;opacity:.5;cursor:not-allowed;}
+.branch-list{max-height:160px;overflow-y:auto;}
+.branch-item{display:flex;align-items:center;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:rgba(255,255,255,.02);border:1px solid transparent;cursor:pointer;transition:all .15s;}
+.branch-item:hover{background:rgba(255,255,255,.06);}
+.branch-item.branch-active{background:rgba(34,211,238,.08);border-color:var(--cyan);}
+.branch-dot{width:8px;height:8px;border-radius:50%;margin-right:8px;flex-shrink:0;}
+.branch-name{font-size:11px;font-weight:600;flex:1;}
+.branch-step{font-size:9px;color:var(--dim);font-family:monospace;margin-left:8px;}
+.inject-event-types{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.inject-btn{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:5px;padding:6px 8px;font-size:10px;color:#f87171;cursor:pointer;text-align:center;}
+.inject-history-list{font-size:10px;color:var(--muted);max-height:100px;overflow-y:auto}
+.inject-history-list .inject-item{padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;justify-content:space-between;align-items:center;transition:background .2s}
+.inject-history-list .inject-item:hover{background:rgba(255,255,255,.04)}
+.inject-history-list .inject-item .inj-type{font-weight:600;font-size:10px}
+.inject-history-list .inject-item .inj-step{font-size:9px;color:var(--cyan);font-family:monospace}
+.inject-history-list .inject-item .inj-time{font-size:9px;color:var(--dim)}
+.room-heat-up{box-shadow:inset 0 0 12px rgba(52,211,153,.15);transition:box-shadow .4s}
+.room-heat-down{box-shadow:inset 0 0 12px rgba(248,113,113,.15);transition:box-shadow .4s}
+.room-heat-peak{box-shadow:inset 0 0 20px rgba(251,191,36,.3);transition:box-shadow .4s}
+/* P3-05: Agent 迁移动画 */
+.agent-card.moving{animation:agentShift .3s ease}
+@keyframes agentShift{0%{transform:translateX(-10px);opacity:.6}100%{transform:translateX(0);opacity:1}}
+.env-room.agent-move-flash{border-color:var(--cyan)!important;box-shadow:0 0 16px rgba(34,211,238,.25);transition:all .3s ease}
+/* P2-04: 韧性详情条 */
+.resilience-detail{font-size:9px;color:var(--muted);margin-top:4px;padding:4px 8px;background:rgba(245,158,11,.06);border-radius:4px;border-left:2px solid var(--amber)}
+/* 时间轴 */
+.trial-timeline{position:relative;height:60px;overflow-x:auto;overflow-y:hidden;background:rgba(0,0,0,.3);border-radius:8px;margin-top:10px;padding:8px 12px;display:flex;align-items:center;gap:2px;}
+.tl-dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0;position:relative;cursor:pointer;transition:transform .15s;}
+.tl-dot:hover{transform:scale(1.6);z-index:5;}
+.tl-dot.tl-normal{background:rgba(107,114,128,.5);}
+.tl-dot.tl-reward-up{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.5);}
+.tl-dot.tl-reward-down{background:#f87171;box-shadow:0 0 6px rgba(248,113,113,.5);}
+.tl-dot.tl-fault{background:#f59e0b;box-shadow:0 0 6px rgba(245,166,35,.5);}
+.tl-dot.tl-fork{background:#a78bfa;box-shadow:0 0 6px rgba(167,139,250,.5);}
+.tl-dot.tl-sop{background:#fbbf24;box-shadow:0 0 8px rgba(251,191,36,.6);animation:tlPulse 1.5s infinite;}
+@keyframes tlPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.4);}}
+/* 五维雷达图 */
+.radar-chart-container{width:280px;height:240px;position:relative;margin:10px auto;}
+.radar-svg{width:100%;height:100%;}
+.radar-axis{stroke:rgba(255,255,255,.1);fill:none;}
+.radar-polygon{fill:rgba(34,211,238,.2);stroke:var(--cyan);stroke-width:1.5;}
+/* 柱状图 */
+.bar-chart-container{width:100%;max-height:180px;padding:8px 0;overflow-x:auto;}
+.bar-row{display:flex;align-items:center;margin-bottom:4px;}
+.bar-label{width:70px;font-size:9px;color:var(--dim);text-align:right;padding-right:8px;flex-shrink:0;}
+.bar-track{flex:1;height:16px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:3px;transition:width .6s ease-out;display:flex;align-items:center;justify-content:flex-end;padding-right:4px;}
+.bar-fill .bar-val{font-size:8px;font-weight:700;color:#fff;font-family:monospace;}
+/* SOP 列表 */
+.sop-list{max-height:300px;overflow-y:auto;}
+.sop-card{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;}
+.sop-card:hover{border-color:rgba(251,191,36,.3);}
+.sop-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.sop-name{font-size:12px;font-weight:700;color:#fbbf24;}
+.sop-conf{font-size:10px;color:var(--green);font-family:monospace;}
+.sop-meta{font-size:9px;color:var(--dim);margin-bottom:6px;}
+.sop-steps{font-size:10px;line-height:1.6;color:rgba(255,255,255,.7);}
+.sop-step-num{color:var(--cyan);font-weight:600;margin-right:4px;}
+.sop-actions{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.sop-btn{font-size:9px;padding:4px 10px;border-radius:4px;cursor:pointer;border:1px solid;background:transparent;}
+.sop-btn.approve{color:var(--green);border-color:var(--green);}
+.sop-btn.reject{color:var(--red);border-color:var(--red);}
+.sop-btn.approve:hover{background:rgba(52,211,153,.15);}
+/* SECS Pipeline */
+.secs-pipeline-indicator{display:flex;align-items:center;gap:0;padding:8px 12px;background:rgba(0,0,0,.25);border-radius:8px;margin-top:8px;}
+.secs-node{padding:4px 10px;font-size:9px;font-weight:600;border-radius:4px;background:rgba(255,255,255,.04);color:var(--dim);position:relative;transition:all .3s;}
+.secs-node::after{content:'→';margin-left:8px;color:rgba(255,255,255,.15);font-size:10px;}
+.secs-node:last-child::after{content:'';}
+.secs-node.secs-active{background:rgba(34,211,238,.15);color:var(--cyan);animation:secsBlink 1.2s infinite;box-shadow:0 0 10px rgba(34,211,238,.2);}
+.secs-node.secs-done{background:rgba(52,211,153,.1);color:var(--green);}
+@keyframes secsBlink{0%,100%{opacity:1;}50%{opacity:.5};}
+/* Agent 头像列表 */
+.agent-avatar-list{display:flex;margin-top:4px;gap:-4px;}
+.agent-avatar-mini{width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(255,255,255,.15);font-size:8px;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#22d3ee,#a78bfa);cursor:pointer;z-index:1;transition:transform .15s;}
+.agent-avatar-mini:hover{transform:scale(1.3);z-index:3;border-color:var(--cyan);box-shadow:0 0 6px rgba(34,211,238,.3);}
+.nav-item.nav-primary.active { background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(52,211,153,0.12)); border: 1px solid rgba(34,211,238,0.25); }
+.nav-item.nav-primary.active::after { background: linear-gradient(90deg, var(--cyan), var(--green)); }
+.nav-item .badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; background: var(--cyan-dim); color: var(--cyan); }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions a { font-size: 12px; color: var(--muted); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s; }
+.header-actions a:hover { border-color: var(--cyan); color: var(--cyan); }
+.header-actions .gn-cur { font-size: 12px; color: var(--cyan); padding: 6px 12px; border: 1px solid var(--cyan); border-radius: 6px; pointer-events: none; cursor: default; }
+.status-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--green); }
+.status-indicator .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+/* ── Main ── */
+.main { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Left Panel ── */
+.left-panel { width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.lp-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.lp-header h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.lp-header .count { font-size: 11px; color: var(--dim); }
+.agent-list { flex: 1; overflow-y: auto; padding: 8px; }
+.agent-card { padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); margin-bottom: 4px; border: 1px solid transparent; }
+.agent-card:hover { background: var(--panel2); border-color: var(--border); transform: translateX(2px); }
+.agent-card.active { background: var(--cyan-dim); border-color: rgba(34,211,238,0.25); box-shadow: inset 3px 0 0 var(--cyan); }
+.agent-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.agent-card .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.agent-card .name { font-size: 13px; font-weight: 500; }
+.agent-card .role { font-size: 11px; color: var(--dim); }
+.agent-card .meta { display: flex; gap: 8px; margin-top: 4px; }
+.agent-card .meta span { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 3px; }
+.agent-card .state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Center ── */
+.center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.view-panel { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+.view-panel.active { display: block; }
+
+/* Architecture */
+.arch-container { max-width: 900px; margin: 0 auto; }
+.arch-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.arch-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+.arch-layers { display: flex; flex-direction: column; gap: 12px; }
+.arch-layer { border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; position: relative; overflow: hidden; transition: all 0.3s cubic-bezier(.4,0,.2,1); cursor: pointer; backdrop-filter: blur(4px); }
+.arch-layer:hover { border-color: var(--border-active); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.arch-layer::before { content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; }
+.arch-layer[data-layer="ui"]::before { background: var(--layer-ui); }
+.arch-layer[data-layer="orchestrator"]::before { background: var(--layer-orchestrator); }
+.arch-layer[data-layer="llm"]::before { background: var(--layer-llm); }
+.arch-layer[data-layer="memory"]::before { background: var(--layer-memory); }
+.arch-layer[data-layer="tool"]::before { background: var(--layer-tool); }
+.arch-layer[data-layer="env"]::before { background: var(--layer-env); }
+.arch-layer .layer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.arch-layer .layer-icon { font-size: 20px; }
+.arch-layer .layer-name { font-size: 14px; font-weight: 600; }
+.arch-layer .layer-tag { font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
+.arch-layer[data-layer="ui"] .layer-tag { background: var(--cyan-dim); color: var(--cyan); }
+.arch-layer[data-layer="orchestrator"] .layer-tag { background: var(--blue-dim); color: var(--blue); }
+.arch-layer[data-layer="llm"] .layer-tag { background: var(--purple-dim); color: var(--purple); }
+.arch-layer[data-layer="memory"] .layer-tag { background: var(--amber-dim); color: var(--amber); }
+.arch-layer[data-layer="tool"] .layer-tag { background: var(--green-dim); color: var(--green); }
+.arch-layer[data-layer="env"] .layer-tag { background: var(--pink-dim); color: var(--pink); }
+.arch-layer .layer-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.arch-layer .layer-metrics { display: flex; gap: 16px; margin-top: 10px; }
+.arch-layer .metric { font-size: 11px; color: var(--dim); }
+.arch-layer .metric b { color: var(--text2); font-weight: 500; }
+.arch-arrow { display: flex; align-items: center; justify-content: center; height: 24px; color: var(--dim); font-size: 16px; }
+
+/* Interaction Flow */
+.flow-container { display: flex; flex-direction: column; gap: 16px; max-width: 900px; margin: 0 auto; }
+.flow-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.flow-title { font-size: 16px; font-weight: 600; }
+.flow-controls { display: flex; gap: 8px; }
+.flow-btn { padding: 7px 16px; font-size: 11.5px; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); border-radius: 8px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); font-family: inherit; }
+.flow-btn:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(34,211,238,0.05); }
+.flow-btn.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px rgba(34,211,238,0.1); }
+.msg-timeline { display: flex; flex-direction: column; gap: 2px; }
+.msg-item { display: flex; gap: 12px; padding: 12px 16px; border-radius: 8px; transition: background 0.2s; animation: msgIn 0.3s ease-out; }
+@keyframes msgIn { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)} }
+.msg-item:hover { background: var(--panel2); }
+.msg-item .msg-time { font-size: 10px; color: var(--dim); width: 50px; flex-shrink: 0; padding-top: 2px; font-family: 'JetBrains Mono', monospace; }
+.msg-item .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.msg-item .msg-body { flex: 1; min-width: 0; }
+.msg-item .msg-sender { font-size: 12px; font-weight: 600; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+.msg-item .msg-sender .arrow { color: var(--dim); font-weight: normal; font-size: 11px; }
+.msg-item .msg-sender .target { color: var(--muted); font-weight: 500; }
+.msg-item .msg-content { font-size: 12.5px; color: var(--text2); line-height: 1.5; }
+.msg-item .msg-meta { display: flex; gap: 10px; margin-top: 6px; }
+.msg-item .msg-meta span { font-size: 10px; color: var(--dim); }
+.msg-type-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.msg-type-tag.tool-call { background: var(--green-dim); color: var(--green); }
+.msg-type-tag.llm-call { background: var(--purple-dim); color: var(--purple); }
+.msg-type-tag.handoff { background: var(--blue-dim); color: var(--blue); }
+.msg-type-tag.broadcast { background: var(--amber-dim); color: var(--amber); }
+.msg-type-tag.response { background: var(--cyan-dim); color: var(--cyan); }
+
+/* CLI */
+.cli-wrapper { max-width: 900px; margin: 0 auto; width: 100%; }
+.cli-box { background: #0c0c0c; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); }
+.cli-titlebar { background: #1a1a2e; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #2a2a3e; }
+.cli-titlebar .dots { display: flex; gap: 6px; }
+.cli-titlebar .dots span { width: 11px; height: 11px; border-radius: 50%; }
+.cli-titlebar .dots span:nth-child(1) { background: #ff5f57; }
+.cli-titlebar .dots span:nth-child(2) { background: #ffbd2e; }
+.cli-titlebar .dots span:nth-child(3) { background: #28c840; }
+.cli-titlebar .title { margin-left: auto; font-size: 11px; color: #666; font-family: 'JetBrains Mono', monospace; }
+.cli-body { padding: 16px 20px; max-height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8; white-space: pre-wrap; color: #d4d4d4; }
+.cli-body .prompt { color: var(--cyan); }
+.cli-body .cmd { color: var(--green); }
+.cli-body .info { color: var(--muted); }
+.cli-body .warn { color: var(--amber); }
+.cli-body .err { color: var(--red); }
+.cli-body .result { color: #e2e8f0; }
+.cli-body .dim { color: var(--dim); }
+.cli-body .layer-ui { color: var(--cyan); }
+.cli-body .layer-orch { color: var(--blue); }
+.cli-body .layer-llm { color: var(--purple); }
+.cli-body .layer-mem { color: var(--amber); }
+.cli-body .layer-tool { color: var(--green); }
+.cli-input-row { display: flex; align-items: center; border-top: 1px solid #2a2a3e; padding: 10px 16px; gap: 8px; }
+.cli-input-row .ps1 { color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.cli-input-row input { flex: 1; background: none; border: none; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none; }
+.cli-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.cli-shortcuts button { padding: 6px 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: all 0.2s; }
+.cli-shortcuts button:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* Pipeline */
+.pipeline-container { max-width: 900px; margin: 0 auto; }
+.pipeline-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+.pipeline-flow { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 20px 0; }
+.pipeline-step { flex: 1; min-width: 150px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); text-align: center; transition: all 0.3s; }
+.pipeline-step.active { border-color: var(--cyan); box-shadow: var(--glow-cyan); }
+.pipeline-step.done { border-color: var(--green); }
+.pipeline-step .step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--panel3); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; margin: 0 auto 10px; color: var(--muted); }
+.pipeline-step.active .step-num { background: var(--cyan-dim); color: var(--cyan); }
+.pipeline-step.done .step-num { background: var(--green-dim); color: var(--green); }
+.pipeline-step .step-icon { font-size: 24px; margin-bottom: 8px; }
+.pipeline-step .step-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.pipeline-step .step-desc { font-size: 10.5px; color: var(--dim); line-height: 1.4; }
+.pipeline-connector { display: flex; align-items: center; padding: 0 4px; color: var(--dim); font-size: 16px; }
+.pipeline-connector.done { color: var(--green); }
+.exec-log { margin-top: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.exec-log-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.exec-log-body { max-height: 240px; overflow-y: auto; }
+.exec-log-item { padding: 8px 16px; font-size: 12px; font-family: 'JetBrains Mono', monospace; display: flex; gap: 12px; border-bottom: 1px solid rgba(42,53,68,0.5); }
+.exec-log-item:last-child { border-bottom: none; }
+.exec-log-item .ts { color: var(--dim); font-size: 10px; width: 70px; flex-shrink: 0; }
+.exec-log-item .tag { font-size: 9px; padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+.exec-log-item .content { color: var(--text2); flex: 1; }
+
+/* Environment */
+.env-container { max-width: 900px; margin: 0 auto; }
+.env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.env-room { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; transition: all 0.3s; cursor: pointer; }
+.env-room:hover { border-color: var(--border-active); transform: translateY(-3px); box-shadow: var(--shadow-md), 0 0 20px rgba(34,211,238,0.05); }
+.env-room .room-icon { font-size: 32px; margin-bottom: 12px; }
+.env-room .room-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.env-room .room-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-bottom: 12px; }
+.env-room .room-agents { display: flex; flex-wrap: wrap; gap: 4px; }
+.env-room .room-agents .ag-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; border: 1.5px solid var(--border); }
+.env-room .room-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.env-room .room-footer span { font-size: 10px; color: var(--dim); }
+
+/* Drag & Drop */
+.agent-card[draggable="true"] { cursor: grab; }
+.agent-card[draggable="true"]:active { cursor: grabbing; }
+.agent-card.dragging { opacity: 0.4; transform: scale(0.95); }
+.env-room.drag-over { border-color: var(--cyan); background: var(--cyan-dim); transform: translateY(-4px); box-shadow: var(--glow-cyan); }
+.env-room .drop-hint { display: none; font-size: 10px; color: var(--cyan); margin-top: 4px; text-align: center; }
+.env-room.drag-over .drop-hint { display: block; }
+
+/* Agent Detail Drawer */
+.agent-drawer { position: fixed; right: -380px; top: 52px; bottom: 0; width: 380px; background: var(--panel); border-left: 1px solid var(--border); z-index: 100; transition: right 0.3s ease; box-shadow: -4px 0 24px rgba(0,0,0,0.4); overflow-y: auto; }
+.agent-drawer.open { right: 0; }
+.agent-drawer .drawer-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+.agent-drawer .drawer-close { margin-left: auto; cursor: pointer; color: var(--dim); font-size: 18px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: none; }
+.agent-drawer .drawer-close:hover { background: var(--panel2); color: var(--text); }
+.agent-drawer .drawer-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; }
+.agent-drawer .drawer-name { font-size: 15px; font-weight: 600; }
+.agent-drawer .drawer-role { font-size: 12px; color: var(--muted); }
+.drawer-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.drawer-section-title { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.drawer-kv { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+.drawer-kv .k { color: var(--muted); }
+.drawer-kv .v { font-weight: 500; }
+.drawer-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.drawer-tag { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: var(--panel3); color: var(--text2); border: 1px solid var(--border); }
+.drawer-actions { display: flex; gap: 8px; padding: 16px 20px; }
+.drawer-actions .btn { flex: 1; text-align: center; font-size: 11px; }
+
+/* Interaction Stats Bar */
+.flow-stats { display: flex; gap: 12px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+.flow-stat-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.flow-stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+.flow-stat-count { font-weight: 600; font-size: 13px; }
+.flow-stat-label { color: var(--dim); }
+
+/* Layer expand */
+.arch-layer .layer-detail { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; padding: 0; }
+.arch-layer.expanded .layer-detail { max-height: 200px; padding-top: 12px; }
+.arch-layer .layer-detail-content { font-size: 11px; color: var(--dim); line-height: 1.6; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Pipeline progress bar */
+.pipeline-progress { height: 4px; background: var(--panel3); border-radius: 2px; margin: 16px 0; overflow: hidden; }
+.pipeline-progress .bar { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); border-radius: 2px; transition: width 0.5s ease; width: 0; }
+
+/* Pulse animation for active agents */
+@keyframes agentPulse { 0%,100%{box-shadow:0 0 0 0 rgba(34,211,238,0.2)} 50%{box-shadow:0 0 0 6px rgba(34,211,238,0)} }
+.agent-card.active .avatar { animation: agentPulse 2s infinite; }
+
+/* ── Right Panel ── */
+.right-panel { width: 280px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.rp-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.rp-title { font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.rp-stat { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rp-stat .label { font-size: 12px; color: var(--muted); }
+.rp-stat .value { font-size: 13px; font-weight: 600; }
+.rp-stat .value.green { color: var(--green); }
+.rp-stat .value.amber { color: var(--amber); }
+.rp-stat .value.cyan { color: var(--cyan); }
+.rp-mini-chart { height: 40px; display: flex; align-items: flex-end; gap: 2px; margin-top: 8px; }
+.rp-mini-chart .bar { flex: 1; background: var(--cyan-dim); border-radius: 2px 2px 0 0; transition: height 0.3s; }
+.activity-feed { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.activity-item { padding: 8px 0; border-bottom: 1px solid rgba(42,53,68,0.3); }
+.activity-item:last-child { border-bottom: none; }
+.activity-item .act-time { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.activity-item .act-text { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+
+/* Utility */
+.btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--panel2); color: var(--text2); border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.2s; }
+.btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-primary { background: var(--cyan); color: #000; border-color: var(--cyan); font-weight: 600; }
+.btn-primary:hover { background: #4de8fa; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease-out; }
+@keyframes toastIn { from{opacity:0;transform:translate(-50%,10px)} }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:translateX(0)} }
+
+/* Modal / Overlay */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: toastIn 0.2s ease-out; }
+.modal-select { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: 420px; max-width: 90vw; max-height: 70vh; display: flex; flex-direction: column; box-shadow: 0 8px 40px rgba(0,0,0,0.5); overflow: hidden; }
+.modal-select__header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.modal-select__header h3 { margin: 0; font-size: 15px; color: var(--text); font-weight: 600; }
+.modal-select__close { background: none; border: none; color: var(--dim); font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1; }
+.modal-select__close:hover { color: var(--red); }
+.modal-select__body { flex: 1; overflow-y: auto; padding: 8px 0; }
+.modal-select__list { min-height: 80px; }
+.modal-select__loading { text-align: center; padding: 24px; color: var(--dim); font-size: 13px; }
+.modal-select__item { padding: 12px 18px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
+.modal-select__item:hover { background: var(--panel2); }
+.modal-select__item.selected { background: var(--cyan-dim); border-left: 3px solid var(--cyan); }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* ── 运行时状态机 ── */
+.runtime-dot { display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0; }
+.runtime-dot.connecting { background: var(--amber); animation: pulse 0.8s infinite; }
+.runtime-dot.online { background: var(--green); }
+.runtime-dot.offline { background: var(--amber); }
+.runtime-dot.error { background: var(--red); }
+
+/* ══════════════════════════════════════════════════════════════
+   P1: 房间视觉动效
+   ══════════════════════════════════════════════════════════════ */
+@keyframes roomPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,0.3); border-color: var(--cyan); }
+  50% { box-shadow: 0 0 20px 8px rgba(34,211,238,0.15); border-color: var(--cyan); }
+}
+@keyframes roomAlert {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0.4); border-color: var(--red); }
+  50% { box-shadow: 0 0 25px 10px rgba(248,113,113,0.2); border-color: var(--red); }
+}
+@keyframes roomCrack {
+  0% { background-image: linear-gradient(45deg, transparent 45%, rgba(248,113,113,0.15) 50%, transparent 55%); background-size: 400% 400%; }
+  100% { background-position: 100% 100%; background-image: linear-gradient(45deg, transparent 45%, rgba(248,113,113,0.08) 50%, transparent 55%); }
+}
+@keyframes roomShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.env-room.room-pulse { animation: roomPulse 2s ease-in-out infinite; border-width: 2px !important; }
+.env-room.room-alert { animation: roomAlert 1.5s ease-in-out infinite; border-color: var(--red) !important; border-width: 2px !important; }
+.env-room.room-cracked { animation: roomCrack 3s ease forwards, roomShake 0.5s ease-in-out 3; border-color: var(--red) !important; position: relative; overflow: hidden; }
+.env-room.room-cracked::after { content:''; position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(135deg,transparent,transparent 12px,rgba(248,113,113,0.06) 12px,rgba(248,113,113,0.06) 14px); }
+
+/* P1: Reward 峰值光晕 */
+.env-room.reward-peak {
+  animation: rewardPeakGlow 1.5s ease-out forwards;
+}
+@keyframes rewardPeakGlow {
+  0% { box-shadow: 0 0 0 0 rgba(251,191,36,0.4); }
+  50% { box-shadow: 0 0 30px 12px rgba(251,191,36,0.15); border-color: #fbbf24 !important; }
+  100% { box-shadow: none; }
+}
+.env-room.room-unhealthy { border: 1.5px solid #7f1d1d !important; animation: roomShake 0.4s ease 3; opacity: 0.85; }
+
+/* ══════════════════════════════════════════════════════════════
+   P2: 事件弹幕层 + 消息连线SVG
+   ══════════════════════════════════════════════════════════════ */
+#env-barrage-layer {
+  position:absolute; inset:0; top:0; left:0; pointer-events:none; z-index:20;
+  overflow:hidden; border-radius:14px;
+}
+.barrage-bubble {
+  position:absolute; padding:5px 10px; border-radius:8px; font-size:9.5px;
+  color:#fff; white-space:nowrap; max-width:200px; text-overflow:ellipsis;overflow:hidden;
+  background:rgba(30,38,54,0.92); border:1px solid var(--border); backdrop-filter:blur(6px);
+  animation:barrageFloatIn 0.35s ease-out forwards, barrageFadeOut 0.4s ease-in 2.2s forwards;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4); line-height:1.4;
+  pointer-events:none; transform-origin:left center;
+}
+@keyframes barrageFloatIn { from{opacity:0;transform:translateY(-8px) scale(0.92)} to{opacity:1;transform:translateY(0) scale(1)} }
+@keyframes barrageFadeOut { from{opacity:1} to{opacity:0;transform:translateY(-12px)} }
+
+#env-linkage-svg {
+  position:absolute; inset:0; width:100%; height:100%;
+  pointer-events:none; z-index:15; overflow:visible;
+}
+.linkage-line { stroke-dasharray: 6 4; stroke-dashoffset: 20; animation: linkageFlow 0.8s linear infinite; fill:none; stroke-width: 1.5; opacity: 0.7; }
+@keyframes linkageFlow { to { stroke-dashoffset: 0; } }
+
+/* ══════════════════════════════════════════════════════════════
+   P3: 收益曲线内嵌浮动卡 + 历史失败标记
+   ══════════════════════════════════════════════════════════════ */
+.env-reward-float {
+  position:absolute; bottom:14px; right:14px; z-index:18;
+  background:rgba(13,17,23,0.92); border:1px solid var(--border); border-radius:10px;
+  padding:10px 14px; min-width:180px; backdrop-filter:blur(8px); pointer-events:auto;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5);
+}
+.env-reward-float .erf-title { font-size:9px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px }
+.env-reward-float .erf-value { font-size:22px;font-weight:700;color:var(--green);font-family:'JetBrains Mono',monospace }
+.env-reward-float .erf-trend { font-size:11px;margin-left:4px }
+.env-reward-float .erf-mini-chart { margin-top:6px;height:28px;width:160px }
+/* P1: 浮动仪表盘卡 — 系统状态摘要（从 view-architecture 降级） */
+.env-status-float {
+  position: absolute; top: 14px; right: 14px; z-index: 18;
+  background: rgba(13,17,23,0.92); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 16px; min-width: 200px; backdrop-filter: blur(8px); pointer-events: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5); cursor: pointer; transition: all 0.25s;
+}
+.env-status-float:hover { border-color: var(--cyan); transform: translateY(-1px); }
+.esf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.esf-title { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.esf-expand { font-size: 10px; color: var(--cyan); cursor: pointer; }
+.esf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.esf-item { text-align: center; padding: 4px 0; }
+.esf-item .val { font-size: 15px; font-weight: 700; color: var(--cyan); font-family: 'JetBrains Mono', monospace; }
+.esf-item .lbl { font-size: 9px; color: var(--dim); margin-top: 1px; }
+.esf-item .val.green { color: var(--green); }
+.esf-item .val.amber { color: var(--amber); }
+.esf-item .val.red { color: var(--red); }
+
+/* P1: 环境空间主舞台增强 — 更大的容器高度 */
+#view-environment.view-panel.active {
+  padding: 16px !important;
+}
+
+
+.history-item.failed { border-left: 3px solid var(--red) !important; background: rgba(248,113,113,0.04); }
+.history-item.failed:hover { background: rgba(248,113,113,0.08); }
+.history-item .fail-badge { display:inline-block;font-size:8px;background:var(--red);color:#fff;padding:1px 5px;border-radius:4px;margin-left:4px;vertical-align:middle }
+
+/* ══════════════════════════════════════════════════════════════
+   P4: 萃取徽章 + Agent升级动效 + 分屏视图
+   ══════════════════════════════════════════════════════════════ */
+.sop-extract-badge {
+  position:absolute; top:-8px; right:-8px; z-index:25;
+  background:linear-gradient(135deg,#a78bfa,#c084fc); color:#fff;
+  width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:13px;box-shadow:0 0 16px rgba(167,139,250,0.5),0 0 4px rgba(167,139,250,0.3);
+  animation:sopBadgePop 0.5s cubic-bezier(.17,.67,.29,1.5) forwards;
+  cursor:pointer;pointer-events:auto;
+}
+@keyframes sopBadgePop { from{transform:scale(0);opacity:0} to{transform:scale(1);opacity:1} }
+
+.agent-upgrade-ring {
+  position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid var(--cyan);animation:upgradeRing 1.2s ease-out forwards;
+  pointer-events:none;z-index:10;
+}
+@keyframes upgradeRing {
+  0% { transform:scale(1); border-color:var(--cyan); opacity:1; box-shadow:0 0 12px rgba(34,211,238,0.6); }
+  50% { border-color:#fbbf24; box-shadow:0 0 20px rgba(251,191,36,0.6); }
+  100% { transform:scale(1.8); border-color:#fbbf24; opacity:0; box-shadow:0 0 0 transparent; }
+}
+
+.parallel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; height:100% }
+.parallel-cell { position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#111820 }
+.parallel-cell canvas { width:100%;height:100%;display:block }
+.branch-tag { position:absolute;top:8px;left:8px;z-index:5;font-size:9px;padding:2px 8px;border-radius:6px;background:rgba(13,17,23,0.85);border:1px solid var(--border);color:var(--text);backdrop-filter:blur(4px) }
+
+/* 故障注入 dropdown */
+.inject-dropdown { position:relative;display:inline-block }
+.inject-menu { display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;
+  min-width:160px;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:4px 0;z-index:9999;box-shadow:var(--shadow-lg); }
+.inject-menu.show { display:block }
+.inject-menu-item { display:block;width:100%;padding:7px 12px;border:none;background:none;
+  color:var(--text2);font-size:11px;cursor:pointer;text-align:left;font-family:inherit;
+  transition:background 0.15s }
+.inject-menu-item:hover { background:var(--panel2);color:var(--cyan) }
+.runtime-text { font-size:10px; color: var(--text2); cursor: default; }
+.runtime-text.clickable { color: var(--amber); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.runtime-text.clickable:hover { color: #fcd34d; }
+.runtime-spinner { display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* SECS 演练 Tab + 面板 */
+.nav-item.nav-secs { margin-left: 12px; color: var(--green); }
+.nav-item.nav-secs.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+.nav-item.nav-secs.active::after { background: var(--green); }
+#view-secs .pipeline-bar { display: flex; align-items: center; gap: 0; padding: 8px 12px; margin: 0 0 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+#view-secs .pipeline-node { min-width: 70px; padding: 6px 10px; text-align: center; border: 1px solid var(--border); border-radius: 6px; font-size: 9px; transition: all 0.3s; }
+#view-secs .pipeline-node__num { font-size: 11px; font-weight: 700; color: var(--muted); }
+#view-secs .pipeline-node__name { font-size: 10px; font-weight: 600; color: var(--text); }
+#view-secs .pipeline-node--active { border-color: var(--cyan); background: var(--cyan-dim); }
+#view-secs .pipeline-node--done { border-color: var(--green); background: var(--green-dim); }
+#view-secs .pipeline-node--running { border-color: var(--amber); animation: secsPulse 1.5s infinite; }
+#view-secs .pipeline-arrow { width: 14px; height: 2px; background: var(--dim); flex-shrink: 0; }
+#view-secs .pipeline-arrow--return { background: var(--green); }
+#view-secs .pipeline-arrow__label { font-size: 8px; color: var(--green); white-space: nowrap; }
+@keyframes secsPulse { 0%,100%{opacity:1}50%{opacity:0.5} }
+#view-secs .io-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font-size: 10px; }
+#view-secs .io-panel__header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+#view-secs .io-panel__title { font-weight: 600; color: var(--text); font-size: 11px; }
+#view-secs .io-empty { color: var(--dim); font-style: italic; font-size: 10px; }
+
+/* Modal (团队/场景选择) */
+.overlay { position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center; }
+.modal-select { width:440px;max-height:65vh;background:var(--panel);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.4); }
+.modal-select__header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border); }
+.modal-select__header h3 { font-size:14px;font-weight:600;margin:0; }
+.modal-select__close { background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:2px 6px; }
+.modal-select__close:hover { color:var(--text); }
+.modal-select__body { flex:1;overflow-y:auto;padding:8px 12px;min-height:80px; }
+.modal-select__loading { text-align:center;padding:28px;color:var(--dim);font-size:13px; }
+.modal-select__list { display:flex;flex-direction:column;gap:4px; }
+.modal-select__item { display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;transition:all 0.15s; }
+.modal-select__item:hover { border-color:var(--cyan);background:rgba(34,211,238,0.05); }
+.modal-select__item--sel { border-color:var(--green);background:rgba(52,211,153,0.08);color:var(--green); }
+.modal-select__item-icon { font-size:16px; }
+.modal-select__item-name { font-weight:500; }
+.modal-select__item-meta { font-size:10px;color:var(--dim);margin-left:auto; }
+.modal-select__footer { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--border);margin-top:4px; }
+.modal-select__footer .btn-primary { padding:5px 14px;font-size:12px; }
+.modal-select__footer { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid var(--border);gap:8px; }
+.modal-select__footer .btn { font-size:11px; }
+</style>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="topbar-ws" style="border-radius:0;flex-basis:100%">
+    <div class="topbar-ws__left">
+      <div class="logo" style="width:32px;height:32px;border-radius:6px;background:var(--cyan);color:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:var(--font-mono)">DT</div>
+      <h1>智能体数字孪生</h1>
+    </div>
+    <nav class="topbar-ws__nav" aria-label="主导航">
+      <a href="/agent-team-config.html">智能体团队</a>
+      <a href="/plaza.html">议事广场</a>
+      <a href="/skill-extract.html">技能萃取/赋予</a>
+      <span class="cur">数字孪生</span>
+      <a href="/cost-dashboard.html">演进式成本优化</a>
+    </nav>
+    <div class="topbar-ws__right">
+      <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
+      <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
+      <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
+      <div class="topbar-ws__user">
+        <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+        <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+        <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
+    </div>
+  </div>
+  <div class="header-nav" style="flex-basis:100%;border-top:1px solid var(--border);background:var(--panel2)">
+    <div class="nav-item nav-primary active" data-view="environment" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><span class="star">★</span> 环境空间</div>
+    <div class="nav-item" data-view="architecture" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 系统状态</div>
+    <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 协作·交互 <span class="badge" id="msg-count">0"></span></div>
+    <div class="nav-item" data-view="pipeline" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg> 编排管线</div>
+    <div class="nav-item" data-view="cli" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> CLI</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-panel">
+    <div class="lp-header"><h3>智能体团队</h3><span class="count" id="agent-count">0</span></div>
+    <div id="team-selector" style="padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px"></div>
+    <div class="agent-list" id="agent-list"></div>
+  </div>
+
+    <div class="eval-results" id="eval-results" style="display:none;margin-top:16px;padding:16px;background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;"><h4 style="margin:0 0 10px;color:var(--cyan);font-size:13px;">📊 五维评分</h4><div class="radar-chart-container" id="radar-chart-area"></div><div id="resilience-detail-area" style="font-size:10px;color:var(--amber);padding:6px 8px;margin:6px 0"></div><h4 style="margin:14px 0 10px;color:var(--cyan);font-size:13px;">📈 维度得分</h4><div id="bar-chart-area"></div></div><div class="sop-results" id="sop-results" style="display:none;margin-top:16px;padding:16px;background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;"><h4 style="margin:0 0 10px;color:#fbbf24;font-size:13px;">📋 SOP候选</h4><div id="sop-list-area"></div></div>
+  <div class="center">
+    <div class="view-panel"
+            id="view-architecture">
+      <div class="arch-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="arch-title">◈ 系统状态</div>
+        </div>
+        <div id="arch-sub-layers">
+          <div class="arch-subtitle">实时系统运行指标 · 数据每10秒自动刷新</div>
+          <div id="live-dashboard"></div>
+          <div style="margin-top:16px">
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">活跃任务队列</div>
+            <div id="live-task-queue" style="max-height:280px;overflow-y:auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-interaction">
+      <div class="flow-container">
+        <div class="flow-header">
+          <div class="flow-title">⇄ 协作 · 交互</div>
+          <div class="flow-controls">
+            <button class="flow-btn active" id="isub-btn-timeline" onclick="showInteractSub('timeline',this)">交互时间线</button>
+            <button class="flow-btn" id="isub-btn-topo" onclick="showInteractSub('topo',this)">协作拓扑</button>
+          </div>
+        </div>
+        <!-- 子页①：交互时间线（时序视角） -->
+        <div id="interact-sub-timeline">
+          <div class="flow-controls" style="margin-bottom:12px">
+            <button class="flow-btn active" onclick="filterMsgs('all')">全部</button>
+            <button class="flow-btn" onclick="filterMsgs('tool-call')">工具调用</button>
+            <button class="flow-btn" onclick="filterMsgs('llm-call')">LLM推理</button>
+            <button class="flow-btn" onclick="filterMsgs('handoff')">任务交接</button>
+            <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+            <button class="flow-btn" id="btn-view-timeline" onclick="switchFlowView('timeline',this)" style="font-size:11px">时间线</button>
+            <button class="flow-btn" id="btn-view-sequence" onclick="switchFlowView('sequence',this)" style="font-size:11px">序列图</button>
+          </div>
+          <div class="flow-stats" id="flow-stats"></div>
+          <div class="msg-timeline" id="msg-timeline"></div>
+          <div id="sequence-diagram" style="display:none;overflow-x:auto;padding:16px 0"><svg id="seq-svg" width="100%" height="400"></svg></div>
+        </div>
+        <!-- 子页②：协作拓扑（图视角，由系统状态迁入） -->
+        <div id="interact-sub-topo" style="display:none">
+          <div class="arch-subtitle">智能体协作拓扑。节点=智能体，连线粗细=交互频次，颜色=团队。</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#080c10">
+            <svg id="topo-svg" width="100%" height="460" style="display:block"></svg>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)">
+            <span>● 节点大小 = 技能数</span><span>● 连线 = 交互历史</span><span>● 颜色 = 团队</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-pipeline">
+      <div class="pipeline-container">
+        <div class="pipeline-title">▷ 任务编排管线</div>
+        <div class="pipeline-progress"><div class="bar" id="pipeline-progress-bar"></div></div>
+        <div class="pipeline-flow" id="pipeline-flow"></div>
+        <div class="exec-log">
+          <div class="exec-log-header"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> 执行日志 <span style="margin-left:auto;font-weight:normal;color:var(--dim)" id="log-count">0 条</span></div>
+          <div class="exec-log-body" id="exec-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel active" id="view-environment">
+      <div class="env-container" style="max-width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="flow-title" style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><span class="star">★</span> 环境空间</div>
+          <div style="display:flex;gap:8px">
+            <button class="flow-btn" id="btn-env-mode" onclick="toggleEnvMode(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图</button>
+            <button class="btn" onclick="createRoom()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 创建空间</button>
+          </div>
+        </div>
+        <div id="room-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
+        <div id="env-3d-container" style="position:relative;width:100%;height:calc(100vh - 240px);min-height:520px;border-radius:14px;overflow:hidden;border:1px solid var(--border-active);background:#111820;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3), 0 0 60px rgba(34,211,238,0.06)">
+          <canvas id="env-3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+          <!-- P2: 消息连线SVG层 -->
+          <svg id="env-linkage-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:15;overflow:visible"></svg>
+          <!-- P2: 事件弹幕层 -->
+          <div id="env-barrage-layer"></div>
+          <div class="env-reward-float" id="env-reward-float" style="display:none">
+            <div class="erf-title">实时收益</div>
+            <div><span class="erf-value" id="erf-reward-value">—</span><span class="erf-trend" id="erf-reward-trend"></span></div>
+            <svg class="erf-mini-chart" viewBox="0 0 160 28"><polyline id="erf-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"/></svg>
+          </div>
+
+          <div style="position:absolute;bottom:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
+            <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
+            <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
+          </div>
+        </div>
+        <div class="env-grid" id="env-grid" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-cli">
+      <div class="cli-wrapper">
+        <div class="cli-box">
+          <div class="cli-titlebar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="title">digital-twin@agentsgroup ~ %</span>
+          </div>
+          <div class="cli-body" id="cli-output"><span class="info">AgentsGroup2026 Digital Twin CLI v2.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+智能体编排 · 交互可视化 · 环境模拟
+输入 <span class="cmd">help</span> 查看所有命令
+</span></div>
+          <div class="cli-input-row">
+            <span class="ps1">❯</span>
+            <input type="text" id="cli-input" placeholder="输入命令..." autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="cli-shortcuts">
+          <button onclick="execCmd('status')">status</button>
+          <button onclick="execCmd('agents')">agents</button>
+          <button onclick="execCmd('skills')">skills</button>
+          <button onclick="execCmd('rooms')">rooms</button>
+          <button onclick="execCmd('pipeline show')">pipeline</button>
+          <button onclick="execCmd('flow last 10')">flow last</button>
+          <button onclick="execCmd('simulate random')">simulate</button>
+          <button onclick="execCmd('simulate stress')">stress</button>
+          <button onclick="execCmd('discuss list')">discuss</button>
+          <button onclick="execCmd('config show')">config</button>
+          <button onclick="execCmd('export snapshot')">export</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="agent-drawer" id="agent-drawer"></div>
+  <div class="right-panel" id="rp-default" style="display:none !important">
+    <span id="stat-agents" style="display:none"></span><span id="stat-skills" style="display:none"></span><span id="stat-tools" style="display:none"></span><span id="stat-interactions" style="display:none"></span><span id="stat-pipelines" style="display:none"></span><span id="stat-health" style="display:none"></span>
+    <div id="freq-chart" style="display:none"></div>
+    <div id="activity-feed" style="display:none"></div>
+  </div>
+  <div class="right-panel" id="rp-secs" style="width:580px;overflow-y:auto;display:block">
+    <!-- ═══ KPI 条 ═══ -->
+    <div class="rp-section" style="padding:10px 12px;display:flex;gap:8px">
+      <div style="flex:1;text-align:center;background:var(--panel2);border-radius:6px;padding:8px 4px"><div style="font-size:8px;color:var(--dim)">沙箱会话</div><div style="font-size:16px;font-weight:700;color:var(--cyan)" id="secs-kpi-sessions">0</div></div>
+      <div style="flex:1;text-align:center;background:var(--panel2);border-radius:6px;padding:8px 4px"><div style="font-size:8px;color:var(--dim)">总仿真步</div><div style="font-size:16px;font-weight:700;color:var(--green)" id="secs-kpi-steps">0</div></div>
+      <div style="flex:1;text-align:center;background:var(--panel2);border-radius:6px;padding:8px 4px"><div style="font-size:8px;color:var(--dim)">提取SOP</div><div style="font-size:16px;font-weight:700;color:var(--purple)" id="secs-kpi-sops">0</div></div>
+      <div style="flex:1;text-align:center;background:var(--panel2);border-radius:6px;padding:8px 4px"><div style="font-size:8px;color:var(--dim)">最优评分</div><div style="font-size:16px;font-weight:700;color:var(--amber)" id="secs-kpi-score">—</div></div>
+    </div>
+
+    <!-- ═══ Runtime 状态 ═══ -->
+    <div class="rp-section" style="padding:6px 12px;display:flex;align-items:center;gap:8px;font-size:10px">
+      <span style="color:var(--dim)">运行时</span>
+      <span class="runtime-dot connecting" id="secs-runtime-dot"></span>
+      <span class="runtime-text" id="secs-runtime-text" title="点击重连"><span class="runtime-spinner" id="secs-runtime-spinner"></span>连接中...</span>
+      <button class="btn" id="btn-refresh-world" onclick="forceSyncWorld()" style="margin-left:auto;font-size:9px;padding:3px 8px" title="强制同步世界状态">刷新</button>
+      <button class="btn btn-primary" id="secs-selfcheck-btn" onclick="runRuntimeSelfCheck()" style="font-size:9px;padding:3px 8px">自检</button>
+    </div>
+
+    <!-- ═══ Pipeline ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="rp-title" style="margin-bottom:6px">◈ SECS 演练 Pipeline</div>
+      <div style="display:flex;align-items:center;gap:0;overflow-x:auto;padding:4px 0">
+        <div style="text-align:center;cursor:pointer" onclick="toggleLayerDetail('L1')"><div class="pipeline-node" data-layer="L1" id="spipe-L1" style="min-width:58px;padding:5px 6px;text-align:center;border:1px solid var(--border);border-radius:4px;font-size:8px"><div style="display:flex;align-items:center;justify-content:center;gap:3px"><span style="font-size:10px;font-weight:700;color:var(--muted)">L1</span><span style="width:5px;height:5px;border-radius:50%;background:var(--dim)" id="spipe-dot-L1"></span></div><div style="font-size:8px;font-weight:600;color:var(--text)">🌐MADTwin</div></div></div>
+        <div style="width:8px;height:2px;background:var(--dim);flex-shrink:0"></div>
+        <div style="text-align:center;cursor:pointer" onclick="toggleLayerDetail('L2')"><div class="pipeline-node pipeline-node--active" data-layer="L2" id="spipe-L2" style="min-width:58px;padding:5px 6px;text-align:center;border:1px solid var(--cyan);border-radius:4px;font-size:8px;background:var(--cyan-dim)"><div style="display:flex;align-items:center;justify-content:center;gap:3px"><span style="font-size:10px;font-weight:700;color:var(--cyan)">L2</span><span style="width:5px;height:5px;border-radius:50%;background:var(--cyan)" id="spipe-dot-L2"></span></div><div style="font-size:8px;font-weight:600;color:var(--text)">📋AAS</div></div></div>
+        <div style="width:8px;height:2px;background:var(--dim);flex-shrink:0"></div>
+        <div style="text-align:center;cursor:pointer" onclick="toggleLayerDetail('L3')"><div class="pipeline-node" data-layer="L3" id="spipe-L3" style="min-width:58px;padding:5px 6px;text-align:center;border:1px solid var(--border);border-radius:4px;font-size:8px"><div style="display:flex;align-items:center;justify-content:center;gap:3px"><span style="font-size:10px;font-weight:700;color:var(--muted)">L3</span><span style="width:5px;height:5px;border-radius:50%;background:var(--dim)" id="spipe-dot-L3"></span></div><div style="font-size:8px;font-weight:600;color:var(--text)">🎮TwinLoop</div></div></div>
+        <div style="width:8px;height:2px;background:var(--dim);flex-shrink:0"></div>
+        <div style="text-align:center;cursor:pointer" onclick="toggleLayerDetail('L4')"><div class="pipeline-node" data-layer="L4" id="spipe-L4" style="min-width:58px;padding:5px 6px;text-align:center;border:1px solid var(--border);border-radius:4px;font-size:8px"><div style="display:flex;align-items:center;justify-content:center;gap:3px"><span style="font-size:10px;font-weight:700;color:var(--muted)">L4</span><span style="width:5px;height:5px;border-radius:50%;background:var(--dim)" id="spipe-dot-L4"></span></div><div style="font-size:8px;font-weight:600;color:var(--text)">🎯MADCG</div></div></div>
+        <div style="width:8px;height:2px;background:var(--green);flex-shrink:0"><span style="font-size:7px;color:var(--green)">↩</span></div>
+        <div class="pipeline-node" data-layer="EVOLVE" id="spipe-EVOLVE" style="min-width:50px;padding:5px 6px;text-align:center;border:1px solid var(--border);border-radius:4px;font-size:8px"><div style="font-size:9px;font-weight:600;color:var(--text)">🌀Loop</div></div>
+      </div>
+      <div id="layer-detail-L1" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim)"><span style="color:var(--cyan)">L1 MADTwin</span> — 多智能体数字孪生：实时镜像团队状态、能力、交互拓扑到孪生模型。<span id="ld-L1-extra"></span></div>
+      <div id="layer-detail-L2" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim);border:1px solid var(--cyan)"><span style="color:var(--blue)">L2 AAS</span> — 自适应技能选择：结合环境上下文与任务需求自动匹配最优技能组合。<span id="ld-L2-extra"></span></div>
+      <div id="layer-detail-L3" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim)"><span style="color:var(--green)">L3 TwinLoop</span> — 孪生回环：在数字孪生中持续模拟、校验、修正。<span id="ld-L3-extra"></span></div>
+      <div id="layer-detail-L4" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim)"><span style="color:var(--purple)">L4 MADCG</span> — 多智能体自适应协作图：动态构建协作拓扑并生成执行计划。<span id="ld-L4-extra"></span></div>
+    </div>
+
+    <!-- ═══ Session 条 ═══ -->
+    <div class="rp-section" style="padding:6px 12px;display:flex;gap:6px;font-size:9px;align-items:center;flex-wrap:wrap">
+      <span style="color:var(--dim)">会话</span><code id="secs-session-id" style="font-family:var(--font-mono);color:var(--cyan);font-size:9px">—</code>
+      <button class="btn" onclick="copySessionId()" style="font-size:8px;padding:1px 5px">📋</button>
+      <button class="btn" id="secs-report-btn" onclick="openSimReport(null)" style="font-size:8px;padding:2px 6px;display:none;color:var(--green)">📊 报告</button>
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <span style="color:var(--dim)">模式:<b id="secs-session-mode" style="color:var(--text)">—</b></span>
+        <span style="color:var(--dim)">步:<b id="secs-session-step" style="color:var(--green)">0</b></span>
+        <span style="color:var(--dim)">分:<b id="secs-session-score" style="color:var(--amber)">—</b></span>
+        <span id="secs-session-status" style="color:var(--dim)">空闲</span>
+      </span>
+    </div>
+
+    <!-- ═══ 团队/场景 ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="rp-title" style="margin-bottom:4px">🎯 演练配置</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="btn" onclick="sexyPickTeam()" id="secs-team-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">👥 选择演练团队</button>
+        <button class="btn" onclick="sexyPickScene()" id="secs-scene-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">🏟️ 选择演练场景</button>
+        <button class="btn" onclick="sexyPickTask()" id="secs-task-btn" style="width:100%;font-size:11px;padding:8px 10px;text-align:left">📋 选择演练任务</button>
+      </div>
+    </div>
+
+    <!-- ═══ 仿真参数 + 注入 ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="rp-title" style="margin-bottom:4px">仿真参数</div>
+      <div style="display:flex;gap:8px;font-size:10px;margin-bottom:6px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:3px;color:var(--text2)"><input type="radio" name="secs-mode" value="what_if" checked style="accent-color:var(--cyan)">What-if</label>
+        <label style="display:flex;align-items:center;gap:3px;color:var(--text2)"><input type="radio" name="secs-mode" value="parallel" style="accent-color:var(--cyan)">并行</label>
+        <label style="display:flex;align-items:center;gap:3px;color:var(--text2)"><input type="radio" name="secs-mode" value="evolutionary" style="accent-color:var(--cyan)">演化</label>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:4px"><span style="color:var(--dim)">步</span><b id="secs-steps-val" style="color:var(--cyan)">150</b></span>
+      </div>
+      <input type="range" id="secs-steps" min="10" max="500" value="150" oninput="document.getElementById('secs-steps-val').textContent=this.value" style="width:100%;accent-color:var(--cyan);margin-bottom:2px">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:6px;color:var(--dim)">
+        <span>加速: <b id="secs-speed-val" style="color:var(--amber);font-family:monospace">3x</b></span>
+        <input type="range" id="secs-speed-slider" min="1" max="20" value="3" oninput="document.getElementById('secs-speed-val').textContent=this.value+'x'" style="flex:1;accent-color:var(--amber);height:4px">
+      </div>
+      <!-- 注入按钮 -->
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn" id="btn-inject-fault" title="混沌注入·演练韧性：随机让一个 Agent 下线 5 步，观察团队能否自愈/补位（运行中可点）" style="font-size:9px;padding:3px 6px">💥 注入故障</button>
+        <button class="btn" id="btn-inject-task" title="混沌注入·演练适应性：随机突变 50% 待办任务的所需技能，观察团队能否重规划/重路由（运行中可点）" style="font-size:9px;padding:3px 6px">🔄 任务变更</button>
+        <button class="btn" id="btn-inject-join" title="混沌注入·演练弹性扩张：优先恢复被禁用的 Agent；若无，则新增一个『增援』Agent，其技能对准当前待办任务的缺口，观察团队能否识别并用好对口新资源（运行中可点）" style="font-size:9px;padding:3px 6px">➕ 智能体加入</button>
+        <button class="btn" id="btn-inject-leave" title="混沌注入·演练抗减员：永久移除一个 Agent，观察团队能否重新分工兜住（运行中可点）" style="font-size:9px;padding:3px 6px">➖ 智能体离开</button>
+      </div>
+      <!-- 注入事件记录面板 -->
+      <div id="inject-history" style="margin-top:6px;max-height:80px;overflow-y:auto;font-size:9px;color:var(--dim)">
+        <div style="text-align:center;padding:4px;color:var(--dim)">💡 启动演练后可注入事件，记录将显示在此</div>
+      </div>
+    </div>
+
+    <!-- ═══ 操作 ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <button class="btn btn-primary" onclick="sexyCreateAndRun()" id="secs-btn-launch" title="可评分闭环：建试炼→运行(含3D可视化)→五维评分→SOP/反哺/进化→棘轮" style="width:100%;padding:12px 0;font-size:14px;font-weight:600">▶ 运行演练</button>
+      <!-- 启动后的控制区（默认隐藏） -->
+      <div id="secs-ctrl-panel" style="display:none;margin-top:6px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <button class="btn btn-primary" onclick="sexyAutoRun()" id="secs-btn-auto" style="flex:1;padding:8px 0;font-size:11px">▶ 自动运行</button>
+          <button class="btn" onclick="sexyPauseResume()" id="secs-btn-pause" style="flex:1;padding:8px 0;font-size:11px;display:none">⏸ 暂停</button>
+          <button class="btn" onclick="sexyStepOnce()" id="secs-btn-step" style="flex:1;padding:8px 0;font-size:11px">⏯ 单步</button>
+        </div>
+        <button class="btn" onclick="sexyStopSim()" id="secs-btn-stop" style="width:100%;padding:10px 0;font-size:13px">⏹ 停止演练</button>
+      </div>
+      <div style="font-size:9px;color:var(--dim);text-align:center;margin-top:6px;line-height:1.5">「运行演练」=可评分闭环(已含 3D 房间可视化)。下方仅在想<b>快速预览协作动画、不打分</b>时用：</div>
+      <button class="btn" onclick="_sexyRoomSim()" id="secs-dev-btn" title="纯前端动画预演：只看一眼协作流程，不创建评分试炼、不产出分数/SOP" style="width:100%;margin-top:4px;padding:6px 0;font-size:11px;color:var(--dim);background:transparent;border:1px dashed var(--border);border-radius:6px;cursor:pointer">🎬 仅可视化预演（不评分）</button>
+      <!-- 隐藏的选择器：secsDevWorkflow 需要通过它们读团队/任务 -->
+      <select id="secs-team-select" style="display:none"><option value="">—</option></select>
+      <select id="secs-task-select" style="display:none"><option value="">—</option></select>
+      <div id="secs-sim-status" style="font-size:9px;color:var(--dim);margin-top:4px;text-align:center"></div>
+    </div>
+
+    <!-- ═══ 试炼生命周期 + 技能进化（由试炼导演台合并而来）═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
+      <div class="dp-header-status" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button>
+        <span class="dp-status-badge" id="dp-status-badge">● 就绪</span>
+      </div>
+      <div class="dp-actions" id="dt-action-buttons"></div>
+      <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
+      <!-- v4 D-2: 技能进化面板 -->
+      <div class="dp-section" id="skill-evolution-panel" style="margin-top:6px">
+        <label class="dp-label">🧬 技能进化</label>
+        <div id="skill-stats-area" style="font-size:10px;color:var(--dim)">试炼评分后显示 per-skill 统计</div>
+        <div class="secs-pipeline-indicator" id="evo-pipeline" style="display:none">
+          <span class="secs-node" data-phase="identifying">识别</span><span class="secs-node" data-phase="reflecting">反思</span><span class="secs-node" data-phase="mutating">变体</span><span class="secs-node" data-phase="ab_testing">A/B</span><span class="secs-node" data-phase="gating">晋升</span>
+        </div>
+        <div id="evo-result-area" style="font-size:10px;margin-top:6px"></div>
+        <div id="ab-compare-area" style="font-size:10px;margin-top:6px"></div>
+        <div id="gen-curve-area" style="margin-top:6px"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-accent" style="flex:1;font-size:10px" onclick="loadSkillStats()">📊 技能统计</button>
+          <button class="btn btn-primary" style="flex:1;font-size:10px" onclick="startEvolution()">🧬 发起进化</button>
+        </div>
+        <div id="evo-gate-actions" style="display:none;gap:6px;margin-top:6px">
+          <button class="sop-btn approve" onclick="approveEvolution()">✓ 批准写回</button>
+          <button class="sop-btn reject" onclick="rejectEvolution()">✗ 拒绝</button>
+        </div>
+      </div>
+    </div>
+    <!-- ═══ 实时控制台（独立窗口，始终可见）═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="rp-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span>🖥️ 实时控制台</span>
+        <button class="btn" onclick="_consoleLines=[];var el=document.getElementById('live-console');if(el)el.innerHTML='<div style=text-align:center;color:var(--dim);padding:20px>控制台已清空，启动演练/仿真后输出</div>'" style="font-size:8px;padding:2px 6px">清空</button>
+      </div>
+      <div id="live-console" style="font-size:10px;color:var(--dim);padding:8px;background:#0d1117;border:1px solid var(--border);border-radius:6px;min-height:120px;max-height:240px;overflow-y:auto;font-family:Menlo,Monaco,monospace;line-height:1.6">
+        <div style="text-align:center;color:var(--dim);padding:20px">💡 启动演练或仿真后，控制台输出将显示在此</div>
+      </div>
+    </div>
+
+    <!-- ═══ Input / Output 双面板 (对齐 sandbox-twin) ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button class="btn active" id="io-tab-in" onclick="switchIOTab('in',this)" style="flex:1;font-size:10px;padding:4px">📥 沙箱进料</button>
+        <button class="btn" id="io-tab-out" onclick="switchIOTab('out',this)" style="flex:1;font-size:10px;padding:4px">📤 沙箱出料</button>
+      </div>
+      <!-- Input -->
+      <div id="io-panel-in">
+        <div style="display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap">
+          <button class="btn active" data-sub="task" onclick="switchIOSub('task',this)" style="font-size:9px;padding:3px 6px">任务</button>
+          <button class="btn" data-sub="env" onclick="switchIOSub('env',this)" style="font-size:9px;padding:3px 6px">环境</button>
+          <button class="btn" data-sub="seed-skill" onclick="switchIOSub('seed-skill',this)" style="font-size:9px;padding:3px 6px">种子技能</button>
+          <button class="btn" data-sub="params" onclick="switchIOSub('params',this)" style="font-size:9px;padding:3px 6px">运行参数</button>
+        </div>
+        <div class="io-sub" id="sub-task" style="font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto"><div class="io-empty" style="font-size:10px">启动仿真后显示任务</div></div>
+        <div class="io-sub" id="sub-env" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto"><div class="io-empty" style="font-size:10px">启动仿真后显示环境与Agent集合</div></div>
+        <!-- 种子技能注入 -->
+        <div class="io-sub" id="sub-seed-skill" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:160px;overflow-y:auto">
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <select id="skill-inject-select" style="flex:1;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:10px;padding:3px 4px;border-radius:4px"><option value="">— 选择技能注入 —</option></select>
+            <button class="btn btn-primary" id="btn-inject-skill" style="font-size:9px;padding:3px 8px">💉 注入</button>
+          </div>
+          <div id="skill-inject-result" style="font-size:9px;color:var(--dim)">选择技能后点击注入</div>
+        </div>
+        <div class="io-sub" id="sub-params" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto">
+          <div style="margin-bottom:4px">仿真模式: <b id="param-mode" style="color:var(--cyan)">What-if</b></div>
+          <div>最大步数: <b id="param-steps" style="color:var(--green)">150</b></div>
+          <div>加速倍率: <b id="param-speed" style="color:var(--amber)">3x</b></div>
+          <div>并行分支: <b id="param-branches" style="color:var(--purple)">3</b></div>
+        </div>
+      </div>
+      <!-- Output -->
+      <div id="io-panel-out" style="display:none">
+        <div style="display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap">
+          <button class="btn active" data-sub="reward" onclick="switchIOSub('reward',this)" style="font-size:9px;padding:3px 6px">收益曲线</button>
+          <button class="btn" data-sub="log" onclick="switchIOSub('log',this)" style="font-size:9px;padding:3px 6px">执行日志</button>
+          <button class="btn" data-sub="console" onclick="switchIOSub('console',this)" style="font-size:9px;padding:3px 6px;display:none">🖥️ 控制台</button>
+          <button class="btn" data-sub="sop" onclick="switchIOSub('sop',this)" style="font-size:9px;padding:3px 6px">SOP</button>
+          <button class="btn" data-sub="score" onclick="switchIOSub('score',this)" style="font-size:9px;padding:3px 6px">评分</button>
+        </div>
+        <div class="io-sub" id="sub-reward" style="min-height:40px">
+          <div style="height:60px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-bottom:4px">
+            <svg id="secs-reward-chart" viewBox="0 0 480 60" preserveAspectRatio="none" style="width:100%;height:100%"><polyline id="secs-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"></polyline></svg>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim)"><span>步:<b id="secs-step-num">0</b></span><span>最大:<b id="secs-reward-max">—</b></span><span id="secs-reward-trend" style="color:var(--dim)">→</span></div>
+        </div>
+        <div class="io-sub" id="sub-log" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto;font-family:JetBrains Mono,monospace"><div class="io-empty" style="font-size:10px">启动仿真后显示执行日志</div></div>
+        <div class="io-sub" id="sub-console" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:#0d1117;border-radius:4px;min-height:40px;max-height:200px;overflow-y:auto;font-family:Menlo,monospace"><div class="io-empty" style="font-size:10px;color:var(--dim)">启动仿真后显示控制台输出</div></div>
+        <div class="io-sub" id="sub-sop" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto"><div class="io-empty" style="font-size:10px">仿真完成后提取SOP</div></div>
+        <div class="io-sub" id="sub-score" style="display:none;font-size:10px;color:var(--dim);padding:6px;background:var(--panel2);border-radius:4px;min-height:40px;max-height:120px;overflow-y:auto"><div class="io-empty" style="font-size:10px">仿真完成后显示评分详情</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ 演练历史 ═══ -->
+    <div class="rp-section" style="padding:8px 12px">
+      <div class="rp-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span>📜 演练历史</span>
+        <button class="btn" onclick="loadExerciseHistory()" style="font-size:9px;padding:2px 6px">刷新</button>
+      </div>
+      <div id="secs-exercise-history" style="max-height:140px;overflow-y:auto;font-size:10px;color:var(--dim)">
+        <div style="text-align:center;padding:12px">暂无演练记录</div>
+      </div>
+    </div>
+
+    <!-- ═══ 协作图 ═══ -->
+    <div class="rp-section" style="padding:8px 12px;border-bottom:none">
+      <div class="rp-title" style="margin-bottom:6px">🤝 协作图 [5v7]</div>
+      <svg id="secs-collab-svg" viewBox="0 0 400 140" preserveAspectRatio="xMidYMid meet" style="width:100%;background:var(--panel2);border-radius:4px"><g id="secs-collab-nodes"></g></svg>
+    </div>
+  </div>
+</div>
+
+<!-- 团队选择 Modal -->
+<div class="overlay" id="o-team" style="display:none" onclick="if(event.target===this){this.style.display='none';_teamModalOpen=false}"><div class="modal-select"><div class="modal-select__header"><h3>👥 选择演练团队</h3><button class="modal-select__close" onclick="document.getElementById('o-team').style.display='none';_teamModalOpen=false">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-team-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
+<!-- 场景选择 Modal -->
+<div class="overlay" id="o-scene" style="display:none" onclick="if(event.target===this)this.style.display='none'"><div class="modal-select"><div class="modal-select__header"><h3>🏟️ 选择演练场景</h3><button class="modal-select__close" onclick="document.getElementById('o-scene').style.display='none'">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-scene-list"></div></div></div></div>
+<!-- 任务选择 Modal -->
+<div class="overlay" id="o-task" style="display:none" onclick="if(event.target===this)this.style.display='none'"><div class="modal-select"><div class="modal-select__header"><h3>📋 选择演练任务</h3><button class="modal-select__close" onclick="document.getElementById('o-task').style.display='none'">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-task-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
+
+<!-- Toast -->
+<div id="toast-container" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/ag-context.js"></script>
+<script src="/js/digital-twin-cli.js" defer></script>
+<script src="/js/digital-twin-cli-3d.js" type="module"></script>
+
+<!-- ═══ SECS 仿真报告弹窗 ═══ -->
+<div id="secs-report-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:#1a2030;border:1px solid rgba(34,211,238,0.3);border-radius:12px;width:680px;max-height:80vh;overflow-y:auto;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0;font-size:18px;color:#22d3ee;font-weight:600" id="secs-report-title">📋 SECS 仿真报告</h2>
+      <button onclick="closeSecsReport()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">&times;</button>
+    </div>
+    <div id="secs-report-content"></div>
+  </div>
+</div>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
+
+<!-- ═══ SECS 演练 SSE + 统计 集成逻辑 ═══ -->
+<!-- F2/D-4.1 拆文件: 原 ~2700 行内联脚本拆出为五个模块 -->
+<script src="/js/digital-twin/secs-core.js"></script>
+<script src="/js/digital-twin/director.js"></script>
+<script src="/js/digital-twin/v4-scenario-evolution.js"></script>
+<script src="/js/digital-twin/v4-scenarios.js"></script>
+<script src="/js/digital-twin/v4-evolution.js"></script>
+
+</body>
+</html>

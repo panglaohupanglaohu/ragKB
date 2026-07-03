@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentsGroup2026 — 以「Token 最少」为北极星的 Agent 团队效率系统</title>
+<style>
+  :root{
+    --bg:#0b0e13; --bg2:#0e1116; --panel:#151b23; --panel2:#1a212b;
+    --border:#232c38; --border2:#2c3744;
+    --text:#e6edf3; --text2:#c2ccd6; --dim:#8b97a6; --faint:#5e6a78;
+    --koke:#5fd28a; --koke-d:#1f6b3f; --kitsune:#e0b13b; --shu:#f87171;
+    --cyan:#3dd6e6; --violet:#a78bfa; --pink:#f472b6;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+    --radius:14px; --radius-sm:9px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; font-family:var(--sans); color:var(--text);
+    background:
+      radial-gradient(1100px 600px at 15% -10%, rgba(95,210,138,.10), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(61,214,230,.08), transparent 55%),
+      var(--bg);
+    line-height:1.7; font-size:15px; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--koke); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono); font-size:.86em; background:rgba(125,200,160,.10);
+    border:1px solid var(--border); border-radius:5px; padding:.08em .42em; color:#cfe9d8}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 22px}
+
+  /* ── Top nav ── */
+  nav.top{position:sticky; top:0; z-index:50; backdrop-filter:blur(10px);
+    background:rgba(11,14,19,.78); border-bottom:1px solid var(--border)}
+  nav.top .inner{max-width:1080px; margin:0 auto; padding:11px 22px; display:flex;
+    align-items:center; gap:16px; flex-wrap:wrap}
+  nav.top .brand{font-weight:800; letter-spacing:.3px; font-size:15px; white-space:nowrap}
+  nav.top .brand .dot{color:var(--koke)}
+  nav.top .links{display:flex; gap:5px; flex-wrap:wrap; margin-left:auto}
+  nav.top .links a{color:var(--dim); font-size:12.5px; padding:5px 10px; border-radius:7px;
+    border:1px solid transparent}
+  nav.top .links a:hover{color:var(--text); background:var(--panel); border-color:var(--border); text-decoration:none}
+
+  /* ── Hero ── */
+  header.hero{padding:70px 0 34px; border-bottom:1px solid var(--border)}
+  .eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:12px; letter-spacing:1.5px;
+    text-transform:uppercase; color:var(--koke); font-weight:700; margin-bottom:18px;
+    border:1px solid var(--koke-d); background:rgba(95,210,138,.07); padding:5px 12px; border-radius:999px}
+  h1.title{font-size:42px; line-height:1.15; margin:0 0 16px; font-weight:850; letter-spacing:-.5px}
+  h1.title .grad{background:linear-gradient(95deg,var(--koke),var(--cyan)); -webkit-background-clip:text;
+    background-clip:text; color:transparent}
+  .lead{font-size:17px; color:var(--text2); max-width:760px; margin:0 0 24px}
+  .northstar{display:flex; gap:14px; align-items:flex-start; background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border:1px solid var(--border2); border-left:3px solid var(--koke); border-radius:var(--radius);
+    padding:18px 20px; max-width:820px}
+  .northstar .ico{font-size:24px; line-height:1}
+  .northstar b{color:var(--koke)}
+  .hero-meta{display:flex; gap:10px; flex-wrap:wrap; margin-top:22px}
+  .tag{font-size:12px; color:var(--text2); border:1px solid var(--border2); background:var(--panel);
+    padding:5px 11px; border-radius:999px}
+
+  /* ── Sections ── */
+  section{padding:46px 0; border-bottom:1px solid var(--border)}
+  .kicker{font-size:12px; letter-spacing:1.6px; text-transform:uppercase; color:var(--cyan); font-weight:700; margin:0 0 8px}
+  h2{font-size:27px; margin:0 0 6px; font-weight:800; letter-spacing:-.3px}
+  h2 .em{color:var(--koke)}
+  .sub{color:var(--dim); margin:0 0 26px; font-size:14.5px}
+  h3{font-size:18px; margin:30px 0 10px; font-weight:750}
+  p{margin:0 0 14px}
+
+  .grid{display:grid; gap:16px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:840px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2)); border:1px solid var(--border);
+    border-radius:var(--radius); padding:20px; transition:.18s}
+  .card:hover{border-color:var(--border2); transform:translateY(-2px)}
+  .card .ic{font-size:22px; margin-bottom:10px}
+  .card h4{margin:0 0 7px; font-size:16px; font-weight:750}
+  .card p{margin:0; color:var(--dim); font-size:13.5px; line-height:1.65}
+  .card .num{font-family:var(--mono); font-size:11px; color:var(--faint); font-weight:600; letter-spacing:.5px}
+
+  /* loop pipeline */
+  .loop{display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:8px 0 4px}
+  .loop .step{flex:1; min-width:120px; background:var(--panel); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:14px 12px; text-align:center}
+  .loop .step .e{font-size:20px}
+  .loop .step .t{font-weight:700; font-size:13.5px; margin-top:4px}
+  .loop .step .d{font-size:11.5px; color:var(--dim); margin-top:3px}
+  .loop .arrow{display:flex; align-items:center; color:var(--koke); font-size:18px; padding:0 6px}
+  @media(max-width:840px){.loop .arrow{transform:rotate(90deg)} .loop{flex-direction:column} .loop .step{min-width:0}}
+
+  /* layered architecture */
+  .layers{display:flex; flex-direction:column; gap:9px; font-family:var(--mono); font-size:12.5px}
+  .layer{border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 16px; background:var(--panel)}
+  .layer .lh{color:var(--cyan); font-weight:700; font-size:11px; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px}
+  .layer .lc{color:var(--text2); display:flex; gap:8px; flex-wrap:wrap}
+  .layer .chip{background:var(--panel2); border:1px solid var(--border2); border-radius:6px; padding:2px 9px; color:var(--text2)}
+  .layer.l-front{border-left:3px solid var(--violet)}
+  .layer.l-api{border-left:3px solid var(--cyan)}
+  .layer.l-core{border-left:3px solid var(--koke)}
+  .layer.l-data{border-left:3px solid var(--kitsune)}
+  .arrowrow{text-align:center; color:var(--faint); font-size:13px; margin:-3px 0}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius); margin:6px 0 4px}
+  table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px}
+  th,td{text-align:left; padding:11px 15px; border-bottom:1px solid var(--border)}
+  th{background:var(--panel2); color:var(--text2); font-weight:650; font-size:12px; letter-spacing:.3px; text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(95,210,138,.04)}
+  td code{font-size:12px}
+
+  /* code block */
+  pre{background:#0a0d12; border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px;
+    overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.62; color:#cdd9e5; margin:6px 0 4px}
+  pre .c{color:var(--faint)}
+  pre .g{color:var(--koke)}
+  pre .y{color:var(--kitsune)}
+
+  .callout{border:1px solid var(--border2); border-left:3px solid var(--cyan); background:var(--panel);
+    border-radius:var(--radius-sm); padding:14px 18px; margin:14px 0; font-size:13.8px; color:var(--text2)}
+  .callout.ok{border-left-color:var(--koke)}
+  .callout.warn{border-left-color:var(--kitsune)}
+  .callout b{color:var(--text)}
+
+  .pillrow{display:flex; gap:8px; flex-wrap:wrap; margin:10px 0}
+  .pill{font-size:12px; color:var(--text2); border:1px solid var(--border2); background:var(--panel);
+    border-radius:999px; padding:4px 12px}
+  .pill .k{color:var(--koke); font-weight:700}
+
+  /* two-lever block */
+  .levers{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px}
+  @media(max-width:840px){.levers{grid-template-columns:1fr}}
+  .lever{border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; background:var(--panel)}
+  .lever.skill{border-top:3px solid var(--koke)}
+  .lever.collab{border-top:3px solid var(--kitsune)}
+  .lever h4{margin:0 0 6px; font-size:15px}
+  .lever .ph{font-family:var(--mono); font-size:11.5px; color:var(--dim)}
+  .lever p{font-size:13px; color:var(--text2); margin:8px 0 0}
+
+  ul.clean{margin:6px 0 4px; padding-left:20px}
+  ul.clean li{margin:6px 0; color:var(--text2)}
+  ul.clean li b{color:var(--text)}
+
+  footer{padding:38px 0 60px; color:var(--dim); font-size:13px}
+  footer .docs{display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 18px}
+  footer .docs a{font-size:12.5px; border:1px solid var(--border); background:var(--panel); padding:6px 12px; border-radius:8px; color:var(--text2)}
+  footer .docs a:hover{border-color:var(--koke); text-decoration:none}
+  .status{display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--koke)}
+  .status .d{width:8px; height:8px; border-radius:50%; background:var(--koke); box-shadow:0 0 0 3px rgba(95,210,138,.2)}
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="inner">
+    <span class="brand">AgentsGroup<span class="dot">2026</span></span>
+    <span class="links">
+      <a href="#vision">愿景</a>
+      <a href="#loop">自演进闭环</a>
+      <a href="#arch">架构</a>
+      <a href="#modules">四大模块</a>
+      <a href="#cost">成本优化（北极星）</a>
+      <a href="#twin">数字孪生</a>
+      <a href="#teams">团队</a>
+      <a href="#stack">技术栈</a>
+      <a href="#api">API</a>
+      <a href="#start">快速开始</a>
+    </span>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">◆ Multi-Agent Self-Evolving Platform</span>
+    <h1 class="title">让 AI 团队像真正的团队一样工作，<br><span class="grad">用最少的 Token 把事办成</span></h1>
+    <p class="lead">AgentsGroup2026 是一套多智能体协作与自演进平台：多个 AI 智能体组队、在议事广场辩论、把洞察萃取为可复用技能、在数字孪生中演练、最终落地并被达尔文棘轮锁定。整个系统只有一个统一的优化目标——<b style="color:var(--text)">效率 = 目标达成 / Token</b>。</p>
+    <div class="northstar">
+      <div class="ico">🎯</div>
+      <div>
+        <div style="font-weight:750; margin-bottom:4px">北极星指标</div>
+        让 Agent 团队在达成业务场景目标的前提下，消耗的 Token 最少。「成本」= LLM Token（技能形成 / 验证 / 孪生演练 / 议事辩论 / 任务执行），<b>不是</b> Terraform/EC2 基础设施账单。两条节流杠杆：①在 <b>Skill</b> 里省，②在 <b>团队协作</b> 里省；每一次被验证的节省都被棘轮<b>只进不退</b>地锁定。
+      </div>
+    </div>
+    <div class="hero-meta">
+      <span class="tag">FastAPI · 异步</span>
+      <span class="tag">Vanilla JS + Three.js</span>
+      <span class="tag">多供应商 LLM</span>
+      <span class="tag">本机零基建 · 不依赖 K8s</span>
+      <span class="tag">SSE 实时流</span>
+    </div>
+  </div>
+</header>
+
+<!-- VISION -->
+<section id="vision">
+  <div class="wrap">
+    <p class="kicker">Why</p>
+    <h2>不是又一个 AI 聊天工具，<span class="em">而是一套让 AI 产出真正落地的闭环</span></h2>
+    <p class="sub">人类提出问题和方向，系统自动完成讨论 → 学习 → 验证 → 部署 → 锁定的闭环，每一轮交互都让系统变得更好。</p>
+    <div class="grid g3">
+      <div class="card"><div class="ic">🤝</div><h4>团队，而非单点</h4><p>四层抽象：团队 → 智能体 → 技能 → 工具。有分工、有层级、有跨会话记忆。</p></div>
+      <div class="card"><div class="ic">🧠</div><h4>知识结晶为技能</h4><p>讨论中涌现的洞察被萃取为可路由、可验证的 Skill，回注给 Agent 持续复用。</p></div>
+      <div class="card"><div class="ic">🔒</div><h4>不可逆的进化</h4><p>达尔文棘轮：每一次通过验证的改进被锁定为「遗产」，系统能力只增不减。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- LOOP -->
+<section id="loop">
+  <div class="wrap">
+    <p class="kicker">The Loop</p>
+    <h2>自演进闭环 · <span class="em">每转一圈，系统能力只增不减</span></h2>
+    <p class="sub">构建 → 讨论 → 萃取/赋予 → 试跑 → 落地+度量 → 锁定 → 产生新问题 → 回到讨论。</p>
+    <div class="loop">
+      <div class="step"><div class="e">🏗️</div><div class="t">构建团队</div><div class="d">组建 · 配角色/技能</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="e">🏛️</div><div class="t">议事广场</div><div class="d">多轮辩论 · 协作决策</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="e">⚗️</div><div class="t">萃取/赋予</div><div class="d">沙箱验证 · Token 计量</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="e">🪞</div><div class="t">数字孪生</div><div class="d">演练 · 评分 · 故障注入</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="e">📉</div><div class="t">成本优化</div><div class="d">设目标 · 棘轮锁定</div></div>
+    </div>
+    <div class="callout">从议事广场到萃取、孪生、落地，每一处由<b>编排层</b>发起的 LLM 调用都被<b>进程内 Token 探针</b>按 <code>run_id</code> 归因到 skill → agent → team，汇入统一 <b>TokenLedger</b>。技能属于 Agent、Agent 属于团队，于是每一笔 Token 成本都能一路归因到团队。</div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="arch">
+  <div class="wrap">
+    <p class="kicker">Architecture</p>
+    <h2>分层架构 · <span class="em">本机零基建即可闭环</span></h2>
+    <p class="sub">前端 Vite + Vanilla JS（SSE 实时流）→ FastAPI 路由 → 核心服务层 → 频道层 → 监控 → 文件存储；旁路接 LLM 与 TTS。</p>
+    <div class="layers">
+      <div class="layer l-front"><div class="lh">Frontend · Vite + Vanilla JS + Three.js</div>
+        <div class="lc"><span class="chip">团队管理</span><span class="chip">议事广场</span><span class="chip">技能萃取</span><span class="chip">数字孪生 3D</span><span class="chip">演进式成本优化</span><span class="chip">系统演进</span></div></div>
+      <div class="arrowrow">▼ &nbsp; Vite Proxy / SSE / WebSocket</div>
+      <div class="layer l-api"><div class="lh">API · FastAPI :8080</div>
+        <div class="lc"><span class="chip">agent-config</span><span class="chip">plaza + SSE</span><span class="chip">extraction + WS</span><span class="chip">twin-trials / twin-evolution</span><span class="chip">cost / cost-gate</span><span class="chip">skill-library</span></div></div>
+      <div class="arrowrow">▼</div>
+      <div class="layer l-core"><div class="lh">Core Services</div>
+        <div class="lc"><span class="chip">ChatHarness + AgentLoop</span><span class="chip">PlazaEngine</span><span class="chip">ExtractionPipeline</span><span class="chip">TwinLoop / Orchestrator</span><span class="chip">TokenLedger / TokenScope 探针</span><span class="chip">TeamManager + SkillLibrary</span><span class="chip">RatchetLedger</span></div></div>
+      <div class="arrowrow">▼</div>
+      <div class="layer l-data"><div class="lh">Storage · 文件存储（零外部依赖）</div>
+        <div class="lc"><span class="chip">usage.db (Token)</span><span class="chip">teams.json</span><span class="chip">trials / evolution_runs</span><span class="chip">ratchet/ledger.json</span><span class="chip">cost_targets.json</span><span class="chip">JSONL 事件流</span></div></div>
+    </div>
+    <div class="callout warn"><b>不采用 K8s。</b>沙箱隔离沿用现成的 Lite（默认）/ Docker，进程内 Token 探针始终工作，本机零基建即可端到端闭环。</div>
+  </div>
+</section>
+
+<!-- MODULES -->
+<section id="modules">
+  <div class="wrap">
+    <p class="kicker">Four Pillars</p>
+    <h2>四大核心模块</h2>
+    <p class="sub">多智能体协作框架 · 议事广场 · 技能萃取管线 · 系统演进引擎。</p>
+    <div class="grid g2">
+      <div class="card"><div class="num">01 · AGENTS</div><div class="ic">🤖</div><h4>多智能体协作框架</h4>
+        <p>团队→智能体→技能→工具四层抽象。<b style="color:var(--text2)">ChatHarness</b> 含规划-执行-观察循环：UltraPlan 规划器、AgentLoop 函数调用循环（最多 90 轮）、多供应商路由、100K 上下文预算、Token 跟踪。每个 Agent 配 7 项基础工具（读文件/grep/列目录/写文件/补丁/run_python/run_pytest）。</p></div>
+      <div class="card"><div class="num">02 · PLAZA</div><div class="ic">🏛️</div><h4>议事广场</h4>
+        <p>多智能体多轮辩论与协作决策，SSE 实时流式输出。讨论结论可一键「成本治理」跳转、生成优化任务或进入系统演进；失败任务进入升级队列待人工复核。</p></div>
+      <div class="card"><div class="num">03 · EXTRACTION</div><div class="ic">⚗️</div><h4>技能萃取管线</h4>
+        <p>把讨论/对话中的知识 STAR 式萃取为 Skill，在 <b style="color:var(--text2)">Lite/Docker 沙箱</b>跑确定性校验 + 进程内 Token 探针计量，门控审核（日志采集→上下文补全→情境验证→发布）后回注 Agent。支持跨团队<b>重复技能检测与一键合并</b>去重省 Token。</p></div>
+      <div class="card"><div class="num">04 · EVOLUTION</div><div class="ic">🔄</div><h4>系统演进引擎</h4>
+        <p>审查规则 → 派发 → 验证 → 关闭 → 棘轮锁定的不可逆演进。合规评级衡量系统演进健康度；通过验证的改进被达尔文棘轮记为「遗产」。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- COST -->
+<section id="cost">
+  <div class="wrap">
+    <p class="kicker">North Star · 重点</p>
+    <h2>演进式成本优化 · <span class="em">把 Token 闭环接成方向盘</span></h2>
+    <p class="sub">进程内探针归因 → TokenLedger 单一事实源 → 成本页五菜单 → 设目标/派发/执行降本 → 复测回流 → 棘轮锁定。这是本轮的重点工作，已端到端打通并经真实使用验证。</p>
+
+    <h3>① 统一 Token 账本与五菜单</h3>
+    <p>任意一次 LLM 调用都落到 <code>(phase, skill_id, agent_id, team_id, run_id)</code>。任务与对话调用现已带 <code>team_id</code> 归因（不再大面积「未归因」）。成本页五个菜单全部走 Token：</p>
+    <div class="pillrow">
+      <span class="pill"><span class="k">成本构成</span> breakdown(team/skill/phase)</span>
+      <span class="pill"><span class="k">成本趋势</span> trend(day/hour)</span>
+      <span class="pill"><span class="k">成本明细</span> 按 run/调用下钻</span>
+      <span class="pill"><span class="k">效率视角</span> score÷(tokens/1k) + 两杠杆</span>
+      <span class="pill"><span class="k">达尔文棘轮</span> cost_efficiency:{team}</span>
+    </div>
+
+    <h3>② 两条节流杠杆，一个统一目标</h3>
+    <div class="levers">
+      <div class="lever skill"><h4>① Skill 杠杆</h4><div class="ph">phase ∈ {extract, skill_verify}</div>
+        <p>把重复的 LLM 调用萃取为已验证、可路由的技能；命中后任务段 token 下降。信号：<code>REDUNDANT_LLM_CALLS</code> / <code>SKILL_ROUTING_MISS</code>。</p></div>
+      <div class="lever collab"><h4>② 协作杠杆</h4><div class="ph">phase ∈ {plaza, drill, task}</div>
+        <p>优化 Agent 间路由、减少无效往返；协作/演练/执行段 token 下降。信号：<code>DRILL_TOKEN_BURST</code> / 低效协作。</p></div>
+    </div>
+    <p style="margin-top:14px">两根杠杆收敛到同一标量目标 —— <b>最大化 <code>score / 1k tokens</code></b>。任何一根把单位 token 产出做高，都推进同一条棘轮，这就是「统一目标的演进过程」。</p>
+
+    <h3>③ 闭环主干（已端到端打通）</h3>
+    <div class="loop" style="margin-top:6px">
+      <div class="step"><div class="t">设目标</div><div class="d">tokens_per_goal / score_per_1k</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="t">派发</div><div class="d">任务携带 target_id + 杠杆建议</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="t">执行降本</div><div class="d">萃取/路由/演练评分</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="t">复测回流</div><div class="d">CostTargetTracker 自动复测</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="t">棘轮锁定</div><div class="d">达标自动 advance · KPI 可见</div></div>
+    </div>
+    <div class="callout ok"><b>已验证：</b>设团队 Token 目标 → 派发任务（带 <code>target_id</code>）→ 任务 <code>TASK_COMPLETED</code> 由 <b>CostTargetTracker</b> 自动复测进度 → 达标自动推进 <code>cost_efficiency:{team}</code> 棘轮（只进不退）→ KPI④「棘轮已锁定」与报告对账可见。<code>tokens_per_goal</code> 改用「平均每调用 token」，解决了「目标永远 0%」。</div>
+  </div>
+</section>
+
+<!-- DIGITAL TWIN -->
+<section id="twin">
+  <div class="wrap">
+    <p class="kicker">Digital Twin</p>
+    <h2>数字孪生 · <span class="em">在镜像世界里演练并评分</span></h2>
+    <p class="sub">把团队真实状态、能力、交互拓扑镜像为孪生模型，在 3D 议事厅 / 工作坊等场景里推演 What-if / 并行 / 演化，产出可评分的演练数据喂给效率与棘轮。</p>
+    <div class="grid g3">
+      <div class="card"><div class="ic">🧪</div><h4>三种模式</h4><p>What-if 基线实验 · 并行多分支对比 · 演化搜索（代际进化，棘轮锁定最佳代）。</p></div>
+      <div class="card"><div class="ic">💥</div><h4>故障注入</h4><p>Agent 下线 / 任务变异 / 网络延迟 / 技能退化 / 逻辑死锁，压测团队自愈与协作鲁棒性。</p></div>
+      <div class="card"><div class="ic">⭐</div><h4>奖励与评分</h4><p>每步按 skill/tool 匹配 + 任务进度 + 通信计算 reward；评分五维（目标/协作/韧性/成本/可萃取）回灌效率视角。</p></div>
+    </div>
+    <div class="callout">SECS 四维一体流水线 <b>L1 MADTwin → L2 AAS → L3 TwinLoop → L4 MADCG → Loop</b> 随步进推进；奖励以「+value 浮卡」投射到对应 agent 头顶；房间仿真支持「⏹ 停止」。SSE 步进流实时驱动 3D 与控制台。</div>
+  </div>
+</section>
+
+<!-- TEAMS -->
+<section id="teams">
+  <div class="wrap">
+    <p class="kicker">Teams</p>
+    <h2>智能体团队一览</h2>
+    <p class="sub">平台承载多个垂直领域团队；衡量它们的统一标准始终是 Token 经济性。</p>
+    <div class="grid g2">
+      <div class="card"><div class="ic">🏗️</div><h4>Build System · 构建系统</h4><p>全栈软件工程团队（7 人）：PM / 研究员 / 架构师 / 开发者 / 测试 / 运维 / 文档专家，覆盖需求到部署。</p></div>
+      <div class="card"><div class="ic">💻</div><h4>AI Coding · AI 编程</h4><p>精简中文优先开发团队：项目经理 / 技术研究员 / 全栈开发 / 测试工程师。</p></div>
+      <div class="card"><div class="ic">⚡</div><h4>Energy First Principle · 能效（领域示例）</h4><p>PUE 优化器 / 热场哨兵 / 策略引擎 / 达尔文棘轮 / 异常看门狗 / 预测规划师 —— 展示平台如何承载垂直领域自演进。</p></div>
+      <div class="card"><div class="ic">☁️</div><h4>xOps · 公有云运维运营</h4><p>Hub-and-Spoke 多云团队：总协调 / SRE / 平台工程 / 安全合规 / 应急指挥 / FinOps / 各云负责人。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- STACK -->
+<section id="stack">
+  <div class="wrap">
+    <p class="kicker">Tech Stack</p>
+    <h2>技术栈</h2>
+    <div class="grid g2">
+      <div>
+        <h3 style="margin-top:8px">后端</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>技术</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td><b>Python 3.11+</b></td><td>运行时</td></tr>
+            <tr><td><b>FastAPI</b></td><td>Web 框架 + SSE + WebSocket</td></tr>
+            <tr><td><b>Uvicorn</b></td><td>ASGI 服务器</td></tr>
+            <tr><td><b>Pydantic</b></td><td>数据验证与序列化</td></tr>
+            <tr><td><b>httpx</b></td><td>异步 HTTP（LLM 调用）</td></tr>
+            <tr><td><b>edge-tts</b></td><td>神经网络语音合成</td></tr>
+            <tr><td><b>contextvars</b></td><td>进程内 Token 探针归因</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3 style="margin-top:8px">前端 / 模型 / TTS</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>技术</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td><b>Vite 6</b></td><td>开发服务器 + API 代理</td></tr>
+            <tr><td><b>Vanilla JS</b></td><td>无框架，轻量直出</td></tr>
+            <tr><td><b>Three.js</b></td><td>数字孪生 3D 可视化</td></tr>
+            <tr><td><b>SSE (EventSource)</b></td><td>实时流式更新</td></tr>
+            <tr><td><b>DeepSeek / Qwen</b></td><td>主力推理 / 边缘</td></tr>
+            <tr><td><b>Anthropic / Copilot / Ollama</b></td><td>分析 / 代码 / 本地</td></tr>
+            <tr><td><b>Edge-TTS / GPT-SoVITS</b></td><td>语音化身（备选声音克隆）</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="callout">为离线/受限网络稳定性，前端已移除外链 Google Fonts，统一回退系统 CJK 字体（PingFang SC / 微软雅黑 / Noto Sans SC）。</div>
+  </div>
+</section>
+
+<!-- API -->
+<section id="api">
+  <div class="wrap">
+    <p class="kicker">API Reference</p>
+    <h2>关键 API（Token 北极星）</h2>
+    <p class="sub">完整路由见后端各 <code>*_routes.py</code> / <code>api.py</code>；下表为成本闭环与孪生相关核心端点。</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>方法</th><th>路径</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/overview</code></td><td>Token 全局概览（总消耗 + by_team + by_phase）</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/breakdown?dim=team|skill|phase</code></td><td>成本构成</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/trend?bucket=day|hour</code></td><td>成本趋势</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/detail?group=run|call</code></td><td>成本明细（可下钻 run）</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/lever-split?team_id=</code></td><td>Skill / 协作两杠杆拆分</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/tokens/run/{run_id}</code></td><td>按 run 归因（by_phase/by_agent）</td></tr>
+        <tr><td><code>GET</code> / <code>POST</code></td><td><code>/api/v1/cost/tokens/ratchet[/advance]</code></td><td>读取 / 触发 cost_efficiency 棘轮</td></tr>
+        <tr><td><code>POST</code> / <code>GET</code></td><td><code>/api/v1/cost/targets[/{id}/progress]</code></td><td>Token 优化目标 + 进度</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/cost/report?window=&team=</code></td><td>成本报告（消耗+目标+棘轮+对账）</td></tr>
+        <tr><td><code>POST</code></td><td><code>/api/v1/cost-gate/token/evaluate</code></td><td>Token 预算门控评估</td></tr>
+        <tr><td><code>GET</code></td><td><code>/api/v1/sustainability/group</code></td><td>团队效率组评估（含 lever_cost）</td></tr>
+        <tr><td><code>GET</code> / <code>POST</code></td><td><code>/api/v1/skill-library/duplicates · /merge</code></td><td>重复技能检测 / 一键合并</td></tr>
+        <tr><td><code>POST</code></td><td><code>/api/v1/twin-trials</code></td><td>创建试炼（team_id 规范化校验，防幻影团队）</td></tr>
+        <tr><td><code>POST</code></td><td><code>/api/v1/twin-evolution/runs</code></td><td>创建进化运行（team_id 校验）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- START -->
+<section id="start">
+  <div class="wrap">
+    <p class="kicker">Get Started</p>
+    <h2>快速开始</h2>
+    <p class="sub">环境要求：Python 3.11+ · Node.js 18+ ·（可选）GPT-SoVITS 声音克隆。</p>
+<pre><span class="c"># 1. 安装依赖</span>
+python3 -m venv venv && source venv/bin/activate
+pip install fastapi uvicorn[standard] pydantic httpx edge-tts
+npm install
+
+<span class="c"># 2. 配置 LLM 密钥（config/settings.json 的 llm 段；各团队模型池见 model_pool.json）</span>
+<span class="c">#    也可在「团队管理 → 模型与连接」里编辑，勾选「💾 记住密钥」存到浏览器</span>
+
+<span class="c"># 3. 启动</span>
+bash start.sh                       <span class="c"># 一键</span>
+<span class="c"># 或分别：</span>
+cd src/backend && python main.py --port 8080
+npm run dev                          <span class="c"># 前端 :5173，自动代理 API 到 :8080</span>
+
+<span class="c"># 4. 访问</span> <span class="g">http://localhost:5173</span></pre>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>页面</th><th>路径</th><th>功能</th></tr></thead>
+      <tbody>
+        <tr><td>团队管理</td><td><code>/agent-team-config.html</code></td><td>团队 / 智能体 / 模型 / 工具 / 技能</td></tr>
+        <tr><td>议事广场</td><td><code>/plaza.html</code></td><td>多智能体讨论（SSE）</td></tr>
+        <tr><td>技能萃取</td><td><code>/skill-extract.html</code></td><td>STAR 萃取 / 重复合并</td></tr>
+        <tr><td>数字孪生</td><td><code>/Agent-digital-twin.html</code></td><td>3D 演练 / 评分 / 故障注入</td></tr>
+        <tr><td>演进式成本优化</td><td><code>/cost-dashboard.html</code></td><td>Token 闭环方向盘</td></tr>
+        <tr><td>系统演进</td><td><code>/system-evolution.html</code></td><td>审查 / 合规 / 棘轮</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ROADMAP / STATUS -->
+<section>
+  <div class="wrap">
+    <p class="kicker">Status &amp; Roadmap</p>
+    <h2>当前状态与演进历程</h2>
+    <p><span class="status"><span class="d"></span> 北极星闭环主干已端到端打通并经真实使用验证</span>（2026-06-20）。</p>
+    <ul class="clean">
+      <li><b>Phase 1–8 / 8.R</b>：进程内 Token 探针 + TokenLedger + TokenBudgetGate + 优化目标 + 报告对账；成本页五菜单切 Token、两杠杆、棘轮触发入口（含 9 处「半接线」复查修复）。</li>
+      <li><b>Phase 9</b>：派发任务↔目标双向绑定 + 任务完成自动复测；<code>tokens_per_goal</code> 改每调用 token；KPI④棘轮反馈；重复技能 duplicates/merge；效率视角两杠杆与 score 说明。</li>
+      <li><b>Phase 9.x 真实使用硬化</b>：测试连接留空回退/浏览器记住密钥、棘轮按钮导出、任务 Token 归因、<b>孪生 drill reward 恒 0 根因（创建试炼未同步 agent → 0 twin）已修</b>、团队自动选中、SSE 补连、流水线推进、3D 奖励浮卡、仿真停止、KPI 团队筛选、外链字体移除、<b>team_id 规范化校验</b>（防幻影团队）。</li>
+      <li><b>Phase 10（待办）</b>：筛选透传到构成/趋势/明细、历史未归因回填、存量目标 baseline 迁移、score 来源扩展、目标进度实时回流、3D/合并/Demo 联机验收、回归脚本补新端点。</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p style="color:var(--text2); margin-bottom:6px"><b>配套设计文档</b>（事无巨细 + 伪代码）：</p>
+    <div class="docs">
+      <a href="docs/全局重构plan.md">全局重构 PLAN</a>
+      <a href="docs/全局重构todos.md">全局重构 TODOS（Phase 8/8.R/9/10）</a>
+      <a href="README.md">README.md（原始 Markdown）</a>
+    </div>
+    <p>AgentsGroup2026 · 以「Token 最少」为北极星的多智能体自演进平台 · 本机零基建即可闭环 · 不依赖 K8s。</p>
+  </div>
+</footer>
+
+</body>
+</html>

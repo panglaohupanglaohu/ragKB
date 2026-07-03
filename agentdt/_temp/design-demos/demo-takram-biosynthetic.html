@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Demo A — Takram 思辨生物学</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080C10;overflow:hidden;font-family:'Noto Sans SC',sans-serif}
+canvas{display:block;width:100vw;height:100vh}
+.label{position:fixed;bottom:28px;left:28px;color:rgba(180,200,210,0.5);font-size:11px;letter-spacing:2px;z-index:10}
+.label b{color:rgba(180,200,210,0.8);font-weight:600}
+.badge{position:fixed;top:24px;left:24px;font-size:10px;color:rgba(140,180,180,0.4);
+  border:1px solid rgba(140,180,180,0.15);padding:4px 12px;letter-spacing:1.5px;z-index:10}
+</style>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="badge">方向 A · TAKRAM 思辨生物学</div>
+<div class="label"><b>技能萃取</b> — 知识的新陈代谢</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setClearColor(0x080C10);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.8;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x080C10, 0.018);
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 8, 18);
+const ctrl = new OrbitControls(camera, canvas);
+ctrl.enableDamping = true; ctrl.dampingFactor = 0.05;
+ctrl.target.set(0, 2, 0); ctrl.maxPolarAngle = Math.PI / 2.15;
+
+// Lighting — deep-sea bioluminescent
+scene.add(new THREE.AmbientLight(0x1A2A3A, 0.08));
+const hemi = new THREE.HemisphereLight(0x2A4060, 0x0A0E12, 0.12);
+scene.add(hemi);
+
+// Membrane ground
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x0E1820, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.6
+});
+const ground = new THREE.Mesh(new THREE.CircleGeometry(20, 128), groundMat);
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+// === HUMAN FIGURE (Bioluminescent organism) ===
+const humanGroup = new THREE.Group();
+
+// Head — translucent membrane torus
+const headMat = new THREE.MeshPhysicalMaterial({
+  color: 0x88BBCC, roughness: 0.2, metalness: 0.0,
+  transmission: 0.6, thickness: 0.3, ior: 1.3,
+  emissive: 0x446688, emissiveIntensity: 0.15
+});
+const head = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.06, 16, 48), headMat);
+head.position.y = 2.3; humanGroup.add(head);
+
+// Body — translucent U-curve
+const bodyPts = [];
+for (let i = 0; i <= 40; i++) {
+  const t = i / 40, a = Math.PI * t;
+  bodyPts.push(new THREE.Vector3(-Math.cos(a) * 0.5, 1.4 - Math.sin(a) * 0.72, 0));
+}
+const bodyCurve = new THREE.CatmullRomCurve3(bodyPts);
+const bodyMat = new THREE.MeshPhysicalMaterial({
+  color: 0x88BBCC, roughness: 0.3, metalness: 0,
+  transmission: 0.5, thickness: 0.2, ior: 1.2,
+  emissive: 0x446688, emissiveIntensity: 0.1
+});
+humanGroup.add(new THREE.Mesh(new THREE.TubeGeometry(bodyCurve, 40, 0.05, 8, false), bodyMat));
+
+// Inner glow core
+const coreMat = new THREE.MeshBasicMaterial({ color: 0x55AACC, transparent: true, opacity: 0.08 });
+humanGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 32), coreMat).translateY(1.4));
+
+// Bioluminescent point light (pulses)
+const bioLight = new THREE.PointLight(0x55AACC, 0.6, 10);
+bioLight.position.y = 1.6; humanGroup.add(bioLight);
+
+scene.add(humanGroup);
+
+// === VESSEL SYSTEM (血管 — 共性技能) ===
+// Organic, semi-transparent tubes with pulse rhythm
+const vesselColor = new THREE.Color(0xCC5544);
+const vesselGlow = new THREE.Color(0xFF6644);
+const vesselPaths = [];
+
+function buildMembraneVessel(angle, maxR) {
+  const pts = [];
+  const steps = 30;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const r = t * maxR;
+    // Organic wobble via simplex-like noise
+    const wobX = Math.sin(t * 5.3 + angle * 3) * 0.6 * t * Math.sin(t * 2.1);
+    const wobZ = Math.cos(t * 4.1 + angle * 2) * 0.4 * t;
+    const x = Math.cos(angle) * r + wobX;
+    const z = Math.sin(angle) * r + wobZ;
+    const y = Math.sin(t * Math.PI) * 1.8 * (1 - t * 0.3) + 0.2;
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  return new THREE.CatmullRomCurve3(pts);
+}
+
+for (let i = 0; i < 5; i++) {
+  const angle = (i / 5) * Math.PI * 2 + 0.2;
+  const curve = buildMembraneVessel(angle, 8 + Math.random() * 2);
+
+  // Outer membrane (translucent)
+  const outerMat = new THREE.MeshPhysicalMaterial({
+    color: vesselColor, roughness: 0.4, metalness: 0,
+    transmission: 0.4, thickness: 0.15, ior: 1.15,
+    emissive: vesselColor, emissiveIntensity: 0.05,
+    transparent: true, opacity: 0.25, side: THREE.DoubleSide
+  });
+  const outer = new THREE.Mesh(new THREE.TubeGeometry(curve, 60, 0.12, 8, false), outerMat);
+  scene.add(outer);
+
+  // Inner flow core (brighter, thinner)
+  const innerMat = new THREE.MeshBasicMaterial({
+    color: vesselGlow, transparent: true, opacity: 0.06
+  });
+  scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 60, 0.04, 6, false), innerMat));
+
+  vesselPaths.push({ curve, outerMesh: outer });
+}
+
+// === NERVE SYSTEM (神经 — 特质技能) ===
+const nerveColor = new THREE.Color(0x4488AA);
+const nerveGlow = new THREE.Color(0x66CCFF);
+const nervePaths = [];
+
+function buildNerveFiber(angle, maxR) {
+  const pts = [];
+  const steps = 35;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const r = t * maxR;
+    // Sharper, more electrical branching
+    const wobX = Math.sin(t * 8 + angle * 5) * 0.25 * t;
+    const wobZ = Math.cos(t * 6 + angle * 3) * 0.2 * t;
+    const x = Math.cos(angle) * r + wobX;
+    const z = Math.sin(angle) * r + wobZ;
+    const y = Math.sin(t * Math.PI) * 2.5 * Math.pow(1 - t, 0.3) + 0.15;
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  return new THREE.CatmullRomCurve3(pts);
+}
+
+for (let i = 0; i < 4; i++) {
+  const angle = (i / 4) * Math.PI * 2 + Math.PI / 6;
+  const curve = buildNerveFiber(angle, 11 + Math.random() * 3);
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: nerveColor, roughness: 0.3, metalness: 0,
+    transmission: 0.5, thickness: 0.1, ior: 1.1,
+    emissive: nerveColor, emissiveIntensity: 0.04,
+    transparent: true, opacity: 0.18, side: THREE.DoubleSide
+  });
+  scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 60, 0.07, 6, false), mat));
+
+  // Dendrite branches
+  for (let b = 0; b < 3; b++) {
+    const bt = 0.4 + b * 0.2;
+    const brPt = curve.getPointAt(bt);
+    const brAngle = angle + (Math.random() - 0.5) * 1.2;
+    const brPts = [brPt];
+    for (let j = 1; j <= 8; j++) {
+      const jt = j / 8;
+      brPts.push(new THREE.Vector3(
+        brPt.x + Math.cos(brAngle) * jt * 2.5 + Math.sin(jt * 6) * 0.15,
+        brPt.y + jt * 0.8 - jt * jt * 1.2,
+        brPt.z + Math.sin(brAngle) * jt * 2.5
+      ));
+    }
+    const brCurve = new THREE.CatmullRomCurve3(brPts);
+    const brMat = new THREE.MeshBasicMaterial({ color: nerveGlow, transparent: true, opacity: 0.06 });
+    scene.add(new THREE.Mesh(new THREE.TubeGeometry(brCurve, 16, 0.02, 4, false), brMat));
+  }
+
+  nervePaths.push({ curve });
+}
+
+// === BLOOD CELL PARTICLES (脉搏节律) ===
+const cellCount = 200;
+const cellPositions = new Float32Array(cellCount * 3);
+const cellData = [];
+for (let i = 0; i < cellCount; i++) {
+  const pathIdx = Math.floor(Math.random() * vesselPaths.length);
+  const offset = Math.random();
+  cellData.push({ pathIdx, offset, speed: 0.001 + Math.random() * 0.003 });
+  const pt = vesselPaths[pathIdx].curve.getPointAt(offset);
+  cellPositions[i * 3] = pt.x; cellPositions[i * 3 + 1] = pt.y; cellPositions[i * 3 + 2] = pt.z;
+}
+const cellGeo = new THREE.BufferGeometry();
+cellGeo.setAttribute('position', new THREE.BufferAttribute(cellPositions, 3));
+const cellMat = new THREE.PointsMaterial({
+  color: 0xFF7755, size: 0.06, transparent: true, opacity: 0.7,
+  blending: THREE.AdditiveBlending, depthWrite: false
+});
+const cells = new THREE.Points(cellGeo, cellMat);
+scene.add(cells);
+
+// === NERVE IMPULSE PARTICLES ===
+const impulseCount = 100;
+const impulsePositions = new Float32Array(impulseCount * 3);
+const impulseData = [];
+for (let i = 0; i < impulseCount; i++) {
+  const pathIdx = Math.floor(Math.random() * nervePaths.length);
+  const offset = Math.random();
+  impulseData.push({ pathIdx, offset, speed: 0.005 + Math.random() * 0.008 });
+  const pt = nervePaths[pathIdx].curve.getPointAt(offset);
+  impulsePositions[i * 3] = pt.x; impulsePositions[i * 3 + 1] = pt.y; impulsePositions[i * 3 + 2] = pt.z;
+}
+const impulseGeo = new THREE.BufferGeometry();
+impulseGeo.setAttribute('position', new THREE.BufferAttribute(impulsePositions, 3));
+const impulseMat = new THREE.PointsMaterial({
+  color: 0x66DDFF, size: 0.04, transparent: true, opacity: 0.8,
+  blending: THREE.AdditiveBlending, depthWrite: false
+});
+scene.add(new THREE.Points(impulseGeo, impulseMat));
+
+// === SKILL NODES (Bioluminescent organs) ===
+const skillDefs = [
+  { name: 'code_impl', icon: '💻', type: 'atomic', r: 6, color: 0x44AA66 },
+  { name: 'research', icon: '🔬', type: 'atomic', r: 5.5, color: 0x44AA66 },
+  { name: 'test_run', icon: '▶', type: 'atomic', r: 6.8, color: 0x44AA66 },
+  { name: 'energy_audit', icon: '⚡', type: 'trait', r: 9, color: 0xD4A040 },
+  { name: 'pue_optimize', icon: '🌡', type: 'trait', r: 10, color: 0xD4A040 },
+  { name: 'full_pipeline', icon: '🔗', type: 'composite', r: 13, color: 0x8855BB },
+];
+
+skillDefs.forEach((s, i) => {
+  const angle = (i / skillDefs.length) * Math.PI * 2;
+  const x = Math.cos(angle) * s.r, z = Math.sin(angle) * s.r;
+
+  // Outer membrane sphere
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: s.color, roughness: 0.25, metalness: 0,
+    transmission: 0.55, thickness: 0.3, ior: 1.35,
+    emissive: s.color, emissiveIntensity: 0.12
+  });
+  const geo = s.type === 'atomic' ? new THREE.IcosahedronGeometry(0.3, 1) :
+              s.type === 'trait' ? new THREE.OctahedronGeometry(0.35, 1) :
+              new THREE.DodecahedronGeometry(0.4, 1);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, 0.8, z);
+  scene.add(mesh);
+
+  // Inner glow
+  const glowMat = new THREE.MeshBasicMaterial({ color: s.color, transparent: true, opacity: 0.06 });
+  const glowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), glowMat);
+  glowMesh.position.copy(mesh.position);
+  scene.add(glowMesh);
+
+  // Point light
+  const pl = new THREE.PointLight(s.color, 0.15, 4);
+  pl.position.copy(mesh.position); pl.position.y += 0.3;
+  scene.add(pl);
+
+  s._mesh = mesh; s._glow = glowMesh; s._light = pl;
+});
+
+// === AMBIENT SPORES (floating microorganisms) ===
+const sporeCount = 180;
+const sporePosArr = new Float32Array(sporeCount * 3);
+for (let i = 0; i < sporeCount; i++) {
+  sporePosArr[i * 3] = (Math.random() - 0.5) * 35;
+  sporePosArr[i * 3 + 1] = Math.random() * 8 + 0.5;
+  sporePosArr[i * 3 + 2] = (Math.random() - 0.5) * 35;
+}
+const sporeGeo = new THREE.BufferGeometry();
+sporeGeo.setAttribute('position', new THREE.BufferAttribute(sporePosArr, 3));
+scene.add(new THREE.Points(sporeGeo, new THREE.PointsMaterial({
+  color: 0x446688, size: 0.03, transparent: true, opacity: 0.2
+})));
+
+// === ANIMATION ===
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  ctrl.update();
+
+  // Pulse rhythm (heartbeat: fast-slow, ~72 BPM)
+  const heartbeat = Math.pow(Math.sin(t * 3.77) * 0.5 + 0.5, 3); // sharp pulse
+  const breathe = Math.sin(t * 0.6) * 0.5 + 0.5; // slow breath
+
+  // Human figure pulse
+  bioLight.intensity = 0.4 + heartbeat * 0.5;
+  head.material.emissiveIntensity = 0.08 + heartbeat * 0.15;
+  humanGroup.position.y = Math.sin(t * 0.7) * 0.025;
+
+  // Vessel pulse — tubes throb with heartbeat
+  vesselPaths.forEach((vp, vi) => {
+    const phase = heartbeat * (0.8 + vi * 0.05);
+    vp.outerMesh.material.opacity = 0.15 + phase * 0.2;
+    vp.outerMesh.material.emissiveIntensity = 0.02 + phase * 0.08;
+  });
+
+  // Blood cell flow (with pulse acceleration)
+  const posArr = cellGeo.attributes.position.array;
+  cellData.forEach((cd, i) => {
+    cd.offset = (cd.offset + cd.speed * (1 + heartbeat * 2)) % 1;
+    const pt = vesselPaths[cd.pathIdx].curve.getPointAt(cd.offset);
+    posArr[i * 3] = pt.x; posArr[i * 3 + 1] = pt.y; posArr[i * 3 + 2] = pt.z;
+  });
+  cellGeo.attributes.position.needsUpdate = true;
+  cellMat.opacity = 0.4 + heartbeat * 0.4;
+
+  // Nerve impulse flow (faster, staccato)
+  const impArr = impulseGeo.attributes.position.array;
+  impulseData.forEach((nd, i) => {
+    nd.offset = (nd.offset + nd.speed) % 1;
+    const pt = nervePaths[nd.pathIdx].curve.getPointAt(nd.offset);
+    impArr[i * 3] = pt.x; impArr[i * 3 + 1] = pt.y; impArr[i * 3 + 2] = pt.z;
+  });
+  impulseGeo.attributes.position.needsUpdate = true;
+
+  // Skill node breathing
+  skillDefs.forEach((s, i) => {
+    const phase = Math.sin(t * 0.8 + i * 1.2) * 0.5 + 0.5;
+    s._mesh.rotation.y = t * 0.15 + i;
+    s._mesh.material.emissiveIntensity = 0.06 + phase * 0.12;
+    s._glow.material.opacity = 0.03 + phase * 0.04;
+    s._light.intensity = 0.08 + phase * 0.12;
+    s._mesh.position.y = 0.8 + Math.sin(t * 0.5 + i * 0.8) * 0.06;
+  });
+
+  // Spore drift
+  const spArr = sporeGeo.attributes.position.array;
+  for (let i = 0; i < sporeCount; i++) {
+    spArr[i * 3 + 1] += Math.sin(t * 0.3 + i * 0.1) * 0.001;
+    spArr[i * 3] += Math.cos(t * 0.15 + i * 0.2) * 0.0005;
+  }
+  sporeGeo.attributes.position.needsUpdate = true;
+
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+addEventListener('resize', onResize); onResize();
+animate();
+</script>
+</body>
+</html>

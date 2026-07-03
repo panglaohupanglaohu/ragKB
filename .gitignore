@@ -1,0 +1,32 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+node_modules/
+dist/
+.DS_Store
+*.egg-info/
+.pytest_cache/
+.env
+*.log
+*.bak
+config/.api_keys.json
+config/.master_key
+config/.dev_admin_password
+config/users.json
+config/tokens.json
+
+# Runtime-generated state. Keep curated fixtures explicitly if needed.
+storage/
+src/storage/
+src/docs/workflow_artifacts/
+src/docs/agent_handoffs/
+
+# Build output
+/dist/
+/node_modules/
+
+# disabled nested-repo metadata (kept locally for reversibility)
+.git_disabled/
+**/.git_disabled/

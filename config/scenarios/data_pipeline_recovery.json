@@ -1,0 +1,285 @@
+{
+  "scenario_id": "data_pipeline_recovery",
+  "name": "数据管道故障恢复",
+  "category": "data_pipeline",
+  "description": "凌晨 ETL 管道断裂，数据延迟报警。团队需定位故障、修复任务、补数回填并验证数据质量，期间持续遭遇技能退化与逻辑死锁。",
+  "version": 1,
+  "tags": [
+    "数据",
+    "故障恢复",
+    "混沌"
+  ],
+  "difficulty": 4,
+  "recommended_max_steps": 150,
+  "source": "builtin",
+  "world": {
+    "rooms": [
+      {
+        "room_id": "monitor",
+        "name": "监控室",
+        "icon": "📡",
+        "capacity": 6,
+        "stage": 0
+      },
+      {
+        "room_id": "diagnose",
+        "name": "诊断室",
+        "icon": "🩺",
+        "capacity": 6,
+        "stage": 1
+      },
+      {
+        "room_id": "repair",
+        "name": "修复间",
+        "icon": "🔧",
+        "capacity": 6,
+        "stage": 2
+      },
+      {
+        "room_id": "backfill",
+        "name": "回填间",
+        "icon": "⏪",
+        "capacity": 6,
+        "stage": 3
+      },
+      {
+        "room_id": "verify",
+        "name": "验证室",
+        "icon": "✅",
+        "capacity": 6,
+        "stage": 4
+      }
+    ],
+    "resources": [
+      {
+        "id": "scheduler",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.5,
+        "available": true
+      },
+      {
+        "id": "warehouse",
+        "type": "memory",
+        "capacity": 1.0,
+        "utilization": 0.7,
+        "available": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "freeze",
+        "constraint_type": "permission",
+        "rule": "修复前禁止改动生产配置",
+        "target_agents": []
+      }
+    ],
+    "global_metrics_init": {
+      "delayed_partitions": 12
+    }
+  },
+  "taskflow": [
+    {
+      "task_id": "d1",
+      "name": "报警确认",
+      "room_id": "monitor",
+      "required_skills": [
+        "alert_triage"
+      ],
+      "depends_on": [],
+      "base_duration_steps": 2,
+      "reward": 0.3,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "d2",
+      "name": "故障定位",
+      "room_id": "diagnose",
+      "required_skills": [
+        "root_cause_analysis"
+      ],
+      "depends_on": [
+        "d1"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "d3",
+      "name": "修复 DAG",
+      "room_id": "repair",
+      "required_skills": [
+        "pipeline_repair"
+      ],
+      "depends_on": [
+        "d2"
+      ],
+      "base_duration_steps": 5,
+      "reward": 0.7,
+      "failure_penalty": 0.15,
+      "optional": false
+    },
+    {
+      "task_id": "d4",
+      "name": "数据回填",
+      "room_id": "backfill",
+      "required_skills": [
+        "data_backfill"
+      ],
+      "depends_on": [
+        "d3"
+      ],
+      "base_duration_steps": 5,
+      "reward": 0.6,
+      "failure_penalty": 0.15,
+      "optional": false
+    },
+    {
+      "task_id": "d5",
+      "name": "质量校验",
+      "room_id": "verify",
+      "required_skills": [
+        "data_quality_check"
+      ],
+      "depends_on": [
+        "d4"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "d6",
+      "name": "事故报告",
+      "room_id": "verify",
+      "required_skills": [
+        "report_writing"
+      ],
+      "depends_on": [
+        "d5"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.3,
+      "failure_penalty": 0.05,
+      "optional": true
+    },
+    {
+      "task_id": "d7",
+      "name": "预防加固",
+      "room_id": "repair",
+      "required_skills": [
+        "monitoring_setup"
+      ],
+      "depends_on": [
+        "d2"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.4,
+      "failure_penalty": 0.05,
+      "optional": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "数据工程师",
+      "min_count": 2,
+      "required_skills": [
+        "pipeline_repair",
+        "data_backfill"
+      ],
+      "preferred_skills": [
+        "root_cause_analysis"
+      ]
+    },
+    {
+      "role": "值班 SRE",
+      "min_count": 1,
+      "required_skills": [
+        "alert_triage",
+        "root_cause_analysis"
+      ],
+      "preferred_skills": [
+        "monitoring_setup"
+      ]
+    },
+    {
+      "role": "数据质量员",
+      "min_count": 1,
+      "required_skills": [
+        "data_quality_check"
+      ],
+      "preferred_skills": [
+        "report_writing"
+      ]
+    }
+  ],
+  "chaos_script": [
+    {
+      "from_step": 10,
+      "to_step": 30,
+      "events": [
+        {
+          "event_type": "skill_degraded",
+          "probability_per_step": 0.04,
+          "payload": {}
+        },
+        {
+          "event_type": "logic_deadlock",
+          "probability_per_step": 0.02,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 50,
+      "to_step": 80,
+      "events": [
+        {
+          "event_type": "model_hallucination",
+          "probability_per_step": 0.03,
+          "payload": {}
+        },
+        {
+          "event_type": "network_delay",
+          "probability_per_step": 0.04,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 100,
+      "to_step": 130,
+      "events": [
+        {
+          "event_type": "agent_failure",
+          "probability_per_step": 0.02,
+          "payload": {}
+        }
+      ]
+    }
+  ],
+  "rubric": {
+    "kpi_targets": {
+      "completion_rate": 0.85,
+      "total_score": 0.6
+    },
+    "dimension_weights": {
+      "task_completion": 0.3,
+      "collaboration_efficiency": 0.2,
+      "resilience": 0.3,
+      "cost_efficiency": 0.1,
+      "extractability": 0.1
+    },
+    "skill_expectations": {
+      "alert_triage": 0.7,
+      "root_cause_analysis": 0.6,
+      "pipeline_repair": 0.6,
+      "data_backfill": 0.6,
+      "data_quality_check": 0.65
+    }
+  }
+}

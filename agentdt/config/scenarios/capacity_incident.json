@@ -1,0 +1,288 @@
+{
+  "scenario_id": "capacity_incident",
+  "name": "容量事故演练",
+  "category": "incident",
+  "description": "流量洪峰导致服务过载，团队需要在事故指挥下完成扩容、降级、根因分析与复盘，多次混沌冲击考验韧性。",
+  "version": 1,
+  "tags": [
+    "事故",
+    "容量",
+    "韧性"
+  ],
+  "difficulty": 5,
+  "recommended_max_steps": 150,
+  "source": "builtin",
+  "world": {
+    "rooms": [
+      {
+        "room_id": "war_room",
+        "name": "作战室",
+        "icon": "🚨",
+        "capacity": 6,
+        "stage": 0
+      },
+      {
+        "room_id": "scale",
+        "name": "扩容间",
+        "icon": "📊",
+        "capacity": 6,
+        "stage": 1
+      },
+      {
+        "room_id": "degrade",
+        "name": "降级间",
+        "icon": "🪂",
+        "capacity": 6,
+        "stage": 1
+      },
+      {
+        "room_id": "rca",
+        "name": "根因室",
+        "icon": "🔬",
+        "capacity": 6,
+        "stage": 2
+      },
+      {
+        "room_id": "retro",
+        "name": "复盘室",
+        "icon": "📝",
+        "capacity": 6,
+        "stage": 3
+      }
+    ],
+    "resources": [
+      {
+        "id": "k8s",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.9,
+        "available": true
+      },
+      {
+        "id": "monitor",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.6,
+        "available": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "ic",
+        "constraint_type": "permission",
+        "rule": "重大操作需事故指挥批准",
+        "target_agents": []
+      }
+    ],
+    "global_metrics_init": {
+      "error_rate": 0.35
+    }
+  },
+  "taskflow": [
+    {
+      "task_id": "i1",
+      "name": "事故定级",
+      "room_id": "war_room",
+      "required_skills": [
+        "incident_command"
+      ],
+      "depends_on": [],
+      "base_duration_steps": 2,
+      "reward": 0.4,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "i2",
+      "name": "紧急扩容",
+      "room_id": "scale",
+      "required_skills": [
+        "capacity_scaling"
+      ],
+      "depends_on": [
+        "i1"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.7,
+      "failure_penalty": 0.2,
+      "optional": false
+    },
+    {
+      "task_id": "i3",
+      "name": "服务降级",
+      "room_id": "degrade",
+      "required_skills": [
+        "service_degradation"
+      ],
+      "depends_on": [
+        "i1"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.6,
+      "failure_penalty": 0.15,
+      "optional": false
+    },
+    {
+      "task_id": "i4",
+      "name": "流量调度",
+      "room_id": "scale",
+      "required_skills": [
+        "traffic_routing"
+      ],
+      "depends_on": [
+        "i2"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "i5",
+      "name": "根因分析",
+      "room_id": "rca",
+      "required_skills": [
+        "root_cause_analysis"
+      ],
+      "depends_on": [
+        "i2",
+        "i3"
+      ],
+      "base_duration_steps": 5,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "i6",
+      "name": "修复验证",
+      "room_id": "rca",
+      "required_skills": [
+        "testing"
+      ],
+      "depends_on": [
+        "i5"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "i7",
+      "name": "事故复盘",
+      "room_id": "retro",
+      "required_skills": [
+        "report_writing"
+      ],
+      "depends_on": [
+        "i6"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.4,
+      "failure_penalty": 0.05,
+      "optional": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "事故指挥",
+      "min_count": 1,
+      "required_skills": [
+        "incident_command"
+      ],
+      "preferred_skills": []
+    },
+    {
+      "role": "SRE",
+      "min_count": 2,
+      "required_skills": [
+        "capacity_scaling",
+        "traffic_routing"
+      ],
+      "preferred_skills": [
+        "service_degradation"
+      ]
+    },
+    {
+      "role": "研发支援",
+      "min_count": 1,
+      "required_skills": [
+        "root_cause_analysis"
+      ],
+      "preferred_skills": [
+        "testing"
+      ]
+    }
+  ],
+  "chaos_script": [
+    {
+      "from_step": 5,
+      "to_step": 25,
+      "events": [
+        {
+          "event_type": "network_delay",
+          "probability_per_step": 0.08,
+          "payload": {}
+        },
+        {
+          "event_type": "agent_failure",
+          "probability_per_step": 0.04,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 40,
+      "to_step": 70,
+      "events": [
+        {
+          "event_type": "agent_leave",
+          "probability_per_step": 0.02,
+          "payload": {}
+        },
+        {
+          "event_type": "logic_deadlock",
+          "probability_per_step": 0.03,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 90,
+      "to_step": 120,
+      "events": [
+        {
+          "event_type": "model_hallucination",
+          "probability_per_step": 0.04,
+          "payload": {}
+        },
+        {
+          "event_type": "skill_degraded",
+          "probability_per_step": 0.04,
+          "payload": {}
+        }
+      ]
+    }
+  ],
+  "rubric": {
+    "kpi_targets": {
+      "completion_rate": 0.8,
+      "total_score": 0.55
+    },
+    "dimension_weights": {
+      "task_completion": 0.25,
+      "collaboration_efficiency": 0.2,
+      "resilience": 0.35,
+      "cost_efficiency": 0.1,
+      "extractability": 0.1
+    },
+    "skill_expectations": {
+      "incident_command": 0.7,
+      "capacity_scaling": 0.6,
+      "service_degradation": 0.6,
+      "traffic_routing": 0.55,
+      "root_cause_analysis": 0.55
+    }
+  }
+}

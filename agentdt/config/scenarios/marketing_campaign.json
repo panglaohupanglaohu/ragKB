@@ -1,0 +1,245 @@
+{
+  "scenario_id": "marketing_campaign",
+  "name": "营销活动投放",
+  "category": "marketing",
+  "description": "新品上市 campaign：从洞察、创意、投放到实时调优与结案复盘，预算有限，期间需求频繁变更。",
+  "version": 1,
+  "tags": [
+    "营销",
+    "投放",
+    "创意"
+  ],
+  "difficulty": 2,
+  "recommended_max_steps": 100,
+  "source": "builtin",
+  "world": {
+    "rooms": [
+      {
+        "room_id": "insight",
+        "name": "洞察室",
+        "icon": "🧠",
+        "capacity": 6,
+        "stage": 0
+      },
+      {
+        "room_id": "creative",
+        "name": "创意间",
+        "icon": "🎨",
+        "capacity": 6,
+        "stage": 1
+      },
+      {
+        "room_id": "launch",
+        "name": "投放台",
+        "icon": "🚀",
+        "capacity": 6,
+        "stage": 2
+      },
+      {
+        "room_id": "optimize",
+        "name": "调优室",
+        "icon": "📈",
+        "capacity": 6,
+        "stage": 3
+      }
+    ],
+    "resources": [
+      {
+        "id": "ad_budget",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.0,
+        "available": true
+      },
+      {
+        "id": "analytics",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.2,
+        "available": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "budget_cap",
+        "constraint_type": "rate_limit",
+        "rule": "日预算不可超限",
+        "target_agents": []
+      }
+    ],
+    "global_metrics_init": {
+      "budget_remaining": 1.0
+    }
+  },
+  "taskflow": [
+    {
+      "task_id": "m1",
+      "name": "受众洞察",
+      "room_id": "insight",
+      "required_skills": [
+        "audience_research"
+      ],
+      "depends_on": [],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "m2",
+      "name": "创意文案",
+      "room_id": "creative",
+      "required_skills": [
+        "copywriting"
+      ],
+      "depends_on": [
+        "m1"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "m3",
+      "name": "视觉素材",
+      "room_id": "creative",
+      "required_skills": [
+        "visual_design"
+      ],
+      "depends_on": [
+        "m1"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "m4",
+      "name": "渠道投放",
+      "room_id": "launch",
+      "required_skills": [
+        "ad_ops"
+      ],
+      "depends_on": [
+        "m2",
+        "m3"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "m5",
+      "name": "实时调优",
+      "room_id": "optimize",
+      "required_skills": [
+        "ad_optimization"
+      ],
+      "depends_on": [
+        "m4"
+      ],
+      "base_duration_steps": 5,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "m6",
+      "name": "结案报告",
+      "room_id": "optimize",
+      "required_skills": [
+        "report_writing"
+      ],
+      "depends_on": [
+        "m5"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.4,
+      "failure_penalty": 0.05,
+      "optional": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "策略分析师",
+      "min_count": 1,
+      "required_skills": [
+        "audience_research"
+      ],
+      "preferred_skills": [
+        "ad_optimization"
+      ]
+    },
+    {
+      "role": "创意",
+      "min_count": 1,
+      "required_skills": [
+        "copywriting"
+      ],
+      "preferred_skills": [
+        "visual_design"
+      ]
+    },
+    {
+      "role": "投放优化师",
+      "min_count": 1,
+      "required_skills": [
+        "ad_ops",
+        "ad_optimization"
+      ],
+      "preferred_skills": []
+    }
+  ],
+  "chaos_script": [
+    {
+      "from_step": 15,
+      "to_step": 35,
+      "events": [
+        {
+          "event_type": "task_change",
+          "probability_per_step": 0.05,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 50,
+      "to_step": 75,
+      "events": [
+        {
+          "event_type": "model_hallucination",
+          "probability_per_step": 0.03,
+          "payload": {}
+        },
+        {
+          "event_type": "network_delay",
+          "probability_per_step": 0.03,
+          "payload": {}
+        }
+      ]
+    }
+  ],
+  "rubric": {
+    "kpi_targets": {
+      "completion_rate": 0.9,
+      "total_score": 0.65
+    },
+    "dimension_weights": {
+      "task_completion": 0.3,
+      "collaboration_efficiency": 0.3,
+      "resilience": 0.15,
+      "cost_efficiency": 0.15,
+      "extractability": 0.1
+    },
+    "skill_expectations": {
+      "audience_research": 0.65,
+      "copywriting": 0.7,
+      "visual_design": 0.6,
+      "ad_ops": 0.65,
+      "ad_optimization": 0.6
+    }
+  }
+}

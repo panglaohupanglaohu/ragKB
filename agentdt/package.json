@@ -1,0 +1,29 @@
+{
+  "name": "agentsgroup2026",
+  "version": "1.0.0",
+  "description": "Standalone Agent Management, Evolution & Chat Platform — extracted from PoseidonX",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.mjs",
+    "backend": "node scripts/run-python.cjs src/backend/main.py --port 8080",
+    "start": "concurrently \"npm run backend\" \"npm run dev\"",
+    "build": "vite build --config vite.config.mjs",
+    "test": "node scripts/run-python.cjs -m pytest -q",
+    "test:backend": "node scripts/run-python.cjs -m pytest -q src/backend/tests",
+    "test:frontend": "vitest run",
+    "test:root": "node scripts/run-python.cjs -m pytest -q tests",
+    "lint": "node scripts/run-python.cjs -m compileall -q src/backend",
+    "typecheck": "node scripts/run-python.cjs -m compileall -q src/backend",
+    "preview": "vite preview --config vite.config.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0",
+    "three": "^0.184.0"
+  }
+}

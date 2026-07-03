@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentsgroup
+  namespace: agentsgroup
+  labels:
+    app: agentsgroup2026
+    service: agentsgroup-backend
+    environment: production
+    team: platform
+    component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentsgroup2026
+  template:
+    metadata:
+      labels:
+        app: agentsgroup2026
+        service: agentsgroup-backend
+        environment: production
+        team: platform
+        component: backend
+        cost.opencost.io/app: agentsgroup2026
+        cost.opencost.io/service: agentsgroup-backend
+        cost.opencost.io/environment: production
+        cost.opencost.io/team: platform
+        cost.opencost.io/component: backend
+    spec:
+      containers:
+        - name: agentsgroup
+          image: agentsgroup:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AG_HOST
+              value: "0.0.0.0"
+            - name: AG_PORT
+              value: "8080"
+            - name: AG_OPENCOST_URL
+              value: "http://opencost.opencost:9003"
+            - name: AG_ALLOWED_ORIGINS
+              value: "http://localhost:8080"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentsgroup-secret
+                  key: csrf-secret
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/model_pool.json
+              subPath: model_pool.json
+            - name: config
+              mountPath: /app/config/settings.json
+              subPath: settings.json
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentsgroup-config

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体数字孪生 — AgentsGroup2026</title>
+<link href="https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   AgentsGroup2026 Digital Twin — Agent Interaction Visualization
+   Design: NVIDIA-inspired layered architecture + real-time flow
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #0d1117;
+  --bg2: #111820;
+  --panel: #161d27;
+  --panel2: #1e2636;
+  --panel3: #263040;
+  --border: #2d3a4d;
+  --border-active: #40587a;
+  --text: #e2e8f0;
+  --text2: #cbd5e1;
+  --muted: #8b9ab5;
+  --dim: #576375;
+  --cyan: #22d3ee;
+  --cyan-dim: rgba(34,211,238,0.15);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.12);
+  --blue: #60a5fa;
+  --blue-dim: rgba(96,165,250,0.12);
+  --purple: #a78bfa;
+  --purple-dim: rgba(167,139,250,0.12);
+  --amber: #fbbf24;
+  --amber-dim: rgba(251,191,36,0.10);
+  --pink: #f472b6;
+  --pink-dim: rgba(244,114,182,0.10);
+  --red: #f87171;
+  --layer-ui: var(--cyan);
+  --layer-orchestrator: var(--blue);
+  --layer-llm: var(--purple);
+  --layer-memory: var(--amber);
+  --layer-tool: var(--green);
+  --layer-env: var(--pink);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --glow-cyan: 0 0 20px rgba(34,211,238,0.15);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', 'Noto Sans SC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  flex-shrink: 0;
+}
+.header-brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; }
+.header-brand .logo {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--cyan), var(--blue));
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: #000;
+}
+.header-brand h1 { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+.header-nav { display: flex; gap: 2px; flex: 1; padding: 0 24px; height: 40px; align-items: center; }
+.nav-item {
+  padding: 8px 16px; font-size: 12.5px; font-weight: 500; color: var(--muted);
+  cursor: pointer; border-radius: 6px; transition: all 0.25s cubic-bezier(.4,0,.2,1);
+  display: flex; align-items: center; gap: 7px; position: relative;
+}
+.nav-item:hover { color: var(--text); background: var(--panel2); }
+.nav-item.active { color: var(--cyan); background: var(--cyan-dim); }
+.nav-item.active::after { content:''; position:absolute; bottom:-1px; left:16px; right:16px; height:2px; background:var(--cyan); border-radius:2px; }
+.nav-item .badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; background: var(--cyan-dim); color: var(--cyan); }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions a { font-size: 12px; color: var(--muted); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s; }
+.header-actions a:hover { border-color: var(--cyan); color: var(--cyan); }
+.header-actions .gn-cur { font-size: 12px; color: var(--cyan); padding: 6px 12px; border: 1px solid var(--cyan); border-radius: 6px; pointer-events: none; cursor: default; }
+.status-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--green); }
+.status-indicator .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+/* ── Main ── */
+.main { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Left Panel ── */
+.left-panel { width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.lp-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.lp-header h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.lp-header .count { font-size: 11px; color: var(--dim); }
+.agent-list { flex: 1; overflow-y: auto; padding: 8px; }
+.agent-card { padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); margin-bottom: 4px; border: 1px solid transparent; }
+.agent-card:hover { background: var(--panel2); border-color: var(--border); transform: translateX(2px); }
+.agent-card.active { background: var(--cyan-dim); border-color: rgba(34,211,238,0.25); box-shadow: inset 3px 0 0 var(--cyan); }
+.agent-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.agent-card .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.agent-card .name { font-size: 13px; font-weight: 500; }
+.agent-card .role { font-size: 11px; color: var(--dim); }
+.agent-card .meta { display: flex; gap: 8px; margin-top: 4px; }
+.agent-card .meta span { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 3px; }
+.agent-card .state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Center ── */
+.center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.view-panel { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+.view-panel.active { display: block; }
+
+/* Architecture */
+.arch-container { max-width: 900px; margin: 0 auto; }
+.arch-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.arch-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+.arch-layers { display: flex; flex-direction: column; gap: 12px; }
+.arch-layer { border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; position: relative; overflow: hidden; transition: all 0.3s cubic-bezier(.4,0,.2,1); cursor: pointer; backdrop-filter: blur(4px); }
+.arch-layer:hover { border-color: var(--border-active); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.arch-layer::before { content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; }
+.arch-layer[data-layer="ui"]::before { background: var(--layer-ui); }
+.arch-layer[data-layer="orchestrator"]::before { background: var(--layer-orchestrator); }
+.arch-layer[data-layer="llm"]::before { background: var(--layer-llm); }
+.arch-layer[data-layer="memory"]::before { background: var(--layer-memory); }
+.arch-layer[data-layer="tool"]::before { background: var(--layer-tool); }
+.arch-layer[data-layer="env"]::before { background: var(--layer-env); }
+.arch-layer .layer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.arch-layer .layer-icon { font-size: 20px; }
+.arch-layer .layer-name { font-size: 14px; font-weight: 600; }
+.arch-layer .layer-tag { font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
+.arch-layer[data-layer="ui"] .layer-tag { background: var(--cyan-dim); color: var(--cyan); }
+.arch-layer[data-layer="orchestrator"] .layer-tag { background: var(--blue-dim); color: var(--blue); }
+.arch-layer[data-layer="llm"] .layer-tag { background: var(--purple-dim); color: var(--purple); }
+.arch-layer[data-layer="memory"] .layer-tag { background: var(--amber-dim); color: var(--amber); }
+.arch-layer[data-layer="tool"] .layer-tag { background: var(--green-dim); color: var(--green); }
+.arch-layer[data-layer="env"] .layer-tag { background: var(--pink-dim); color: var(--pink); }
+.arch-layer .layer-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.arch-layer .layer-metrics { display: flex; gap: 16px; margin-top: 10px; }
+.arch-layer .metric { font-size: 11px; color: var(--dim); }
+.arch-layer .metric b { color: var(--text2); font-weight: 500; }
+.arch-arrow { display: flex; align-items: center; justify-content: center; height: 24px; color: var(--dim); font-size: 16px; }
+
+/* Interaction Flow */
+.flow-container { display: flex; flex-direction: column; gap: 16px; max-width: 900px; margin: 0 auto; }
+.flow-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.flow-title { font-size: 16px; font-weight: 600; }
+.flow-controls { display: flex; gap: 8px; }
+.flow-btn { padding: 7px 16px; font-size: 11.5px; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); border-radius: 8px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); font-family: inherit; }
+.flow-btn:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(34,211,238,0.05); }
+.flow-btn.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px rgba(34,211,238,0.1); }
+.msg-timeline { display: flex; flex-direction: column; gap: 2px; }
+.msg-item { display: flex; gap: 12px; padding: 12px 16px; border-radius: 8px; transition: background 0.2s; animation: msgIn 0.3s ease-out; }
+@keyframes msgIn { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)} }
+.msg-item:hover { background: var(--panel2); }
+.msg-item .msg-time { font-size: 10px; color: var(--dim); width: 50px; flex-shrink: 0; padding-top: 2px; font-family: 'JetBrains Mono', monospace; }
+.msg-item .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.msg-item .msg-body { flex: 1; min-width: 0; }
+.msg-item .msg-sender { font-size: 12px; font-weight: 600; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+.msg-item .msg-sender .arrow { color: var(--dim); font-weight: normal; font-size: 11px; }
+.msg-item .msg-sender .target { color: var(--muted); font-weight: 500; }
+.msg-item .msg-content { font-size: 12.5px; color: var(--text2); line-height: 1.5; }
+.msg-item .msg-meta { display: flex; gap: 10px; margin-top: 6px; }
+.msg-item .msg-meta span { font-size: 10px; color: var(--dim); }
+.msg-type-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.msg-type-tag.tool-call { background: var(--green-dim); color: var(--green); }
+.msg-type-tag.llm-call { background: var(--purple-dim); color: var(--purple); }
+.msg-type-tag.handoff { background: var(--blue-dim); color: var(--blue); }
+.msg-type-tag.broadcast { background: var(--amber-dim); color: var(--amber); }
+.msg-type-tag.response { background: var(--cyan-dim); color: var(--cyan); }
+
+/* CLI */
+.cli-wrapper { max-width: 900px; margin: 0 auto; width: 100%; }
+.cli-box { background: #0c0c0c; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); }
+.cli-titlebar { background: #1a1a2e; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #2a2a3e; }
+.cli-titlebar .dots { display: flex; gap: 6px; }
+.cli-titlebar .dots span { width: 11px; height: 11px; border-radius: 50%; }
+.cli-titlebar .dots span:nth-child(1) { background: #ff5f57; }
+.cli-titlebar .dots span:nth-child(2) { background: #ffbd2e; }
+.cli-titlebar .dots span:nth-child(3) { background: #28c840; }
+.cli-titlebar .title { margin-left: auto; font-size: 11px; color: #666; font-family: 'JetBrains Mono', monospace; }
+.cli-body { padding: 16px 20px; max-height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8; white-space: pre-wrap; color: #d4d4d4; }
+.cli-body .prompt { color: var(--cyan); }
+.cli-body .cmd { color: var(--green); }
+.cli-body .info { color: var(--muted); }
+.cli-body .warn { color: var(--amber); }
+.cli-body .err { color: var(--red); }
+.cli-body .result { color: #e2e8f0; }
+.cli-body .dim { color: var(--dim); }
+.cli-body .layer-ui { color: var(--cyan); }
+.cli-body .layer-orch { color: var(--blue); }
+.cli-body .layer-llm { color: var(--purple); }
+.cli-body .layer-mem { color: var(--amber); }
+.cli-body .layer-tool { color: var(--green); }
+.cli-input-row { display: flex; align-items: center; border-top: 1px solid #2a2a3e; padding: 10px 16px; gap: 8px; }
+.cli-input-row .ps1 { color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.cli-input-row input { flex: 1; background: none; border: none; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none; }
+.cli-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.cli-shortcuts button { padding: 6px 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: all 0.2s; }
+.cli-shortcuts button:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* Pipeline */
+.pipeline-container { max-width: 900px; margin: 0 auto; }
+.pipeline-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+.pipeline-flow { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 20px 0; }
+.pipeline-step { flex: 1; min-width: 150px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); text-align: center; transition: all 0.3s; }
+.pipeline-step.active { border-color: var(--cyan); box-shadow: var(--glow-cyan); }
+.pipeline-step.done { border-color: var(--green); }
+.pipeline-step .step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--panel3); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; margin: 0 auto 10px; color: var(--muted); }
+.pipeline-step.active .step-num { background: var(--cyan-dim); color: var(--cyan); }
+.pipeline-step.done .step-num { background: var(--green-dim); color: var(--green); }
+.pipeline-step .step-icon { font-size: 24px; margin-bottom: 8px; }
+.pipeline-step .step-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.pipeline-step .step-desc { font-size: 10.5px; color: var(--dim); line-height: 1.4; }
+.pipeline-connector { display: flex; align-items: center; padding: 0 4px; color: var(--dim); font-size: 16px; }
+.pipeline-connector.done { color: var(--green); }
+.exec-log { margin-top: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.exec-log-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.exec-log-body { max-height: 240px; overflow-y: auto; }
+.exec-log-item { padding: 8px 16px; font-size: 12px; font-family: 'JetBrains Mono', monospace; display: flex; gap: 12px; border-bottom: 1px solid rgba(42,53,68,0.5); }
+.exec-log-item:last-child { border-bottom: none; }
+.exec-log-item .ts { color: var(--dim); font-size: 10px; width: 70px; flex-shrink: 0; }
+.exec-log-item .tag { font-size: 9px; padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+.exec-log-item .content { color: var(--text2); flex: 1; }
+
+/* Environment */
+.env-container { max-width: 900px; margin: 0 auto; }
+.env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.env-room { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; transition: all 0.3s; cursor: pointer; }
+.env-room:hover { border-color: var(--border-active); transform: translateY(-3px); box-shadow: var(--shadow-md), 0 0 20px rgba(34,211,238,0.05); }
+.env-room .room-icon { font-size: 32px; margin-bottom: 12px; }
+.env-room .room-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.env-room .room-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-bottom: 12px; }
+.env-room .room-agents { display: flex; flex-wrap: wrap; gap: 4px; }
+.env-room .room-agents .ag-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; border: 1.5px solid var(--border); }
+.env-room .room-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.env-room .room-footer span { font-size: 10px; color: var(--dim); }
+
+/* Drag & Drop */
+.agent-card[draggable="true"] { cursor: grab; }
+.agent-card[draggable="true"]:active { cursor: grabbing; }
+.agent-card.dragging { opacity: 0.4; transform: scale(0.95); }
+.env-room.drag-over { border-color: var(--cyan); background: var(--cyan-dim); transform: translateY(-4px); box-shadow: var(--glow-cyan); }
+.env-room .drop-hint { display: none; font-size: 10px; color: var(--cyan); margin-top: 4px; text-align: center; }
+.env-room.drag-over .drop-hint { display: block; }
+
+/* Agent Detail Drawer */
+.agent-drawer { position: fixed; right: -380px; top: 52px; bottom: 0; width: 380px; background: var(--panel); border-left: 1px solid var(--border); z-index: 100; transition: right 0.3s ease; box-shadow: -4px 0 24px rgba(0,0,0,0.4); overflow-y: auto; }
+.agent-drawer.open { right: 0; }
+.agent-drawer .drawer-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+.agent-drawer .drawer-close { margin-left: auto; cursor: pointer; color: var(--dim); font-size: 18px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: none; }
+.agent-drawer .drawer-close:hover { background: var(--panel2); color: var(--text); }
+.agent-drawer .drawer-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; }
+.agent-drawer .drawer-name { font-size: 15px; font-weight: 600; }
+.agent-drawer .drawer-role { font-size: 12px; color: var(--muted); }
+.drawer-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.drawer-section-title { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.drawer-kv { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+.drawer-kv .k { color: var(--muted); }
+.drawer-kv .v { font-weight: 500; }
+.drawer-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.drawer-tag { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: var(--panel3); color: var(--text2); border: 1px solid var(--border); }
+.drawer-actions { display: flex; gap: 8px; padding: 16px 20px; }
+.drawer-actions .btn { flex: 1; text-align: center; font-size: 11px; }
+
+/* Interaction Stats Bar */
+.flow-stats { display: flex; gap: 12px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+.flow-stat-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.flow-stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+.flow-stat-count { font-weight: 600; font-size: 13px; }
+.flow-stat-label { color: var(--dim); }
+
+/* Layer expand */
+.arch-layer .layer-detail { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; padding: 0; }
+.arch-layer.expanded .layer-detail { max-height: 200px; padding-top: 12px; }
+.arch-layer .layer-detail-content { font-size: 11px; color: var(--dim); line-height: 1.6; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Pipeline progress bar */
+.pipeline-progress { height: 4px; background: var(--panel3); border-radius: 2px; margin: 16px 0; overflow: hidden; }
+.pipeline-progress .bar { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); border-radius: 2px; transition: width 0.5s ease; width: 0; }
+
+/* Pulse animation for active agents */
+@keyframes agentPulse { 0%,100%{box-shadow:0 0 0 0 rgba(34,211,238,0.2)} 50%{box-shadow:0 0 0 6px rgba(34,211,238,0)} }
+.agent-card.active .avatar { animation: agentPulse 2s infinite; }
+
+/* ── Right Panel ── */
+.right-panel { width: 280px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+.rp-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.rp-title { font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.rp-stat { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rp-stat .label { font-size: 12px; color: var(--muted); }
+.rp-stat .value { font-size: 13px; font-weight: 600; }
+.rp-stat .value.green { color: var(--green); }
+.rp-stat .value.amber { color: var(--amber); }
+.rp-stat .value.cyan { color: var(--cyan); }
+.rp-mini-chart { height: 40px; display: flex; align-items: flex-end; gap: 2px; margin-top: 8px; }
+.rp-mini-chart .bar { flex: 1; background: var(--cyan-dim); border-radius: 2px 2px 0 0; transition: height 0.3s; }
+.activity-feed { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.activity-item { padding: 8px 0; border-bottom: 1px solid rgba(42,53,68,0.3); }
+.activity-item:last-child { border-bottom: none; }
+.activity-item .act-time { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.activity-item .act-text { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+
+/* Utility */
+.btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--panel2); color: var(--text2); border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.2s; }
+.btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-primary { background: var(--cyan); color: #000; border-color: var(--cyan); font-weight: 600; }
+.btn-primary:hover { background: #4de8fa; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease-out; }
+@keyframes toastIn { from{opacity:0;transform:translate(-50%,10px)} }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:translateX(0)} }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+</style>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+
+<div class="header">
+  <!-- 主导航 (wabi-sabi topbar) -->
+  <div class="topbar-ws" style="border-radius:0;flex-basis:100%">
+    <div class="topbar-ws__left">
+      <div class="logo" style="width:32px;height:32px;border-radius:6px;background:var(--cyan);color:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:var(--font-mono)">DT</div>
+      <h1>智能体数字孪生</h1>
+    </div>
+    <nav class="topbar-ws__nav" aria-label="主导航">
+      <a href="/agent-team-config.html">智能体团队</a>
+      <a href="/plaza.html">议事广场</a>
+      <a href="/skill-extract.html">技能萃取/赋予</a>
+      <span class="cur">数字孪生</span>
+      <a href="/Agent-digital-twin.html">SECS沙箱</a>
+      <a href="/cost-dashboard.html">演进式成本优化</a>
+    </nav>
+    <div class="topbar-ws__right">
+      <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
+      <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
+      <button class="btn" onclick="execCmd('export snapshot')" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> 导出</button>
+      <div class="topbar-ws__user">
+        <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+        <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+        <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
+    </div>
+  </div>
+  <!-- 子导航 (页面内 view 切换) -->
+  <div class="header-nav" style="flex-basis:100%;border-top:1px solid var(--border);background:var(--panel2)">
+    <div class="nav-item active" data-view="architecture" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 系统状态</div>
+    <div class="nav-item" data-view="interaction" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> 交互流 <span class="badge" id="msg-count">0</span></div>
+    <div class="nav-item" data-view="pipeline" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg> 编排管线</div>
+    <div class="nav-item" data-view="environment" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 环境空间</div>
+    <div class="nav-item" data-view="cli" onclick="switchView(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> CLI</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-panel">
+    <div class="lp-header"><h3>智能体团队</h3><span class="count" id="agent-count">0</span></div>
+    <div id="team-selector" style="padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px"></div>
+    <div class="agent-list" id="agent-list"></div>
+  </div>
+
+  <div class="center">
+    <div class="view-panel active" id="view-architecture">
+      <div class="arch-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="arch-title">◈ 系统状态</div>
+          <div class="flow-controls">
+            <button class="flow-btn active" onclick="showArchSub('dashboard',this)">实时仪表盘</button>
+            <button class="flow-btn" onclick="showArchSub('topo',this)">协作拓扑</button>
+          </div>
+        </div>
+        <div id="arch-sub-layers">
+          <div class="arch-subtitle">实时系统运行指标 · 数据每10秒自动刷新</div>
+          <div id="live-dashboard"></div>
+          <div style="margin-top:16px">
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">活跃任务队列</div>
+            <div id="live-task-queue" style="max-height:280px;overflow-y:auto"></div>
+          </div>
+        </div>
+        <div id="arch-sub-topo" style="display:none">
+          <div class="arch-subtitle">智能体协作拓扑。节点=智能体，连线粗细=交互频次，颜色=团队。</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#080c10">
+            <svg id="topo-svg" width="100%" height="460" style="display:block"></svg>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)">
+            <span>● 节点大小 = 技能数</span><span>● 连线 = 交互历史</span><span>● 颜色 = 团队</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-interaction">
+      <div class="flow-container">
+        <div class="flow-header">
+          <div class="flow-title">⇄ 智能体交互流</div>
+          <div class="flow-controls">
+            <button class="flow-btn active" onclick="filterMsgs('all')">全部</button>
+            <button class="flow-btn" onclick="filterMsgs('tool-call')">工具调用</button>
+            <button class="flow-btn" onclick="filterMsgs('llm-call')">LLM推理</button>
+            <button class="flow-btn" onclick="filterMsgs('handoff')">任务交接</button>
+            <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+            <button class="flow-btn" id="btn-view-timeline" onclick="switchFlowView('timeline',this)" style="font-size:11px">时间线</button>
+            <button class="flow-btn" id="btn-view-sequence" onclick="switchFlowView('sequence',this)" style="font-size:11px">序列图</button>
+          </div>
+        </div>
+        <div class="flow-stats" id="flow-stats"></div>
+        <div class="msg-timeline" id="msg-timeline"></div>
+        <div id="sequence-diagram" style="display:none;overflow-x:auto;padding:16px 0"><svg id="seq-svg" width="100%" height="400"></svg></div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-pipeline">
+      <div class="pipeline-container">
+        <div class="pipeline-title">▷ 任务编排管线</div>
+        <div class="pipeline-progress"><div class="bar" id="pipeline-progress-bar"></div></div>
+        <div class="pipeline-flow" id="pipeline-flow"></div>
+        <div class="exec-log">
+          <div class="exec-log-header"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> 执行日志 <span style="margin-left:auto;font-weight:normal;color:var(--dim)" id="log-count">0 条</span></div>
+          <div class="exec-log-body" id="exec-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-environment">
+      <div class="env-container" style="max-width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="flow-title" style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 环境空间</div>
+          <div style="display:flex;gap:8px">
+            <button class="flow-btn" id="btn-env-mode" onclick="toggleEnvMode(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 平面视图</button>
+            <button class="btn" onclick="createRoom()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 创建空间</button>
+          </div>
+        </div>
+        <div id="room-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"></div>
+        <div id="env-3d-container" style="position:relative;width:100%;height:640px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#111820;box-shadow:inset 0 1px 2px rgba(0,0,0,0.3)">
+          <canvas id="env-3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+          <div style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
+            <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
+            <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
+          </div>
+        </div>
+        <div class="env-grid" id="env-grid" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="view-panel" id="view-cli">
+      <div class="cli-wrapper">
+        <div class="cli-box">
+          <div class="cli-titlebar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="title">digital-twin@agentsgroup ~ %</span>
+          </div>
+          <div class="cli-body" id="cli-output"><span class="info">AgentsGroup2026 Digital Twin CLI v2.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+智能体编排 · 交互可视化 · 环境模拟
+输入 <span class="cmd">help</span> 查看所有命令
+</span></div>
+          <div class="cli-input-row">
+            <span class="ps1">❯</span>
+            <input type="text" id="cli-input" placeholder="输入命令..." autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="cli-shortcuts">
+          <button onclick="execCmd('status')">status</button>
+          <button onclick="execCmd('agents')">agents</button>
+          <button onclick="execCmd('skills')">skills</button>
+          <button onclick="execCmd('rooms')">rooms</button>
+          <button onclick="execCmd('pipeline show')">pipeline</button>
+          <button onclick="execCmd('flow last 10')">flow last</button>
+          <button onclick="execCmd('simulate random')">simulate</button>
+          <button onclick="execCmd('simulate stress')">stress</button>
+          <button onclick="execCmd('discuss list')">discuss</button>
+          <button onclick="execCmd('config show')">config</button>
+          <button onclick="execCmd('export snapshot')">export</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-drawer" id="agent-drawer"></div>
+  <div class="right-panel" id="rp-default">
+    <div class="rp-section">
+      <div class="rp-title">系统概况</div>
+      <div class="rp-stat"><span class="label">智能体</span><span class="value cyan" id="stat-agents">-</span></div>
+      <div class="rp-stat"><span class="label">活跃技能</span><span class="value green" id="stat-skills">-</span></div>
+      <div class="rp-stat"><span class="label">已注册工具</span><span class="value" id="stat-tools">-</span></div>
+      <div class="rp-stat"><span class="label">交互次数</span><span class="value amber" id="stat-interactions">0</span></div>
+      <div class="rp-stat"><span class="label">管线活跃</span><span class="value purple" id="stat-pipelines">-</span></div>
+      <div class="rp-stat"><span class="label">系统健康</span><span class="value green" id="stat-health">●</span></div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">调用频率 (60s)</div>
+      <div class="rp-mini-chart" id="freq-chart"></div>
+    </div>
+    <div class="rp-section" style="border-bottom:none;flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div class="rp-title">活动流</div>
+      <div class="activity-feed" id="activity-feed"></div>
+    </div>
+  </div>
+  <div class="right-panel" id="rp-secs" style="display:none">
+    <div class="rp-section">
+      <div class="rp-title" style="display:flex;align-items:center;gap:6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        SECS 仿真控制
+      </div>
+      <div id="secs-sync-status" style="font-size:11px;color:var(--muted);margin-top:8px;padding:8px 10px;background:var(--panel2);border-radius:6px">
+        <span style="color:var(--dim)">场景未同步</span>
+      </div>
+      <button onclick="secsSyncDT()" style="width:100%;margin-top:10px;padding:8px 0;font-size:12px;font-weight:500;background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(34,211,238,0.3);border-radius:6px;cursor:pointer;transition:all 0.2s" onmouseover="this.style.background='rgba(34,211,238,0.25)'" onmouseout="this.style.background='var(--cyan-dim)'">🔄 同步当前场景</button>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">仿真模式</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="what_if" checked style="accent-color:var(--cyan)"> What-if 推演
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="parallel" style="accent-color:var(--cyan)"> 并行策略对比
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="secs-mode" value="evolutionary" style="accent-color:var(--cyan)"> 演化搜索
+        </label>
+      </div>
+      <div style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text2);cursor:pointer">
+          <input type="checkbox" id="secs-use-llm" style="accent-color:var(--purple)"> 🧠 LLM 智能决策
+        </label>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--dim);white-space:nowrap">步数</span>
+        <input type="range" id="secs-steps" min="10" max="200" value="50" style="flex:1;accent-color:var(--cyan)">
+        <span id="secs-steps-val" style="font-size:11px;color:var(--cyan);min-width:24px">50</span>
+      </div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title">选择团队</div>
+      <select id="secs-team-select" onchange="secsLoadTeamTasks()" style="width:100%;margin-top:6px;padding:8px;font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+        <option value="">加载中...</option>
+      </select>
+    </div>
+    <div class="rp-section">
+      <div class="rp-title" id="secs-task-label">选择任务</div>
+      <select id="secs-task-select" style="width:100%;margin-top:6px;padding:8px;font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+        <option value="">请先选择团队</option>
+      </select>
+    </div>
+    <div class="rp-section">
+      <button onclick="secsRun()" id="secs-run-btn" style="width:100%;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#000;border:none;border-radius:6px;cursor:pointer;transition:all 0.2s">▶ 开始仿真</button>
+      <button onclick="secsDevWorkflow()" id="secs-dev-btn" style="width:100%;margin-top:8px;padding:10px 0;font-size:13px;font-weight:600;background:linear-gradient(135deg,#fbbf24,#f472b6);color:#000;border:none;border-radius:6px;cursor:pointer;transition:all 0.2s">🎬 运行任务流程仿真</button>
+    </div>
+    <div class="rp-section" id="secs-results" style="display:none;border-bottom:none;flex:1;overflow-y:auto">
+      <div class="rp-title">仿真结果</div>
+      <div id="secs-results-body" style="margin-top:8px;font-size:11.5px;color:var(--text2)"></div>
+    </div>
+    <div class="rp-section" style="border-bottom:none;flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:160px">
+      <div class="rp-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>💬 实时对话</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button id="secs-tts-btn" onclick="secsToggleTTS()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;color:var(--cyan);cursor:pointer" title="语音播报开关">🔊 语音</button>
+          <button onclick="document.getElementById('secs-dialogue-log').innerHTML=''" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--dim);cursor:pointer" title="清空">✕</button>
+        </div>
+      </div>
+      <div id="secs-dialogue-log" style="flex:1;overflow-y:auto;margin-top:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;font-size:11px;line-height:1.7;max-height:220px">
+        <span style="color:var(--dim)">仿真启动后将在此显示对话内容...</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/digital-twin-cli.js" defer></script>
+<script src="/js/digital-twin-cli-3d.js" type="module"></script>
+
+<!-- ═══ SECS 仿真报告弹窗 ═══ -->
+<div id="secs-report-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center">
+  <div style="background:#1a2030;border:1px solid rgba(34,211,238,0.3);border-radius:12px;width:680px;max-height:80vh;overflow-y:auto;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0;font-size:18px;color:#22d3ee;font-weight:600" id="secs-report-title">📋 SECS 仿真报告</h2>
+      <button onclick="closeSecsReport()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">&times;</button>
+    </div>
+    <div id="secs-report-content"></div>
+  </div>
+</div>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+
+// ═══ 阶段六：CLI Trial 命令组扩展 (C-01~C-03) ═══
+window._trialCommands = {
+  'trial.create': {desc:'创建新试炼',fn:async(args)=>{
+    var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:(args[0]||'build-system'),mode:(args[1]||'what_if'),max_steps:parseInt(args[2])||150})});
+    var d=await resp.json();return d.error?'Error: '+d.error:'✅ Trial '+d.trial_id+' created, branch='+d.branch_id;
+  }},
+  'trial.list': {desc:'列出所有试炼',fn:async()=>{
+    var r=await fetch('/api/v1/twin-trials');var d=await r.json();var s='Trials ('+d.total+'):
+';(d.trials||[]).forEach(function(t){s+='  ['+t.id.substring(0,8)+'] '+t.name+' ('+t.status+') score='+(t.max_reward||'—')+'
+'});return s||'No trials';
+  }},
+  'trial.show': {desc:'查看试炼详情',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.show <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]);var d=await r.json();
+    if(d.error) return 'Error: '+d.error;
+    return 'Trial: '+d.name+' | Mode:'+d.mode+' | Status:'+d.status+'
+Branches: '+(d.branches||[]).length+' | Steps:'+d.total_steps+' | Score:'+(d.best_score||'—');
+  }},
+  'trial.fork': {desc:'分裂分支',fn:async(args)=>{
+    if(!args[0]||!args[1]) return 'Usage: trial.fork <trial_id> <branch_id> [name]';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fork_from_branch_id:args[1],name:args[2]||''})});
+    var d=await r.json();return d.error?'Error: '+d.error:'✅ Forked: branch='+d.branch_id;
+  }},
+  'trial.inject': {desc:'注入事件',fn:async(args)=>{
+    if(!args[0]||!args[1]||!args[2]) return 'Usage: trial.inject <trial_id> <branch_id> <event_type>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches/'+args[1]+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:args[2],payload:{}})});
+    return '✅ Injected: '+args[2];
+  }},
+  'trial.eval': {desc:'五维评估',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.eval <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/evaluate',{method:'POST'});
+    var d=await r.json();return d.error?'Error: '+'d.error':'Score: '+d.total_score+' | TC:'+((d.task_completion||0)*100).toFixed(0)+'%';
+  }},
+  'trial.extract': {desc:'萃取SOP',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.extract <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/extract-sop',{method:'POST'});
+    var d=await r.json();return d.error?'Error: ':'✅ Extracted '+(d.sops||[]).length+' SOP(s)';
+  }},
+  'trial.feedback': {desc:'反哺Agent',fn:async(args)=>{
+    if(!args[0]) return 'Usage: trial.feedback <trial_id>';
+    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/feedback',{method:'POST'});
+    var d=await r.json();return '✅ Applied: '+d.applied_sops+' SOPs, '+d.updated_agents.length+' agents updated';
+  }},
+  'trial.status': {desc:'当前Trial状态',fn:()=>{
+    if(window._DTS&&window._DTS.activeTrialId) return 'Active Trial: '+window._DTS.activeTrialId.substring(0,8)+' Status:'+window._DTS.trialStatus+' Branch:'+(window._DTS.activeBranchId||'?');
+    return 'No active trial. Use "trial create" to start.';
+  }}
+};
+
+</script>
+</body>
+</html>

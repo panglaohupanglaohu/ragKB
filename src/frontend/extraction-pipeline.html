@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-obc-theme="dusk">
+<head>
+<meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>萃取管线 — AgentsGroup2026</title>
+<link rel="stylesheet" href="/css/openbridge-theme.css">
+<style>
+:root {
+  --bg: #1a1e2e; --card: #232840; --text: #e0e6ed;
+  --dim: #8892a4; --accent: #409eff; --success: #67c23a;
+  --warn: #e6a23c; --danger: #f56c6c;
+  --border: #2d3358; --hover: #2a3050;
+  --stage-draft: #909399; --stage-review: #409eff;
+  --stage-approval: #e6a23c; --stage-published: #67c23a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:"Inter","Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* Layout */
+.app-wrap { display:flex; min-height:100vh; }
+.sidebar { width:220px; background:var(--card); border-right:1px solid var(--border); padding:16px 0; flex-shrink:0; }
+.sidebar h2 { font-size:14px; padding:0 16px 16px; color:var(--accent); }
+.sidebar nav a { display:block; padding:8px 16px; color:var(--dim); font-size:13px; text-decoration:none; transition:all 0.2s; border-left:3px solid transparent; }
+.sidebar nav a:hover, .sidebar nav a.active { color:var(--text); background:var(--hover); border-left-color:var(--accent); }
+.main { flex:1; padding:24px; overflow-y:auto; }
+
+/* Header */
+.page-header { display:flex; align-items:center; gap:16px; margin-bottom:24px; }
+.page-header h1 { font-size:20px; font-weight:700; }
+.page-header .stats-badges { display:flex; gap:10px; margin-left:auto; }
+.stat-badge { font-size:12px; padding:4px 12px; border-radius:12px; background:var(--card); border:1px solid var(--border); }
+
+/* Cards */
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+.card-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; font-weight:600; font-size:15px; }
+.card-header .badge { font-size:10px; padding:2px 8px; border-radius:10px; }
+
+/* Stage Badge */
+.stage-badge { display:inline-block; padding:3px 12px; border-radius:12px; font-size:11px; font-weight:600; text-transform:uppercase; }
+.stage-badge.draft { background:rgba(144,147,153,0.2); color:var(--stage-draft); }
+.stage-badge.review { background:rgba(64,158,255,0.2); color:var(--stage-review); }
+.stage-badge.approval { background:rgba(230,162,60,0.2); color:var(--stage-approval); }
+.stage-badge.published { background:rgba(103,194,58,0.2); color:var(--stage-published); }
+
+/* Pipeline Progress */
+.stage-progress { display:flex; align-items:center; gap:4px; margin:16px 0; }
+.stage-dot { width:28px; height:28px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; transition:all 0.3s; }
+.stage-dot.active { border-color:var(--accent); background:rgba(64,158,255,0.15); color:var(--accent); }
+.stage-dot.done { border-color:var(--success); background:rgba(103,194,58,0.15); color:var(--success); }
+.stage-line { flex:1; height:2px; background:var(--border); max-width:40px; }
+.stage-line.done { background:var(--success); }
+
+/* Buttons */
+.btn { padding:6px 16px; border-radius:6px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; font-size:13px; transition:all 0.2s; }
+.btn:hover { border-color:var(--accent); }
+.btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn-primary:hover { opacity:0.9; }
+.btn-success { background:var(--success); border-color:var(--success); color:#fff; }
+.btn-danger { border-color:var(--danger); color:var(--danger); }
+.btn-danger:hover { background:rgba(245,108,108,0.1); }
+.btn-warn { border-color:var(--warn); color:var(--warn); }
+.btn-sm { padding:3px 12px; font-size:11px; }
+.btn-group { display:flex; gap:8px; flex-wrap:wrap; }
+
+/* Table */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th, td { padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); }
+th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; }
+tr:hover { background:var(--hover); }
+
+/* Forms */
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
+.form-group input, .form-group textarea, .form-group select { width:100%; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px; }
+.form-group textarea { min-height:60px; resize:vertical; }
+.form-row { display:flex; gap:12px; }
+.form-row .form-group { flex:1; }
+
+/* Modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; width:500px; max-height:80vh; overflow-y:auto; }
+.modal h3 { margin-bottom:16px; }
+
+/* Gate status */
+.gate-pass { color:var(--success); }
+.gate-fail { color:var(--danger); }
+.gate-detail { font-size:11px; color:var(--dim); margin-top:4px; }
+
+/* Todo list */
+.todo-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; margin-bottom:6px; background:var(--bg); border-left:3px solid var(--border); }
+.todo-item.pending { border-left-color:var(--warn); }
+.todo-item.completed { border-left-color:var(--success); opacity:0.7; }
+.todo-item .todo-title { flex:1; font-size:13px; }
+.todo-item .todo-meta { font-size:10px; color:var(--dim); }
+
+/* Events timeline */
+.event-item { display:flex; gap:12px; padding:8px 0; border-left:2px solid var(--border); margin-left:8px; padding-left:16px; position:relative; }
+.event-item::before { content:''; position:absolute; left:-5px; top:12px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+.event-item .ev-stage { font-size:11px; font-weight:600; min-width:60px; }
+.event-item .ev-meta { font-size:11px; color:var(--dim); }
+
+/* Toast */
+.toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:8px; font-size:13px; z-index:200; opacity:0; transition:opacity 0.3s; }
+.toast.show { opacity:1; }
+.toast.info { background:var(--accent); color:#fff; }
+.toast.error { background:var(--danger); color:#fff; }
+.toast.success { background:var(--success); color:#fff; }
+
+/* Empty state */
+.empty { text-align:center; padding:40px; color:var(--dim); }
+.empty .icon { font-size:40px; margin-bottom:12px; }
+
+/* Responsive */
+@media (max-width:768px) { .sidebar { display:none; } .form-row { flex-direction:column; } }
+</style>
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+
+<div class="app-wrap">
+<!-- Sidebar -->
+<aside class="sidebar">
+  <h2>🧪 萃取管线</h2>
+  <nav>
+    <a href="#" class="active" onclick="switchTab('dashboard')">📊 管线列表</a>
+    <a href="#" onclick="switchTab('todos')">📝 待办中心</a>
+    <a href="#" onclick="switchTab('create')">➕ 新建管线</a>
+    <a href="/cost-dashboard.html" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;opacity:0.7">💰 成本治理</a>
+    <a href="/agent-team-config.html">🧠 智能体团队</a>
+  </nav>
+</aside>
+
+<!-- Main -->
+<main class="main" id="mainContent"></main>
+</div>
+
+<!-- Create Pipeline Modal -->
+<div class="modal-overlay" id="createModal">
+<div class="modal">
+  <h3>➕ 新建萃取管线</h3>
+  <div class="form-group"><label>管线名称 *</label><input id="createName" placeholder="例如: 2026Q2 性能优化管线"></div>
+  <div class="form-group"><label>描述</label><textarea id="createDesc" placeholder="管线用途说明..."></textarea></div>
+  <div class="form-row">
+    <div class="form-group"><label>团队ID</label><input id="createTeam" placeholder="例如: team-build"></div>
+    <div class="form-group"><label>创建者ID</label><input id="createBy" placeholder="例如: user-001"></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+    <button class="btn" onclick="closeModal('createModal')">取消</button>
+    <button class="btn btn-primary" onclick="doCreatePipeline()">创建</button>
+  </div>
+</div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+<div class="modal" style="width:640px;" id="detailContent"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/js/api.js"></script>
+<script>
+// ═══════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════
+const API = '/api/v1/extraction';
+let currentTab = 'dashboard';
+
+// ═══════════════════════════════════════
+// Init
+// ═══════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  switchTab('dashboard');
+});
+
+// ═══════════════════════════════════════
+// Navigation
+// ═══════════════════════════════════════
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+  document.querySelector(`.sidebar nav a[onclick*="${tab}"]`)?.classList.add('active');
+
+  switch(tab) {
+    case 'dashboard': renderDashboard(); break;
+    case 'todos': renderTodos(); break;
+    case 'create': renderCreateForm(); break;
+  }
+}
+
+// ═══════════════════════════════════════
+// Toast
+// ═══════════════════════════════════════
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ═══════════════════════════════════════
+// Modal
+// ═══════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ═══════════════════════════════════════
+// API helpers
+// ═══════════════════════════════════════
+async function api(url, opts={}) {
+  const requester = window._agFetch || fetch;
+  const resp = await requester(API + url, {
+    headers: {'Content-Type':'application/json', ...opts.headers},
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.detail?.reason || data.detail || `HTTP ${resp.status}`);
+  return data;
+}
+
+// ═══════════════════════════════════════
+// Dashboard
+// ═══════════════════════════════════════
+async function renderDashboard() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+
+  try {
+    const [pipelinesResp, stats] = await Promise.all([
+      api('/pipelines'),
+      api('/stats'),
+    ]);
+
+    const pipelines = pipelinesResp.pipelines || [];
+
+    let html = `
+    <div class="page-header">
+      <h1>🧪 萃取管线</h1>
+      <div class="stats-badges">
+        <span class="stat-badge">📋 总数: ${stats.total_pipelines}</span>
+        <span class="stat-badge">📝 待办: ${stats.pending_todos}</span>
+        ${Object.entries(stats.by_stage || {}).map(([k,v]) =>
+          `<span class="stat-badge stage-badge ${k}">${k}: ${v}</span>`
+        ).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="openModal('createModal')">➕ 新建管线</button>
+    </div>`;
+
+    if (pipelines.length === 0) {
+      html += '<div class="card"><div class="empty"><div class="icon">📭</div><p>暂无萃取管线</p><button class="btn btn-primary" onclick="openModal(\'createModal\')">创建第一条管线</button></div></div>';
+    } else {
+      html += '<div class="card"><table><thead><tr><th>管线</th><th>阶段</th><th>复核</th><th>待办</th><th>事件</th><th>操作</th></tr></thead><tbody>';
+
+      for (const p of pipelines) {
+        html += `
+        <tr>
+          <td>
+            <strong>${esc(p.name)}</strong>
+            <div style="font-size:11px;color:var(--dim);">${esc(p.description || '—')}</div>
+          </td>
+          <td><span class="stage-badge ${p.current_stage}">${p.current_stage}</span></td>
+          <td>${(p.reviewers||[]).length} 人</td>
+          <td>${(p.todos||[]).filter(t=>t.status==='pending').length} 待处理</td>
+          <td>${(p.transitions||[]).length} 次</td>
+          <td>
+            <div class="btn-group">
+              <button class="btn btn-sm" onclick="viewDetail('${p.pipeline_id}')">详情</button>
+              <button class="btn btn-sm btn-primary" onclick="advancePipeline('${p.pipeline_id}')" ${p.current_stage==='published'?'disabled':''}>推进</button>
+            </div>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+    main.innerHTML = html;
+  } catch(e) {
+    main.innerHTML = `<div class="card"><div class="empty"><div class="icon">❌</div>加载失败: ${esc(e.message)}</div></div>`;
+  }
+}
+
+// ═══════════════════════════════════════
+// Pipeline Detail
+// ═══════════════════════════════════════
+async function viewDetail(pid) {
+  try {
+    const p = await api(`/pipelines/${pid}`);
+    const events = await api(`/pipelines/${pid}/events`);
+
+    const stageOrder = ['draft','review','approval','published'];
+    const curIdx = stageOrder.indexOf(p.current_stage);
+
+    let html = `
+    <h3>📋 ${esc(p.name)}</h3>
+    <div style="color:var(--dim);font-size:12px;margin-bottom:12px;">${esc(p.description||'无描述')} · ID: ${pid}</div>
+
+    <!-- Stage Progress -->
+    <div class="stage-progress">
+      ${stageOrder.map((s,i) => {
+        let cls = '';
+        if (i < curIdx) cls = 'done';
+        else if (i === curIdx) cls = 'active';
+        return (i>0?`<div class="stage-line ${i<=curIdx?'done':''}"></div>`:'') +
+          `<div class="stage-dot ${cls}" title="${s}">${i+1}</div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:16px;">
+      ${stageOrder.map(s => `<span>${s}</span>`).join('')}
+    </div>
+
+    <!-- Stage info -->
+    <div class="card">
+      <div class="card-header">📍 当前阶段: <span class="stage-badge ${p.current_stage}">${p.current_stage}</span>
+        <span style="font-size:11px;color:var(--dim);">v${p.version}</span>
+      </div>
+      <div class="btn-group" style="margin-top:8px;">
+        <button class="btn btn-primary" onclick="advancePipeline('${pid}')" ${p.current_stage==='published'?'disabled':''}>▶ 推进到下一阶段</button>
+        <button class="btn btn-warn" onclick="rejectPipeline('${pid}')" ${p.current_stage==='draft'?'disabled':''}>↩ 打回上一阶段</button>
+        <button class="btn btn-danger" onclick="resetPipeline('${pid}')" ${p.current_stage==='draft'?'disabled':''}>🔄 重置到草稿</button>
+      </div>
+    </div>`;
+
+    // Gate check
+    if (p.current_stage !== 'published') {
+      try {
+        const gate = await api(`/pipelines/${pid}/check-gate`, {method:'POST'});
+        html += `
+        <div class="card">
+          <div class="card-header">🚦 门禁检查</div>
+          <div style="font-size:13px;margin-bottom:4px;">
+            状态: <span class="${gate.passed?'gate-pass':'gate-fail'}">${gate.passed ? '✅ 通过' : '❌ 未通过'}</span>
+          </div>
+          <div class="gate-detail">${esc(gate.reason)}</div>
+          <div class="gate-detail" style="margin-top:4px;">
+            复核人数: ${gate.current_reviewers}/${gate.required_reviewers} ·
+            同意票: ${gate.current_approvals}/${gate.required_approvals}
+          </div>
+        </div>`;
+      } catch(e) {}
+    }
+
+    // Reviewers
+    html += `
+    <div class="card">
+      <div class="card-header">👥 复核记录 (${(p.reviewers||[]).length})</div>`;
+    if ((p.reviewers||[]).length === 0) {
+      html += '<div style="color:var(--dim);font-size:12px;">暂无复核</div>';
+    } else {
+      html += '<table><thead><tr><th>复核人</th><th>身份</th><th>操作</th><th>时间</th></tr></thead><tbody>';
+      for (const r of p.reviewers) {
+        html += `<tr>
+          <td>${esc(r.reviewer_name||r.reviewer_id)}</td>
+          <td>${r.identity}</td>
+          <td style="color:${r.action==='approve'?'var(--success)':r.action==='reject'?'var(--danger)':'var(--warn)'}">${r.action}</td>
+          <td>${fmtTime(r.reviewed_at)}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+
+    // Add reviewer
+    html += `
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+        <strong style="font-size:12px;">➕ 提交复核</strong>
+        <div class="form-row" style="margin-top:8px;">
+          <div class="form-group"><input id="revId-${pid}" placeholder="复核人ID"></div>
+          <div class="form-group"><input id="revName-${pid}" placeholder="姓名"></div>
+          <div class="form-group">
+            <select id="revIdentity-${pid}">
+              <option value="peer">Peer (同级)</option>
+              <option value="senior">Senior (高级)</option>
+              <option value="lead">Lead (负责人)</option>
+              <option value="architect">Architect (架构师)</option>
+              <option value="qa">QA (质量)</option>
+              <option value="external">External (外部)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="revAction-${pid}" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+            <option value="approve">✅ Approve</option>
+            <option value="reject">❌ Reject</option>
+            <option value="request_changes">📝 Request Changes</option>
+          </select>
+          <input id="revComment-${pid}" placeholder="评语..." style="flex:1;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+          <button class="btn btn-sm btn-primary" onclick="submitReview('${pid}')">提交</button>
+        </div>
+      </div>
+    </div>`;
+
+    // Events timeline
+    html += `
+    <div class="card">
+      <div class="card-header">📜 事件溯源 (${events.event_count})</div>`;
+    if (events.events.length === 0) {
+      html += '<div style="color:var(--dim);font-size:12px;">暂无事件</div>';
+    } else {
+      for (const ev of events.events) {
+        html += `
+        <div class="event-item">
+          <div class="ev-stage">${ev.from_stage} → ${ev.to_stage}</div>
+          <div class="ev-meta">
+            [${ev.transition_type}] by ${esc(ev.triggered_by)} · ${fmtTime(ev.occurred_at)}
+            ${ev.gate_result ? ` · Gate: ${ev.gate_result.passed?'✅':'❌'}` : ''}
+          </div>
+        </div>`;
+      }
+    }
+    html += '</div>';
+
+    document.getElementById('detailContent').innerHTML = html;
+    openModal('detailModal');
+  } catch(e) {
+    toast('加载详情失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════
+// Pipeline Actions
+// ═══════════════════════════════════════
+async function advancePipeline(pid, force=false) {
+  try {
+    const res = await api(`/pipelines/${pid}/advance`, {
+      method: 'POST',
+      body: {triggered_by:'ui-user', force},
+    });
+    toast(`✅ 已推进到 ${res.transition.to_stage}`, 'success');
+    closeModal('detailModal');
+    renderDashboard();
+  } catch(e) {
+    if (e.message.includes('gate_failed')) {
+      if (confirm(`门禁未通过:\n${e.message}\n\n是否强制执行（跳过门禁）？`)) {
+        return advancePipeline(pid, true);
+      }
+    } else {
+      toast('推进失败: ' + e.message, 'error');
+    }
+  }
+}
+
+async function rejectPipeline(pid) {
+  const reason = prompt('打回原因（可选）:');
+  try {
+    await api(`/pipelines/${pid}/reject`, {
+      method: 'POST',
+      body: {triggered_by:'ui-user', reason: reason || ''},
+    });
+    toast('↩️ 已打回', 'success');
+    closeModal('detailModal');
+    renderDashboard();
+  } catch(e) { toast('打回失败: ' + e.message, 'error'); }
+}
+
+async function resetPipeline(pid) {
+  if (!confirm('确认重置到草稿阶段？')) return;
+  try {
+    await api(`/pipelines/${pid}/reset`, {
+      method: 'POST',
+      body: {triggered_by:'ui-user'},
+    });
+    toast('🔄 已重置', 'success');
+    closeModal('detailModal');
+    renderDashboard();
+  } catch(e) { toast('重置失败: ' + e.message, 'error'); }
+}
+
+async function submitReview(pid) {
+  const reviewer_id = document.getElementById(`revId-${pid}`).value.trim();
+  if (!reviewer_id) { toast('请输入复核人ID', 'error'); return; }
+  try {
+    await api(`/pipelines/${pid}/reviewers`, {
+      method: 'POST',
+      body: {
+        reviewer_id,
+        reviewer_name: document.getElementById(`revName-${pid}`).value.trim(),
+        identity: document.getElementById(`revIdentity-${pid}`).value,
+        action: document.getElementById(`revAction-${pid}`).value,
+        comment: document.getElementById(`revComment-${pid}`).value.trim(),
+        team_id: '',
+      },
+    });
+    toast('✅ 复核已提交', 'success');
+    viewDetail(pid); // refresh
+  } catch(e) { toast('提交复核失败: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════
+// Create Pipeline
+// ═══════════════════════════════════════
+function renderCreateForm() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="card" style="max-width:600px;margin:0 auto;">
+      <div class="card-header">➕ 新建萃取管线</div>
+      <div class="form-group"><label>管线名称 *</label><input id="inlineCreateName" placeholder="例如: 2026Q2 性能优化管线"></div>
+      <div class="form-group"><label>描述</label><textarea id="inlineCreateDesc" placeholder="管线用途说明..."></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>团队ID</label><input id="inlineCreateTeam" placeholder="例如: team-build"></div>
+        <div class="form-group"><label>创建者ID</label><input id="inlineCreateBy" placeholder="例如: user-001"></div>
+      </div>
+      <button class="btn btn-primary" onclick="doCreatePipelineInline()">创建管线</button>
+    </div>`;
+}
+
+async function doCreatePipeline() {
+  await doCreate('create');
+  closeModal('createModal');
+}
+async function doCreatePipelineInline() { await doCreate('inline'); }
+
+async function doCreate(prefix) {
+  const name = document.getElementById(prefix === 'create' ? 'createName' : 'inlineCreateName').value.trim();
+  if (!name) { toast('请输入管线名称', 'error'); return; }
+  try {
+    const res = await api('/pipelines', {
+      method: 'POST',
+      body: {
+        name,
+        description: document.getElementById(prefix === 'create' ? 'createDesc' : 'inlineCreateDesc').value.trim(),
+        team_id: document.getElementById(prefix === 'create' ? 'createTeam' : 'inlineCreateTeam').value.trim(),
+        created_by: document.getElementById(prefix === 'create' ? 'createBy' : 'inlineCreateBy').value.trim(),
+      },
+    });
+    toast('✅ 管线已创建', 'success');
+    switchTab('dashboard');
+  } catch(e) { toast('创建失败: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════
+// Todos Center
+// ═══════════════════════════════════════
+async function renderTodos() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+
+  try {
+    const data = await api('/todos');
+    const todos = data.todos || [];
+    const pending = todos.filter(t => t.status === 'pending');
+    const completed = todos.filter(t => t.status === 'completed');
+
+    let html = `
+    <div class="page-header">
+      <h1>📝 待办中心</h1>
+      <div class="stats-badges">
+        <span class="stat-badge">总计: ${todos.length}</span>
+        <span class="stat-badge" style="color:var(--warn);">待处理: ${pending.length}</span>
+        <span class="stat-badge" style="color:var(--success);">已完成: ${completed.length}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⏳ 待处理 (${pending.length})</div>`;
+
+    if (pending.length === 0) {
+      html += '<div class="empty" style="padding:20px;">暂无待处理事项 🎉</div>';
+    } else {
+      for (const t of pending) {
+        html += `
+        <div class="todo-item pending">
+          <div class="todo-title">
+            <strong>${esc(t.title)}</strong>
+            <div class="todo-meta">管线: ${t.pipeline_id} · 阶段: ${t.stage} · ${t.required_identity ? '需要: '+t.required_identity : ''}</div>
+          </div>
+          <button class="btn btn-sm btn-success" onclick="resolveTodo('${t.pipeline_id}','${t.todo_id}')">✓ 完成</button>
+        </div>`;
+      }
+    }
+    html += '</div>';
+
+    if (completed.length > 0) {
+      html += `
+      <div class="card">
+        <div class="card-header">✅ 已完成 (${completed.length})</div>`;
+      for (const t of completed.slice(0, 20)) {
+        html += `
+        <div class="todo-item completed">
+          <div class="todo-title">${esc(t.title)}</div>
+          <div class="todo-meta">${fmtTime(t.completed_at)}</div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    main.innerHTML = html;
+  } catch(e) {
+    main.innerHTML = `<div class="card"><div class="empty"><div class="icon">❌</div>加载失败: ${esc(e.message)}</div></div>`;
+  }
+}
+
+async function resolveTodo(pid, tid) {
+  try {
+    await api(`/pipelines/${pid}/todos/${tid}/resolve`, {method:'POST'});
+    toast('✅ 待办已解决', 'success');
+    renderTodos();
+  } catch(e) { toast('操作失败: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(t) { if (!t) return '—'; try { return new Date(t).toLocaleString('zh-CN'); } catch(e) { return t; } }
+</script>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+
+  <script src="/js/utils.js"></script>
+</body>
+</html>

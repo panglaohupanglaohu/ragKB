@@ -1,0 +1,275 @@
+{
+  "scenario_id": "cs_ticket_surge",
+  "name": "客服工单高峰",
+  "category": "customer_service",
+  "description": "大促期间工单量激增 3 倍，团队需要在限定步数内完成接单-分类-查询-回复-回访全链路，期间经受人手离队与网络延迟冲击。",
+  "version": 1,
+  "tags": [
+    "客服",
+    "高峰",
+    "压力测试"
+  ],
+  "difficulty": 3,
+  "recommended_max_steps": 120,
+  "source": "builtin",
+  "world": {
+    "rooms": [
+      {
+        "room_id": "intake",
+        "name": "接单台",
+        "icon": "📥",
+        "capacity": 8,
+        "stage": 0
+      },
+      {
+        "room_id": "triage",
+        "name": "分类室",
+        "icon": "🏷️",
+        "capacity": 6,
+        "stage": 1
+      },
+      {
+        "room_id": "research",
+        "name": "查询室",
+        "icon": "🔎",
+        "capacity": 6,
+        "stage": 2
+      },
+      {
+        "room_id": "reply",
+        "name": "回复间",
+        "icon": "✉️",
+        "capacity": 6,
+        "stage": 3
+      },
+      {
+        "room_id": "callback",
+        "name": "回访间",
+        "icon": "📞",
+        "capacity": 6,
+        "stage": 4
+      }
+    ],
+    "resources": [
+      {
+        "id": "kb",
+        "type": "memory",
+        "capacity": 1.0,
+        "utilization": 0.2,
+        "available": true
+      },
+      {
+        "id": "crm",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.3,
+        "available": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "sla",
+        "constraint_type": "ordering",
+        "rule": "回复必须在分类之后",
+        "target_agents": []
+      }
+    ],
+    "global_metrics_init": {
+      "ticket_backlog": 30
+    }
+  },
+  "taskflow": [
+    {
+      "task_id": "t1",
+      "name": "批量接单",
+      "room_id": "intake",
+      "required_skills": [
+        "ticket_intake"
+      ],
+      "depends_on": [],
+      "base_duration_steps": 2,
+      "reward": 0.4,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "t2",
+      "name": "工单分类",
+      "room_id": "triage",
+      "required_skills": [
+        "ticket_triage"
+      ],
+      "depends_on": [
+        "t1"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "t3",
+      "name": "知识库查询",
+      "room_id": "research",
+      "required_skills": [
+        "kb_search"
+      ],
+      "depends_on": [
+        "t2"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "t4",
+      "name": "标准回复",
+      "room_id": "reply",
+      "required_skills": [
+        "reply_writing"
+      ],
+      "depends_on": [
+        "t3"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "t5",
+      "name": "升级处理",
+      "room_id": "reply",
+      "required_skills": [
+        "escalation"
+      ],
+      "depends_on": [
+        "t2"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "t6",
+      "name": "满意度回访",
+      "room_id": "callback",
+      "required_skills": [
+        "customer_callback"
+      ],
+      "depends_on": [
+        "t4"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.4,
+      "failure_penalty": 0.05,
+      "optional": true
+    },
+    {
+      "task_id": "t7",
+      "name": "高峰复盘",
+      "room_id": "callback",
+      "required_skills": [
+        "report_writing"
+      ],
+      "depends_on": [
+        "t4",
+        "t5"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.3,
+      "failure_penalty": 0.05,
+      "optional": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "客服专员",
+      "min_count": 2,
+      "required_skills": [
+        "ticket_intake",
+        "reply_writing"
+      ],
+      "preferred_skills": [
+        "customer_callback"
+      ]
+    },
+    {
+      "role": "分类专家",
+      "min_count": 1,
+      "required_skills": [
+        "ticket_triage"
+      ],
+      "preferred_skills": [
+        "kb_search"
+      ]
+    },
+    {
+      "role": "值班主管",
+      "min_count": 1,
+      "required_skills": [
+        "escalation"
+      ],
+      "preferred_skills": [
+        "report_writing"
+      ]
+    }
+  ],
+  "chaos_script": [
+    {
+      "from_step": 20,
+      "to_step": 40,
+      "events": [
+        {
+          "event_type": "network_delay",
+          "probability_per_step": 0.05,
+          "payload": {}
+        },
+        {
+          "event_type": "agent_failure",
+          "probability_per_step": 0.02,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 60,
+      "to_step": 90,
+      "events": [
+        {
+          "event_type": "agent_leave",
+          "probability_per_step": 0.01,
+          "payload": {}
+        },
+        {
+          "event_type": "task_change",
+          "probability_per_step": 0.03,
+          "payload": {}
+        }
+      ]
+    }
+  ],
+  "rubric": {
+    "kpi_targets": {
+      "completion_rate": 0.9,
+      "total_score": 0.65
+    },
+    "dimension_weights": {
+      "task_completion": 0.35,
+      "collaboration_efficiency": 0.25,
+      "resilience": 0.2,
+      "cost_efficiency": 0.1,
+      "extractability": 0.1
+    },
+    "skill_expectations": {
+      "ticket_intake": 0.7,
+      "ticket_triage": 0.65,
+      "kb_search": 0.6,
+      "reply_writing": 0.65,
+      "escalation": 0.55,
+      "customer_callback": 0.6
+    }
+  }
+}

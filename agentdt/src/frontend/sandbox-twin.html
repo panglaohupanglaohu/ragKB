@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SECS 协同沙箱 — 在孪生环境里演练 Agent 协作</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/topbar-ws.css">
+  <link rel="stylesheet" href="/css/sandbox-twin.css">
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ① 演练导航 Nav (顶栏 + 跨域分组)
+     ══════════════════════════════════════════════════════════════ -->
+<header class="topbar-ws">
+  <div class="topbar-ws__left">
+    <h1>🏖️ SECS 演练总台</h1>
+    <span class="subject-badge">在孪生环境里演练 Agent 协作</span>
+  </div>
+  <nav class="topbar-ws__nav nav-grouped" aria-label="主导航">
+    <div class="nav-group">
+      <span class="nav-group__label">演练</span>
+      <span class="cur">沙箱</span>
+      <a href="/Agent-digital-twin.html">孪生</a>
+    </div>
+    <div class="nav-group">
+      <span class="nav-group__label">资产</span>
+      <a href="/agent-team-config.html">智能体</a>
+      <a href="/skill-extract.html">技能</a>
+      <a href="/plaza.html">广场</a>
+    </div>
+    <div class="nav-group">
+      <span class="nav-group__label">观测</span>
+      <a href="/cost-dashboard.html">演进式成本优化</a>
+    </div>
+  </nav>
+  <div class="topbar-ws__right">
+    <span class="refresh-indicator" id="refresh-indicator" title="每 30s 自动刷新">⏱ 自动刷新</span>
+    <button class="btn btn-sm" onclick="loadStats()">↻</button>
+    <div class="topbar-ws__user">
+      <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+      <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+      <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ② KPI 状态条 (4 个 mini-stat: 沙箱 / 总步 / SOP / 最优)
+     ══════════════════════════════════════════════════════════════ -->
+<section class="kpi-bar">
+  <div class="kpi-bar__cell">
+    <span class="kpi-bar__label">沙箱会话</span>
+    <span class="kpi-bar__value" id="kpi-sessions">0</span>
+  </div>
+  <div class="kpi-bar__cell">
+    <span class="kpi-bar__label">总仿真步</span>
+    <span class="kpi-bar__value" id="kpi-steps">0</span>
+  </div>
+  <div class="kpi-bar__cell">
+    <span class="kpi-bar__label">提取 SOP</span>
+    <span class="kpi-bar__value" id="kpi-sops">0</span>
+  </div>
+  <div class="kpi-bar__cell">
+    <span class="kpi-bar__label">最优评分</span>
+    <span class="kpi-bar__value" id="kpi-score">—</span>
+  </div>
+  <div class="kpi-bar__cell kpi-bar__cell--wide">
+    <span class="kpi-bar__label">运行时</span>
+    <span class="kpi-bar__sub">
+      <span class="runtime-dot" id="kpi-runtime-dot">○</span>
+      <span id="kpi-runtime-text">加载中</span>
+      <button class="btn btn-sm" onclick="loadRuntimeStatus()">刷新</button>
+      <button class="btn btn-sm btn-primary" onclick="runRuntimeSelfCheck()">自检</button>
+    </span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     🧭 用户引导横幅（首次访问 · 可关闭）
+     ══════════════════════════════════════════════════════════════ -->
+<section class="guide-banner" id="guide-banner">
+  <div class="guide-banner__content">
+    <div class="guide-banner__icon">🧪</div>
+    <div class="guide-banner__text">
+      <strong>SECS 协同沙箱演练总台</strong>
+      <span>选团队 → 选场景 → 开始演练：Lite 模式下无需 Docker / LLM 即可运行仿真，内置规则引擎驱动 5 角色 Agent 协作。</span>
+    </div>
+    <div class="guide-banner__actions">
+      <button class="btn btn-secondary btn-sm" onclick="openTeamSelector()" id="btn-team-select">👥 团队选择</button>
+      <button class="btn btn-secondary btn-sm" onclick="openSceneSelector()" id="btn-scene-select">🏟️ 场景选择</button>
+      <button class="btn btn-primary btn-sm" onclick="startExercise()" id="btn-start-exercise">▶ 开始演练</button>
+      <button class="guide-banner__dismiss" onclick="dismissGuideBanner()" title="不再显示">✕</button>
+    </div>
+  </div>
+  <!-- 已选标签 -->
+  <div class="guide-banner__tags" id="guide-tags" style="display:none">
+    <span class="guide-banner__tag" id="tag-team">未选团队</span>
+    <span class="guide-banner__tag" id="tag-scene">未选场景</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     👥 团队选择 Modal
+     ══════════════════════════════════════════════════════════════ -->
+<div class="overlay" id="team-overlay" style="display:none">
+  <div class="modal-select" id="team-modal">
+    <div class="modal-select__header">
+      <h3>👥 选择演练团队</h3>
+      <button class="modal-select__close" onclick="closeTeamSelector()">✕</button>
+    </div>
+    <div class="modal-select__body">
+      <div class="modal-select__loading" id="team-loading">加载团队列表…</div>
+      <div class="modal-select__list" id="team-list"></div>
+    </div>
+    <div class="modal-select__members" id="team-members" style="display:none">
+      <div class="modal-select__members-title">选择参演成员</div>
+      <div class="modal-select__members-grid" id="team-members-grid"></div>
+    </div>
+    <div class="modal-select__footer">
+      <span class="modal-select__hint" id="team-hint">请先选择一个团队</span>
+      <button class="btn btn-primary btn-sm" onclick="confirmTeamSelection()">✓ 确认选择</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     🏟️ 场景选择 Modal
+     ══════════════════════════════════════════════════════════════ -->
+<div class="overlay" id="scene-overlay" style="display:none">
+  <div class="modal-select" id="scene-modal">
+    <div class="modal-select__header">
+      <h3>🏟️ 选择演练场景</h3>
+      <button class="modal-select__close" onclick="closeSceneSelector()">✕</button>
+    </div>
+    <div class="modal-select__body">
+      <div class="modal-select__loading" id="scene-loading">加载孪生场景…</div>
+      <div class="modal-select__list" id="scene-list"></div>
+    </div>
+    <div class="modal-select__footer">
+      <span class="modal-select__hint" id="scene-hint">从数字孪生的 3D 环境空间中选择演练场地</span>
+      <button class="btn btn-primary btn-sm" onclick="confirmSceneSelection()">✓ 确认选择</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ③ 四层流水线 Pipeline (L1→L2→L3→L4 + 回流箭头 L4→L2)
+     ══════════════════════════════════════════════════════════════ -->
+<section class="pipeline-bar" id="pipeline-bar">
+  <div class="pipeline-node" data-layer="L1" id="pipe-L1">
+    <div class="pipeline-node__num">L1</div>
+    <div class="pipeline-node__name">🌐 MADTwin</div>
+    <div class="pipeline-node__sub">环境语义</div>
+    <div class="pipeline-node__status" id="pipe-status-L1">●</div>
+  </div>
+  <div class="pipeline-arrow"></div>
+  <div class="pipeline-node" data-layer="L2" id="pipe-L2">
+    <div class="pipeline-node__num">L2</div>
+    <div class="pipeline-node__name">📋 AAS</div>
+    <div class="pipeline-node__sub">协作 SOP</div>
+    <div class="pipeline-node__status" id="pipe-status-L2">●</div>
+  </div>
+  <div class="pipeline-arrow"></div>
+  <div class="pipeline-node pipeline-node--active" data-layer="L3" id="pipe-L3">
+    <div class="pipeline-node__num">L3</div>
+    <div class="pipeline-node__name">🎮 TwinLoop</div>
+    <div class="pipeline-node__sub">仿真演练</div>
+    <div class="pipeline-node__status" id="pipe-status-L3">●</div>
+  </div>
+  <div class="pipeline-arrow"></div>
+  <div class="pipeline-node" data-layer="L4" id="pipe-L4">
+    <div class="pipeline-node__num">L4</div>
+    <div class="pipeline-node__name">🎯 MADCG</div>
+    <div class="pipeline-node__sub">全局评价</div>
+    <div class="pipeline-node__status" id="pipe-status-L4">●</div>
+  </div>
+  <div class="pipeline-arrow pipeline-arrow--return" title="L4 评价回流到 L2 SOP 库">
+    <span class="pipeline-arrow__label">回流进化</span>
+  </div>
+  <div class="pipeline-node pipeline-node--return" data-layer="EVOLVE" id="pipe-EVOLVE">
+    <div class="pipeline-node__name">🌀 SECS Loop</div>
+    <div class="pipeline-node__sub">沉淀→再演练</div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ④ 沙箱 ID (主区) — I/O 镜像
+     ══════════════════════════════════════════════════════════════ -->
+<section class="session-bar" id="session-bar">
+  <div class="session-bar__id">
+    <span class="session-bar__label">沙箱 ID</span>
+    <code class="session-bar__code" id="session-id-display">— 尚未启动 —</code>
+    <button class="btn btn-sm session-bar__copy" id="session-bar__copy" onclick="copySessionId()" title="复制完整 session id">📋</button>
+  </div>
+  <div class="session-bar__meta" id="session-bar__meta">
+    <span>mode · <strong id="session-mode">—</strong></span>
+    <span>步数 · <strong id="session-step">0</strong></span>
+    <span>评分 · <strong id="session-score">—</strong></span>
+    <span>状态 · <strong id="session-status">空闲</strong></span>
+  </div>
+  <div class="session-bar__actions">
+    <button class="btn btn-sm" onclick="loadSessionDetail()" id="btn-refresh-session">↻ 概要详情</button>
+  </div>
+</section>
+
+<!-- Session 详情弹出层 -->
+<div class="session-detail-modal" id="session-detail-modal" style="display:none" onclick="if(event.target===this) closeSessionDetail()">
+  <div class="session-detail-modal__inner" id="session-detail-modal__inner">
+    <div class="session-detail-modal__header">
+      <span>📋 Session 概要详情</span>
+      <button class="btn btn-sm" onclick="closeSessionDetail()">✕</button>
+    </div>
+    <div class="session-detail-modal__body" id="session-detail-modal__body">
+      <div class="io-empty">点击「↻ 概要详情」加载</div>
+    </div>
+  </div>
+</div>
+
+<main class="io-grid">
+  <!-- ④.1 Input · 沙箱进料 -->
+  <div class="io-panel io-panel--input">
+    <div class="io-panel__header">
+      <span class="io-panel__title">📥 Input · 沙箱进料</span>
+      <span class="io-panel__hint">你喂进去什么</span>
+    </div>
+    <div class="io-tabs" id="input-tabs">
+      <button class="io-tab io-tab--active" data-tab="task">任务</button>
+      <button class="io-tab" data-tab="env">环境</button>
+      <button class="io-tab" data-tab="seed">种子技能</button>
+      <button class="io-tab" data-tab="params">运行参数</button>
+    </div>
+    <div class="io-tab-content" id="input-content-task">
+      <div class="io-empty">启动仿真后此处显示具体任务描述</div>
+    </div>
+    <div class="io-tab-content" id="input-content-env" style="display:none">
+      <div class="io-empty">数字孪生环境的初始 Agent 集合与状态</div>
+    </div>
+    <div class="io-tab-content" id="input-content-seed" style="display:none">
+      <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="skill-inject-team" placeholder="team_id (默认 public)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:5px 8px;border-radius:5px;font-size:11px;width:140px">
+        <button class="btn btn-sm" onclick="loadSkillCatalog()">↻ 加载技能库</button>
+        <select id="skill-inject-select" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:5px 8px;border-radius:5px;font-size:11px;flex:1;min-width:160px">
+          <option value="">-- 先加载 --</option>
+        </select>
+      </div>
+      <div id="skill-inject-panel" class="skill-grid">
+        <div class="io-empty">点击「加载技能库」后此处显示可注入的技能卡片</div>
+      </div>
+      <div id="skill-inject-result" style="margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--font-mono)"></div>
+    </div>
+    <div class="io-tab-content" id="input-content-params" style="display:none">
+      <div class="param-row"><label>仿真模式</label>
+        <select id="sim-mode">
+          <option value="what_if">What-if 单场景</option>
+          <option value="parallel">并行多策略</option>
+          <option value="evolutionary" selected>演化搜索</option>
+        </select></div>
+      <div class="param-row"><label>最大步数</label><input type="number" id="sim-steps" value="50" min="10" max="500"></div>
+      <div class="param-row"><label>加速倍率</label><input type="number" id="sim-speed" value="10" min="1" max="100"></div>
+      <div class="param-row"><label>并行分支</label><input type="number" id="sim-branches" value="3" min="1" max="10"></div>
+    </div>
+    <div class="io-panel__action">
+      <button class="btn btn-primary" onclick="createAndRun()" id="btn-launch" style="flex:1">▶ 启动仿真</button>
+      <button class="btn btn-stop" id="btn-stop" onclick="stopSimulation()" style="display:none;flex:1">⏹ 停止</button>
+      <button class="btn btn-danger" id="btn-inject" onclick="injectStrategy()" disabled style="flex:1">💉 注入</button>
+    </div>
+    <div id="sim-status" class="io-status"></div>
+  </div>
+
+  <!-- ④.1.5 3D 演练场景 · 具像化 Agent 协作 -->
+  <div class="io-panel io-panel--scene" id="scene-3d-panel">
+    <div class="io-panel__header">
+      <span class="io-panel__title">🎮 3D 演练场景</span>
+      <span class="io-panel__hint" id="scene-3d-label">演练场</span>
+    </div>
+    <div class="scene-3d-container" id="scene-3d-container">
+      <canvas id="scene-3d-canvas"></canvas>
+      <div class="scene-3d-info" id="scene-3d-info">初始化中…</div>
+      <div class="scene-3d-controls">
+        <button class="btn btn-sm" onclick="sw3dTopView()" title="俯视图">⬆</button>
+        <button class="btn btn-sm" onclick="sw3dFrontView()" title="前视图">⬛</button>
+        <button class="btn btn-sm" onclick="sw3dResetView()" title="重置视角">🔄</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④.2 Output · 沙箱出料 -->
+  <div class="io-panel io-panel--output">
+    <div class="io-panel__header">
+      <span class="io-panel__title">📤 Output · 沙箱出料</span>
+      <span class="io-panel__hint">它跑出什么</span>
+    </div>
+    <div class="io-tabs" id="output-tabs">
+      <button class="io-tab io-tab--active" data-tab="reward">收益曲线</button>
+      <button class="io-tab" data-tab="log">执行日志</button>
+      <button class="io-tab" data-tab="sop">提取 SOP</button>
+      <button class="io-tab" data-tab="critic">评分/建议</button>
+    </div>
+    <div class="io-tab-content" id="output-content-reward">
+      <div class="reward-meta">
+        <span class="reward-meta__k">步数 <strong id="step-counter">0</strong></span>
+        <span class="reward-meta__k">最大收益 <strong id="reward-max">—</strong></span>
+        <span class="reward-meta__k">趋势 <strong id="reward-trend">—</strong></span>
+      </div>
+      <div class="chart-container">
+        <svg class="chart-svg" id="reward-chart" viewBox="0 0 400 160" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="timeline" id="timeline">
+        <div class="io-empty">等待仿真启动...</div>
+      </div>
+    </div>
+    <div class="io-tab-content" id="output-content-log" style="display:none">
+      <div class="timeline" id="timeline-log">
+        <div class="io-empty">执行日志将随 step 事件滚动</div>
+      </div>
+    </div>
+    <div class="io-tab-content" id="output-content-sop" style="display:none">
+      <div class="sop-grid" id="sop-list">
+        <div class="sop-empty"><span class="sop-empty-icon">📋</span><span>运行仿真后将自动提取协作 SOP</span><span style="font-size:10px;color:var(--dim);margin-top:4px">Lite 模式使用内置规则引擎驱动 5 角色协作</span></div>
+      </div>
+    </div>
+    <div class="io-tab-content" id="output-content-critic" style="display:none">
+      <div class="score-grid" id="score-grid">
+        <div class="score-item"><div class="score-item-label">任务完成率</div><div class="score-bar-bg"><div class="score-bar-fill mid" id="bar-task" style="width: 0%"></div></div><div class="score-value" id="val-task">—</div></div>
+        <div class="score-item"><div class="score-item-label">通信效率</div><div class="score-bar-bg"><div class="score-bar-fill mid" id="bar-comm" style="width: 0%"></div></div><div class="score-value" id="val-comm">—</div></div>
+        <div class="score-item"><div class="score-item-label">资源利用率</div><div class="score-bar-bg"><div class="score-bar-fill mid" id="bar-resource" style="width: 0%"></div></div><div class="score-value" id="val-resource">—</div></div>
+        <div class="score-item"><div class="score-item-label">冲突避免</div><div class="score-bar-bg"><div class="score-bar-fill mid" id="bar-conflict" style="width: 0%"></div></div><div class="score-value" id="val-conflict">—</div></div>
+        <div class="score-item"><div class="score-item-label">收敛速度</div><div class="score-bar-bg"><div class="score-bar-fill mid" id="bar-convergence" style="width: 0%"></div></div><div class="score-value" id="val-convergence">—</div></div>
+        <div class="score-item score-item--global"><div class="score-item-label">综合评分</div><div class="score-bar-bg"><div class="score-bar-fill high" id="bar-global" style="width: 0%"></div></div><div class="score-value" id="val-global">—</div></div>
+      </div>
+      <div class="rec-list" id="rec-list"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ⑤ 协作图 (5 角色 + 7 边) + 选中本仿真高亮联动
+     ══════════════════════════════════════════════════════════════ -->
+<section class="collab-section">
+  <div class="collab-header">
+    <div>
+      <span class="collab-title">🤝 协作图 <span class="collab-title__count">[ 5v7 ]</span></span>
+      <span class="collab-subtitle">连线 = 通信方向 · 数字 = 累计消息数</span>
+    </div>
+    <div class="collab-metrics">
+      <div class="collab-metric"><span id="collab-msg-total">0</span><label>总消息</label></div>
+      <div class="collab-metric"><span id="collab-density">0/7</span><label>连接密度</label></div>
+      <div class="collab-metric"><span id="collab-conflict">0</span><label>冲突连线</label></div>
+      <button class="btn btn-sm" onclick="resetCollabGraph()">重置</button>
+    </div>
+  </div>
+  <div class="collab-graph-wrap">
+    <div class="collab-legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#6BC47F;color:#6BC47F"></span>Planner 规划</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#6B9FD4;color:#6B9FD4"></span>Retriever 检索</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#D4A44A;color:#D4A44A"></span>Coordinator 协调</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#9B8EC4;color:#9B8EC4"></span>Executor 执行</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#E07070;color:#E07070"></span>Critic 校验</span>
+      <span class="legend-item" style="margin-left:auto;opacity:0.7">● 静止 · ↗ 活跃 · ✕ 冲突</span>
+    </div>
+    <svg class="collab-graph" id="collab-graph" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <radialGradient id="node-grad-planner" cx="35%" cy="35%">
+          <stop offset="0%" stop-color="#A8E8B5"/>
+          <stop offset="60%" stop-color="#6BC47F"/>
+          <stop offset="100%" stop-color="#3F8B55"/>
+        </radialGradient>
+        <radialGradient id="node-grad-retriever" cx="35%" cy="35%">
+          <stop offset="0%" stop-color="#A8C8E8"/>
+          <stop offset="60%" stop-color="#6B9FD4"/>
+          <stop offset="100%" stop-color="#3D6B97"/>
+        </radialGradient>
+        <radialGradient id="node-grad-coordinator" cx="35%" cy="35%">
+          <stop offset="0%" stop-color="#F0CB7E"/>
+          <stop offset="60%" stop-color="#D4A44A"/>
+          <stop offset="100%" stop-color="#8E6A2C"/>
+        </radialGradient>
+        <radialGradient id="node-grad-executor" cx="35%" cy="35%">
+          <stop offset="0%" stop-color="#C5B5E0"/>
+          <stop offset="60%" stop-color="#9B8EC4"/>
+          <stop offset="100%" stop-color="#5F5478"/>
+        </radialGradient>
+        <radialGradient id="node-grad-critic" cx="35%" cy="35%">
+          <stop offset="0%" stop-color="#F0A0A0"/>
+          <stop offset="60%" stop-color="#E07070"/>
+          <stop offset="100%" stop-color="#8E3E3E"/>
+        </radialGradient>
+        <linearGradient id="edge-gradient-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#6BC47F" stop-opacity="0.4"/>
+          <stop offset="50%" stop-color="#6BC47F" stop-opacity="1"/>
+          <stop offset="100%" stop-color="#6BC47F" stop-opacity="0.4"/>
+        </linearGradient>
+        <linearGradient id="edge-gradient-amber" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#D4A44A" stop-opacity="0.6"/>
+          <stop offset="50%" stop-color="#D4A44A" stop-opacity="1"/>
+          <stop offset="100%" stop-color="#D4A44A" stop-opacity="0.6"/>
+        </linearGradient>
+        <marker id="arrowhead-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 L 2 5 z" fill="#6BC47F"/>
+        </marker>
+        <marker id="arrowhead-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 L 2 5 z" fill="#D4A44A"/>
+        </marker>
+        <marker id="arrowhead-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 L 2 5 z" fill="#E07070"/>
+        </marker>
+      </defs>
+      <g id="collab-edges"></g>
+      <g id="collab-particles"></g>
+      <g id="collab-edge-labels"></g>
+      <g id="collab-nodes"></g>
+      <g id="collab-labels"></g>
+    </svg>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ⑥ L1 详情 + 演练历史 (底部辅助区)
+     ══════════════════════════════════════════════════════════════ -->
+<section class="bottom-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">🌐 L1 详情 · 环境语义映射 (MADTwin)</span>
+      <span class="panel-badge">活跃 Agent <strong id="agent-active-count">0</strong> / <strong id="agent-total-count">0</strong></span>
+    </div>
+    <div class="agent-grid" id="agent-grid">
+      <div class="agent-node idle"><div class="agent-name">等待同步...</div><div class="agent-role">—</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">📜 演练历史 · 近 20 次</span>
+      <span class="panel-badge"><span id="session-count">0</span> 个</span>
+    </div>
+    <div class="session-list" id="session-list">
+      <div style="color:var(--dim);font-size:11px;padding:12px;text-align:center">暂无历史会话 · 点击「▶ 启动仿真」开始第一次演练</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ⑦ Runtime 抽屉 (页脚，点开可看 details)
+     ══════════════════════════════════════════════════════════════ -->
+<footer class="runtime-bar" id="runtime-bar">
+  <button class="runtime-bar__toggle" id="runtime-bar__toggle" onclick="toggleRuntimeDrawer()">
+    🛡️ Runtime 抽屉 ▾
+  </button>
+  <div class="runtime-bar__chips" id="runtime-bar__chips">
+    <span class="runtime-bar__chip">ready · <span id="rt-ready">—</span></span>
+    <span class="runtime-bar__chip">mode · <span id="rt-mode">—</span></span>
+    <span class="runtime-bar__chip">docker · <span id="rt-docker">—</span></span>
+    <span class="runtime-bar__chip">image · <span id="rt-image">—</span></span>
+    <span class="runtime-bar__chip">mem · <span id="rt-mem">—</span></span>
+    <span class="runtime-bar__chip">last-check · <span id="rt-lastcheck">—</span></span>
+    <progress class="runtime-bar__progress" id="runtime-bar__progress" value="0" max="100" title="仿真进度"></progress>
+    <span class="runtime-bar__chip runtime-bar__progress-text" id="runtime-bar__progress-text">0/—</span>
+  </div>
+  <div class="runtime-drawer" id="runtime-drawer" style="display:none">
+    <div class="runtime-drawer__inner" id="runtime-drawer__inner">
+      <div class="io-empty">Lite 模式：无需 Docker，内置规则引擎驱动仿真。点击「自检」检测运行环境，点击「刷新」获取最新状态。</div>
+    </div>
+  </div>
+</footer>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/sandbox-twin.js" defer></script>
+<script type="module" src="/js/sandbox-twin-3d.js?v=20260616"></script>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
+  <script src="/js/utils.js"></script>
+</body>
+</html>

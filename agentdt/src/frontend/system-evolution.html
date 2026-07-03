@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-obc-theme="dusk">
+<head>
+<meta charset="UTF-8"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>系统演进 — AgentsGroup2026</title>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/topbar-ws.css">
+<style>
+:root{
+  --lime: #6BC47F;
+  --cyan: #6BC47F;
+  --amber: #D4A44A;
+  --red: #E07070;
+  --ash: #D7DEE4;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);min-height:100vh;background:var(--shironeri);color:var(--sumi);position:relative}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),radial-gradient(rgba(255,255,255,0.008) 1px,transparent 1px);
+  background-size:5px 5px,7px 7px;background-position:0 0,3px 3px}
+a{color:var(--koke);text-decoration:none}
+.seal{display:inline-block;font-size:10px;font-weight:900;color:var(--shironeri);background:var(--sumi);padding:1px 5px;line-height:1.3;font-family:var(--font-serif);vertical-align:middle;margin-right:4px}
+.seal-koke{background:var(--koke)}.seal-shu{background:var(--shu)}.seal-kitsune{background:var(--kitsune)}
+
+/* Layout */
+.app{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
+.sidebar{width:clamp(200px,18vw,260px);min-width:200px;background:var(--ishi);border-right:1px solid var(--groove);display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+/* topbar styles moved to /css/topbar-ws.css */
+.main-scroll{flex:1;overflow-y:auto;padding:24px 28px;min-height:0}
+
+/* Sidebar */
+.sb-header{padding:16px;border-bottom:1px solid var(--groove)}
+.sb-header h2{font-size:15px;color:var(--koke);display:flex;align-items:center;gap:6px}
+.sb-nav{display:flex;flex-direction:column;gap:2px;padding:8px}
+.sb-nav a{padding:8px 12px;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px;transition:.15s}
+.sb-nav a:hover{background:rgba(166,176,186,0.06);color:var(--sumi)}
+.sb-nav a.active{background:rgba(224,112,112,0.10);color:var(--shu);font-weight:600}
+.sb-section{padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:8px;font-weight:600}
+.sb-footer{padding:12px;border-top:1px solid var(--groove);margin-top:auto}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--groove);font-family:inherit;transition:.15s;background:transparent;color:var(--koke)}.btn:hover{background:oklch(0 0 0/.03)}
+.btn-primary{background:var(--sumi);color:var(--shironeri);border-color:transparent}.btn-primary:hover{background:#CFD6DD}
+.btn-danger{color:var(--shu);border-color:rgba(224,112,112,0.3)}.btn-danger:hover{background:rgba(224,112,112,0.08)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-ghost{border:none;padding:6px 10px}
+
+/* Cards */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px}
+.stat-card{background:var(--ishi);border:1px solid var(--groove);padding:16px}
+.stat-card .label{font-size:12px;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.stat-card .value{font-size:24px;font-weight:700;font-family:var(--font-mono);color:var(--sumi)}
+.stat-card .sub{font-size:11px;color:var(--dim);margin-top:4px}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--groove);letter-spacing:.5px;font-weight:500}
+.tbl td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--sumi)}
+.tbl tr:hover td{background:rgba(166,176,186,0.04)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;background:oklch(0 0 0/.03);color:var(--koke);border:1px solid var(--groove);margin:2px}
+.section{margin-bottom:24px}
+.section-title{font-size:16px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;background:var(--ishi);border:1px solid var(--groove);font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:999;color:var(--sumi)}.toast.show{opacity:1}
+
+/* Ratchet Flow Diagram */
+.ratchet-flow{display:flex;align-items:center;gap:0;padding:20px 0;overflow-x:auto}
+.ratchet-node{display:flex;flex-direction:column;align-items:center;min-width:130px}
+.ratchet-dot{width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;border:2px solid var(--groove);background:var(--shironeri);font-family:var(--font-serif);transition:.35s;position:relative}
+.ratchet-dot.active{border-color:var(--koke);box-shadow:0 0 0 3px rgba(107,196,127,0.20),0 0 20px rgba(107,196,127,0.30);animation:r-pulse 2s ease-in-out infinite}
+.ratchet-dot.done{border-color:var(--koke);background:rgba(107,196,127,0.12);color:var(--koke)}
+.ratchet-dot.failed{border-color:var(--shu);background:rgba(224,112,112,0.12);color:var(--shu)}
+@keyframes r-pulse{0%,100%{box-shadow:0 0 0 3px rgba(107,196,127,0.20)}50%{box-shadow:0 0 0 3px rgba(107,196,127,0.35),0 0 24px rgba(107,196,127,0.25)}}
+.ratchet-label{font-size:11px;color:var(--muted);margin-top:6px;text-align:center;font-weight:500}
+.ratchet-sublabel{font-size:10px;color:var(--dim);margin-top:2px;font-family:var(--font-mono)}
+.ratchet-connector{width:40px;height:2px;background:var(--groove);flex-shrink:0}
+.ratchet-connector.done{background:var(--koke)}
+.ratchet-lock{border-color:var(--kitsune) !important}
+.ratchet-lock .ratchet-dot{border-color:var(--kitsune);color:var(--kitsune)}
+
+/* Compliance Gauge */
+.gauge-wrap{display:flex;align-items:center;gap:20px}
+.gauge-ring{position:relative;width:80px;height:80px;flex-shrink:0}
+.gauge-ring svg{width:80px;height:80px;transform:rotate(-90deg)}
+.gauge-grade{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;font-family:var(--font-mono)}
+
+/* Cycle log */
+.cycle-log{background:var(--ishi);border:1px solid var(--groove);padding:12px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.8;max-height:200px;overflow-y:auto;margin-top:12px}
+.cycle-log .ok{color:var(--koke)}.cycle-log .err{color:var(--shu)}.cycle-log .run{color:var(--kitsune)}
+
+/* Heritage ledger */
+.heritage-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--ishi);border:1px solid var(--groove);margin-bottom:6px;font-size:13px}
+.heritage-item .h-title{font-weight:600;font-size:13px}
+.heritage-item .h-meta{font-size:11px;color:var(--muted);font-family:var(--font-mono)}
+.heritage-item .h-delta{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--koke);white-space:nowrap}
+.ratchet-ledger-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:12px}
+.ratchet-metric{background:var(--ishi);border:1px solid var(--groove);padding:12px 14px;min-height:92px}
+.ratchet-metric__key{font-family:var(--font-mono);font-size:11px;color:var(--koke);word-break:break-word;line-height:1.5}
+.ratchet-metric__value{font-family:var(--font-mono);font-size:20px;font-weight:700;margin-top:6px}
+.ratchet-metric__meta{font-size:11px;color:var(--dim);margin-top:4px}
+.ratchet-ledger-curve{background:var(--ishi);border:1px solid var(--groove);padding:12px 14px;overflow:hidden}
+.ratchet-ledger-curve svg{width:100%;height:120px;display:block}
+.ratchet-ledger-curve text{font-size:10px;fill:var(--dim);font-family:var(--font-mono)}
+.ratchet-ledger-curve path{fill:none;stroke:var(--koke);stroke-width:2}
+.ratchet-ledger-curve circle{fill:var(--shironeri);stroke:var(--koke);stroke-width:2}
+
+/* Zone badge */
+.zone-badge{padding:8px 14px;background:rgba(107,196,127,0.08);border:1px solid rgba(107,196,127,0.18);display:inline-flex;align-items:center;gap:8px;font-size:12px;margin:4px}
+.zone-badge b{color:var(--sumi)}
+
+/* Rule card */
+.rule-card{padding:10px 14px;background:var(--ishi);border:1px solid var(--groove)}
+.rule-card .r-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.rule-card .r-id{font-size:12px;font-weight:700;font-family:var(--font-mono)}
+.rule-card .r-title{font-size:12px;margin-top:2px}
+.rule-card .r-ref{font-size:11px;color:var(--dim);margin-top:2px}
+.rule-card .r-meta{font-size:11px;margin-top:4px}
+
+/* Tabs */
+.tab-bar{display:flex;gap:0;border-bottom:1px solid var(--groove);margin-bottom:20px}
+.tab-btn{padding:10px 18px;font-size:13px;cursor:pointer;color:var(--muted);border:none;border-bottom:2px solid transparent;background:none;font-family:inherit;font-weight:500;transition:.15s}
+.tab-btn:hover{color:var(--sumi)}
+.tab-btn.active{color:var(--shu);border-bottom-color:var(--shu);font-weight:600}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.filter-bar select,.filter-bar input{padding:6px 10px;font-size:12px;border:1px solid var(--groove);background:var(--shironeri);color:var(--sumi);font-family:inherit}
+.filter-bar select:focus,.filter-bar input:focus{outline:none;border-color:var(--koke)}
+
+/* Trend placeholder */
+.trend-chart{background:var(--ishi);border:1px solid var(--groove);padding:20px;min-height:120px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+.audit-entry{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;display:flex;gap:12px;align-items:center}
+.audit-entry .ae-time{font-family:var(--font-mono);color:var(--dim);font-size:11px;min-width:140px}
+.audit-entry .ae-type{font-weight:600;min-width:80px}
+.audit-entry .ae-detail{color:var(--sumi-2);flex:1}
+
+/* Diff styles */
+.diff-add{color:var(--koke);background:rgba(107,196,127,0.06)}
+.diff-del{color:var(--shu);background:rgba(224,112,112,0.06);text-decoration:line-through}
+.diff-ctx{color:var(--sumi-3)}
+
+/* Stepper styles */
+.step-dot{padding:4px 10px;font-size:11px;border-radius:12px;cursor:pointer;background:var(--ishi);color:var(--muted);border:1px solid var(--groove);transition:all .2s}
+.step-dot.active{background:var(--koke);color:#fff;border-color:var(--koke);font-weight:600}
+.step-dot.done{background:rgba(107,196,127,0.15);color:var(--koke);border-color:var(--koke)}
+.step-arrow{color:var(--muted);font-size:11px}
+.ev-step textarea{font-family:var(--font-mono)}
+.cand-card{padding:12px;margin-bottom:10px;background:var(--ishi);border:1px solid var(--groove);border-radius:4px}
+.cand-card.selected{border-color:var(--koke);box-shadow:0 0 6px rgba(107,196,127,0.2)}
+.cand-card .cand-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cand-card .cand-strategy{font-weight:600;font-size:12px;color:var(--kitsune)}
+.cand-card .cand-score{font-family:var(--font-mono);font-size:13px;font-weight:700}
+.cand-card .cand-body{font-size:11px;color:var(--shironeri);max-height:160px;overflow-y:auto;white-space:pre-wrap;font-family:var(--font-mono);line-height:1.6;padding:8px;background:var(--ash);border-radius:3px}
+.ds-row{display:flex;gap:8px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px;align-items:flex-start}
+.ds-row:hover{background:rgba(255,255,255,0.02)}
+.ds-row .ds-idx{color:var(--dim);min-width:24px;font-family:var(--font-mono)}
+.ds-row .ds-task{flex:1;color:var(--sumi)}
+.ds-row .ds-rubric{flex:1;color:var(--sumi-2)}
+.ds-row .ds-actions{min-width:50px;text-align:right}
+/* Textarea readability */
+.ev-step textarea,.ev-step input[type=text]{background:var(--kabe);color:var(--sumi);border:1px solid var(--groove)}
+.ev-step textarea:focus,.ev-step input[type=text]:focus{outline:none;border-color:var(--koke)}
+
+/* ═══ Skeleton Screen ═══ */
+.skeleton-panel{padding:24px 0}
+.skel-row{display:flex;gap:12px;margin-bottom:14px}
+.skel-block{background:var(--groove);border-radius:4px;animation:skel-pulse 1.5s ease-in-out infinite}
+.skel-block:nth-child(2){animation-delay:0.15s}
+.skel-block:nth-child(3){animation-delay:0.3s}
+@keyframes skel-pulse{0%,100%{opacity:0.4}50%{opacity:0.8}}
+
+/* Search input */
+.search-input{padding:6px 12px;font-size:12px;border:1px solid var(--groove);background:var(--shironeri);color:var(--sumi);font-family:inherit;min-width:180px}
+.search-input:focus{outline:none;border-color:var(--koke)}
+.search-input::placeholder{color:var(--dim)}
+
+/* ═══ Responsive ═══ */
+@media (max-width:900px) {
+  .app{flex-direction:column}
+  .sidebar{width:100%;min-width:unset;max-height:auto;border-right:none;border-bottom:1px solid var(--groove);flex-direction:row;flex-wrap:wrap;padding:8px;overflow-x:auto}
+  .sb-header{display:none}
+  .sb-nav{flex-direction:row;gap:4px;padding:4px}
+  .sb-nav a{padding:6px 10px;font-size:12px;white-space:nowrap}
+  .sb-section{display:none}
+  .sb-footer{display:none}
+  .main-scroll{padding:16px}
+  .card-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .tbl{font-size:11px}
+  .filter-bar{flex-direction:column;align-items:stretch}
+  #rules-grid{grid-template-columns:1fr}
+  .ratchet-flow{flex-wrap:wrap;justify-content:center}
+  .ratchet-node{min-width:100px}
+  .topbar-ws__nav{display:none}
+}
+
+@media (max-width:600px) {
+  .sidebar .sb-nav{overflow-x:auto;flex-wrap:nowrap}
+  .card-grid{grid-template-columns:1fr}
+  .tbl-wrapper{overflow-x:auto}
+  .gauge-wrap{flex-direction:column;text-align:center}
+  .stat-card .value{font-size:18px}
+}
+</style>
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-header">
+      <h2><span class="seal seal-koke">演</span> 系统演进</h2>
+    </div>
+    <div class="sb-nav" role="tablist" aria-label="系统演进面板">
+      <a class="active" onclick="switchPanel('overview')" role="tab" aria-selected="true" aria-controls="panel-overview" id="tab-overview" tabindex="0"><span class="seal">览</span> 演进概览</a>
+      <a onclick="switchPanel('ratchet')" role="tab" aria-selected="false" aria-controls="panel-ratchet" id="tab-ratchet" tabindex="-1"><span class="seal seal-kitsune">锁</span> 达尔文棘轮</a>
+      <a onclick="switchPanel('evolve-lab')" role="tab" aria-selected="false" aria-controls="panel-evolve-lab" id="tab-evolve-lab" tabindex="-1"><span class="seal seal-koke">🧬</span> 技能演化</a>
+      <a onclick="switchPanel('rules-zones')" role="tab" aria-selected="false" aria-controls="panel-rules-zones" id="tab-rules-zones" tabindex="-1"><span class="seal">规</span> 规则与区域</a>
+      <a onclick="switchPanel('items')" role="tab" aria-selected="false" aria-controls="panel-items" id="tab-items" tabindex="-1"><span class="seal seal-shu">项</span> 演进条目</a>
+      <a onclick="switchPanel('trail')" role="tab" aria-selected="false" aria-controls="panel-trail" id="tab-trail" tabindex="-1"><span class="seal">迹</span> 审计轨迹</a>
+      <a onclick="switchPanel('trend')" role="tab" aria-selected="false" aria-controls="panel-trend" id="tab-trend" tabindex="-1"><span class="seal seal-kitsune">趋</span> 趋势分析</a>
+    </div>
+    <div class="sb-section">操作</div>
+    <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-sm" onclick="runAudit()">🔍 运行审查</button>
+      <button class="btn btn-sm btn-primary" onclick="runCycleStepper()">▶ 演进周期</button>
+      <button class="btn btn-sm" onclick="recalcRating()">📊 重算评级</button>
+    </div>
+
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <div class="topbar-ws">
+      <div class="topbar-ws__left">
+        <h1 id="panel-title">演进概览</h1>
+        <span id="panel-badge" style="font-size:11px;padding:2px 8px;background:oklch(0.52 0.04 160/.1);color:var(--koke);font-family:var(--font-mono)"></span>
+      </div>
+      <nav class="topbar-ws__nav" aria-label="主导航">
+        <a href="/agent-team-config.html">智能体团队</a>
+        <a href="/plaza.html">议事广场</a>
+        <a href="/skill-extract.html">技能萃取/赋予</a>
+        <a href="/Agent-digital-twin.html">数字孪生</a>
+        <span class="cur">系统演进</span>
+        <a href="/cost-dashboard.html">成本监控</a>
+      </nav>
+      <div class="topbar-ws__right">
+        <span id="last-audit" style="font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="refreshAll()">↻ 刷新</button>
+        <div class="topbar-ws__user">
+          <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+          <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+          <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+        </div>
+      </div>
+    </div>
+    <div class="main-scroll" id="content">
+
+      <!-- ═══ Overview Panel ═══ -->
+      <div id="panel-overview" class="tab-panel active" role="tabpanel" aria-labelledby="tab-overview">
+        <!-- Compliance Rating -->
+        <div class="section">
+          <div class="section-title">合规评级</div>
+          <div id="ov-rating" class="card-grid"></div>
+        </div>
+        <!-- Stats -->
+        <div class="section">
+          <div class="section-title">演进统计</div>
+          <div id="ov-stats" class="card-grid"></div>
+        </div>
+        <!-- Ratchet Flow (mini) -->
+        <div class="section">
+          <div class="section-title">🔄 达尔文棘轮 — 演进周期</div>
+          <div id="ov-ratchet" class="ratchet-flow"></div>
+          <div id="ov-cycle-log" class="cycle-log" style="display:none"></div>
+        </div>
+        <!-- Recent Items -->
+        <div class="section">
+          <div class="section-title">最近演进条目</div>
+          <div id="ov-items"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Ratchet Panel ═══ -->
+      <div id="panel-ratchet" class="tab-panel" role="tabpanel" aria-labelledby="tab-ratchet">
+        <div class="section">
+          <div class="section-title">达尔文棘轮 — 不可逆演进机制</div>
+          <p style="font-size:13px;color:var(--sumi-2);margin-bottom:16px;line-height:1.8">
+            棘轮机制确保系统只能向前演进，永不回退。每次通过验证的改进都被锁定为「遗产」(Heritage)，
+            形成 <b>append-only</b> 的不可变记录。如同达尔文进化论 — 有益的突变被保留，有害的被淘汰。
+          </p>
+        </div>
+        <!-- 5-Step Ratchet Flow -->
+        <div class="section">
+          <div class="section-title">五步闭环</div>
+          <div class="ratchet-flow" id="ratchet-flow">
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-audit">审</div>
+              <div class="ratchet-label">① 审查</div>
+              <div class="ratchet-sublabel">AUDIT</div>
+            </div>
+            <div class="ratchet-connector" id="rc-1"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-dispatch">派</div>
+              <div class="ratchet-label">② 派发</div>
+              <div class="ratchet-sublabel">DISPATCH</div>
+            </div>
+            <div class="ratchet-connector" id="rc-2"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-verify">验</div>
+              <div class="ratchet-label">③ 验证</div>
+              <div class="ratchet-sublabel">VERIFY</div>
+            </div>
+            <div class="ratchet-connector" id="rc-3"></div>
+            <div class="ratchet-node">
+              <div class="ratchet-dot" id="r-close">闭</div>
+              <div class="ratchet-label">④ 关闭</div>
+              <div class="ratchet-sublabel">CLOSE</div>
+            </div>
+            <div class="ratchet-connector" id="rc-4"></div>
+            <div class="ratchet-node ratchet-lock">
+              <div class="ratchet-dot" id="r-lock">🔒</div>
+              <div class="ratchet-label">⑤ 棘轮锁定</div>
+              <div class="ratchet-sublabel">RATCHET LOCK</div>
+            </div>
+          </div>
+          <div id="ratchet-log" class="cycle-log" style="display:none"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="runCycleOnRatchet()">▶ 运行完整周期</button>
+            <button class="btn btn-sm" onclick="runAuditOnly()">🔍 仅审查</button>
+          </div>
+        </div>
+        <!-- Global Ratchet Ledger Metrics -->
+        <div class="section" style="margin-top:24px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>全局棘轮指标</span>
+            <span id="ratchet-ledger-count" style="font-size:12px;font-family:var(--font-mono);color:var(--koke)"></span>
+          </div>
+          <div id="ratchet-ledger-metrics"></div>
+        </div>
+        <!-- Heritage Ledger -->
+        <div class="section" style="margin-top:24px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📜 遗产账本 (Heritage Ledger)</span>
+            <span id="heritage-count" style="font-size:12px;font-family:var(--font-mono);color:var(--koke)"></span>
+          </div>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:12px">不可变、仅追加。每条记录代表一次被验证锁定的系统改进。</p>
+          <div id="heritage-list"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Rules+Zones Panel ═══ -->
+      <div id="panel-rules-zones" class="tab-panel" role="tabpanel" aria-labelledby="tab-rules-zones">
+        <div class="filter-bar">
+          <input type="search" class="search-input" id="rule-search" placeholder="🔍 搜索规则 (标题/ID/域)..." oninput="_ruleSearchTerm=this.value;renderRules()" aria-label="搜索规则">
+          <select id="rule-domain-filter" onchange="renderRules()" aria-label="按域筛选">
+            <option value="">全部域</option>
+          </select>
+          <select id="rule-severity-filter" onchange="renderRules()">
+            <option value="">全部严重度</option>
+            <option value="critical">critical</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+          <span id="rule-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        </div>
+        <div id="rules-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">合规区域</div>
+          <div id="zones-all" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">活跃区域</div>
+          <div id="zones-active" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Items Panel ═══ -->
+      <div id="panel-items" class="tab-panel" role="tabpanel" aria-labelledby="tab-items">
+        <div class="filter-bar">
+          <select id="item-status-filter" onchange="loadItems()">
+            <option value="">全部状态</option>
+            <option value="discovered">发现</option>
+            <option value="dispatched">已派发</option>
+            <option value="in_progress">进行中</option>
+            <option value="verify_pending">待验证</option>
+            <option value="verified">已验证</option>
+            <option value="failed">失败</option>
+            <option value="closed">已关闭</option>
+          </select>
+          <select id="item-domain-filter" onchange="loadItems()">
+            <option value="">全部域</option>
+          </select>
+          <span id="item-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        </div>
+        <div id="items-table"></div>
+        <div id="item-detail-panel" class="section" style="display:none;margin-top:16px"></div>
+      </div>
+
+      <!-- ═══ Zones Panel merged into rules-zones ═══ -->
+
+      <!-- ═══ Audit Trail Panel ═══ -->
+      <div id="panel-trail" class="tab-panel" role="tabpanel" aria-labelledby="tab-trail">
+        <div class="filter-bar">
+          <select id="trail-type-filter" onchange="loadTrail()">
+            <option value="">全部类型</option>
+            <option value="audit_run">审查运行</option>
+            <option value="item_created">条目创建</option>
+            <option value="status_change">状态变更</option>
+            <option value="zone_entry">区域进入</option>
+            <option value="zone_exit">区域离开</option>
+          </select>
+          <button class="btn btn-sm" onclick="loadTrail()">刷新</button>
+        </div>
+        <div id="trail-list" style="background:var(--ishi);border:1px solid var(--groove)"></div>
+      </div>
+
+      <!-- ═══ Trend Panel ═══ -->
+      <div id="panel-trend" class="tab-panel" role="tabpanel" aria-labelledby="tab-trend">
+        <div class="section">
+          <div class="section-title">合规趋势</div>
+          <div id="trend-data"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">审查历史</div>
+          <div id="history-list"></div>
+        </div>
+        <div class="section" style="margin-top:20px">
+          <div class="section-title">监控状态</div>
+          <div id="monitoring-data" class="card-grid"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Evolve Lab Panel (Interactive Stepper) ═══ -->
+      <div id="panel-evolve-lab" class="tab-panel" role="tabpanel" aria-labelledby="tab-evolve-lab">
+        <!-- Target Selection (Always visible) -->
+        <div class="section">
+          <div class="section-title">🧬 Qwen 反思式演化实验室</div>
+          <p style="font-size:12px;color:var(--sumi-2);margin-bottom:12px;line-height:1.7">
+            ① 构建数据集 → ② 评估 Baseline → ③ 反思分析 → ④ 变异择优 → ⑤ 对比锁定
+          </p>
+          <div class="filter-bar" style="margin-bottom:16px">
+            <select id="ev-team-select" onchange="loadEvolveSkills()" style="min-width:140px">
+            </select>
+            <select id="ev-skill-select" style="min-width:200px" onchange="onSkillSelected()">
+              <option value="">— 选择技能 —</option>
+            </select>
+            <button class="btn btn-sm" onclick="runAutoTriage()">🔍 自动诊断</button>
+          </div>
+          <!-- Skill info card -->
+          <div id="ev-skill-info" style="display:none;margin-bottom:16px;padding:10px 14px;background:var(--ishi);border:1px solid var(--groove);font-size:12px">
+            <div style="display:flex;gap:16px;align-items:flex-start">
+              <div style="flex:1">
+                <div style="font-weight:600;color:var(--koke);margin-bottom:4px" id="ev-skill-name"></div>
+                <div style="color:var(--sumi-2);font-size:11px;line-height:1.6" id="ev-skill-desc"></div>
+              </div>
+              <div style="text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--muted)">
+                <div id="ev-skill-meta"></div>
+              </div>
+            </div>
+            <details style="margin-top:8px">
+              <summary style="cursor:pointer;font-size:11px;color:var(--muted)">查看当前指令</summary>
+              <div id="ev-skill-instructions" style="margin-top:6px;padding:8px;background:var(--kabe);border:1px solid var(--groove);font-family:var(--font-mono);font-size:11px;color:var(--sumi-2);max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.7"></div>
+            </details>
+          </div>
+          <!-- Stepper indicator -->
+          <div id="ev-stepper" style="display:flex;gap:4px;margin-bottom:16px;align-items:center">
+            <span class="step-dot active" data-step="1" onclick="goToStep(1)">① 数据集</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="2" onclick="goToStep(2)">② Baseline</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="3" onclick="goToStep(3)">③ 反思</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="4" onclick="goToStep(4)">④ 变异</span>
+            <span class="step-arrow">→</span>
+            <span class="step-dot" data-step="5" onclick="goToStep(5)">⑤ 锁定</span>
+          </div>
+        </div>
+
+        <!-- Auto-Triage Results -->
+        <div class="section" id="ev-triage-section" style="display:none">
+          <div class="section-title">🔍 自动诊断结果</div>
+          <div id="ev-triage-summary" class="card-grid"></div>
+          <div id="ev-triage-candidates" style="margin-top:12px"></div>
+        </div>
+
+        <!-- ═══ Step 1: Dataset Builder ═══ -->
+        <div class="section ev-step" id="ev-step-1">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📦 步骤1: 构建评估数据集</span>
+            <span id="ev-ds-status" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="evGenerateDataset()">🤖 AI 生成</button>
+            <button class="btn btn-sm" onclick="evImportKB()">📚 从知识库导入</button>
+            <button class="btn btn-sm" onclick="evShowManualInput()">✏️ 手动录入</button>
+          </div>
+          <!-- Manual input form -->
+          <div id="ev-manual-form" style="display:none;margin-bottom:12px;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">任务输入 (task_input)</label>
+              <textarea id="ev-manual-task" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="用户的任务描述..."></textarea>
+            </div>
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">评分标准 (rubric)</label>
+              <textarea id="ev-manual-rubric" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="好的执行应该: 1) ... 2) ..."></textarea>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="evAddManualExample()">➕ 添加</button>
+            <button class="btn btn-sm" onclick="el('ev-manual-form').style.display='none'">取消</button>
+          </div>
+          <!-- Dataset preview table -->
+          <div id="ev-dataset-table" style="max-height:300px;overflow-y:auto"></div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <span id="ev-ds-count" style="font-size:12px;color:var(--muted)"></span>
+            <button class="btn btn-sm btn-primary" id="ev-step1-next" onclick="goToStep(2)" style="margin-left:auto;display:none">下一步: 评估 Baseline →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 2: Baseline Evaluation ═══ -->
+        <div class="section ev-step" id="ev-step-2" style="display:none">
+          <div class="section-title">📊 步骤2: 评估 Baseline</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-sm btn-primary" onclick="evRunBaseline()">⚡ 评估当前技能</button>
+          </div>
+          <div id="ev-baseline-cards" class="card-grid"></div>
+          <div id="ev-baseline-failures" style="margin-top:12px"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(1)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step2-next" onclick="goToStep(3)" style="margin-left:auto;display:none">下一步: 反思分析 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 3: Reflection ═══ -->
+        <div class="section ev-step" id="ev-step-3" style="display:none">
+          <div class="section-title">🔍 步骤3: 反思分析</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+            <button class="btn btn-sm btn-primary" onclick="evRunReflect()">🤖 AI 反思</button>
+            <span style="font-size:11px;color:var(--muted)">或在下方手动编辑</span>
+          </div>
+          <!-- User hints -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">补充你的分析 (可选，AI 将参考)</label>
+            <textarea id="ev-user-hints" rows="2" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="你观察到的问题方向..."></textarea>
+          </div>
+          <!-- Reflection results (editable) -->
+          <div id="ev-reflect-result" style="display:none;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <div style="margin-bottom:10px">
+              <label style="font-size:11px;color:var(--kitsune);font-weight:600;display:block;margin-bottom:4px">根因分析 (root_causes)</label>
+              <textarea id="ev-reflect-causes" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+            <div style="margin-bottom:10px">
+              <label style="font-size:11px;color:var(--shu);font-weight:600;display:block;margin-bottom:4px">具体缺陷 (defects)</label>
+              <textarea id="ev-reflect-defects" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--koke);font-weight:600;display:block;margin-bottom:4px">改进方向 (directions)</label>
+              <textarea id="ev-reflect-directions" rows="3" style="width:100%;padding:8px;font-size:12px;resize:vertical"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(2)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step3-next" onclick="goToStep(4)" style="margin-left:auto;display:none">下一步: 生成变异 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 4: Mutation Lab ═══ -->
+        <div class="section ev-step" id="ev-step-4" style="display:none">
+          <div class="section-title">🧪 步骤4: 变异实验室</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="evRunMutate()">🤖 生成候选</button>
+            <button class="btn btn-sm" onclick="evShowManualCandidate()">✏️ 手动写候选</button>
+            <button class="btn btn-sm" onclick="evEvalAllCandidates()">⚡ 全部评估</button>
+          </div>
+          <!-- Manual candidate input -->
+          <div id="ev-manual-candidate" style="display:none;margin-bottom:12px;padding:12px;background:var(--ishi);border:1px solid var(--groove)">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">自定义候选指令</label>
+            <textarea id="ev-candidate-text" rows="6" style="width:100%;padding:8px;font-size:12px;resize:vertical" placeholder="写入你改进后的技能指令..."></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn btn-sm btn-primary" onclick="evAddManualCandidate()">➕ 添加为候选</button>
+              <button class="btn btn-sm" onclick="el('ev-manual-candidate').style.display='none'">取消</button>
+            </div>
+          </div>
+          <!-- Candidates list -->
+          <div id="ev-candidates-list"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(3)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" id="ev-step4-next" onclick="goToStep(5)" style="margin-left:auto;display:none">下一步: 对比锁定 →</button>
+          </div>
+        </div>
+
+        <!-- ═══ Step 5: Compare & Lock ═══ -->
+        <div class="section ev-step" id="ev-step-5" style="display:none">
+          <div class="section-title">🔒 步骤5: 对比确认 & 棘轮锁定</div>
+          <div id="ev-final-compare"></div>
+          <div id="ev-final-diff" style="background:var(--ishi);border:1px solid var(--groove);padding:12px 16px;font-family:var(--font-mono);font-size:11px;max-height:300px;overflow-y:auto;line-height:1.8;margin-top:12px"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="goToStep(4)">← 上一步</button>
+            <button class="btn btn-sm btn-primary" onclick="evApplyEvolution()" style="margin-left:auto">✅ 批准并锁定到棘轮</button>
+          </div>
+        </div>
+
+        <!-- Run History -->
+        <div class="section" style="margin-top:20px">
+          <div class="section-title" style="justify-content:space-between">
+            <span>📜 优化历史</span>
+            <button class="btn btn-sm" onclick="loadEvolveHistory()">刷新</button>
+          </div>
+          <div id="ev-history-table"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" aria-live="polite"></div>
+
+<script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/evidence-runs.js"></script>
+  <script src="/js/ag-context.js"></script>
+  <script src="/js/system-evolution.js"></script>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
+</body>
+</html>

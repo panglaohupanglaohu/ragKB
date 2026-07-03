@@ -1,0 +1,188 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+function read(relPath) {
+  return readFileSync(path.join(process.cwd(), relPath), 'utf8');
+}
+
+function makeElement() {
+  return {
+    innerHTML: '',
+    textContent: '',
+    value: '',
+    style: {},
+    options: [],
+    disabled: false,
+    className: '',
+    classList: {
+      add() {},
+      remove() {},
+    },
+    appendChild(child) {
+      this.options.push(child);
+      return child;
+    },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    scrollIntoView() {},
+  };
+}
+
+function buildContext(requestImpl, listImpl) {
+  const elements = Object.create(null);
+  const document = {
+    getElementById(id) {
+      if (!elements[id]) elements[id] = makeElement();
+      return elements[id];
+    },
+    querySelectorAll() {
+      return [];
+    },
+    querySelector() {
+      return null;
+    },
+    createElement() {
+      return makeElement();
+    },
+  };
+
+  document.getElementById('panel-title');
+  document.getElementById('panel-skip');
+
+  const location = new URL('http://127.0.0.1:5173/system-evolution.html?panel=skip');
+  const window = {
+    location,
+    api: {
+      request: requestImpl,
+      list: listImpl,
+    },
+  };
+
+  return {
+    elements,
+    context: vm.createContext({
+      window,
+      document,
+      location,
+      URL,
+      URLSearchParams,
+      requestAnimationFrame: (fn) => fn(),
+      setTimeout,
+      clearTimeout,
+      console,
+    }),
+  };
+}
+
+describe('system-evolution dashboard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses the agent-team evolution prefix and renders paginated overview items', async () => {
+    const request = vi.fn(async (url) => {
+      if (url === '/api/v1/agent-teams/evolution/summary') {
+        return { audit_rules_count: 2, verify_tests_registered: 3, total_items: 1, by_status: { discovered: 1 }, by_domain: {}, by_severity: {}, by_operational_domain: {} };
+      }
+      if (url === '/api/v1/agent-teams/evolution/compliance-rating') {
+        return { grade: 'A', score: 95, description: 'good', escalation_tier: 'normal' };
+      }
+      if (url === '/api/v1/agent-teams/evolution/items') {
+        return { items: [{ id: 'item-1', title: 'Patch drift', status: 'discovered', severity: 'high', audit_domain: 'build', description: 'desc' }], total: 1, limit: 50, offset: 0, has_more: false };
+      }
+      if (url === '/api/v1/agent-teams/evolution/zones/active') {
+        return [];
+      }
+      return null;
+    });
+    const list = vi.fn(async (url, limit, offset) => {
+      if (url === '/api/v1/agent-teams/evolution/items') {
+        expect(limit).toBe(50);
+        expect(offset).toBe(0);
+        return { items: [{ id: 'item-1', title: 'Patch drift', status: 'discovered', severity: 'high', audit_domain: 'build', description: 'desc' }], total: 1, limit: 50, offset: 0, has_more: false };
+      }
+      return [];
+    });
+
+    const { context, elements } = buildContext(request, list);
+    vm.runInContext(read('src/frontend/js/system-evolution.js'), context);
+
+    expect(typeof context.window.api.request).toBe('function');
+    await context.loadOverview();
+
+    expect(request).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/summary', undefined);
+    expect(list).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/items', 50, 0);
+    expect(elements['ov-items'].innerHTML).toContain('Patch drift');
+    expect(elements['panel-badge'].textContent).toBe('1 项');
+  });
+
+  it('renders paginated optimize history envelopes', async () => {
+    const request = vi.fn(async (url) => {
+      return [];
+    });
+    const list = vi.fn(async (url, limit, offset) => {
+      if (url === '/api/v1/agent-teams/evolution/optimize/runs') {
+        expect(limit).toBe(15);
+        expect(offset).toBe(0);
+        return {
+          items: [{
+            run_id: 'run-1',
+            target_type: 'skill',
+            target_id: 'skill-1',
+            status: 'completed',
+            improved: true,
+            baseline_score: 0.5,
+            best_score: 0.75,
+            score_delta: 0.25,
+            started_at: '2026-06-03T01:00:00Z',
+          }],
+          total: 1,
+          limit: 15,
+          offset: 0,
+          has_more: false,
+        };
+      }
+      return [];
+    });
+
+    const { context, elements } = buildContext(request, list);
+    vm.runInContext(read('src/frontend/js/system-evolution.js'), context);
+
+    expect(typeof context.window.api.request).toBe('function');
+    await context.loadEvolveHistory();
+
+    expect(list).toHaveBeenCalledWith('/api/v1/agent-teams/evolution/optimize/runs', 15, 0);
+    expect(elements['ev-history-table'].innerHTML).toContain('run-1');
+    expect(elements['ev-history-table'].innerHTML).toContain('75%');
+  });
+
+  it('exposes item evidence detail, single-item verify, and reasoned close actions', () => {
+    const source = read('src/frontend/js/system-evolution.js');
+    const html = read('src/frontend/system-evolution.html');
+
+    expect(html).toContain('id="item-detail-panel"');
+    expect(source).toContain('async function openItemDetail(itemId, mode)');
+    expect(source).toContain('renderEvidenceRuns(evidenceRuns)');
+    expect(source).toContain('/verify');
+    expect(source).toContain('/close');
+    expect(source).toContain('关闭理由（必填，用于审计）');
+    expect(source).toContain('验证结论（必填，会写入演进记录）');
+    expect(source).toContain('function exposeEvolutionActions()');
+    expect(source).toContain('Object.assign(window');
+    expect(source).toContain('openItemDetail(deepLinkItemId)');
+    expect(html).toContain('id="ratchet-ledger-metrics"');
+    expect(source).toContain('/api/v1/ratchet/metrics');
+    expect(source).toContain('function renderRatchetLedgerCurve(metrics)');
+    expect(source).toContain('构建完成证据');
+    expect(source).toContain('function renderBuildCompleteForm(item)');
+    expect(source).toContain('async function submitBuildComplete(itemId)');
+    expect(source).toContain('code_changes: codeChanges');
+    expect(source).toContain("onclick=\"openItemDetail('${item.id}', 'complete')\"");
+  });
+});

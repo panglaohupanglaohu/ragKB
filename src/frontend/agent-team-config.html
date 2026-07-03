@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentsGroup2026 — 智能体团队管理</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/ws-theme-bridge.css">
+  <link rel="stylesheet" href="/css/agent-team-config.css">
+  <link rel="stylesheet" href="/css/topbar-ws.css">
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+<a href="#main-content" class="skip-link">跳转到主内容</a>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-header"><h2><span class="seal">智</span> AgentsGroup</h2><select class="fi" id="team-select" style="font-size:12px;padding:6px 8px"></select></div>
+    <div class="sb-nav" role="list">
+      <a class="active" aria-current="page" data-view="overview" onclick="switchView('overview')"><span class="seal">览</span> <span data-i18n="nav.dashboard">仪表盘</span></a>
+      <a data-view="models" onclick="switchView('models')"><span class="seal">腦</span> <span data-i18n="nav.models">模型与连接</span></a>
+      <a data-view="tools" onclick="switchView('tools')"><span class="seal seal-koke">具</span> <span data-i18n="nav.tools">工具</span></a>
+      <a data-view="skills" onclick="switchView('skills')"><span class="seal seal-kitsune">能</span> <span data-i18n="nav.skills">技能</span></a>
+      <a data-view="tasks" onclick="switchView('tasks')"><span class="seal">务</span> <span data-i18n="nav.tasks">任务</span></a>
+      <a data-view="sessions" onclick="switchView('sessions')"><span class="seal">存</span> <span data-i18n="nav.sessions">会话存档</span></a>
+      <a data-view="runtime" onclick="switchView('runtime')"><span class="seal">波</span> <span data-i18n="nav.runtime">运行时</span></a>
+      <a data-view="registry" onclick="switchView('registry')"><span class="seal">厂</span> <span data-i18n="nav.token-factory">Token 工厂</span></a>
+    </div>
+    <div class="sb-section">团队成员</div>
+    <div class="sb-agents" id="sb-agents"></div>
+    <div class="sb-footer"><button class="btn btn-pink btn-sm" onclick="openWizard()" style="width:100%;justify-content:center">＋ 新建智能体</button></div>
+  </div>
+  <!-- Main -->
+  <div class="main" id="main-content">
+    <div class="topbar-ws">
+      <div class="topbar-ws__left">
+        <h1 id="main-title">团队概览</h1>
+        <span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span>
+      </div>
+      <nav class="topbar-ws__nav" aria-label="主导航">
+        <span class="cur">智能体团队</span>
+        <a href="/plaza.html">议事广场</a>
+        <a href="/skill-extract.html">技能萃取/赋予</a>
+        <a href="/Agent-digital-twin.html">数字孪生</a>
+        <a href="/cost-dashboard.html">演进式成本优化</a>
+      </nav>
+      <div class="topbar-ws__right">
+        <button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button>
+        <button class="btn btn-sm btn-ghost" onclick="deleteTeam()" style="color:var(--red)">🗑 删除团队</button>
+        <div class="topbar-ws__user">
+          <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+          <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+          <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+        </div>
+      </div>
+    </div>
+    <!-- Views -->
+    <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
+<!-- 演进状态摘要 -->
+<div class="section" id="evo-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>演进状态</span><a href="/system-evolution.html" class="btn btn-sm">→ 系统演进</a></div><div id="evo-compliance" class="card-grid"></div></div>
+<div class="section" id="budget-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>预算与告警</span><div style="display:flex;gap:8px;align-items:center"><select class="fi" id="budget-trend-days" onchange="refreshBudgetPanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="7">最近 7 天</option><option value="30">最近 30 天</option></select><button class="btn btn-sm" onclick="refreshBudgetPanel()">刷新</button></div></div><div id="budget-summary" class="card-grid"></div><div id="budget-trend"></div><div id="budget-alerts"></div></div>
+<div class="section" id="trace-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>最近运行痕迹</span><div style="display:flex;gap:8px;align-items:center"><select class="fi" id="trace-source-filter" onchange="refreshTracePanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="">全部来源</option><option value="plaza">Plaza</option><option value="evolution">Evolution</option></select><select class="fi" id="trace-event-filter" onchange="refreshTracePanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="">全部事件</option><option value="plan_start">plan_start</option><option value="tool_result">tool_result</option><option value="pipeline_started">pipeline_started</option><option value="pipeline_completed">pipeline_completed</option><option value="pipeline_failed">pipeline_failed</option><option value="verification_state_broadcasted">verification_state_broadcasted</option></select><a id="trace-export-link" href="#" target="_blank" rel="noopener" class="btn btn-sm">导出 NDJSON</a><button class="btn btn-sm" onclick="refreshTracePanel()">刷新</button></div></div><div id="trace-summaries"></div><div id="trace-events"></div><div id="trace-detail"></div></div>
+</div></div>
+    <div id="view-models" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🧠 模型与连接</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('llm')">🔌 LLM / TTS</button><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-model')">＋ 添加模型</button></div></div><div id="global-model-banner" style="margin-bottom:14px;padding:10px 14px;background:rgba(38,162,105,0.06);border:1px solid var(--line);border-radius:8px;font-size:13px"></div><table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>提供商</th><th>Max Tokens</th><th>温度</th><th>默认</th><th>操作</th></tr></thead><tbody id="models-tb"></tbody></table></div></div>
+    <div id="view-tools" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🔧 可用工具</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="switchView('registry')">🏭 Token 工厂</button><button class="btn btn-sm" onclick="showToolSearch()">🔍 搜索</button></div></div><div id="tools-search-bar" class="hidden" style="margin-bottom:12px"><div style="display:flex;gap:10px"><input class="fi" id="tools-search-input" placeholder="搜索工具..." oninput="filterToolCards(this.value)" style="flex:1"><button class="btn btn-sm" onclick="el('tools-search-bar').classList.add('hidden')">✕</button></div></div><div id="tools-cards"></div></div></div>
+    <div id="view-skills" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">⚡ 可用技能</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="exportSkillsMD()">📤 导出</button></div></div><div id="skills-cards"></div></div></div>
+    <div id="view-tasks" class="main-inner hidden"><div class="main-scroll"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">📋 并发任务</div><div style="display:flex;gap:8px"><span id="task-stats" style="font-size:12px;color:var(--muted);display:flex;align-items:center"></span><button class="btn btn-pink btn-sm" onclick="openModal('modal-add-task')">＋ 提交任务</button><button class="btn btn-sm" onclick="openModal('modal-batch-task')">📦 批量提交</button><button class="btn btn-sm btn-ghost" onclick="cancelAllTasks()" title="取消全部运行中的任务">🧹 清理</button></div></div><table class="tbl"><thead><tr><th>ID</th><th>标题</th><th>Agent</th><th>优先级</th><th>依赖</th><th>状态</th><th>操作</th></tr></thead><tbody id="tasks-tb"></tbody></table></div></div>
+    <div id="view-llm" class="main-inner hidden"><div class="main-scroll">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px"><button class="btn btn-sm" onclick="switchView('models')">← 返回</button><div class="section-title" style="margin:0">🔌 LLM / TTS 配置</div></div><button class="btn btn-pink btn-sm" onclick="testLLM()">🧪 测试连接</button></div>
+      <div id="llm-status-card" class="card" style="margin-bottom:20px;padding:20px"><p style="color:var(--dim)">加载中...</p></div>
+      <div class="card" style="padding:20px;margin-bottom:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">⚙️ 配置 LLM 提供商</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group"><label class="form-label">提供商</label><select class="fi" id="llm-provider"><option value="codebuddy">CodeBuddy</option><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="local">本地 (Ollama/vLLM)</option><option value="openrouter">OpenRouter</option><option value="github">GitHub Models</option><option value="qwen">通义千问</option></select></div>
+          <div class="form-group"><label class="form-label">模型</label><input class="fi" id="llm-model" placeholder="deepseek-v4-pro"></div>
+          <div class="form-group"><label class="form-label">API Key</label><input class="fi" id="llm-key" type="password" placeholder="sk-..."></div>
+          <div class="form-group"><label class="form-label">API Base URL (可选)</label><input class="fi" id="llm-url" placeholder="https://api.deepseek.com"></div>
+          <div class="form-group"><label class="form-label">Max Tokens</label><input class="fi" id="llm-tokens" type="number" value="4096" min="100" max="128000"></div>
+          <div class="form-group"><label class="form-label">温度</label><input class="fi" id="llm-temp" type="number" value="0.7" min="0" max="2" step="0.1"></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-pink" onclick="saveLLMConfig()">💾 保存配置</button><button class="btn" onclick="loadLLMStatus()">🔄 刷新状态</button></div>
+      </div>
+      <div id="llm-test-result" class="card hidden" style="padding:20px"><div class="section-title" style="margin-top:0;margin-bottom:8px">🧪 测试结果</div><div id="llm-test-content"></div></div>
+      <!-- TTS Config Section -->
+      <div class="card" style="padding:20px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="section-title" style="margin-top:0;margin-bottom:0">🔊 TTS 语音合成配置</div><div style="display:flex;gap:8px"><span id="tts-status-badge" class="badge" style="font-size:11px">检测中...</span><button class="btn btn-sm" onclick="testTTSConnection()">🧪 测试</button><button class="btn btn-pink btn-sm" onclick="startTTSService()">▶ 启动服务</button></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group"><label class="form-label">TTS 引擎</label><select class="fi" id="tts-engine"><option value="gpt-sovits">GPT-SoVITS</option><option value="edge-tts">Edge TTS (在线)</option><option value="web-speech">浏览器内置</option></select></div>
+          <div class="form-group"><label class="form-label">API 地址</label><input class="fi" id="tts-api-url" placeholder="http://127.0.0.1:9880"></div>
+          <div class="form-group"><label class="form-label">参考音频路径</label><input class="fi" id="tts-ref-audio" placeholder="ref_audio/male_sample.wav"></div>
+          <div class="form-group"><label class="form-label">参考音频文本</label><input class="fi" id="tts-prompt-text" placeholder="参考音频对应的文字内容"></div>
+          <div class="form-group"><label class="form-label">语言</label><select class="fi" id="tts-lang"><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动</option></select></div>
+          <div class="form-group"><label class="form-label">语速</label><input class="fi" id="tts-speed" type="number" value="1.0" min="0.5" max="2.0" step="0.1"></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-pink" onclick="saveTTSConfig()">💾 保存 TTS 配置</button><button class="btn" onclick="loadTTSConfig()">🔄 刷新</button></div>
+        <div id="tts-test-result" style="margin-top:12px;font-size:12px;color:var(--dim)"></div>
+      </div>
+      <div class="card" style="padding:20px"><div class="section-title" style="margin-top:0;margin-bottom:8px">📊 会话列表</div><div id="llm-sessions"></div></div>
+    </div></div>
+    <div id="view-agent" class="main-inner hidden">
+    <!-- Session Persistence View -->
+    <div id="view-sessions" class="main-inner hidden"><div class="main-scroll">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">💾 会话存档管理</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="loadPersistedSessions()">🔄 刷新</button></div></div>
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🔍 跨会话搜索</div>
+        <div style="display:flex;gap:10px"><input class="fi" id="ss-query" placeholder="搜索所有持久化会话的内容..." style="flex:1" onkeydown="if(event.key==='Enter')searchPersistedSessions()"><button class="btn btn-pink btn-sm" onclick="searchPersistedSessions()">搜索</button></div>
+        <div id="ss-search-results" style="margin-top:12px"></div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="section-title" style="margin:0">📁 已保存的会话</div><span id="ss-count" style="color:var(--dim);font-size:12px"></span></div>
+        <div id="ss-list"></div>
+      </div>
+    </div></div>
+    <!-- PortRuntime View -->
+    <div id="view-runtime" class="main-inner hidden"><div class="main-scroll">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div class="section-title" style="margin:0">🚀 PortRuntime 路由引擎</div></div>
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🎯 Prompt 路由</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">输入自然语言指令，系统将自动匹配最佳工具和命令 (claw-code-parity PortRuntime)</p>
+        <div style="display:grid;gap:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">Prompt</label><textarea class="fi" id="rt-prompt" rows="3" placeholder="例: 扫描 src/ 目录，找出所有 TODO 并按优先级整理"></textarea></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div class="form-group" style="margin:0"><label class="form-label">最大匹配数</label><input class="fi" id="rt-limit" type="number" value="5" min="1" max="20"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">禁用工具 (逗号分隔)</label><input class="fi" id="rt-deny" placeholder="web_search, run_python"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">禁用前缀</label><input class="fi" id="rt-deny-pfx" placeholder="mcp_, debug_"></div>
+          </div>
+          <div style="display:flex;gap:10px"><button class="btn btn-pink" onclick="doRoutePrompt()">🎯 路由匹配</button><button class="btn" onclick="doBootstrapSession()">⚡ 引导会话</button><button class="btn" onclick="doRouteAndChat()">💬 路由+对话</button></div>
+        </div>
+      </div>
+      <div id="rt-results" class="card hidden" style="padding:20px"><div class="section-title" style="margin-top:0;margin-bottom:12px">📊 路由结果</div><div id="rt-results-content"></div></div>
+      <div class="card" style="margin-top:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">📡 Agent Loop Runtime</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">预览执行计划，并直接查看共享 runtime 回传的 plan / tool 事件。</p>
+        <div style="display:grid;gap:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">Prompt</label><textarea class="fi" id="al-prompt" rows="3" placeholder="例: 阅读 README 并总结当前系统的优化重点"></textarea></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div class="form-group" style="margin:0"><label class="form-label">Agent ID (可选)</label><input class="fi" id="al-agent-id" placeholder="默认使用当前选中的 agent"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Session ID</label><input class="fi" id="al-session-id" placeholder="runtime-demo"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">最大迭代</label><input class="fi" id="al-max-iterations" type="number" value="4" min="1" max="20"></div>
+          </div>
+          <div style="display:flex;gap:10px"><button class="btn" onclick="doAgentLoopPreview()">🗺️ 预览计划</button><button class="btn btn-pink" onclick="doAgentLoopRun()">▶ 运行并采集事件</button></div>
+        </div>
+        <div id="al-results" style="margin-top:16px"></div>
+      </div>
+      <div class="card" style="margin-top:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🏊 Tool Pool 装配</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">按权限上下文装配工具池 — 模拟 Clawith / claw-code-parity ToolPool</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="tp-simple"> 简单模式 (仅核心工具)</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="tp-mcp" checked> 包含 MCP 工具</label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">禁用工具</label><input class="fi" id="tp-deny" placeholder="逗号分隔"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">禁用前缀</label><input class="fi" id="tp-deny-pfx" placeholder="逗号分隔"></div>
+        </div>
+        <button class="btn btn-pink btn-sm" onclick="doAssemblePool()">🏊 装配 Tool Pool</button>
+        <div id="tp-results" style="margin-top:12px"></div>
+      </div>
+    </div></div>
+    <!-- Token Factory View -->
+    <div id="view-registry" class="main-inner hidden"><div class="main-scroll">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="section-title" style="margin:0">🏭 自主 Token 工厂</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="loadTokenFactory()">🔄 刷新</button>
+          <button class="btn btn-pink btn-sm" onclick="tfEnsureReady()">⚡ 确保就绪</button>
+        </div>
+      </div>
+      <!-- Health Status -->
+      <div id="tf-health" class="card" style="margin-bottom:20px;padding:20px">
+        <p style="color:var(--dim)">加载中...</p>
+      </div>
+      <!-- SSH Tunnel -->
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🔗 SSH 隧道（远程 GPU Ollama）</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">状态</label><div id="tf-tunnel-state" style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:8px 12px;background:rgba(0,0,0,.15);border-radius:6px">—</div></div>
+          <div class="form-group" style="margin:0"><label class="form-label">本地端口</label><div id="tf-tunnel-port" style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:8px 12px;background:rgba(0,0,0,.15);border-radius:6px">—</div></div>
+          <div class="form-group" style="margin:0"><label class="form-label">远程主机</label><div id="tf-tunnel-host" style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:8px 12px;background:rgba(0,0,0,.15);border-radius:6px">—</div></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-pink btn-sm" onclick="tfTunnelStart()">▶ 启动隧道</button>
+          <button class="btn btn-sm" onclick="tfTunnelStop()">⏹ 停止隧道</button>
+        </div>
+      </div>
+      <!-- Ollama Config -->
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🦙 Ollama 配置</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">本地或远程 Ollama 推理服务，用于 Claude Code CLI 和本地模型推理</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">Ollama 端点</label><input class="fi" id="tf-ollama-url" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">代理端口 (Claude Code)</label><input class="fi" id="tf-proxy-port" value="11435" placeholder="11435"></div>
+        </div>
+        <div class="form-group" style="margin:0;margin-bottom:12px"><label class="form-label">可用模型</label><div id="tf-ollama-models" style="font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 12px;background:rgba(0,0,0,.15);border-radius:6px;min-height:32px">—</div></div>
+        <button class="btn btn-sm" onclick="tfProbeOllama()">🔍 探测 Ollama</button>
+      </div>
+      <!-- Cloud LLM Config -->
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">☁️ 云端 LLM 提供商</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">DeepSeek 作为 Claude Code 后端 LLM，用于 Bridge Chat 和 Agent 对话</p>
+        <div class="form-group" style="margin:0;margin-bottom:12px"><label class="form-label">DeepSeek 端点（via Claude Code）</label><div id="tf-deepseek-status" style="font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 14px;background:rgba(0,0,0,.15);border-radius:6px;min-height:36px">—</div></div>
+        <button class="btn btn-pink btn-sm" onclick="tfTestClaudeReady()">🧪 测试 Claude 就绪</button>
+        <span id="tf-claude-ready-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      </div>
+      <!-- Claude Code Config -->
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <div class="section-title" style="margin-top:0;margin-bottom:12px">🤖 Claude Code CLI 配置</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px">Claude Code 通过代理连接 DeepSeek API，配置保存在 ~/.claude/settings.json</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">ANTHROPIC_BASE_URL</label><input class="fi" id="tf-claude-url" value="http://127.0.0.1:11435" placeholder="http://127.0.0.1:11435"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">ANTHROPIC_MODEL</label><input class="fi" id="tf-claude-model" value="claude-sonnet-4-20250514" placeholder="claude-sonnet-4-20250514"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">ANTHROPIC_AUTH_TOKEN</label><input class="fi" id="tf-claude-token" value="sk-deepseek-proxy" placeholder="sk-deepseek-proxy"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">NO_PROXY</label><input class="fi" id="tf-no-proxy" value="localhost,127.0.0.1,::1" placeholder="localhost,127.0.0.1,::1"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+          <button class="btn btn-sm" onclick="tfTestClaude()">🧪 测试 Claude Code 连接</button>
+          <span id="tf-claude-test-status" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div id="tf-claude-test-result" style="display:none;margin-top:12px;padding:12px 14px;background:rgba(0,0,0,.2);border-radius:0;font-size:12px;font-family:'IBM Plex Mono',monospace;max-height:240px;overflow-y:auto"></div>
+      </div>
+    </div></div><div class="tabs" id="agent-tabs"><button class="tab active" data-at="ag-status">状态</button><button class="tab" data-at="ag-employee">数字员工</button><button class="tab" data-at="ag-soul">人格</button><button class="tab" data-at="ag-tools">工具</button><button class="tab" data-at="ag-skills">技能</button><button class="tab" data-at="ag-relations">关系</button><button class="tab" data-at="ag-workspace">工作区</button><button class="tab" data-at="ag-chat">聊天</button><button class="tab" data-at="ag-logs">工作日志</button><button class="tab" data-at="ag-settings">设置</button></div><div class="main-scroll" id="agent-content"></div></div>
+    <div id="view-wizard" class="main-inner hidden"><div class="wizard-steps" id="wz-steps"><div class="wz-step active" data-step="1"><span class="num">1</span> 基本信息</div><div class="wz-line"></div><div class="wz-step" data-step="2"><span class="num">2</span> 人格设定</div><div class="wz-line"></div><div class="wz-step" data-step="3"><span class="num">3</span> 技能配置</div><div class="wz-line"></div><div class="wz-step" data-step="4"><span class="num">4</span> 工具绑定</div><div class="wz-line"></div><div class="wz-step" data-step="5"><span class="num">5</span> 权限与通道</div></div><div class="main-scroll"><div class="wz-content" id="wz-content"></div></div></div>
+  </div>
+</div>
+<!-- Modals -->
+<div class="modal-overlay" id="modal-create-team"><div class="modal"><h3>➕ 创建新团队</h3><div class="form-group"><label class="form-label">团队名称 <span class="req">*</span></label><input class="fi" id="ct-name" maxlength="128" placeholder="例：导航决策团队"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="ct-desc" placeholder="团队职责描述"></textarea></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-create-team')">取消</button><button class="btn btn-pink" id="btn-ct">创建</button></div></div></div>
+<div class="modal-overlay" id="modal-add-model"><div class="modal"><h3>🧠 添加模型</h3><div class="form-group"><label class="form-label">提供商</label><select class="fi" id="am-prov"><option value="codebuddy">CodeBuddy</option><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="github">GitHub Copilot</option><option value="qwen">Qwen</option><option value="openrouter">OpenRouter</option><option value="local">本地 (Ollama/vLLM)</option></select></div><div class="form-group"><label class="form-label">模型名称 <span class="req">*</span></label><input class="fi" id="am-name" placeholder="deepseek-v4-pro"></div><div class="form-group"><label class="form-label">Max Tokens</label><input class="fi" id="am-tok" type="number" value="8192"></div><div class="form-group"><label class="form-label">温度</label><input class="fi" id="am-temp" type="number" value="0.7" min="0" max="2" step="0.1"></div><div class="form-group"><label class="form-label">API Key</label><input class="fi" id="am-key" type="password" placeholder="sk-..."></div><div class="form-group"><label class="form-label">API Base URL (可选)</label><input class="fi" id="am-url" placeholder="留空使用默认"></div><div class="form-group"><label class="form-label">设为默认</label><select class="fi" id="am-def"><option value="false">否</option><option value="true">是</option></select></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-add-model')">取消</button><button class="btn btn-pink" id="btn-am" onclick="submitAddModel()">添加</button></div></div></div>
+<div class="modal-overlay" id="modal-edit-model"><div class="modal" style="max-height:90vh"><h3 id="em-title">✏️ 编辑模型</h3><div class="form-group"><label class="form-label">提供商</label><select class="fi" id="em-prov" onchange="updateEmUrlHint()"><option value="codebuddy">CodeBuddy</option><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="github">GitHub Copilot</option><option value="qwen">Qwen</option><option value="openrouter">OpenRouter</option><option value="local">本地 (Ollama/vLLM)</option></select></div><div class="form-group"><label class="form-label">模型名称 <span class="req">*</span></label><input class="fi" id="em-name" placeholder="deepseek-v4-pro"></div><div class="form-group"><label class="form-label">Max Tokens</label><input class="fi" id="em-tok" type="number" value="8192"></div><div class="form-group"><label class="form-label">温度</label><input class="fi" id="em-temp" type="number" value="0.7" min="0" max="2" step="0.1"></div><div class="form-group"><label class="form-label">API Key (留空不修改)</label><input class="fi" id="em-key" type="password" placeholder="留空保留原密钥" autocomplete="off"></div><div class="form-group" style="margin-top:-6px"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer"><input type="checkbox" id="em-remember" style="width:auto;margin:0;cursor:pointer"> 💾 记住密钥（保存到此浏览器，下次自动填入）</label></div><div class="form-group"><label class="form-label">API Base URL</label><input class="fi" id="em-url"><div id="em-url-hint" style="font-size:11px;color:var(--muted);margin-top:4px"></div></div><div class="form-group"><label class="form-label">设为默认</label><select class="fi" id="em-def"><option value="false">否</option><option value="true">是</option></select></div><div id="em-test-result" class="hidden" style="margin-bottom:16px;padding:14px;border-radius:0;border:1px solid var(--line);font-size:13px"></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-edit-model')">取消</button><button class="btn" onclick="testModelInEdit()" id="em-test-btn">🧪 测试连接</button><button class="btn btn-pink" onclick="submitEditModel()">保存修改</button></div></div></div>
+<div class="toast" id="toast" aria-live="polite"></div>
+<div class="modal-overlay" id="modal-add-task"><div class="modal"><h3>📋 提交任务</h3><div class="form-group"><label class="form-label">标题 <span class="req">*</span></label><input class="fi" id="tk-title" placeholder="任务标题"></div><div class="form-group"><label class="form-label">描述</label><textarea class="fi" id="tk-desc" placeholder="任务描述"></textarea></div><div class="form-group"><label class="form-label">分配给 Agent</label><select class="fi" id="tk-agent"><option value="">自动分配</option></select></div><div class="form-group"><label class="form-label">执行模式</label><select class="fi" id="tk-exec-mode"><option value="linear" selected>线性流水线</option><option value="collaborative">智能体协作（广场讨论）</option></select></div><div class="form-group"><label class="form-label">优先级</label><select class="fi" id="tk-prio"><option value="0">紧急 (0)</option><option value="1">高 (1)</option><option value="2" selected>普通 (2)</option><option value="3">低 (3)</option></select></div><div class="form-group"><label class="form-label">依赖任务 ID (逗号分隔)</label><input class="fi" id="tk-deps" placeholder="task-id-1, task-id-2"></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-add-task')">取消</button><button class="btn btn-pink" id="btn-tk">提交</button></div></div></div>
+<div class="modal-overlay" id="modal-batch-task"><div class="modal"><h3>📦 批量提交任务</h3><p style="color:var(--muted);font-size:12px;margin-bottom:14px">输入 JSON 数组，每项含 title, description, agent_id, priority, dependencies</p><div class="form-group"><textarea class="fi" id="bt-json" rows="10" style="font-family:'IBM Plex Mono',monospace;font-size:12px" placeholder='[{"title":"代码审查","agent_id":"dev_lead","priority":1},{"title":"写测试","agent_id":"qa_engineer","priority":2,"dependencies":["上一个task_id"]}]'></textarea></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-batch-task')">取消</button><button class="btn btn-pink" id="btn-bt">批量提交</button></div></div></div>
+<div class="modal-overlay" id="modal-import-openclaw"><div class="modal"><h3>🔗 新建智能体</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px"><div class="tmpl-card" id="oc-mode-platform" onclick="setOcMode('platform')" style="text-align:left;padding:14px"><div style="font-weight:600;margin-bottom:4px">平台托管</div><div style="font-size:11px;color:var(--muted)">在 AgentsGroup2026 平台上运行的完整 Agent</div></div><div class="tmpl-card selected" id="oc-mode-openclaw" onclick="setOcMode('openclaw')" style="text-align:left;padding:14px"><div style="font-weight:600;margin-bottom:4px">连接 OpenClaw <span class="badge" style="background:rgba(255,77,141,0.15);color:var(--pink);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px">Lab</span></div><div style="font-size:11px;color:var(--muted)">连接你现有的 OpenClaw Agent</div></div></div><div id="oc-form"><div class="card" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:2px">连接 OpenClaw Agent <span class="badge" style="background:rgba(255,77,141,0.15);color:var(--pink);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px">Lab</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">为你的 OpenClaw Agent 命名并添加描述。LLM 模型、人格和技能在你的 OpenClaw 实例上配置。</p><div class="form-group"><label class="form-label">名称 <span class="req">*</span></label><input class="fi" id="oc-name" placeholder="例如：我的 OpenClaw Bot"></div><div class="form-group"><label class="form-label">👤 角色</label><input class="fi" id="oc-role" placeholder="例如：在我的 Mac 上运行的个人助手"></div><div class="form-group"><label class="form-label">OpenClaw Gateway URL <span class="req">*</span></label><input class="fi" id="oc-url" placeholder="https://gateway.openclaw.ai 或 http://localhost:3008"><p style="font-size:11px;color:var(--dim);margin-top:4px">OpenClaw 实例的 Gateway 地址，支持 HTTP/WebSocket</p></div><div class="form-group"><label class="form-label">API Token <span class="req">*</span></label><div style="position:relative"><input class="fi" id="oc-token" type="password" placeholder="oc_pat_xxxxxxxxxxxx" style="padding-right:40px"><button type="button" class="btn-ghost" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:14px;cursor:pointer;border:none;background:none;color:var(--muted);padding:4px" onclick="const i=el('oc-token');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🔒'">👁</button></div><p style="font-size:11px;color:var(--dim);margin-top:4px">在 OpenClaw Settings → API Keys 中生成 Personal Access Token</p></div><div class="form-group"><label class="form-label">权限设置</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="tmpl-card selected" id="oc-vis-public" onclick="setOcVis('public')" style="padding:12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:var(--pink);font-size:18px">●</span><div><div style="font-weight:600">全公司可见</div><div style="font-size:11px;color:var(--muted)">所有人都可以使用此智能体</div></div></div></div><div class="tmpl-card" id="oc-vis-private" onclick="setOcVis('private')" style="padding:12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:18px">●</span><div><div style="font-weight:600">仅自己</div><div style="font-size:11px;color:var(--muted)">仅创建者本人可使用</div></div></div></div></div></div></div></div><div class="form-group"><label class="form-label">目标团队</label><select class="fi" id="oc-team"></select></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-import-openclaw')">取消</button><button class="btn btn-pink" id="btn-oc">连接 Agent</button></div></div></div>
+<div class="modal-overlay" id="modal-tool-config"><div class="modal"><h3 id="tc-title">🔧 工具配置</h3><div id="tc-form"></div><div class="modal-actions"><button class="btn" onclick="closeModal('modal-tool-config')">关闭</button><button class="btn btn-pink" id="btn-tc" onclick="saveToolConfig()">保存配置</button></div></div></div>
+<!-- Claude Code Terminal Panel -->
+<div class="claude-term-overlay" id="claude-term-overlay">
+  <div class="claude-term">
+    <div class="claude-term-header">
+      <div class="claude-term-title"><span class="claude-term-dot"></span> Claude Code <span id="ct-session-id" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:oklch(0.55 0.005 110);margin-left:8px"></span></div>
+      <div class="claude-term-actions">
+        <span id="ct-status" style="font-size:11px;color:oklch(0.52 0.04 160);font-family:'IBM Plex Mono',monospace">● running</span>
+        <span id="ct-elapsed" style="font-size:11px;color:oklch(0.55 0.005 110);font-family:'IBM Plex Mono',monospace;margin-left:8px"></span>
+        <button class="claude-term-btn" id="ct-stop" onclick="stopClaudeSession()">⏹ 停止</button>
+        <button class="claude-term-btn" onclick="closeClaudeTerm()">✕ 关闭</button>
+      </div>
+    </div>
+    <div class="claude-term-body" id="ct-body"></div>
+    <div class="claude-term-footer">
+      <span id="ct-lines" style="font-size:11px;color:oklch(0.55 0.005 110)">0 lines</span>
+    </div>
+  </div>
+</div>
+<script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/evidence-runs.js"></script>
+<script src="/js/ag-context.js"></script>
+<script src="/js/agent-team-config.js"></script>
+<script src="/js/tools-skills.js"></script>
+<script src="/js/wizard.js"></script>
+<script src="/js/tasks-view.js"></script>
+<script src="/js/agent-detail.js"></script>
+<script src="/js/sessions-runtime.js"></script>
+<script src="/js/token-factory.js"></script>
+<script>
+// Wabi-Sabi: auto-convert emoji to 方印 seals
+(function(){
+const m={'🤖':'智','🏠':'览','🧠':'腦','🔌':'接','🔧':'具','⚡':'能','📋':'务','💾':'存','🚀':'行','🏭':'厂','🔄':'环','🔍':'査','🧪':'験','⚙️':'设','📊':'统','🏗️':'构','📈':'趨','📦':'模','📤':'出','📥':'入','🚢':'舶','🌊':'洋','🧬':'因','🔗':'链','🎯':'的','💡':'燈','🛡️':'护','⚠️':'警','🔒':'鎖','🔑':'键','📝':'记','💬':'话','🔥':'炎','📡':'波','🔔':'鐘','🗂️':'档','🪙':'幣','🧩':'片','🛠️':'修','🎨':'藝','⏱️':'计','🖥️':'端','🌐':'球','➕':'加','❌':'×','✅':'✓','🏊':'泳','☁️':'云','💻':'码'};
+function seal(el){const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);const ns=[];while(w.nextNode())ns.push(w.currentNode);ns.forEach(n=>{let t=n.textContent,c=false;for(const[e,k]of Object.entries(m)){if(t.includes(e)){c=true;t=t.replaceAll(e,'\u200B'+k);}}if(c){const f=document.createDocumentFragment();t.split('\u200B').forEach(p=>{if(p.length>=1&&Object.values(m).includes(p[0])){const s=document.createElement('span');s.className='seal';s.textContent=p[0];f.appendChild(s);if(p.length>1)f.appendChild(document.createTextNode(p.slice(1)));}else{f.appendChild(document.createTextNode(p));}});n.parentNode.replaceChild(f,n);}});}
+function run(){seal(document.body);new MutationObserver(ms=>ms.forEach(mu=>mu.addedNodes.forEach(n=>{if(n.nodeType===1)seal(n);}))).observe(document.body,{childList:true,subtree:true});}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
+})();
+</script>
+<script src="/js/i18n.js"></script>
+
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
+</body>
+</html>

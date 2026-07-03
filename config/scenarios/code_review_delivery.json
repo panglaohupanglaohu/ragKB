@@ -1,0 +1,294 @@
+{
+  "scenario_id": "code_review_delivery",
+  "name": "代码评审交付",
+  "category": "code_delivery",
+  "description": "一个迭代周期内完成需求拆解、编码、评审、测试与发布。评审环节是瓶颈，需要协作消化返工。",
+  "version": 1,
+  "tags": [
+    "研发",
+    "交付",
+    "评审"
+  ],
+  "difficulty": 3,
+  "recommended_max_steps": 130,
+  "source": "builtin",
+  "world": {
+    "rooms": [
+      {
+        "room_id": "plan",
+        "name": "规划室",
+        "icon": "🗺️",
+        "capacity": 6,
+        "stage": 0
+      },
+      {
+        "room_id": "dev",
+        "name": "开发间",
+        "icon": "💻",
+        "capacity": 8,
+        "stage": 1
+      },
+      {
+        "room_id": "review",
+        "name": "评审室",
+        "icon": "🔍",
+        "capacity": 6,
+        "stage": 2
+      },
+      {
+        "room_id": "test",
+        "name": "测试间",
+        "icon": "🧪",
+        "capacity": 6,
+        "stage": 3
+      },
+      {
+        "room_id": "release",
+        "name": "发布台",
+        "icon": "📦",
+        "capacity": 6,
+        "stage": 4
+      }
+    ],
+    "resources": [
+      {
+        "id": "ci",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.4,
+        "available": true
+      },
+      {
+        "id": "staging",
+        "type": "tool",
+        "capacity": 1.0,
+        "utilization": 0.3,
+        "available": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "review_gate",
+        "constraint_type": "ordering",
+        "rule": "未过评审不得进入测试",
+        "target_agents": []
+      }
+    ],
+    "global_metrics_init": {
+      "open_prs": 5
+    }
+  },
+  "taskflow": [
+    {
+      "task_id": "c1",
+      "name": "需求拆解",
+      "room_id": "plan",
+      "required_skills": [
+        "task_breakdown"
+      ],
+      "depends_on": [],
+      "base_duration_steps": 3,
+      "reward": 0.4,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "c2",
+      "name": "核心编码",
+      "room_id": "dev",
+      "required_skills": [
+        "coding"
+      ],
+      "depends_on": [
+        "c1"
+      ],
+      "base_duration_steps": 6,
+      "reward": 0.7,
+      "failure_penalty": 0.15,
+      "optional": false
+    },
+    {
+      "task_id": "c3",
+      "name": "单元测试",
+      "room_id": "dev",
+      "required_skills": [
+        "testing"
+      ],
+      "depends_on": [
+        "c2"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "c4",
+      "name": "代码评审",
+      "room_id": "review",
+      "required_skills": [
+        "code_review"
+      ],
+      "depends_on": [
+        "c2"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.6,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "c5",
+      "name": "返工修复",
+      "room_id": "dev",
+      "required_skills": [
+        "coding"
+      ],
+      "depends_on": [
+        "c4"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.4,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "c6",
+      "name": "集成测试",
+      "room_id": "test",
+      "required_skills": [
+        "testing"
+      ],
+      "depends_on": [
+        "c3",
+        "c5"
+      ],
+      "base_duration_steps": 4,
+      "reward": 0.5,
+      "failure_penalty": 0.1,
+      "optional": false
+    },
+    {
+      "task_id": "c7",
+      "name": "灰度发布",
+      "room_id": "release",
+      "required_skills": [
+        "release_ops"
+      ],
+      "depends_on": [
+        "c6"
+      ],
+      "base_duration_steps": 3,
+      "reward": 0.6,
+      "failure_penalty": 0.2,
+      "optional": false
+    },
+    {
+      "task_id": "c8",
+      "name": "发布记录",
+      "room_id": "release",
+      "required_skills": [
+        "report_writing"
+      ],
+      "depends_on": [
+        "c7"
+      ],
+      "base_duration_steps": 2,
+      "reward": 0.2,
+      "failure_penalty": 0.02,
+      "optional": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "开发",
+      "min_count": 2,
+      "required_skills": [
+        "coding"
+      ],
+      "preferred_skills": [
+        "testing"
+      ]
+    },
+    {
+      "role": "评审员",
+      "min_count": 1,
+      "required_skills": [
+        "code_review"
+      ],
+      "preferred_skills": [
+        "task_breakdown"
+      ]
+    },
+    {
+      "role": "测试",
+      "min_count": 1,
+      "required_skills": [
+        "testing"
+      ],
+      "preferred_skills": []
+    },
+    {
+      "role": "发布工程师",
+      "min_count": 1,
+      "required_skills": [
+        "release_ops"
+      ],
+      "preferred_skills": []
+    }
+  ],
+  "chaos_script": [
+    {
+      "from_step": 30,
+      "to_step": 60,
+      "events": [
+        {
+          "event_type": "agent_failure",
+          "probability_per_step": 0.02,
+          "payload": {}
+        },
+        {
+          "event_type": "skill_degraded",
+          "probability_per_step": 0.03,
+          "payload": {}
+        }
+      ]
+    },
+    {
+      "from_step": 80,
+      "to_step": 110,
+      "events": [
+        {
+          "event_type": "logic_deadlock",
+          "probability_per_step": 0.02,
+          "payload": {}
+        },
+        {
+          "event_type": "task_change",
+          "probability_per_step": 0.03,
+          "payload": {}
+        }
+      ]
+    }
+  ],
+  "rubric": {
+    "kpi_targets": {
+      "completion_rate": 0.85,
+      "total_score": 0.62
+    },
+    "dimension_weights": {
+      "task_completion": 0.3,
+      "collaboration_efficiency": 0.25,
+      "resilience": 0.2,
+      "cost_efficiency": 0.15,
+      "extractability": 0.1
+    },
+    "skill_expectations": {
+      "coding": 0.65,
+      "code_review": 0.65,
+      "testing": 0.6,
+      "task_breakdown": 0.6,
+      "release_ops": 0.6
+    }
+  }
+}

@@ -1,0 +1,243 @@
+/* ============================================================
+   Wabi-Sabi Topbar — Shared Shell
+   侘寂风横向顶栏（huashu-agent 设计语言 v1）
+   使用：任何 page 引入 <link rel="stylesheet" href="/css/topbar-ws.css">
+         然后用 <div class="topbar-ws"> / <nav class="global-nav">
+   依赖：variables.css 中的 Wabi-Sabi token
+   ============================================================ */
+
+.topbar-ws {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  min-height: 56px;
+  background: var(--shironeri);
+  border-bottom: 1px solid var(--groove);
+  position: relative;
+  font-family: var(--font-sans);
+  gap: 16px;
+}
+
+.topbar-ws__left,
+.topbar-ws__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.topbar-ws__right { margin-left: auto; }
+
+.topbar-ws__left h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--sumi);
+  margin: 0;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+
+.topbar-ws__left .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--kitsune);
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+/* Centered nav, absolute so left/right can use real flex space */
+.topbar-ws__nav {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: stretch;
+  height: 56px;
+  gap: 0;
+}
+
+.topbar-ws__nav a,
+.topbar-ws__nav .cur {
+  padding: 0 16px;
+  font-size: 12.5px;
+  color: var(--sumi-3);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+  position: relative;
+}
+
+.topbar-ws__nav a:hover {
+  color: var(--sumi);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.topbar-ws__nav .cur {
+  color: var(--koke);
+  border-bottom-color: var(--koke);
+  pointer-events: none;
+  cursor: default;
+  font-weight: 600;
+}
+
+.topbar-ws__nav .cur::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--koke);
+  opacity: 0.6;
+}
+
+/* Right-side user chip */
+.topbar-ws__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--sumi-3);
+  font-family: var(--font-mono);
+}
+
+.topbar-ws__user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--koke);
+  color: var(--shironeri);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+.topbar-ws__user-name {
+  color: var(--sumi-2);
+  font-weight: 500;
+}
+
+.topbar-ws__logout-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--groove);
+  color: var(--sumi-2);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+}
+.topbar-ws__logout-btn:hover {
+  border-color: var(--shu);
+  color: var(--shu);
+  background: rgba(224, 112, 112, 0.05);
+}
+
+/* Responsive: stack to top + side scrolling nav on narrow screens */
+@media (max-width: 900px) {
+  .topbar-ws__nav {
+    position: static;
+    transform: none;
+    height: auto;
+    overflow-x: auto;
+    flex: 1;
+    justify-content: flex-start;
+  }
+  .topbar-ws__left h1 { font-size: 15px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   nav-grouped — Fathom/Pentagram 式分组导航
+   哲学：信息层级 = 视觉层级的同义词
+   - group label: 9px 全大写 · 字距 0.2em · 色 --sumi-3 (元信息)
+   - group item:  13.5px · weight 500 · 字距 0.5px (主项)
+   - group 之间: 1px hairline + 24px 留白 (节制的分隔)
+   - 当前页:    --koke 描边 + 0.6 透明圆点 (激活态唯一装饰)
+   ═══════════════════════════════════════════════════════════════ */
+.topbar-ws__nav.nav-grouped {
+  gap: 0;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  padding: 0 14px;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group + .nav-group::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 14px;
+  background: var(--groove);
+  opacity: 0.7;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group__label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--sumi-3);
+  margin-right: 12px;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  user-select: none;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group a,
+.topbar-ws__nav.nav-grouped .nav-group .cur {
+  padding: 0 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  border-bottom: none;
+  position: relative;
+  height: 100%;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group .cur {
+  color: var(--koke);
+  font-weight: 600;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group .cur::before {
+  width: 3px;
+  height: 3px;
+  left: 2px;
+  opacity: 0.85;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group a:hover {
+  color: var(--sumi);
+  background: transparent;
+}
+
+.topbar-ws__nav.nav-grouped .nav-group a:hover::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 16px;
+  height: 1px;
+  background: var(--sumi-2);
+  opacity: 0.5;
+}

@@ -1,0 +1,14 @@
+/* ============================================================
+   tasks.html — Token compatibility shim
+   Map legacy OpenBridge aliases to the wabi-sabi token set.
+   ============================================================ */
+
+:root {
+  --card: var(--ob-bg-panel);
+  --border: var(--ob-border);
+  --radius: 8px;
+  --accent: var(--koke);
+  --success: var(--koke);
+  --danger: var(--shu);
+  --warn: var(--kitsune);
+}

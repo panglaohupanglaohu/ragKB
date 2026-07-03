@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>自演进棘轮 — AgentsGroup2026</title>
+<style>
+:root{
+  --shironeri:oklch(0.96 0.003 110);--ishi:oklch(0.91 0.004 110);--kabe:oklch(0.85 0.006 110);
+  --hai:oklch(0.78 0.006 110);--nezumi:oklch(0.68 0.005 110);--sumi:oklch(0.18 0.008 110);
+  --koke:oklch(0.42 0.05 160);--shu:oklch(0.48 0.12 28);--kitsune:oklch(0.56 0.08 65);
+  --washi-dot:oklch(0.88 0.004 110);
+  --font-serif:'Noto Serif SC',serif;--font-sans:'Noto Sans SC',sans-serif;--font-mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--shironeri);color:var(--sumi);min-height:100vh;overflow-x:hidden;position:relative}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(circle at 20% 30%,var(--washi-dot) 0.5px,transparent 0.5px),
+  radial-gradient(circle at 60% 70%,var(--washi-dot) 0.3px,transparent 0.3px),
+  radial-gradient(circle at 80% 20%,var(--washi-dot) 0.4px,transparent 0.4px);
+  background-size:60px 60px,45px 45px,55px 55px;opacity:.4}
+.seal{font-family:var(--font-serif);font-size:13px;color:var(--shu);border:1.5px solid var(--shu);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;transform:rotate(-2deg);flex-shrink:0}
+#top{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--shironeri);border-bottom:1px solid var(--kabe);height:48px;position:relative;z-index:2}
+#top .logo{font-family:var(--font-serif);font-weight:900;font-size:18px;letter-spacing:.5px;color:var(--shu)}
+#top .subtitle{color:var(--nezumi);font-size:11px}
+#top .spacer{flex:1}
+#top .pill{padding:4px 10px;font-size:11px;border:1px solid var(--kabe);border-radius:0;color:var(--nezumi);text-decoration:none;transition:.2s;background:var(--ishi);box-shadow:2px 2px 0 var(--hai)}
+#top .pill:hover{border-color:var(--koke);color:var(--koke);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--hai)}
+#top .pill.live{border-color:var(--koke);color:var(--koke);box-shadow:0 0 10px oklch(0.42 0.05 160 / .25)}
+#top .pill.warn{border-color:var(--kitsune);color:var(--kitsune)}
+#app{display:grid;height:calc(100vh - 48px);grid-template-columns:240px 1fr 320px;grid-template-rows:1fr 220px;gap:1px;background:var(--shironeri)}
+#menu{grid-column:1;grid-row:1 / span 2;background:var(--ishi);overflow-y:auto;border-right:1px solid var(--kabe)}
+#stage{grid-column:2;grid-row:1;background:var(--shironeri);position:relative;overflow:hidden}
+#ledger{grid-column:3;grid-row:1 / span 2;background:var(--ishi);overflow-y:auto;border-left:1px solid var(--kabe)}
+#trend{grid-column:2;grid-row:2;background:var(--shironeri);border-top:1px solid var(--kabe);padding:10px 14px;overflow:hidden;display:grid;grid-template-columns:1fr 360px;gap:16px}
+#trend .tr-l,#trend .tr-r{display:flex;flex-direction:column;min-height:0}
+.menu-head{padding:14px 16px 6px;font-size:10px;letter-spacing:2px;color:var(--nezumi)}
+.menu-item{padding:10px 16px;border-left:3px solid transparent;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:.15s;border-bottom:1px dashed var(--kabe);background:var(--ishi)}
+.menu-item:hover{background:oklch(0.42 0.05 160 / .06);border-left-color:var(--koke)}
+.menu-item.active{background:oklch(0.42 0.05 160 / .10);border-left-color:var(--koke)}
+.menu-item .mi-t{font-size:12px;font-weight:600;color:var(--sumi)}
+.menu-item .mi-s{font-size:10px;color:var(--nezumi);margin-top:2px}
+.menu-item .mi-v{font-size:14px;font-weight:800;color:var(--koke);font-family:var(--font-mono)}
+.menu-item.hot .mi-v{color:var(--kitsune)}
+.menu-item .mi-delta{font-size:9px;color:var(--koke);margin-top:2px;font-family:var(--font-mono)}
+.action-group{padding:12px 14px;border-top:1px solid var(--kabe);display:flex;flex-direction:column;gap:6px}
+.btn{padding:8px 10px;font-size:11px;font-weight:700;letter-spacing:.3px;border:1px solid var(--kabe);background:var(--shironeri);color:var(--nezumi);border-radius:0;transition:.15s;text-align:left;box-shadow:2px 2px 0 var(--hai)}
+.btn:hover{background:var(--ishi);border-color:var(--koke);color:var(--koke);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--hai)}
+.btn.primary{background:var(--koke);border:none;color:var(--shironeri)}
+.btn.primary:hover{filter:brightness(1.15)}
+.btn.gold{border-color:var(--kitsune);color:var(--kitsune)}
+.btn.gold:hover{background:oklch(0.56 0.08 65 / .15)}
+#stage-head{position:absolute;top:0;left:0;right:0;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(180deg,rgba(6,10,20,.08),transparent);z-index:10}
+#stage-head .st{font-size:11px;letter-spacing:2px;color:var(--nezumi)}
+#stage-head .st b{color:var(--sumi)}
+#stage-head .kpi{display:flex;gap:14px;font-family:var(--font-mono);font-size:11px}
+#stage-head .kpi div{text-align:right}
+#stage-head .kpi .k{color:var(--nezumi);font-size:9px;letter-spacing:1px}
+#stage-head .kpi .v{font-size:13px;font-weight:800;color:var(--koke)}
+#flow{position:absolute;top:48px;left:0;right:0;bottom:0}
+.node{position:absolute;width:150px;padding:10px 12px;border-radius:0;background:var(--shironeri);border:1px solid var(--kabe);box-shadow:2px 2px 0 var(--hai);transition:.35s cubic-bezier(.4,0,.2,1)}
+.node .n-ic{font-size:16px;margin-bottom:3px}
+.node .n-t{font-size:11px;font-weight:700;color:var(--sumi);letter-spacing:.4px}
+.node .n-s{font-size:10px;color:var(--nezumi);margin-top:2px;line-height:1.35}
+.node .n-data{font-size:10px;color:var(--kitsune);margin-top:6px;padding-top:5px;border-top:1px solid var(--kabe);font-family:var(--font-mono);word-break:break-all;min-height:14px}
+.node.active{border-color:var(--koke);box-shadow:0 0 0 2px oklch(0.42 0.05 160 / .15),0 0 24px oklch(0.42 0.05 160 / .35);transform:scale(1.04)}
+.node.done{border-color:var(--koke);background:var(--ishi)}
+.node.done .n-data{color:var(--koke)}
+.node.n1{left:20px;top:30px}
+.node.n2{left:205px;top:30px}
+.node.n3{left:390px;top:30px}
+.node.n4{left:575px;top:30px}
+.node.n5{left:760px;top:30px;width:170px;border-color:var(--kitsune)}
+.node.n5 .n-ic{color:var(--kitsune)}
+.node.pool{left:20px;top:160px;width:910px;min-height:180px;background:var(--ishi)}
+.node.pool .n-t{color:var(--nezumi)}
+#pool-body{margin-top:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.policy{padding:8px 10px;background:var(--hai);border:1px solid var(--kabe);border-radius:0;cursor:pointer;transition:.15s}
+.policy:hover{background:var(--kabe);transform:translateX(2px)}
+.policy.save{background:oklch(0.48 0.07 22 / .08);border-color:oklch(0.48 0.07 22 / .3)}
+.policy.open{background:oklch(0.42 0.05 160 / .08);border-color:oklch(0.42 0.05 160 / .3)}
+.policy .pt{font-size:11px;font-weight:700;color:var(--sumi)}
+.policy .pm{font-size:10px;color:var(--nezumi);margin-top:2px;line-height:1.35}
+.policy .pk{display:flex;gap:10px;margin-top:5px;font-size:10px;font-family:var(--font-mono);color:var(--kitsune)}
+.policy.picked{border-color:var(--koke);box-shadow:0 0 0 2px oklch(0.42 0.05 160 / .2);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 2px oklch(0.42 0.05 160 / .2)}50%{box-shadow:0 0 0 4px oklch(0.42 0.05 160 / .35),0 0 20px oklch(0.42 0.05 160 / .3)}}
+.edge{position:absolute;height:2px;background:linear-gradient(90deg,var(--kabe),transparent);transform-origin:left;pointer-events:none}
+.edge.active{background:linear-gradient(90deg,var(--koke),var(--hai));height:3px;box-shadow:0 0 8px oklch(0.42 0.05 160 / .4)}
+.edge.active::after{content:'';position:absolute;right:0;top:-3px;width:0;height:0;border-left:8px solid var(--hai);border-top:4px solid transparent;border-bottom:4px solid transparent}
+.packet{position:absolute;width:10px;height:10px;border-radius:0;background:var(--koke);box-shadow:0 0 12px var(--koke);pointer-events:none;transition:all 1s cubic-bezier(.4,0,.2,1)}
+.l-head{padding:12px 14px;border-bottom:1px solid var(--kabe);display:flex;justify-content:space-between;align-items:center}
+.l-head .t{font-size:11px;letter-spacing:2px;color:var(--nezumi);font-weight:700}
+.l-head .c{font-size:10px;color:var(--nezumi);font-family:var(--font-mono)}
+.stack{padding:10px}
+.heritage{padding:9px 11px;margin-bottom:6px;border-radius:0;background:var(--ishi);border-left:4px solid var(--koke);position:relative;overflow:hidden;animation:slideIn .5s cubic-bezier(.4,0,.2,1)}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}
+.heritage.cat-thermal_ratchet{border-left-color:oklch(0.48 0.07 22);background:oklch(0.48 0.07 22 / .10)}
+.heritage.cat-principle{border-left-color:var(--kitsune);background:oklch(0.56 0.08 65 / .10)}
+.heritage.cat-iot{border-left-color:var(--koke);background:oklch(0.42 0.05 160 / .10)}
+.heritage.cat-loop{border-left-color:var(--hai)}
+.heritage.cat-general{border-left-color:var(--koke);background:oklch(0.42 0.05 160 / .10)}
+.heritage .hnum{position:absolute;top:5px;right:8px;font-size:9px;color:var(--nezumi);font-family:var(--font-mono);font-weight:700}
+.heritage .htitle{font-size:11px;font-weight:700;color:var(--sumi);padding-right:24px}
+.heritage .hmeta{font-size:10px;color:var(--nezumi);margin-top:3px;font-family:var(--font-mono)}
+.heritage .hdelta{display:inline-block;padding:1px 6px;background:oklch(0.42 0.05 160 / .15);color:var(--koke);font-weight:700;margin-right:4px}
+.heritage .lock{position:absolute;bottom:4px;right:8px;font-size:9px;color:var(--nezumi)}
+.empty{padding:24px 14px;text-align:center;color:var(--nezumi);font-size:11px}
+.tr-hd{font-size:10px;letter-spacing:2px;color:var(--nezumi);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.tr-hd b{color:var(--sumi)}
+.tr-hd span.val{color:var(--koke);font-family:var(--font-mono)}
+#pue-svg{width:100%;flex:1;background:var(--shironeri);border-radius:0;border:1px solid var(--kabe)}
+#events{flex:1;overflow-y:auto;background:var(--shironeri);border:1px solid var(--kabe);border-radius:0;padding:6px 10px;font-family:var(--font-mono);font-size:10px;line-height:1.5}
+.ev{padding:3px 0;border-bottom:1px dashed var(--kabe)}
+.ev:last-child{border:none}
+.ev .ts{color:var(--nezumi)}
+.ev .k{display:inline-block;padding:0 5px;background:var(--hai);color:var(--koke);font-size:9px;font-weight:700}
+.ev .k-closed_loop_tick{background:var(--koke);color:var(--shironeri)}
+.ev .k-policy_applied{background:var(--kitsune);color:var(--shironeri)}
+.ev .k-darwin_evolve{background:var(--hai);color:var(--koke)}
+.ev .d{color:var(--nezumi);padding-left:6px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--kabe)}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/components.css">
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+<body>
+<!-- TOP BAR -->
+<div id="top">
+  <span class="seal">棘</span>
+  <span class="logo">AgentsGroup2026</span>
+  <span class="subtitle">自演进棘轮 · Darwin Ratchet · 2D Process View</span>
+  <span class="spacer"></span>
+  <a class="pill" href="/marine-datacenter.html"><span class="seal">数</span> DASHBOARD</a>
+  <a class="pill" href="/datacenter-digital-twin.html"><span class="seal">孪</span> DIGITAL TWIN</a>
+  <a class="pill" href="/cost-dashboard.html"><span class="seal">💰</span> COST</a>
+  <span class="pill" id="pill-ws">WS · CONNECTING</span>
+  <span class="pill" id="pill-round">R0</span>
+</div>
+
+<div id="app">
+
+  <!-- ══════ MENU (LEFT) ══════ -->
+  <nav id="menu">
+    <div class="menu-head">KPI · CURRENT STATE</div>
+    <div class="menu-item hot" onclick="focusKPI('pue')">
+      <div><div class="mi-t">Current PUE</div><div class="mi-s">baseline 1.85 → target 1.30</div></div>
+      <div><div class="mi-v" id="k-pue">--</div><div class="mi-delta" id="k-pue-delta">--</div></div>
+    </div>
+    <div class="menu-item" onclick="focusKPI('round')">
+      <div><div class="mi-t">演进轮次</div><div class="mi-s">evolution round</div></div>
+      <div class="mi-v" id="k-round">0</div>
+    </div>
+    <div class="menu-item" onclick="focusKPI('heritage')">
+      <div><div class="mi-t">棘轮遗产</div><div class="mi-s">不可回退条目数</div></div>
+      <div class="mi-v" id="k-heritage">0</div>
+    </div>
+    <div class="menu-item">
+      <div><div class="mi-t">节能累计</div><div class="mi-s">kWh/day saved</div></div>
+      <div class="mi-v" id="k-kwh">0</div>
+    </div>
+    <div class="menu-item">
+      <div><div class="mi-t">CO₂ 减排</div><div class="mi-s">tCO₂/yr saved</div></div>
+      <div class="mi-v" id="k-co2">0</div>
+    </div>
+    <div class="menu-item">
+      <div><div class="mi-t">AI 技能库</div><div class="mi-s">Lobster-skill 条数</div></div>
+      <div class="mi-v" id="k-skills">0</div>
+    </div>
+    <div class="menu-item">
+      <div><div class="mi-t">已应用策略</div><div class="mi-s">applied / total</div></div>
+      <div class="mi-v" id="k-policies">0/0</div>
+    </div>
+
+    <div class="menu-head">EVOLVING FUNCTIONS</div>
+    <div class="menu-item" onclick="selectFn('4view', event)">
+      <div><div class="mi-t">① 4 视角监控</div><div class="mi-s">热场/能流/进程/容量</div></div>
+      <div class="mi-v">▸</div>
+    </div>
+    <div class="menu-item" onclick="selectFn('policies', event)">
+      <div><div class="mi-t">② 节能策略池</div><div class="mi-s">open_source + save_outgo</div></div>
+      <div class="mi-v" id="fn-pol">--</div>
+    </div>
+    <div class="menu-item" onclick="selectFn('skills', event)">
+      <div><div class="mi-t">③ 运维技能</div><div class="mi-s">贝叶斯强化置信度</div></div>
+      <div class="mi-v" id="fn-sk">--</div>
+    </div>
+    <div class="menu-item" onclick="selectFn('loop', event)">
+      <div><div class="mi-t">④ 闭环 TICK</div><div class="mi-s">监控→决策→调整→验证</div></div>
+      <div class="mi-v">▸</div>
+    </div>
+    <div class="menu-item" onclick="selectFn('heritage', event)">
+      <div><div class="mi-t">⑤ 棘轮锁定</div><div class="mi-s">append-only heritage</div></div>
+      <div class="mi-v" id="fn-he">--</div>
+    </div>
+
+    <div class="action-group">
+      <button class="btn primary" onclick="triggerLoop()">触发闭环 TICK</button>
+      <button class="btn gold" onclick="triggerRatchet()">棘轮锁定 LOCK</button>
+      <button class="btn" onclick="toggleAuto()" id="auto-btn">AUTO LOOP</button>
+      <button class="btn" onclick="refreshAll()">刷新全部</button>
+    </div>
+
+    <div class="menu-head">LEGEND</div>
+    <div style="padding:4px 14px 20px;font-size:10px;color:var(--nezumi);line-height:1.7">
+      <b style="color:var(--shu)">热场优化</b><br>
+      <b style="color:var(--kitsune)">第一性原理</b><br>
+      <b style="color:var(--koke)">IoT 闭环</b><br>
+      <b style="color:var(--nezumi)">流程迭代</b><br>
+      <b style="color:var(--koke)">通用演进</b>
+    </div>
+  </nav>
+
+  <!-- ══════ STAGE (CENTER) ══════ -->
+  <main id="stage">
+    <div id="stage-head">
+      <div class="st"><b>BACKEND PROCESS</b> · CLOSED-LOOP TICK · 候选池 → 排序 → 应用 → 验证 → 棘轮锁定</div>
+      <div class="kpi">
+        <div><div class="k">CURRENT PUE</div><div class="v" id="sh-pue">--</div></div>
+        <div><div class="k">ROUND</div><div class="v" id="sh-round">0</div></div>
+        <div><div class="k">LOCKED</div><div class="v" id="sh-h">0</div></div>
+      </div>
+    </div>
+
+    <div id="flow">
+      <div class="node n1" data-step="1">
+        <div class="n-ic">监</div>
+        <div class="n-t">① MONITOR</div>
+        <div class="n-s">4 视角快照<br>热/能/进/容</div>
+        <div class="n-data" id="d1">待命</div>
+      </div>
+      <div class="node n2" data-step="2">
+        <div class="n-ic">策</div>
+        <div class="n-t">② DECIDE</div>
+        <div class="n-s">argmax(saving_kWh)<br>未应用策略池</div>
+        <div class="n-data" id="d2">待命</div>
+      </div>
+      <div class="node n3" data-step="3">
+        <div class="n-ic">调</div>
+        <div class="n-t">③ ADJUST</div>
+        <div class="n-s">apply_policy<br>fitness=0.88</div>
+        <div class="n-data" id="d3">待命</div>
+      </div>
+      <div class="node n4" data-step="4">
+        <div class="n-ic">验</div>
+        <div class="n-t">④ VERIFY</div>
+        <div class="n-s">pue &lt; baseline?<br>if ok → 棘轮</div>
+        <div class="n-data" id="d4">待命</div>
+      </div>
+      <div class="node n5" data-step="5">
+        <div class="n-ic">锁</div>
+        <div class="n-t">⑤ RATCHET LOCK</div>
+        <div class="n-s">write DarwinHeritage<br><b style="color:var(--kitsune)">append-only · 不可回退</b></div>
+        <div class="n-data" id="d5">待命</div>
+      </div>
+
+      <div class="node pool">
+        <div class="n-ic">策</div>
+        <div class="n-t">候选演化池 · CANDIDATE POLICIES (score = saving_kWh × kind_boost)</div>
+        <div class="n-s">点击任一策略卡片可直接应用 → 进入③ ADJUST → 通过 → 锁定为不可回退遗产</div>
+        <div id="pool-body"></div>
+      </div>
+
+      <svg id="edges" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1">
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="var(--nezumi)"/>
+          </marker>
+          <marker id="arrowhead-a" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="var(--koke)"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+  </main>
+
+  <!-- ══════ LEDGER (RIGHT) ══════ -->
+  <aside id="ledger">
+    <div class="l-head">
+      <div class="t">棘轮遗产堆叠 · APPEND-ONLY</div>
+      <div class="c" id="ledger-count">0 locked</div>
+    </div>
+    <div style="padding:8px 12px;font-size:10px;color:var(--nezumi);line-height:1.55;
+                background:var(--ishi);border-bottom:1px solid var(--kabe)">
+      每一格都是一次验证通过的演进。<b style="color:var(--kitsune)">只追加,永不删除</b> — 这就是"棘轮"。
+      累计 ΔPUE: <b style="color:var(--koke)" id="cum-pue">0.000</b> ·
+      累计节能 <b style="color:var(--koke)" id="cum-kwh">0</b> kWh/d
+    </div>
+    <div class="stack" id="stack"></div>
+  </aside>
+
+  <!-- ══════ TREND (BOTTOM) ══════ -->
+  <section id="trend">
+    <div class="tr-l">
+      <div class="tr-hd">
+        <span><b>PUE 趋势</b> · 每次验证通过即下降一格 · 永不反弹</span>
+        <span class="val" id="pue-range">--</span>
+      </div>
+      <svg id="pue-svg" viewBox="0 0 800 160" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="tr-r">
+      <div class="tr-hd"><span><b>后台事件流</b> · LIVE</span>
+        <span class="val" id="ev-count">0</span></div>
+      <div id="events"><div class="empty">waiting…</div></div>
+    </div>
+  </section>
+
+</div>
+
+<script type="module">
+/* ═══════════════════ STATE ═══════════════════ */
+const API = `${location.protocol}//${location.hostname}:8080/api/v1/datacenter`;
+const WS_URL = `ws://${location.hostname}:8080/ws/datacenter`;
+const BASELINE = 1.85, TARGET = 1.30;
+let STATE = { current_pue: 1.85, evolution_round: 0, heritage_count: 0,
+              saving_kwh_day: 0, co2_saved_ton_year: 0,
+              skill_count: 0, policy_count: 0, policies_applied: 0 };
+let HERITAGE = [], POLICIES = [], EVENTS = [], PUE_HIST = [];
+let autoTimer = null, ws = null;
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const csrfFetch = (...args) => (window._agFetch || fetch)(...args);
+function redirectToLoginPage(){
+  const next = location.pathname + location.search + location.hash;
+  location.href = '/login.html?next=' + encodeURIComponent(next);
+}
+async function ensureAuthenticatedPage(){
+  try{
+    const r = await fetch('/api/v1/auth/me', { credentials:'same-origin' });
+    if(r.status === 401){ redirectToLoginPage(); return false; }
+    if(!r.ok) return true;
+    const d = await r.json().catch(() => null);
+    if(d && d.authenticated === false){ redirectToLoginPage(); return false; }
+  }catch(e){
+    // Leave offline handling to the normal data refresh path.
+  }
+  return true;
+}
+async function apiRead(url){
+  if (window.api && typeof window.api.request === 'function') {
+    return window.api.request(url);
+  }
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  return r.json();
+}
+
+/* ═══════════════════ BOOT ═══════════════════ */
+window.addEventListener('load', async () => {
+  if (!(await ensureAuthenticatedPage())) return;
+  await refreshAll();
+  drawEdges();
+  connectWS();
+  setInterval(() => { fetchStatus(); fetchEvents(); }, 5000);
+});
+window.addEventListener('resize', drawEdges);
+
+async function refreshAll(){
+  await Promise.all([fetchStatus(), fetchPolicies(), fetchHeritage(),
+                      fetchEvents(), fetchPueHistory()]);
+  renderKPI(); renderPool(); renderStack(); renderEvents(); renderPueLine();
+}
+
+/* ═══════════════════ FETCH ═══════════════════ */
+async function fetchStatus(){
+  try{ const d = await apiRead(`${API}/status`); if(d){ Object.assign(STATE, d); renderKPI(); } }catch(e){ console.warn('status', e); }
+}
+async function fetchPolicies(){
+  try{ const d = await apiRead(`${API}/recommend?top_n=9`); POLICIES = (d && d.recommendations) || []; }catch(e){ POLICIES = []; }
+}
+async function fetchHeritage(){
+  try{ const d = await apiRead(`${API}/heritage`); HERITAGE = (d && d.heritage) || []; }catch(e){ HERITAGE = []; }
+}
+async function fetchEvents(){
+  try{ const d = await apiRead(`${API}/events?limit=30`); EVENTS = (d && d.events) || []; renderEvents(); }catch(e){}
+}
+async function fetchPueHistory(){
+  try{ const d = await apiRead(`${API}/pue-history?limit=240`); PUE_HIST = (d && d.history) || []; }catch(e){}
+}
+
+/* ═══════════════════ RENDER · KPI ═══════════════════ */
+function renderKPI(){
+  $('#k-pue').textContent = (STATE.current_pue||0).toFixed(3);
+  const dp = (STATE.current_pue||BASELINE) - BASELINE;
+  $('#k-pue-delta').textContent = (dp>=0?'+':'') + dp.toFixed(3);
+  $('#k-round').textContent    = STATE.evolution_round || 0;
+  $('#k-heritage').textContent = STATE.heritage_count || 0;
+  $('#k-kwh').textContent      = (STATE.saving_kwh_day||0).toFixed(1);
+  $('#k-co2').textContent      = (STATE.co2_saved_ton_year||0).toFixed(2);
+  $('#k-skills').textContent   = STATE.skill_count || 0;
+  $('#k-policies').textContent = `${STATE.policies_applied||0}/${STATE.policy_count||0}`;
+  $('#fn-pol').textContent     = STATE.policy_count || 0;
+  $('#fn-sk').textContent      = STATE.skill_count  || 0;
+  $('#fn-he').textContent      = STATE.heritage_count || 0;
+  $('#sh-pue').textContent     = (STATE.current_pue||0).toFixed(3);
+  $('#sh-round').textContent   = STATE.evolution_round || 0;
+  $('#sh-h').textContent       = STATE.heritage_count || 0;
+  $('#pill-round').textContent = `R${STATE.evolution_round||0}`;
+}
+
+/* ═══════════════════ RENDER · CANDIDATE POOL ═══════════════════ */
+function renderPool(){
+  const box = $('#pool-body');
+  if(!POLICIES.length){
+    box.innerHTML = '<div style="color:var(--nezumi);padding:10px;grid-column:1/-1;text-align:center">所有策略已应用 — 等待下一批候选生成</div>';
+    return;
+  }
+  box.innerHTML = POLICIES.map(p => {
+    const cls = p.kind === 'save_outgo' ? 'save' : 'open';
+    return `<div class="policy ${cls}" data-pid="${p.policy_id}" title="${p.rationale||''}"
+                 onclick="applyOne('${p.policy_id}')">
+      <div class="pt">${p.title}</div>
+      <div class="pm">${(p.rationale||'').slice(0,80)}</div>
+      <div class="pk">
+        <span>★ ${p.score}</span>
+        <span>${p.expected_saving_kwh_day.toFixed(1)} kWh/d</span>
+        <span>¥${(p.expected_saving_cny_year||0).toLocaleString()}/y</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════ RENDER · HERITAGE STACK ═══════════════════ */
+function renderStack(){
+  const box = $('#stack');
+  $('#ledger-count').textContent = `${HERITAGE.length} locked`;
+  if(!HERITAGE.length){
+    box.innerHTML = '<div class="empty">暂无棘轮锁定 — 点击棘轮锁定 LOCK 触发</div>';
+    $('#cum-pue').textContent = '0.000';
+    $('#cum-kwh').textContent = '0';
+    return;
+  }
+  const ic = { thermal_ratchet:'热', principle:'原', iot:'联', loop:'环', general:'进' };
+  box.innerHTML = HERITAGE.slice().reverse().map((h, rIdx) => {
+    const n = HERITAGE.length - rIdx;
+    const t = h.locked_at ? new Date(h.locked_at*1000).toLocaleTimeString() : '';
+    return `<div class="heritage cat-${h.category||'general'}">
+      <div class="hnum">#${n}</div>
+      <div class="htitle">${ic[h.category]||'进'} ${h.title}</div>
+      <div class="hmeta">
+        <span class="hdelta">ΔPUE ${(h.delta_pue||0).toFixed(4)}</span>
+        ${(h.delta_kwh_day||0).toFixed(1)} kWh/d · ${h.category||'general'}
+      </div>
+      <div class="lock">${t}</div>
+    </div>`;
+  }).join('');
+  const cumPue = HERITAGE.reduce((s,h)=>s+(h.delta_pue||0), 0);
+  const cumKwh = HERITAGE.reduce((s,h)=>s+(h.delta_kwh_day||0), 0);
+  $('#cum-pue').textContent = cumPue.toFixed(4);
+  $('#cum-kwh').textContent = cumKwh.toFixed(1);
+}
+
+/* ═══════════════════ RENDER · EVENTS ═══════════════════ */
+function renderEvents(){
+  const box = $('#events');
+  $('#ev-count').textContent = EVENTS.length;
+  if(!EVENTS.length){ box.innerHTML = '<div class="empty">waiting…</div>'; return; }
+  box.innerHTML = EVENTS.slice().reverse().map(e => {
+    const t = new Date(e.ts*1000).toLocaleTimeString();
+    let d = '';
+    if(e.kind === 'closed_loop_tick')     d = `pol=${e.data.decided_policy||'-'} · pue=${(e.data.current_pue||0).toFixed(3)} · ${e.data.verified?'✓':'✗'}`;
+    else if(e.kind === 'policy_applied')  d = `${e.data.policy_id} fit=${((e.data.fitness||0)*100).toFixed(0)}%`;
+    else if(e.kind === 'darwin_evolve')   d = `${e.data.heritage_id} Δ${(e.data.delta_pue||0).toFixed(4)}`;
+    else d = JSON.stringify(e.data).slice(0,60);
+    return `<div class="ev"><span class="ts">${t}</span>
+      <span class="k k-${e.kind}">${e.kind.replace(/_/g,' ')}</span>
+      <span class="d">${d}</span></div>`;
+  }).join('');
+}
+
+/* ═══════════════════ RENDER · PUE LINE ═══════════════════ */
+function renderPueLine(){
+  const svg = $('#pue-svg');
+  if(!svg) return;
+  const W = 800, H = 160, PAD = 28;
+  const hist = PUE_HIST.length ? PUE_HIST : [{ts:Date.now()/1000, pue: STATE.current_pue||BASELINE}];
+  const yMin = TARGET - 0.05, yMax = BASELINE + 0.05;
+  const yScale = v => H - PAD - (v - yMin) / (yMax - yMin) * (H - 2*PAD);
+  const n = hist.length;
+  const xScale = i => PAD + i * (W - 2*PAD) / Math.max(n-1, 1);
+  const path = hist.map((p,i)=>`${i?'L':'M'}${xScale(i).toFixed(1)},${yScale(p.pue).toFixed(1)}`).join(' ');
+  const heritageMarks = HERITAGE.map(h => {
+    let idx = 0; let best = Infinity;
+    hist.forEach((p,i) => { const d = Math.abs(p.ts - h.locked_at); if(d<best){best=d; idx=i;} });
+    return `<circle cx="${xScale(idx).toFixed(1)}" cy="${yScale(hist[idx]?.pue||BASELINE).toFixed(1)}"
+            r="4" fill="var(--koke)" stroke="var(--shironeri)" stroke-width="1"><title>${h.title}</title></circle>`;
+  }).join('');
+  $('#pue-range').textContent = `${(hist[0]?.pue||BASELINE).toFixed(3)} → ${(hist[n-1]?.pue||BASELINE).toFixed(3)}`;
+  svg.innerHTML = `
+    <line x1="${PAD}" y1="${yScale(BASELINE)}" x2="${W-PAD}" y2="${yScale(BASELINE)}"
+          stroke="var(--nezumi)" stroke-dasharray="4,4"/>
+    <text x="${W-PAD}" y="${yScale(BASELINE)-4}" text-anchor="end" font-size="9" fill="var(--nezumi)">baseline ${BASELINE}</text>
+    <line x1="${PAD}" y1="${yScale(TARGET)}" x2="${W-PAD}" y2="${yScale(TARGET)}"
+          stroke="var(--koke)" stroke-dasharray="4,4" opacity=".5"/>
+    <text x="${W-PAD}" y="${yScale(TARGET)+12}" text-anchor="end" font-size="9" fill="var(--koke)">target ${TARGET}</text>
+    <path d="${path}" fill="none" stroke="url(#g1)" stroke-width="2"/>
+    <path d="${path} L${xScale(n-1)},${H-PAD} L${xScale(0)},${H-PAD} Z" fill="url(#g2)" opacity=".35"/>
+    <defs>
+      <linearGradient id="g1" x1="0" x2="1">
+        <stop offset="0" stop-color="var(--kitsune)"/><stop offset="1" stop-color="var(--koke)"/>
+      </linearGradient>
+      <linearGradient id="g2" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0" stop-color="var(--koke)" stop-opacity=".6"/>
+        <stop offset="1" stop-color="var(--koke)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${heritageMarks}
+  `;
+}
+
+/* ═══════════════════ EDGES ═══════════════════ */
+function drawEdges(){
+  const svg = $('#edges');
+  if(!svg) return;
+  const stage = $('#flow').getBoundingClientRect();
+  const nodes = $$('.node[data-step]');
+  svg.querySelectorAll('line.e').forEach(n=>n.remove());
+  for(let i=0;i<nodes.length-1;i++){
+    const a = nodes[i].getBoundingClientRect();
+    const b = nodes[i+1].getBoundingClientRect();
+    const x1 = a.right - stage.left, y1 = a.top + a.height/2 - stage.top;
+    const x2 = b.left  - stage.left, y2 = b.top + b.height/2 - stage.top;
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.classList.add('e'); line.dataset.edge = `${i+1}-${i+2}`;
+    line.setAttribute('x1',x1); line.setAttribute('y1',y1);
+    line.setAttribute('x2',x2); line.setAttribute('y2',y2);
+    line.setAttribute('stroke','var(--kabe)');
+    line.setAttribute('stroke-width','2');
+    line.setAttribute('marker-end','url(#arrowhead)');
+    svg.appendChild(line);
+  }
+}
+function highlightEdge(from, to, on){
+  const e = $(`#edges line[data-edge="${from}-${to}"]`);
+  if(!e) return;
+  e.setAttribute('stroke', on ? 'var(--koke)' : 'var(--kabe)');
+  e.setAttribute('stroke-width', on ? '3' : '2');
+  e.setAttribute('marker-end', on ? 'url(#arrowhead-a)' : 'url(#arrowhead)');
+}
+
+/* ═══════════════════ ANIMATION ═══════════════════ */
+function resetSteps(){
+  $$('.node[data-step]').forEach(n=>{ n.classList.remove('active','done');
+    const d = $('.n-data', n); if(d) d.textContent = '待命';});
+  for(let i=1;i<=4;i++) highlightEdge(i, i+1, false);
+}
+
+async function animateLoop(result){
+  resetSteps();
+  const steps = [
+    { k: 'n1', data: () => `✓ 4 视角快照 · ${Object.keys(result?.snapshot||{}).length} 视角` },
+    { k: 'n2', data: () => result?.decided_policy ? `✓ 选中 → ${result.decided_policy}` : '✗ 无候选' },
+    { k: 'n3', data: () => result?.adjustment ? `✓ apply · PUE → ${result.adjustment.current_pue.toFixed(3)}` : '· skip' },
+    { k: 'n4', data: () => `${result?.verified?'✓':'✗'} ${result?.current_pue?.toFixed(3)} < ${result?.baseline_pue?.toFixed(3)}` },
+  ];
+  if(result?.decided_policy){
+    const card = $(`.policy[data-pid="${result.decided_policy}"]`);
+    if(card){ card.classList.add('picked'); setTimeout(()=>card.classList.remove('picked'), 3500); }
+  }
+  for(let i=0;i<steps.length;i++){
+    const node = $(`.${steps[i].k}`);
+    node.classList.add('active');
+    $('.n-data', node).textContent = steps[i].data();
+    flyPacket(i===0 ? null : `.${steps[i-1].k}`, `.${steps[i].k}`);
+    if(i>0) highlightEdge(i, i+1, true);
+    await sleep(700);
+    node.classList.remove('active'); node.classList.add('done');
+    if(i>0) setTimeout(()=>highlightEdge(i, i+1, false), 800);
+  }
+  if(result?.verified){
+    await sleep(200);
+    const n5 = $('.n5'); n5.classList.add('active');
+    $('#d5').textContent = '等待锁定…';
+    flyPacket('.n4', '.n5');
+    highlightEdge(4, 5, true);
+    await sleep(600);
+    try{
+      await csrfFetch(`${API}/evolve`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Closed-loop gain from ${result.decided_policy||'tick'}`,
+          category: 'loop',
+          delta_pue: (result.current_pue - result.baseline_pue) || -0.005,
+          delta_kwh_day: 8.0,
+        })});
+    }catch(e){}
+    $('#d5').textContent = 'LOCKED · append-only';
+    n5.classList.remove('active'); n5.classList.add('done');
+    setTimeout(()=>highlightEdge(4, 5, false), 800);
+    await fetchHeritage(); renderStack(); await fetchPueHistory(); renderPueLine();
+  }
+  await fetchStatus(); await fetchPolicies(); renderPool();
+  await fetchEvents();
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function flyPacket(fromSel, toSel){
+  if(!toSel) return;
+  const flow = $('#flow').getBoundingClientRect();
+  const to = $(toSel).getBoundingClientRect();
+  const x2 = to.left - flow.left + 20, y2 = to.top - flow.top + 28;
+  const from = fromSel ? $(fromSel).getBoundingClientRect() : null;
+  const x1 = from ? from.right - flow.left - 10 : x2 - 60;
+  const y1 = from ? from.top + 28 - flow.top : y2;
+  const p = document.createElement('div'); p.className='packet';
+  p.style.left = x1+'px'; p.style.top = y1+'px';
+  $('#flow').appendChild(p);
+  requestAnimationFrame(()=>{ p.style.left=x2+'px'; p.style.top=y2+'px'; });
+  setTimeout(()=>p.remove(), 1100);
+}
+
+/* ═══════════════════ ACTIONS ═══════════════════ */
+async function triggerLoop(){
+  try{ const r = await csrfFetch(`${API}/loop/tick`, {method:'POST'}); const result = await r.json(); await animateLoop(result); }catch(e){ console.error(e); }
+}
+async function triggerRatchet(){
+  try{
+    await csrfFetch(`${API}/evolve`, { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ title: `Manual ratchet @ R${(STATE.evolution_round||0)+1}`,
+        category: 'general', delta_pue: -0.008, delta_kwh_day: 10.0 })});
+    await fetchHeritage(); await fetchStatus(); await fetchPueHistory();
+    renderStack(); renderKPI(); renderPueLine();
+  }catch(e){ console.error(e); }
+}
+async function applyOne(pid){
+  const card = $(`.policy[data-pid="${pid}"]`);
+  if(card) card.classList.add('picked');
+  try{
+    await csrfFetch(`${API}/policies/apply`, { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ policy_id: pid, fitness: 0.88 })});
+    await animateLoop({ snapshot:{a:1,b:2,c:3,d:4},
+      decided_policy: pid, adjustment: { current_pue: STATE.current_pue },
+      current_pue: STATE.current_pue, baseline_pue: 1.85, verified: true });
+  }catch(e){ console.error(e); }
+}
+function toggleAuto(){
+  const btn = $('#auto-btn');
+  if(autoTimer){
+    clearInterval(autoTimer); autoTimer = null;
+    btn.textContent = 'AUTO LOOP'; btn.classList.remove('primary');
+  } else {
+    btn.textContent = 'AUTO ON · 8s'; btn.classList.add('primary');
+    autoTimer = setInterval(triggerLoop, 8000);
+  }
+}
+
+/* ═══════════════════ MENU HANDLERS ═══════════════════ */
+function focusKPI(k){
+  const map = { pue:'#k-pue', round:'#k-round', heritage:'#k-heritage' };
+  const el = $(map[k]); if(!el) return;
+  el.style.transition = 'transform .2s, text-shadow .3s';
+  el.style.transform = 'scale(1.35)';
+  el.style.textShadow = '0 0 12px var(--koke)';
+  setTimeout(()=>{ el.style.transform=''; el.style.textShadow=''; }, 1200);
+  if(k==='heritage'){ $('#ledger').scrollTo({top:0,behavior:'smooth'}); }
+}
+function selectFn(fn, evt){
+  $$('#menu .menu-item').forEach(i=>i.classList.remove('active'));
+  if(evt && evt.currentTarget) evt.currentTarget.classList.add('active');
+  const map = { '4view':'.n1', policies:'.pool', skills:'.pool', loop:'.n2', heritage:'.n5' };
+  const sel = map[fn]; if(!sel) return;
+  $$('.node').forEach(n=>n.classList.remove('active'));
+  $(sel).classList.add('active');
+  $(sel).scrollIntoView({behavior:'smooth', block:'nearest'});
+  setTimeout(()=>$(sel).classList.remove('active'), 1500);
+}
+
+/* ═══════════════════ EXPOSE + WEBSOCKET ═══════════════════ */
+window.focusKPI = focusKPI;
+window.selectFn = selectFn;
+window.triggerLoop = triggerLoop;
+window.triggerRatchet = triggerRatchet;
+window.toggleAuto = toggleAuto;
+window.refreshAll = refreshAll;
+window.applyOne = applyOne;
+
+function connectWS(){
+  const pill = $('#pill-ws');
+  try{
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => { pill.textContent='WS · LIVE'; pill.classList.add('live'); };
+    ws.onclose= () => { pill.textContent='WS · OFF'; pill.classList.remove('live'); setTimeout(connectWS, 3000); };
+    ws.onerror= () => { pill.textContent='WS · ERR'; pill.classList.remove('live'); pill.classList.add('warn'); };
+    ws.onmessage = (ev) => {
+      try{
+        const m = JSON.parse(ev.data);
+        if(m.type === 'tick' && m.status){
+          Object.assign(STATE, m.status); renderKPI();
+          if(m.new_events && m.new_events.length){
+            m.new_events.forEach(e => EVENTS.push(e));
+            if(EVENTS.length > 60) EVENTS = EVENTS.slice(-60);
+            renderEvents();
+            if(m.new_events.some(e => e.kind === 'darwin_evolve')){
+              fetchHeritage().then(renderStack);
+              fetchPueHistory().then(renderPueLine);
+            }
+          }
+        }
+      }catch(err){}
+    };
+  }catch(e){ pill.textContent='WS · ERR'; }
+}
+</script>
+<script src="/js/i18n.js"></script>
+
+<script src="/js/api.js"></script>
+<script>
+// ══ Global error tracking ══
+window.onerror = function(msg, url, line, col, err) {
+  console.error('[Global]', msg, url, line, col, err);
+  try {
+    var data = {msg: String(msg), url: url, line: line, col: col, stack: err && err.stack ? err.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(e) {}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Unhandled]', e.reason);
+  try {
+    var data = {msg: String(e.reason), type: 'unhandledrejection', stack: e.reason && e.reason.stack ? e.reason.stack.slice(0,500) : ''};
+    navigator.sendBeacon && navigator.sendBeacon('/api/v1/log/client-error', JSON.stringify(data));
+  } catch(ex) {}
+});
+</script>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/global-nav.js"></script>
+</body>
+</html>

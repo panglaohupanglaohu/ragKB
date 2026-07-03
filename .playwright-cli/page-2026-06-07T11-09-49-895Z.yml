@@ -1,0 +1,24 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: 智
+    - heading "AgentsGroup2026" [level=1] [ref=e5]
+    - paragraph [ref=e6]: 智能体团队管理平台
+  - generic [ref=e7]:
+    - button "登 录" [ref=e8] [cursor=pointer]
+    - button "注 册" [ref=e9] [cursor=pointer]
+  - form "登录" [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]: 用户名
+      - textbox "请输入用户名" [ref=e13]
+    - generic [ref=e14]:
+      - generic [ref=e15]: 密码
+      - textbox "请输入密码" [ref=e16]
+    - generic [ref=e18] [cursor=pointer]:
+      - checkbox "记住登录" [ref=e19]
+      - text: 记住登录
+    - button "入 登 录" [ref=e20] [cursor=pointer]:
+      - generic [ref=e21]: 入
+      - text: 登 录
+  - generic [ref=e22]: 或
+  - button "访客模式进入" [ref=e23] [cursor=pointer]
+  - generic [ref=e24]: AgentsGroup2026 v1.0.0 · Standalone Agent Platform

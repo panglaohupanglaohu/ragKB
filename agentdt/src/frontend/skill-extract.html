@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://ga.jspm.io; media-src 'self' data: blob:; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>技能萃取/赋予 — AgentsGroup2026</title>
+
+<script async src="https://ga.jspm.io/npm:es-module-shims@1.10.1/dist/es-module-shims.js"></script>
+<script type="importmap">
+{ "imports": {
+    "three":          "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js",
+    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"
+}}
+</script>
+
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/skill-extract.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+</head>
+
+<body>
+<canvas id="three-canvas" aria-label="技能萃取 3D 场景"></canvas>
+
+<div class="overlay">
+  <!-- ── Topbar ──────────────────────────────────────────────── -->
+  <header class="topbar-ws" style="grid-column:1 / -1;position:relative">
+    <div class="topbar-ws__left">
+      <h1>技能萃取/赋予</h1>
+      <div class="mode-toggle">
+        <button class="active" data-mode="extract" onclick="window._switchPageMode('extract')">萃取</button>
+        <button data-mode="router" onclick="window._switchPageMode('router')">赋予</button>
+      </div>
+    </div>
+    <nav class="topbar-ws__nav" aria-label="主导航">
+      <a href="/agent-team-config.html">智能体团队</a>
+      <a href="/plaza.html">议事广场</a>
+      <span class="cur">技能萃取/赋予</span>
+      <a href="/Agent-digital-twin.html">数字孪生</a>
+      <a href="/cost-dashboard.html">演进式成本优化</a>
+    </nav>
+    <div class="topbar-ws__right">
+      <div class="team-chips" id="team-chips" style="position:relative"></div>
+      <div class="topbar-ws__user">
+        <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
+        <span class="topbar-ws__user-name" id="topbar-user">guest</span>
+        <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Left Panel: Message Flow + Submission ────────────────────── -->
+  <div class="panel-left extract-left" id="panel-left">
+    <div class="panel-section collapsed" id="knowledge-input-section">
+      <h3 onclick="toggleKnowledgeInput()"><span class="icon">📎</span> 知识投入<span class="collapse-arrow">▼</span></h3>
+      <div class="submit-form">
+        <textarea id="source-text" placeholder="粘贴对话记录、文档片段、或任何包含可萃取技能的知识文本…"></textarea>
+        <div class="submit-row">
+          <input id="source-title" type="text" placeholder="来源标题（可选）"/>
+          <select id="source-type">
+            <option value="chat">对话</option>
+            <option value="document">文档</option>
+            <option value="manual">手动</option>
+          </select>
+        </div>
+        <div id="plaza-source-meta" style="display:none;margin-top:8px;padding:8px 10px;background:oklch(0.12 0.008 250/.45);border:1px solid oklch(0.55 0.1 250/.22);font-size:11px;line-height:1.6;color:oklch(0.62 0.01 110)"></div>
+        <div class="file-drop" id="file-drop">
+          📄 拖拽文件到此处，或点击选择 (.txt / .md / .json / .pdf)
+          <input type="file" id="file-input" accept=".txt,.md,.json,.log,.pdf" style="display:none"/>
+        </div>
+        <div class="submit-row" style="margin-top:8px">
+          <button class="btn btn-extract" id="btn-extract" onclick="startExtraction()">🩸 开始萃取</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 消息流 — 萃取过程的叙事通道 -->
+    <div class="msg-log" id="msg-log">
+      <div class="msg system">
+        <div>🧬 萃取技能已就绪。在下方输入框粘贴知识文本，或点击 ⭐ 使用 STAR 引导式萃取。</div>
+        <div class="msg-time">系统</div>
+      </div>
+    </div>
+
+    <!-- STAR 引导条 -->
+    <div class="star-guide-bar" id="star-guide-bar">
+      <div class="star-steps">
+        <span class="star-step" data-step="S"><b>S</b> 场景</span>
+        <span class="star-step" data-step="T"><b>T</b> 任务</span>
+        <span class="star-step" data-step="A"><b>A</b> 行动</span>
+        <span class="star-step" data-step="R"><b>R</b> 结果</span>
+      </div>
+      <button class="star-cancel" onclick="cancelStarGuide()" title="退出引导">✕</button>
+    </div>
+
+    <!-- 底部输入框 — >200字自动触发萃取 -->
+    <div class="chat-input-bar" style="position:relative">
+      <div class="cmd-menu" id="cmd-menu"></div>
+      <textarea id="chat-input" placeholder="输入知识文本或指令（/extract, /evolve, /share）…&#10;Enter 发送 · Shift+Enter 换行 · >200字自动萃取" rows="1"></textarea>
+      <button id="btn-star" onclick="startStarGuide()" title="STAR引导萃取">⭐</button>
+      <button id="btn-send" onclick="handleChatSend()">发送</button>
+    </div>
+  </div>
+
+  <!-- ── Center Viewport (Three.js) ─────────────────────────── -->
+  <div class="viewport" id="viewport">
+    <div class="extract-progress" id="extract-progress">
+      <span class="ep-icon">🩸</span>
+      <span class="ep-text" id="ep-text">正在萃取…</span>
+      <div class="ep-bar"><div class="ep-fill" id="ep-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- ── Right Panel: Review Queue ───────────────────────────── -->
+  <div class="panel-right extract-right" id="panel-right">
+    <div class="panel-section" style="padding-bottom:0">
+      <h3><span class="icon">📋</span> 审核队列</h3>
+    </div>
+    <!-- Pipeline Progress Stepper -->
+    <div class="pipeline-stepper" id="pipeline-stepper">
+      <div class="pipe-step active" data-stage="draft">
+        <span class="pipe-num">1</span>
+        <span class="pipe-label">日志采集</span>
+      </div>
+      <span class="pipe-arrow">›</span>
+      <div class="pipe-step locked" data-stage="review">
+        <span class="pipe-num">2</span>
+        <span class="pipe-label">上下文补全</span>
+        <span class="pipe-gate">🔒</span>
+      </div>
+      <span class="pipe-arrow">›</span>
+      <div class="pipe-step locked" data-stage="approval">
+        <span class="pipe-num">3</span>
+        <span class="pipe-label">情境验证</span>
+        <span class="pipe-gate">🔒</span>
+      </div>
+      <span class="pipe-arrow">›</span>
+      <div class="pipe-step locked" data-stage="published">
+        <span class="pipe-num">4</span>
+        <span class="pipe-label">技能发布</span>
+        <span class="pipe-gate">🔒</span>
+      </div>
+    </div>
+    <div class="queue-tabs">
+      <button class="active" data-filter="" onclick="setQueueFilter(this,'')">全部</button>
+      <button data-filter="pending" onclick="setQueueFilter(this,'pending')">待处理</button>
+      <button data-filter="ready_for_review" onclick="setQueueFilter(this,'ready_for_review')">待审核</button>
+      <button data-filter="approved" onclick="setQueueFilter(this,'approved')">已通过</button>
+      <button data-filter="rejected" onclick="setQueueFilter(this,'rejected')">已拒绝</button>
+    </div>
+    <div class="queue-list" id="queue-list">
+      <div style="text-align:center;padding:40px 20px;color:oklch(0.4 0.005 110);font-size:12px">
+        暂无萃取项目<br><span style="font-size:10px;margin-top:4px;display:block">提交知识文本后，萃取结果将出现在此</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Router Left Panel ═══════════════════════════════════════ -->
+  <div class="panel-left router-left" id="router-left">
+    <div class="router-pipeline" id="router-pipeline">
+      <div class="rp-step" data-rp="retrieve"><span class="rp-num">1</span>Retrieve<span class="rp-timing"></span></div>
+      <div class="rp-connector" data-after="retrieve"></div>
+      <div class="rp-step" data-rp="rerank"><span class="rp-num">2</span>Rerank<span class="rp-timing"></span></div>
+      <div class="rp-connector" data-after="rerank"></div>
+      <div class="rp-step" data-rp="assign"><span class="rp-num">3</span>Assign<span class="rp-timing"></span></div>
+    </div>
+    <div class="router-query">
+      <h3>🧭 技能路由查询</h3>
+      <textarea id="router-query-input" placeholder="描述需要的能力，例如：&#10;• 需要处理客户投诉的沟通技能&#10;• 数据分析与可视化能力&#10;• 跨部门协作与项目管理"></textarea>
+      <div class="router-query-row">
+        <label>Top-K</label>
+        <input type="number" id="router-topk" value="5" min="1" max="20"/>
+        <button class="btn btn-router" onclick="window._executeRoute()">🔍 路由</button>
+        <button class="btn btn-runtime-sim" onclick="window._executeInjectSkills()" title="将选中技能注入所选智能体并抬升其熟练度(未选则路由→自动选Top-K→注入)">⚡ 赋予/注入</button>
+      </div>
+    </div>
+    <!-- ── Skill Pool Dashboard ── -->
+    <div class="skill-dashboard" id="skill-dashboard" style="display:none">
+      <div class="dash-header" onclick="document.getElementById('skill-dashboard').classList.toggle('collapsed')">
+        <span>📊 技能池仪表盘</span>
+        <span class="dash-toggle">▾</span>
+      </div>
+      <div class="dash-body">
+        <div class="dash-metrics">
+          <div class="dash-metric"><span class="dm-val" id="dash-pool-size">0</span><span class="dm-label">技能总数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-categories">0</span><span class="dm-label">类别数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-routes">0</span><span class="dm-label">路由次数</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-assigns">0</span><span class="dm-label">注入次数</span></div>
+        </div>
+        <div class="dash-metrics" style="margin-top:6px">
+          <div class="dash-metric"><span class="dm-val" id="dash-top1">—</span><span class="dm-label">Top-1 精度</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-latency">—</span><span class="dm-label">平均延迟</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-success">—</span><span class="dm-label">成功率</span></div>
+          <div class="dash-metric"><span class="dm-val" id="dash-avg-rating">—</span><span class="dm-label">平均评分</span></div>
+        </div>
+        <div id="dash-category-bars" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="router-log" id="router-log">
+      <div class="rlog sys">🧭 SkillRouter就绪 — 输入能力需求，检索最匹配的技能<div class="rlog-time">系统</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ Router Right Panel ══════════════════════════════════════ -->
+  <div class="panel-right router-right" id="router-right">
+    <div class="ragent-section">
+      <h4>👤 目标智能体</h4>
+      <div class="ragent-list" id="ragent-list">
+        <div class="ragent-item selected" data-agent-id="default" onclick="window._selectRouterAgent(this)">
+          <span class="ra-icon">🤖</span>
+          <span class="ra-name">默认智能体</span>
+          <span class="ra-badge">通用</span>
+        </div>
+      </div>
+    </div>
+    <!-- Agent Skill Profile Radar -->
+    <div class="agent-profile-panel" id="agent-profile-panel" style="display:none">
+      <h5 style="font-size:11px;color:oklch(0.65 0.02 110);margin:0 0 8px">📊 技能画像</h5>
+      <canvas id="agent-radar-canvas" width="180" height="180" style="display:block;margin:0 auto"></canvas>
+      <div id="agent-profile-skills" style="margin-top:8px;font-size:10px;color:oklch(0.55 0.01 110)"></div>
+    </div>
+    <div class="rresults-header" id="rresults-header">
+      <h4>🎯 路由结果</h4>
+      <span class="rr-stats" id="rr-stats"></span>
+    </div>
+    <div class="rresults" id="rresults"></div>
+    <div class="rassigned" id="rassigned-section">
+      <h5>▷ Injected Skills</h5>
+      <div id="rassigned-tags"></div>
+    </div>
+    <div class="rassign-bar" id="rassign-bar">
+      <span class="ra-count" id="rassign-count">已选 0 项</span>
+      <button class="btn btn-assign-go" onclick="window._executeAssign()">▷ 注入</button>
+    </div>
+  </div>
+
+  <!-- ── Bottom: Taxonomy Bar (双标签: 特质技能 / 公共技能) ──── -->
+  <div class="taxonomy-bar" id="taxonomy-bar">
+    <div class="taxonomy-header">
+      <div style="display:flex;gap:2px">
+        <button class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--koke);color:var(--shironeri);cursor:pointer;font-family:var(--font-sans)">🎯 特质技能</button>
+        <button class="taxonomy-tab" data-tab="reserve" onclick="switchTaxonomyTab(this,'reserve')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">📦 储备技能</button>
+        <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌍 公共技能</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:10px;color:#8CBEB2">● <b id="count-atomic">0</b></span>
+        <span style="font-size:10px;color:#E8B87A">◆ <b id="count-trait">0</b></span>
+        <span style="font-size:10px;color:#B89FD4">◇ <b id="count-composite">0</b></span>
+        <button onclick="toggleViewMode()" id="btn-view-mode" style="padding:3px 8px;font-size:10px;background:none;border:1px solid oklch(1 0 0/.1);color:oklch(0.55 0.005 110);cursor:pointer;font-family:var(--font-sans)" title="切换萃取视角/全景视角">🔬</button>
+        <span id="taxonomy-toggle" onclick="toggleTaxonomy()" style="font-size:10px;color:oklch(0.4 0.005 110);cursor:pointer">▼</span>
+      </div>
+    </div>
+    <div class="taxonomy-body" id="taxonomy-body"></div>
+    <div class="taxonomy-body" id="taxonomy-body-public" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ── Detail Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-detail">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h2><span id="modal-icon">⚡</span> <span id="modal-title">技能详情</span></h2>
+      <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <!-- Modal tabs -->
+    <div class="modal-tabs-bar" style="display:flex;gap:2px;border-bottom:1px solid #4A535C;margin:0 24px;padding-top:4px">
+      <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')"><span class="tab-icon">✎</span>编辑</button>
+      <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')"><span class="tab-icon">⟳</span>演化</button>
+      <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')"><span class="tab-icon">◈</span>验证</button>
+      <button class="modal-tab" data-tab="usage" onclick="switchModalTab('usage')"><span class="tab-icon">▤</span>效果</button>
+      <button class="modal-tab" data-tab="version" onclick="switchModalTab('version')"><span class="tab-icon">⊟</span>版本</button>
+      <button class="modal-tab" data-tab="pipeline" onclick="switchModalTab('pipeline')"><span class="tab-icon">⋯</span>智线</button>
+    </div>
+    <!-- Tab: Edit (default) -->
+    <div class="modal-body modal-tab-content active" id="tab-edit">
+      <div class="modal-col" id="modal-col-source">
+        <h4 style="display:flex;justify-content:space-between;align-items:center">🩸 原始来源（血管侧）<button onclick="toggleSourceCol()" style="font-size:9px;padding:1px 6px;background:oklch(0.2 0.005 110);border:1px solid oklch(0.3 0.005 110);color:oklch(0.55 0.005 110);border-radius:3px;cursor:pointer;text-transform:none;letter-spacing:0" id="btn-collapse-source">◀ 收起</button></h4>
+        <div class="source-text" id="modal-source"></div>
+      </div>
+      <div class="modal-resize-handle" id="modal-resize-handle"></div>
+      <div class="modal-col">
+        <h4>⚡ LLM 萃取草稿（神经侧）</h4>
+        <div class="modal-field">
+          <label>名称</label>
+          <input id="edit-name" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label>描述</label>
+          <textarea id="edit-desc"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>类别</label>
+          <select id="edit-category">
+            <option value="general">通用</option>
+            <option value="research">研究</option>
+            <option value="automation">自动化</option>
+            <option value="domain_knowledge">领域知识</option>
+            <option value="digital_twin">数字孪生</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label>图标</label>
+          <input id="edit-icon" type="text" maxlength="4"/>
+        </div>
+        <div class="modal-field">
+          <label>Slug</label>
+          <input id="edit-slug" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label style="display:flex;justify-content:space-between;align-items:center">
+            指令 (Instructions)
+            <button type="button" onclick="toggleInstructionPreview()" style="font-size:10px;padding:2px 8px;background:oklch(0.2 0.005 110);border:1px solid oklch(0.3 0.005 110);color:oklch(0.65 0.005 110);border-radius:3px;cursor:pointer" id="btn-preview-toggle">👁 预览</button>
+          </label>
+          <textarea id="edit-instructions"></textarea>
+          <div id="edit-instructions-preview" style="display:none;background:oklch(0.1 0.005 60);border:1px solid oklch(1 0 0/.1);padding:14px 16px;font-size:12px;line-height:1.8;color:oklch(0.8 0.005 110);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word"></div>
+        </div>
+        <div class="modal-field">
+          <label>依赖工具 (逗号分隔)</label>
+          <input id="edit-tools" type="text"/>
+        </div>
+        <div class="modal-field">
+          <label>置信度</label>
+          <div class="confidence-bar"><div class="confidence-fill" id="edit-confidence-bar"></div></div>
+          <span id="edit-confidence-val" style="font-size:10px;font-family:var(--font-mono);color:oklch(0.5 0.005 110)"></span>
+          <span id="edit-scope-badge" style="margin-left:12px"></span>
+        </div>
+
+        <!-- ── 上下文补全卡片 ──────────────────── -->
+        <div class="ctx-supplement" id="ctx-supplement">
+          <div class="ctx-supplement-header" onclick="toggleCtxSupplement()">
+            <h5>📎 上下文补全 <span class="ctx-record-label realtime" id="ctx-mode-label">实时记录</span></h5>
+            <span style="font-size:10px;color:oklch(0.4 0.005 110)" id="ctx-collapse-arrow">▼</span>
+          </div>
+          <div class="ctx-supplement-body">
+            <div class="ctx-field-row">
+              <div class="ctx-field">
+                <label>🎯 压力类型</label>
+                <select id="ctx-pressure-type">
+                  <option value="">-- 选择 --</option>
+                  <option value="time">⏰ 时间压力</option>
+                  <option value="quality">📏 质量压力</option>
+                  <option value="resource">💰 资源压力</option>
+                  <option value="stakeholder">👥 干系人压力</option>
+                  <option value="technical">🔧 技术压力</option>
+                  <option value="none">🟢 无压力</option>
+                </select>
+              </div>
+              <div class="ctx-field">
+                <label>🏢 业务目标</label>
+                <input id="ctx-business-goal" type="text" placeholder="该决策服务的业务目标"/>
+              </div>
+            </div>
+            <div class="ctx-field-row">
+              <div class="ctx-field">
+                <label>🔀 异常分支选择理由</label>
+                <input id="ctx-branch-reason" type="text" placeholder="为什么选这条路而非常规路径"/>
+              </div>
+              <div class="ctx-field">
+                <label>🏷️ 关键场景标签</label>
+                <input id="ctx-scene-tags" type="text" placeholder="逗号分隔，如: 紧急修复,客户投诉"/>
+              </div>
+            </div>
+            <div class="ctx-field" style="margin-top:4px">
+              <div style="display:flex;gap:4px;margin-bottom:4px">
+                <button class="ctx-record-label realtime" onclick="setCtxMode('realtime')" id="ctx-btn-realtime" style="cursor:pointer;border:none">📝 实时记录</button>
+                <button class="ctx-record-label retro" onclick="setCtxMode('retro')" id="ctx-btn-retro" style="cursor:pointer;border:none;opacity:0.5">🔄 回顾注释</button>
+              </div>
+              <textarea id="ctx-decision-notes" placeholder="记录当时的决策上下文：为什么这样做？考虑了哪些替代方案？"></textarea>
+            </div>
+            <button class="btn btn-sm" onclick="saveCtxSupplement()" style="align-self:flex-end;margin-top:4px">💾 保存上下文</button>
+          </div>
+        </div>
+
+        <!-- ── 交叉复核门禁 ──────────────────── -->
+        <div class="review-gate-section" id="review-gate-section">
+          <div class="review-gate-header">
+            <h5>🔐 交叉复核 <span class="gate-badge locked" id="gate-status-badge">🔒 未解锁</span></h5>
+          </div>
+          <div class="reviewer-list" id="reviewer-list">
+            <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:8px">
+              尚无复核记录
+            </div>
+          </div>
+          <button class="add-reviewer-btn" id="btn-show-review-form" onclick="toggleReviewForm()">+ 提交复核意见</button>
+          <div id="review-inline-form" style="display:none;padding:8px;background:oklch(0.16 0.005 110);border-radius:6px;margin-top:4px;border:1px solid oklch(0.25 0.005 110)">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <input id="review-name" placeholder="你的名字" style="flex:1;padding:4px 8px;font-size:11px;background:oklch(0.12 0.005 110);border:1px solid oklch(0.3 0.005 110);border-radius:4px;color:oklch(0.75 0.005 110)">
+              <select id="review-identity" style="padding:4px 6px;font-size:11px;background:oklch(0.12 0.005 110);border:1px solid oklch(0.3 0.005 110);border-radius:4px;color:oklch(0.75 0.005 110)">
+                <option value="peer">同行</option>
+                <option value="senior">资深</option>
+                <option value="lead">主管</option>
+                <option value="architect">架构师</option>
+                <option value="qa">QA</option>
+              </select>
+            </div>
+            <input id="review-comment" placeholder="复核意见（可选）" style="width:100%;padding:4px 8px;font-size:11px;background:oklch(0.12 0.005 110);border:1px solid oklch(0.3 0.005 110);border-radius:4px;color:oklch(0.75 0.005 110);margin-bottom:6px;box-sizing:border-box">
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button onclick="submitReviewAction('reject')" style="padding:3px 10px;font-size:11px;background:oklch(0.3 0.08 18);color:oklch(0.85 0.05 18);border:none;border-radius:4px;cursor:pointer">❌ 拒绝</button>
+              <button onclick="submitReviewAction('approve')" style="padding:3px 10px;font-size:11px;background:oklch(0.3 0.08 145);color:oklch(0.85 0.05 145);border:none;border-radius:4px;cursor:pointer">✅ 同意</button>
+              <button onclick="toggleReviewForm()" style="padding:3px 10px;font-size:11px;background:oklch(0.25 0.005 110);color:oklch(0.6 0.005 110);border:none;border-radius:4px;cursor:pointer">取消</button>
+            </div>
+          </div>
+          <div class="gate-progress">
+            <span id="gate-reviewer-count">0/2 复核</span>
+            <div class="gate-progress-bar"><div class="gate-progress-fill" id="gate-progress-fill" style="width:0%;background:oklch(0.55 0.1 250)"></div></div>
+            <span id="gate-approval-count">0/1 同意</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Tab: Evolve -->
+    <div class="modal-body modal-tab-content" id="tab-evolve" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">🧬 技能演化</h4>
+        <button class="btn btn-approve" onclick="triggerEvolve()" id="btn-evolve">⚡ 触发演化</button>
+      </div>
+      <div id="evolve-stats" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono);color:oklch(0.6 0.005 110)"></div>
+      <div id="evolve-diff" style="display:none;border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110)">📊 指令对比 (旧 → 新)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:oklch(0.2 0.005 110)">
+          <pre id="evolve-old" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.01 0/0.5);color:oklch(0.6 0.02 20);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+          <pre id="evolve-new" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.02 140/0.3);color:oklch(0.7 0.02 140);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+        </div>
+        <div style="padding:8px 12px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-reject" onclick="discardEvolution()">❌ 丢弃</button>
+          <button class="btn btn-approve" onclick="acceptEvolution()">✅ 接受演化</button>
+        </div>
+      </div>
+      <div id="evolve-suggestions" style="font-size:11px"></div>
+    </div>
+    <!-- Tab: Verify -->
+    <div class="modal-body modal-tab-content" id="tab-verify" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">🔬 技能验证</h4>
+        <button class="btn" onclick="triggerVerify()" id="btn-verify">🧪 开始验证</button>
+      </div>
+      <div id="verify-status" style="padding:16px;text-align:center;font-size:12px;color:oklch(0.5 0.005 110)">
+        尚未执行验证
+      </div>
+      <div id="verify-results" style="display:none">
+        <div style="display:flex;gap:16px;margin-bottom:12px">
+          <div id="verify-pass-rate" style="font-size:28px;font-family:var(--font-mono);color:oklch(0.7 0.1 140)"></div>
+          <div style="font-size:11px;color:oklch(0.5 0.005 110);display:flex;flex-direction:column;justify-content:center">
+            <div>通过: <span id="verify-passed" style="color:oklch(0.7 0.1 140)">0</span></div>
+            <div>失败: <span id="verify-failed" style="color:oklch(0.7 0.1 25)">0</span></div>
+          </div>
+        </div>
+        <div id="verify-details" style="font-size:10px;font-family:var(--font-mono)"></div>
+      </div>
+    </div>
+    <!-- Tab: Usage / Before-After -->
+    <div class="modal-body modal-tab-content" id="tab-usage" style="display:none;flex-direction:column;gap:16px;padding:20px 24px">
+      <div class="usage-top-bar" style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">📊 使用效果 (Before → After)</h4>
+        <div class="usage-top-actions" style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-sm" onclick="showUsageCompare()" id="btn-show-usage-compare">👁️ 展示对比</button>
+          <button class="btn btn-sm" onclick="refreshUsageTab()" id="btn-refresh-usage">🔄 刷新</button>
+        </div>
+      </div>
+      <!-- Usage metrics row -->
+      <div id="usage-metrics" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"></div>
+      <!-- Before / After comparison -->
+      <div id="usage-compare-panel" style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between">
+          <span>🔬 技能状态对比</span>
+          <span id="usage-diff-summary" style="font-family:var(--font-mono)"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:oklch(0.2 0.005 110)">
+          <div style="background:oklch(0.1 0.005 60)">
+            <div style="padding:6px 12px;font-size:10px;font-weight:600;color:oklch(0.5 0.02 20);border-bottom:1px solid oklch(0.2 0.005 110)">📦 萃取时 (初始状态)</div>
+            <div id="usage-before" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.6 0.005 110);max-height:200px;overflow-y:auto"></div>
+          </div>
+          <div style="background:oklch(0.1 0.005 60)">
+            <div style="padding:6px 12px;font-size:10px;font-weight:600;color:oklch(0.55 0.04 140);border-bottom:1px solid oklch(0.2 0.005 110)">🧬 当前状态 (使用后)</div>
+            <div id="usage-after" style="padding:12px;font-size:11px;line-height:1.7;color:oklch(0.75 0.005 110);max-height:200px;overflow-y:auto"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Effectiveness timeline -->
+      <div style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110)">📈 效果趋势</div>
+        <div id="usage-timeline" style="padding:12px;font-size:11px;color:oklch(0.5 0.005 110);min-height:40px">
+          暂无使用记录
+        </div>
+      </div>
+      <!-- Chat: Interactive Skill Optimization -->
+      <div style="border:1px solid oklch(0.55 0.1 250/.2);border-radius:8px;overflow:hidden">
+        <div class="usage-chat-head" style="padding:8px 12px;background:oklch(0.12 0.01 250);font-size:11px;color:oklch(0.65 0.08 250);display:flex;justify-content:space-between;align-items:center">
+          <span>💬 对话优化技能</span>
+          <div class="usage-chat-quick-actions" style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="usageChatSuggest('improve')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">💡 改进建议</button>
+            <button class="btn btn-sm" onclick="usageChatSuggest('simplify')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">✂️ 精简指令</button>
+            <button class="btn btn-sm" onclick="usageChatSuggest('edge')" style="font-size:9px;padding:2px 8px;border-color:oklch(0.55 0.1 250/.3)">🔀 边界场景</button>
+          </div>
+        </div>
+        <div id="usage-chat-log" style="max-height:min(460px,52vh);overflow-y:auto;padding:8px 12px;font-size:11px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap">
+          <div style="color:oklch(0.45 0.005 110);text-align:center;padding:8px 0">在下方输入你对技能的改进想法，AI 将帮你优化指令</div>
+        </div>
+        <div style="display:flex;gap:6px;padding:8px 12px;border-top:1px solid oklch(0.2 0.005 110)">
+          <textarea id="usage-chat-input" rows="1" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(0.55 0.1 250/.2);color:oklch(0.88 0.003 110);padding:6px 10px;font-size:11px;font-family:var(--font-sans);resize:none;outline:none;line-height:1.5;min-height:32px;max-height:60px" placeholder="例：加强异常处理逻辑 / 添加回滚步骤 / 简化前置检查…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();usageChatSend()}"></textarea>
+          <button onclick="usageChatSend()" style="flex-shrink:0;padding:6px 12px;font-size:11px;background:oklch(0.55 0.1 250/.2);color:oklch(0.78 0.08 250);border:1px solid oklch(0.55 0.1 250/.3);cursor:pointer;font-family:var(--font-sans);font-weight:600;transition:.2s" onmouseover="this.style.background='oklch(0.55 0.1 250/.3)'" onmouseout="this.style.background='oklch(0.55 0.1 250/.2)'">发送</button>
+        </div>
+      </div>
+    </div>
+    <!-- Tab: Version -->
+    <div class="modal-body modal-tab-content" id="tab-version" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">📜 版本管理</h4>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="version-current" style="font-size:13px;font-family:var(--font-mono);color:oklch(0.75 0.08 70);font-weight:700"></span>
+          <button class="btn btn-sm" onclick="createNewVersion()" style="font-size:10px;padding:3px 10px;border-color:oklch(0.55 0.1 250/.3);color:oklch(0.7 0.08 250)">+ 创建新版本</button>
+        </div>
+      </div>
+      <!-- Version info card -->
+      <div id="version-info-card" style="border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:oklch(0.2 0.005 110)">
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">当前版本</div>
+            <div id="ver-current-num" style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:oklch(0.85 0.06 70)">v1</div>
+          </div>
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">生命周期</div>
+            <div id="ver-lifecycle" style="font-size:12px;font-weight:600;color:oklch(0.65 0.06 155)">draft</div>
+          </div>
+          <div style="background:oklch(0.1 0.005 60);padding:10px 12px;text-align:center">
+            <div style="font-size:9px;color:oklch(0.45 0.005 110)">总演化次数</div>
+            <div id="ver-evolve-count" style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:oklch(0.65 0.08 250)">0</div>
+          </div>
+        </div>
+      </div>
+      <!-- Version changelog input -->
+      <div id="version-create-form" style="display:none;border:1px solid oklch(0.55 0.1 250/.2);border-radius:8px;padding:12px;background:oklch(0.12 0.008 250/.3)">
+        <div style="font-size:11px;color:oklch(0.65 0.08 250);margin-bottom:8px;font-weight:600">📝 新版本变更说明</div>
+        <textarea id="version-changelog" rows="3" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(0.55 0.1 250/.2);color:oklch(0.88 0.003 110);padding:8px 10px;font-size:11px;font-family:var(--font-sans);resize:vertical;outline:none;line-height:1.5" placeholder="描述本次版本变更内容，如：改进了异常处理逻辑，增加了回滚步骤…"></textarea>
+        <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="cancelNewVersion()" style="font-size:10px;padding:3px 10px">取消</button>
+          <button class="btn btn-sm" onclick="confirmNewVersion()" style="font-size:10px;padding:3px 10px;background:oklch(0.55 0.1 250/.15);border-color:oklch(0.55 0.1 250/.3);color:oklch(0.78 0.08 250)">✅ 保存为 v<span id="ver-next-num">2</span></button>
+        </div>
+      </div>
+      <!-- Version history timeline -->
+      <div id="version-timeline" style="font-size:11px;color:oklch(0.5 0.005 110);max-height:280px;overflow-y:auto">
+        暂无版本历史
+      </div>
+      <div id="version-diff" style="display:none;margin-top:8px;padding:10px;background:oklch(0.1 0.005 60/.6);font-size:10px;font-family:var(--font-mono);max-height:180px;overflow-y:auto;white-space:pre-wrap;line-height:1.6"></div>
+    </div>
+    <!-- Tab: Pipeline -->
+    <div class="modal-body modal-tab-content" id="tab-pipeline" style="display:none;flex-direction:column;gap:12px;padding:20px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">🔄 演化管线</h4>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="gate-badge locked" id="pipe-current-stage">日志采集</span>
+          <button class="btn btn-sm" onclick="advancePipeline()" id="btn-advance-pipe">⏭ 推进阶段</button>
+        </div>
+      </div>
+      <!-- Purpose explanation -->
+      <div style="font-size:11px;color:oklch(0.55 0.005 110);padding:8px 12px;background:oklch(0.12 0.005 60);border-left:3px solid oklch(0.55 0.1 250/.4);line-height:1.6">
+        管线将技能从「日志采集」逐步推进到「发布」。每个阶段可添加上下文、复核确认后推进。单人即可操作。
+      </div>
+      <!-- Pipeline stepper in modal -->
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 0">
+        <div class="pipe-step" data-modal-stage="draft" style="flex:1;padding:8px 6px">
+          <span class="pipe-num">1</span><span class="pipe-label">日志采集</span>
+        </div>
+        <span class="pipe-arrow">›</span>
+        <div class="pipe-step" data-modal-stage="review" style="flex:1;padding:8px 6px">
+          <span class="pipe-num">2</span><span class="pipe-label">上下文补全</span>
+        </div>
+        <span class="pipe-arrow">›</span>
+        <div class="pipe-step" data-modal-stage="approval" style="flex:1;padding:8px 6px">
+          <span class="pipe-num">3</span><span class="pipe-label">情境验证</span>
+        </div>
+        <span class="pipe-arrow">›</span>
+        <div class="pipe-step" data-modal-stage="published" style="flex:1;padding:8px 6px">
+          <span class="pipe-num">4</span><span class="pipe-label">技能发布</span>
+        </div>
+      </div>
+      <!-- Quick Approve Section (replaces complex gate) -->
+      <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between;align-items:center">
+          <span>✅ 快速确认</span>
+          <span class="gate-badge" id="gate-status-badge-pipe">🔒 未确认</span>
+        </div>
+        <div style="padding:12px;font-size:11px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span id="gate-reviewer-count-pipe" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 复核</span>
+            <span id="gate-approval-count-pipe" style="color:oklch(0.55 0.005 110);font-family:var(--font-mono)">0/1 同意</span>
+          </div>
+          <div class="gate-progress" style="margin-bottom:8px">
+            <div class="gate-progress-bar"><div class="gate-progress-fill" id="gate-progress-fill-pipe" style="width:0"></div></div>
+          </div>
+          <div id="reviewer-list-pipe" class="reviewer-list" style="margin-bottom:8px">
+            <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center;padding:4px">尚无确认记录</div>
+          </div>
+          <button class="btn btn-sm" id="btn-advance-pipe-primary" onclick="advancePipeline()" style="width:100%;justify-content:center;margin-bottom:6px;background:oklch(0.52 0.04 160/.18);border:1px solid oklch(0.52 0.04 160/.45);color:oklch(0.72 0.07 155);font-weight:600">✅ 通过并推进（单人即可，点击=本人确认）</button>
+          <button class="btn btn-sm" id="btn-show-review-form-pipe" onclick="toggleReviewForm('pipe')" style="width:100%;justify-content:center;border-style:dashed">+ 多人复核（可选，填名字/身份）</button>
+          <div id="review-inline-form-pipe" style="display:none;margin-top:8px;padding:10px;border:1px solid oklch(1 0 0/.08);background:oklch(0.1 0.005 60/.5)">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <input id="review-name-pipe" placeholder="你的名字" style="flex:1;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+              <select id="review-identity-pipe" style="background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none">
+                <option value="peer">同事</option>
+                <option value="senior">上级</option>
+                <option value="lead">负责人</option>
+              </select>
+            </div>
+            <textarea id="review-comment-pipe" rows="2" placeholder="确认说明（可选）" style="width:100%;background:oklch(0.15 0.005 60);border:1px solid oklch(1 0 0/.08);color:oklch(0.82 0.003 110);padding:5px 8px;font-size:11px;outline:none;resize:vertical;margin-bottom:6px"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button class="btn btn-sm" onclick="submitReviewAction('approve','pipe')" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 确认</button>
+              <button class="btn btn-sm" onclick="submitReviewAction('reject','pipe')" style="border-color:oklch(0.5 0.08 18/.3);color:oklch(0.65 0.08 18)">❌ 退回</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Gate Requirements (collapsed by default) -->
+      <details style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
+        <summary style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.45 0.005 110);cursor:pointer;user-select:none">
+          🔐 门禁详情（单人即可推进）
+        </summary>
+        <div id="pipe-gate-details" style="padding:12px;font-size:11px;color:oklch(0.55 0.005 110)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>最少确认人: <b id="pipe-min-reviewers">1</b></div>
+            <div>最少同意票: <b id="pipe-min-approvals">1</b></div>
+            <div>允许自审: <b id="pipe-forbid-self">✅</b></div>
+            <div>跨团队复核: <b id="pipe-cross-team">—</b></div>
+          </div>
+        </div>
+        <div style="padding:0 12px 8px;display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="checkGate()" style="padding:2px 8px;font-size:9px;flex:1;justify-content:center">🔍 检查门禁状态</button>
+          <button class="btn btn-sm" onclick="advancePipeline()" style="padding:2px 8px;font-size:9px;flex:1;justify-content:center;background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.3);color:oklch(0.65 0.06 155)">✅ 通过并推进</button>
+        </div>
+      </details>
+      <!-- Gate Check Result -->
+      <div id="pipe-gate-result" style="display:none;border:1px solid oklch(1 0 0/.08);padding:12px;font-size:11px"></div>
+      <!-- Pipeline Todos -->
+      <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110);display:flex;justify-content:space-between">
+          <span>📋 阶段待办</span>
+          <button class="btn btn-sm" onclick="addPipelineTodo()" style="padding:2px 8px;font-size:9px">+ 添加</button>
+        </div>
+        <div id="pipe-todos" style="padding:8px;font-size:11px;color:oklch(0.5 0.005 110)">
+          暂无待办
+        </div>
+      </div>
+      <!-- Event Timeline -->
+      <div style="border:1px solid oklch(1 0 0/.08);overflow:hidden">
+        <div style="padding:8px 12px;background:oklch(0.12 0.005 60);font-size:11px;color:oklch(0.5 0.005 110)">
+          📅 事件时间轴
+        </div>
+        <div id="pipe-events" style="padding:12px;max-height:240px;overflow-y:auto">
+          <div class="event-timeline" id="pipe-event-list">
+            <div style="font-size:10px;color:oklch(0.4 0.005 110);text-align:center">暂无事件记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" id="modal-footer-actions">
+      <div>
+        <button class="btn btn-reject" onclick="rejectItem()">❌ 拒绝</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn" onclick="saveEdits()">💾 保存编辑</button>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="approve-agent-select" style="display:none;background:#21272D;border:1px solid oklch(0.62 0.10 70/.4);color:#D7DEE4;padding:5px 8px;font-size:11px;font-family:var(--font-sans);outline:none;max-width:140px">
+          </select>
+          <button class="btn btn-approve" onclick="approveAs('trait')" style="background:oklch(0.62 0.10 70/.2);border-color:oklch(0.62 0.10 70/.4);color:oklch(0.82 0.08 70)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            特质技能</button>
+        </div>
+        <button class="btn btn-approve" onclick="approveAs('public')" style="background:oklch(0.55 0.10 250/.2);border-color:oklch(0.55 0.10 250/.4);color:oklch(0.78 0.08 250)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          公共技能</button>
+        <button class="btn btn-approve" onclick="approveAs('reserve')" style="background:oklch(0.52 0.04 160/.2);border-color:oklch(0.52 0.04 160/.4);color:oklch(0.72 0.06 160)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+          储备技能</button>
+        <button class="btn" onclick="injectSkillToAgent()" id="btn-inject-to-agent" style="background:oklch(0.52 0.04 160/.15);border-color:oklch(0.52 0.04 160/.35);color:oklch(0.72 0.06 160)" title="将已批准的技能赋予所选智能体，提升其熟练度">⚡ 注入Agent</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Six-Pager 叙述引导表单 -->
+<div class="sixpager-overlay" id="sixpager-overlay" onclick="if(event.target===this)closeSixPager()">
+<div class="sixpager">
+  <div class="sixpager-header">
+    <h2>📄 Six-Pager 叙述引导</h2>
+    <button class="close-btn" onclick="closeSixPager()">✕</button>
+  </div>
+  <div class="sixpager-body">
+    <div class="sixpager-section">
+      <h3><span class="sec-num">1</span> 目的 Purpose</h3>
+      <p class="hint">本文提议解决什么问题？核心目标是什么？要将什么"随机行为"转化为"工程标准"？</p>
+      <textarea id="sp-purpose">建立一套针对生产环境的防御性配置变更标准操作程序（SOP），将手动修改配置这一高风险运维行为转化为可验证、可回滚、可审计的工程实践，从根本上消除因配置变更引发的生产事故。</textarea>
+    </div>
+    <div class="sixpager-section">
+      <h3><span class="sec-num">2</span> 业务现状与痛点 State of the Business</h3>
+      <p class="hint">列出具体的事故数据、失败案例、配置漂移等痛点。越具体越好。</p>
+      <textarea id="sp-pain" class="tall">过去两个季度，因配置变更引发的P0事故占全部事故的55%。具体痛点包括：
+- 配置漂移：工程师直接在AWS控制台修改参数，导致IaC代码库与实际环境不一致，新环境部署后行为异常
+- 级联失效：调整ALB空闲超时至120秒，未同步后端Lambda的执行时限（仍为30秒），导致请求堆积和连锁超时
+- 回滚盲区：操作员在凌晨紧急修改安全组规则后，记不清修改前的原始参数值，无法快速还原
+- 知识孤岛：配置变更经验存在于个人脑中，团队无法复用</textarea>
+    </div>
+    <div class="sixpager-section">
+      <h3><span class="sec-num">3</span> 核心原则 Tenets</h3>
+      <p class="hint">3-5 条不可妥协的原则。每条用一句话概括。</p>
+      <textarea id="sp-tenets">- 禁绝手动：除紧急故障外，严禁通过管理控制台进行点选式修改，所有变更必须通过代码提交
+- 变更即代码：所有配置变更必须通过版本控制系统（IaC）记录，确保可追溯、可审计
+- 观察即生命：没有对应监控告警的变更不准上线，变更前必须定义可观测指标
+- 默认回滚：每个变更方案必须附带经过验证的一键回滚脚本，回滚时间不超过5分钟</textarea>
+    </div>
+    <div class="sixpager-section">
+      <h3><span class="sec-num">4</span> 提议的 SOP 标准流程 Proposed Procedure</h3>
+      <p class="hint">分阶段描述：前置校验 → 实施策略 → 验证闭环。包含具体的操作步骤和工具。</p>
+      <textarea id="sp-sop" class="tall">第一阶段：前置校验
+- 涉及存储类服务（RDS/DynamoDB/S3）的变更，先触发自动快照
+- 使用 X-Ray Service Map 梳理目标资源的上下游依赖树
+- 准备回滚脚本并在staging环境验证其有效性
+
+第二阶段：实施策略
+- 静态配置（安全组/IAM/VPC）：通过 CloudFormation ChangeSet 预览差异后执行
+- 动态配置（Feature Flag/超时参数）：通过 AppConfig 灰度部署，比例 10%→25%→50%→100%，每级观察窗口≥5分钟
+- 所有变更附带变更说明（变更原因、影响范围、回滚方案）
+
+第三阶段：验证闭环
+- 设置 CloudWatch Composite Alarms，5分钟内错误率上升超5%或延迟P99增长超20%自动触发回滚
+- 变更完成后更新配置文档，归档变更记录
+- 对重大变更进行事后复盘，沉淀为团队知识</textarea>
+    </div>
+    <div class="sixpager-section">
+      <h3><span class="sec-num">5</span> 内部 FAQ</h3>
+      <p class="hint">预判团队可能的质疑和反对意见，提前给出回答。</p>
+      <textarea id="sp-faq">Q：为什么不能直接在控制台改？那样快得多。
+A：快是错觉。手动修改无法审计、无法复现，且在多可用区环境下极易遗漏节点。历史数据表明55%的P0事故源于此。
+
+Q：紧急的安全组封禁也要走流程吗？
+A：设立紧急通道（Emergency Change），可用控制台操作但必须开启 CloudTrail 详细日志，1小时内将变更同步至IaC代码库并补提PR。
+
+Q：这会不会拖慢发布速度？
+A：标准变更通过自动化流水线执行，实际比手动操作更快。仅首次建立流程有学习成本。</textarea>
+    </div>
+    <div class="sixpager-section">
+      <h3><span class="sec-num">6</span> 风险预判 Stakeholder FAQ</h3>
+      <p class="hint">对管理层/利益相关方的顾虑给出量化回答。</p>
+      <textarea id="sp-risk">Q：这会增加运维成本吗？
+A：短期增加约20%的文档和代码编写时间，但预计减少80%的人为配置事故。按每次P0事故平均消耗8人×4小时计算，季度节省约640人时。
+
+Q：小团队也需要这么重的流程吗？
+A：核心三原则（禁手动、变更即代码、有监控）适用于任何规模。灰度比例和审批层级可按团队规模裁剪。
+
+Q：如何衡量这套SOP的效果？
+A：北极星指标：配置变更引发的事故数降至每季度≤1次；辅助指标：平均回滚时间（MTTR）< 5分钟，配置漂移率 < 2%。</textarea>
+    </div>
+  </div>
+  <div class="sixpager-footer">
+    <span class="sp-hint">填写完成后将自动组合为结构化叙述文本，启动技能萃取</span>
+    <div style="display:flex;gap:8px">
+      <button class="btn-sp" style="background:transparent;border-color:oklch(1 0 0/.12);color:oklch(0.5 0.005 110)" onclick="closeSixPager()">取消</button>
+      <button class="btn-sp" onclick="submitSixPager()">📄 提交并萃取</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- STAR Step Modal -->
+<div class="star-modal-overlay" id="star-modal-overlay" onclick="if(event.target===this)closeStarModal()">
+<div class="star-modal">
+  <div class="star-modal-header">
+    <h2 id="star-modal-title">⭐ STAR 经验萃取</h2>
+    <button class="close-btn" onclick="closeStarModal()">✕</button>
+  </div>
+  <div class="star-modal-progress">
+    <div class="smp-step" data-smp="0"><span class="smp-key">S</span><span class="smp-label">场景</span></div>
+    <div class="smp-step" data-smp="1"><span class="smp-key">T</span><span class="smp-label">任务</span></div>
+    <div class="smp-step" data-smp="2"><span class="smp-key">A</span><span class="smp-label">行动</span></div>
+    <div class="smp-step" data-smp="3"><span class="smp-key">R</span><span class="smp-label">结果</span></div>
+  </div>
+  <div class="star-modal-body">
+    <div class="star-context" id="star-modal-context"></div>
+    <div class="star-question" id="star-modal-question"></div>
+    <div class="star-hint" id="star-modal-hint"></div>
+    <textarea id="star-modal-input" placeholder=""></textarea>
+    <div class="star-example" id="star-modal-example"></div>
+  </div>
+  <div class="star-modal-footer">
+    <span class="smp-hint" id="star-modal-step-hint"></span>
+    <div class="smp-btns">
+      <button class="btn-sp btn-prev" id="star-modal-prev" onclick="starModalPrev()">← 上一步</button>
+      <button class="btn-sp" id="star-modal-next" onclick="starModalNext()">下一步 →</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<script src="/js/api.js"></script>
+<script src="/js/ag-context.js"></script>
+<script src="/js/evidence-runs.js"></script>
+<script src="/js/skill-extract.js" type="module"></script>
+<script>
+// Topbar user sync
+(function () {
+  var u = localStorage.getItem('ag-user') || 'guest';
+  var nameEl = document.getElementById('topbar-user');
+  var avEl = document.getElementById('topbar-avatar');
+  if (nameEl) nameEl.textContent = u;
+  if (avEl) avEl.textContent = (u || '?').charAt(0).toUpperCase();
+  if (!window._agLogout) {
+    window._agLogout = function () {
+      if (window.api && window.api.logout) {
+        window.api.logout().then(function () {
+          localStorage.removeItem('ag-user');
+          window.location.href = '/login.html';
+        });
+      } else {
+        localStorage.removeItem('ag-user');
+        window.location.href = '/login.html';
+      }
+    };
+  }
+})();
+</script>
+  <script src="/js/utils.js"></script>
+</body>
+</html>

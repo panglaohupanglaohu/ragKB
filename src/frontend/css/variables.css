@@ -1,0 +1,97 @@
+/**
+ * AgentsGroup2026 — Shared CSS Design Tokens
+ * Wabi-Sabi inspired dark theme variables.
+ * Include before all other CSS files.
+ */
+:root {
+  /* ── Core palette: Wabi-Sabi ── */
+  --shironeri: #1A1F25;
+  --ishi: #21272D;
+  --kabe: #30363D;
+  --hai: #424A52;
+  --nezumi: #64707A;
+  --sumi: #EEF2F5;
+  --sumi-2: #A2ABB4;
+  --sumi-3: #7C8792;
+  --groove: #3B434C;
+  --ridge: rgba(255, 255, 255, 0.06);
+
+  /* ── Accent colors ── */
+  --koke: #6BC47F;
+  --shu: #E07070;
+  --kitsune: #D4A44A;
+
+  /* ── Semantic aliases ── */
+  --cyan: var(--koke);
+  --cyan-s: var(--koke);
+  --lime: var(--koke);
+  --amber: var(--kitsune);
+  --red: var(--shu);
+  --pink: var(--shu);
+  --text: var(--sumi);
+  --muted: var(--sumi-3);
+  --dim: var(--sumi-3);
+
+  /* ── Backgrounds ── */
+  --bg: var(--shironeri);
+  --panel: var(--shironeri);
+  --panel2: var(--ishi);
+
+  /* ── Borders ── */
+  --line: var(--groove);
+
+  /* ── Typography ── */
+  --font-serif: 'Noto Serif SC', serif;
+  --font-sans: 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* ── Layout ── */
+  --sbw: 240px;
+}
+
+/* ═══ Browser Compatibility — oklch() fallbacks ═══
+   oklch() is supported in Chrome 111+, Firefox 113+, Safari 15.4+.
+   For older browsers, provide hex/rgb fallbacks via @supports.
+   These are only applied when oklch() is NOT supported.
+*/
+
+/* Fallback for common oklch() usage across pages */
+@supports not (color: oklch(0 0 0)) {
+  :root {
+    --color-bg-overlay: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Fallback for color-mix() — used in plaza.html speech bubbles */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .speech-bubble {
+    border-color: rgba(166, 176, 186, 0.4) !important;
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.08), inset 0 0 14px rgba(255, 255, 255, 0.03) !important;
+  }
+  .speech-bubble::after {
+    border-right-color: rgba(166, 176, 186, 0.4) !important;
+    border-bottom-color: rgba(166, 176, 186, 0.4) !important;
+  }
+  .speech-bubble.history {
+    opacity: 0.14 !important;
+  }
+  .speech-bubble.speaking {
+    box-shadow: 0 0 26px rgba(255, 255, 255, 0.1), inset 0 0 16px rgba(255, 255, 255, 0.05) !important;
+  }
+}
+
+/* Fallback for oklch() color values — all pages */
+@supports not (color: oklch(0.52 0.04 160)) {
+  :root {
+    --lime: #6BC47F;
+    --koke: #6BC47F;
+    --cyan: #6BC47F;
+    --shu: #E07070;
+    --red: #E07070;
+    --pink: #E07070;
+    --kitsune: #D4A44A;
+    --amber: #D4A44A;
+    --muted: #7C8792;
+    --dim: #7C8792;
+  }
+}
