@@ -860,8 +860,7 @@ async function loadModels(){
   const d=await apiList(`${A}/teams/${tid}/models`,200,0);
   hideViewLoading('view-models');
   const tb=el('models-tb');
-  if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}
-  // 读当前全局模型（全系统统一使用的模型）
+  // 读当前全局模型（全系统统一使用的模型）——先读，供横幅 + 跨团队引用行
   let g=null; try{ g=await api(`${A}/llm/global-model`); }catch(e){}
   const gCur=(g&&g.enabled&&g.current)?g.current:null;
   // 顶部横幅：当前全局模型 + 清除
@@ -871,7 +870,20 @@ async function loadModels(){
       ? `🌐 全局模型：<b style="color:var(--lime)">${escapeHtml(gCur.name||gCur.model_id)}</b> <span style="color:var(--muted);font-size:11px">(${escapeHtml(gCur.team_id)}/${escapeHtml(gCur.model_id)}) · plaza/技能演进/棘轮/数字孪生 等所有 LLM 调用统一用它</span> <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;margin-left:8px" onclick="clearGlobalModel()">清除</button>`
       : `🌐 全局模型：<span style="color:var(--muted)">未设置（各团队按各自默认模型）。点击任一模型「设为全局」即可全系统统一。</span>`;
   }
-  tb.innerHTML=d.map(m=>{
+  const _dArr=d||[];
+  // 全局模型若属于别的团队 → 在本团队列表顶部补一行只读引用，让用户看到"本团队实际生效的模型"
+  let globalRowHtml='';
+  if(gCur && !(gCur.team_id===tid && _dArr.some(m=>m.model_id===gCur.model_id))){
+    let gm=null;
+    try{ const od=await apiList(`${A}/teams/${gCur.team_id}/models`,200,0); gm=(od||[]).find(m=>m.model_id===gCur.model_id); }catch(e){}
+    const nm=gCur.name||(gm&&gm.name)||gCur.model_id;
+    const prov=(gm&&gm.provider)||'—';
+    const mt=(gm&&gm.max_tokens)?Number(gm.max_tokens).toLocaleString():'—';
+    const tp=(gm&&gm.temperature!=null)?gm.temperature:'—';
+    globalRowHtml=`<tr style="background:rgba(74,222,128,.06)"><td><b>${escapeHtml(gCur.model_id)}</b></td><td>${escapeHtml(nm)}</td><td>${escapeHtml(prov)}</td><td>${mt}</td><td>${tp}</td><td><span style="color:var(--muted)">—</span></td><td><span style="color:var(--lime)" title="来自 ${escapeHtml(gCur.team_id)} 团队，全系统统一使用；如需改用本团队模型请「清除」全局或在源团队编辑">🌐 全局 · 来自 ${escapeHtml(gCur.team_id)}</span></td></tr>`;
+  }
+  if(!_dArr.length && !globalRowHtml){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}
+  tb.innerHTML=globalRowHtml+_dArr.map(m=>{
     const mid=m.model_id;
     const isGlobal = gCur && gCur.team_id===tid && gCur.model_id===mid;
     const globalCell = isGlobal

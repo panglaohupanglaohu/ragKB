@@ -15,13 +15,19 @@ async function _plazaDiscussions(plazaId){return _list(`${API}/plaza/${plazaId}/
 async function init(){
   loadLocal();
   await Promise.all([loadTeamsAndAgents(),loadSkills(),loadTools(),loadDtState()]);
-  renderAgentList();renderArchitecture();renderInteractions();renderPipeline();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
+  renderAgentList();renderEnvironment();renderRoomTabs();renderStats();renderFreqChart();renderActivityFeed();
+  if(window._secsRenderCollab)window._secsRenderCollab();
   secsInitTeamDropdown();
-  setInterval(loadLiveMetrics,10000);
+  setInterval(()=>{if(document.hidden)return;loadLiveMetrics();},10000);
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden)return;
+    loadLiveMetrics();
+    if(window.dtRefresh)window.dtRefresh('tab');
+  });
   startSim();
 }
-async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch{}}
-async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch{}}
+async function loadDtState(){try{const r=await _af(`${API}/digital-twin/state`);if(r.ok){const d=await r.json();if(d.positions&&Object.keys(d.positions).length)S.positions=d.positions;if(d.rooms&&d.rooms.length>=6){S.rooms=d.rooms;scopeRoomsToCurrentScenario();}if(d.interactions&&d.interactions.length){d.interactions.forEach(i=>{if(!S.messages.find(m=>m.time===i.time&&m.from===i.from))S.messages.push(i)})}}}catch(e){console.warn('[dt] loadDtState',e)}}
+async function syncDtState(){try{await _af(`${API}/digital-twin/state`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rooms:(S.rooms||[]).filter(r=>!(r&&r._scn)),positions:S.positions})})}catch(e){console.warn('[dt] syncDtState',e)}}
 async function syncAgentMove(agentId,roomId){
   const r=await _af(`${API}/digital-twin/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,room_id:roomId})});
   let d={};try{d=await r.json()}catch{}
@@ -72,7 +78,7 @@ async function loadTeamsAndAgents(){
     S.teams=[];S.agents=[];
     const fetches=teams.map(async t=>{
       const tid=t.team_id||t.id;
-      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch{}
+      try{const agents=await _list(`${API}/teams/${tid}/agents`,200,0);S.teams.push({id:tid,name:t.name||tid,agents});agents.forEach(a=>{a._teamId=tid;a._teamName=t.name||tid});S.agents.push(...agents)}catch(e){console.warn('[dt] 加载团队 agent 失败',tid,e)}
     });
     await Promise.all(fetches);
     console.log('[DT] loaded',S.teams.length,'teams,',S.agents.length,'agents');
@@ -131,8 +137,8 @@ window.addEventListener('storage', function(e) {
   }
 });
 window.dtGetCurrentTeam = dtGetCurrentTeam; window.dtSetCurrentTeam = dtSetCurrentTeam;
-async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch{}}
-async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch{}}
+async function loadSkills(){try{S.skills=await _list(`${API}/skills`,200,0)}catch(e){console.warn('[dt] loadSkills',e)}}
+async function loadTools(){try{S.tools=await _list(`${API}/tools`,200,0)}catch(e){console.warn('[dt] loadTools',e)}}
 
 function switchView(el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');
@@ -215,7 +221,7 @@ async function loadLiveMetrics(){
     const[taskR,extR]=await Promise.allSettled([_af(`${API}/tasks/stats`),_af('/api/v1/extraction/stats')]);
     if(taskR.status==='fulfilled'&&taskR.value.ok){const d=await taskR.value.json();Object.assign(liveMetrics.tasks,d)}
     if(extR.status==='fulfilled'&&extR.value.ok){const d=await extR.value.json();if(d.funnel)Object.assign(liveMetrics.extraction,d.funnel)}
-  }catch{}
+  }catch(e){console.warn('[dt] loadLiveMetrics',e)}
   liveMetrics.lastRefresh=new Date();
   renderDashboard();
 }
@@ -415,7 +421,7 @@ function switchFlowView(view,btn){
 }
 function renderSequenceDiagram(){
   const svg=document.getElementById('seq-svg');if(!svg)return;
-  const msgs=S.messages.slice(-30);
+  const msgs=(typeof _scopedMsgs==='function'?_scopedMsgs():S.messages).slice(-30);
   if(!msgs.length){svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#576375" font-size="13">暂无交互记录</text>';return}
   // Collect unique participants
   const participants=[...new Set(msgs.flatMap(m=>[m.from,m.to||'System'].filter(Boolean)))];
@@ -465,8 +471,15 @@ function renderSequenceDiagram(){
 async function renderPipeline(){
   const flow=document.getElementById('pipeline-flow');const bar=document.getElementById('pipeline-progress-bar');
   if(!flow)return;
-  const sid=window._sx&&window._sx.scenarioId;
-  if(!sid){flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态</div>';if(bar)bar.style.width='0%';renderExecLog();return;}
+  const _sxo=window._sx||{};
+  const sid=_sxo.scenarioId||_sxo.runScenarioId;
+  if(!sid){
+    const _running=!!(_sxo.sessionId&&_sxo.simRunning);
+    flow.innerHTML='<div style="padding:28px;text-align:center;color:var(--dim);font-size:13px">'+(_running
+      ? '本次为<b>无场景基线运行</b>，没有任务编排 DAG。<br>如需查看 DAG，请在右侧「选择演练场景」选一个具体场景后运行。'
+      : '在右侧「选择演练场景」选一个场景后，这里显示该场景的<b>任务编排（DAG）</b>与实时执行状态')+'</div>';
+    if(bar)bar.style.width='0%';renderExecLog();return;
+  }
   // 场景缓存：每步重渲染时不再重复拉取
   let scn=(window._pipeScnCache&&window._pipeScnCache.id===sid)?window._pipeScnCache.data:null;
   if(!scn){try{scn=await _af('/api/v1/scenarios/'+encodeURIComponent(sid)).then(r=>r.json());window._pipeScnCache={id:sid,data:scn};}catch(e){return;}}
@@ -1233,9 +1246,10 @@ function startSim(){
   let _freqBucket=0;
   const _origFetch=window.fetch;
   window.fetch=function(...args){_freqBucket++;return _origFetch.apply(this,args)};
-  setInterval(()=>{S.freqData.push(_freqBucket);_freqBucket=0;S.freqData.shift();renderFreqChart()},2000);
+  setInterval(()=>{if(document.hidden)return;S.freqData.push(_freqBucket);_freqBucket=0;S.freqData.shift();renderFreqChart()},2000);
   // Auto-refresh agent states every 30s
   setInterval(async()=>{
+    if(document.hidden)return;
     await loadTeamsAndAgents();renderAgentList();renderStats();renderDashboard();
   },30000);
 }

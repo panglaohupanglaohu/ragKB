@@ -979,6 +979,8 @@
 
     _consoleLines = [];
     if (window._dt2dChaosReset) window._dt2dChaosReset();   // 新一轮演练：清空上轮混沌对拓扑的增删
+    try { if (window.S && Array.isArray(window.S.messages)) { window.S.messages.length = 0; localStorage.removeItem('dt2_messages'); } } catch (e) {}
+    try { if (window.dtRefresh) window.dtRefresh('step'); } catch (e) {}
     _logConsole('══ 仿真启动 (统一入口 → 试炼导演台) ══', 'header');
     _logConsole('团队: ' + (_selectedTeamName||_selectedTeamId), 'info');
     _logConsole('模式: ' + (MODE_LABEL[mode]||mode) + '  步数: ' + steps + '  加速: ' + speed + 'x', 'info');
@@ -1278,31 +1280,47 @@
   // ── 协作图渲染 ──
   function _renderCollabGraph(twins) {
     var g = document.getElementById('secs-collab-nodes');
-    if (!g || !twins.length) return;
-    var cx=200, cy=70, r=110;
-    var n=twins.length;
+    if (!g) return;
+    if (twins && twins.length) _sx.lastTwins = twins;
+    var base = (twins && twins.length) ? twins : (_sx.lastTwins || []);
+    if (!base.length && window.S && S.agents && S.selectedTeams) {
+      base = S.agents.filter(function(a){return S.selectedTeams.indexOf(a._teamId)>=0;})
+        .map(function(a){return {source_agent_id:a.agent_id, role:a.role||'general', name:a.name};});
+    }
+    var chaos = window._chaosTopoState || {removed:{}, added:[]};
+    var work = base.filter(function(t){return !chaos.removed[t.source_agent_id];});
+    (chaos.added||[]).forEach(function(ad){
+      if (!work.some(function(t){return t.source_agent_id===ad.agent_id;}))
+        work.push({source_agent_id:ad.agent_id, role:'general', name:ad.name, _reinforce:true});
+    });
+    var titleEl = document.getElementById('secs-collab-title');
+    if (titleEl) titleEl.textContent = '🤝 协作图 [' + work.length + ']';
+    if (!work.length) { g.innerHTML = '<text x="200" y="72" text-anchor="middle" font-size="9" fill="#576375">选择团队并启动演练后显示协作图</text>'; return; }
+    var cx=200, cy=70, rx=155, ry=48;
+    var n=work.length;
     var nodes='', edges='';
     var colors={'project_manager':'#22d3ee','researcher':'#a78bfa','architect':'#f59e0b','developer':'#34d399','qa_engineer':'#f472b6','devops':'#f97316','documentation':'#94a3b8'};
+    var pos=[];
     for (var i=0; i<n; i++) {
       var angle = (2*Math.PI*i/n) - Math.PI/2;
-      var x=cx + r*Math.cos(angle), y=cy + r*Math.sin(angle);
-      var role=twins[i].role||'general';
-      var color=colors[role]||'#888';
-      var label=(twins[i].source_agent_id||'').replace('build_','').slice(0,3);
-      nodes += '<circle cx="'+x.toFixed(0)+'" cy="'+y.toFixed(0)+'" r="14" fill="var(--panel2)" stroke="'+color+'" stroke-width="2"/>';
-      nodes += '<text x="'+x.toFixed(0)+'" y="'+(y+4).toFixed(0)+'" text-anchor="middle" font-size="7" fill="var(--text)">'+esc(label)+'</text>';
+      pos.push({x:cx + rx*Math.cos(angle), y:cy + ry*Math.sin(angle)});
     }
-    // 画连线（全连通）
     for (var i=0; i<n; i++) {
       for (var j=i+1; j<n; j++) {
-        var a1=2*Math.PI*i/n-Math.PI/2, a2=2*Math.PI*j/n-Math.PI/2;
-        var x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
-        var x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2);
-        edges += '<line x1="'+x1.toFixed(0)+'" y1="'+y1.toFixed(0)+'" x2="'+x2.toFixed(0)+'" y2="'+y2.toFixed(0)+'" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>';
+        edges += '<line x1="'+pos[i].x.toFixed(0)+'" y1="'+pos[i].y.toFixed(0)+'" x2="'+pos[j].x.toFixed(0)+'" y2="'+pos[j].y.toFixed(0)+'" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>';
       }
+    }
+    for (var i=0; i<n; i++) {
+      var role=work[i].role||'general';
+      var color=colors[role]||'#888';
+      var label=(work[i].source_agent_id||work[i].name||'').replace('build_','').replace('增援·','').slice(0,3);
+      var dash=work[i]._reinforce?' stroke-dasharray="3,2"':'';
+      nodes += '<circle cx="'+pos[i].x.toFixed(0)+'" cy="'+pos[i].y.toFixed(0)+'" r="13" fill="var(--panel2)" stroke="'+color+'" stroke-width="2"'+dash+'/>';
+      nodes += '<text x="'+pos[i].x.toFixed(0)+'" y="'+(pos[i].y+4).toFixed(0)+'" text-anchor="middle" font-size="7" fill="var(--text)">'+esc(label)+'</text>';
     }
     g.innerHTML = edges + nodes;
   }
+  window._secsRenderCollab = _renderCollabGraph;
 
   var _sseReconnectDelay = 1000;  // 指数退避初始间隔 ms
 
@@ -1895,7 +1913,8 @@
               if (window._dt2dChaosJoin) window._dt2dChaosJoin(d.agent);
             }
           }
-        } catch (e) { /* 同步失败不阻断注入 */ }
+        } catch (e) { console.warn('[dt] 混沌同步', e); }
+        try { _renderCollabGraph(); } catch (e) {}
         try { if (window.dtRefresh) window.dtRefresh('chaos'); } catch (e) {}
       }
       showToast('已注入: '+label, 'success');
