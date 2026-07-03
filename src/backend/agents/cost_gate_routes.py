@@ -148,6 +148,144 @@ async def _record_cost_gate_evidence(report, request: TerraformPlanEvaluationReq
         return ""
 
 
+def _token_gate_stats() -> Dict[str, Any]:
+    try:
+        from .token_gate_routes import _stats as _tok_stats
+        return dict(_tok_stats)
+    except Exception:
+        return {}
+
+
+def _token_gate_health() -> Dict[str, Any]:
+    token_health: Dict[str, Any] = {"status": "healthy", "engine": "token_budget"}
+    token_stats = _token_gate_stats()
+    if token_stats:
+        token_health["token_stats"] = token_stats
+    return token_health
+
+
+def _terraform_gate_health() -> Dict[str, Any]:
+    try:
+        gate = _get_cost_gate()
+        status = gate.get_status()
+        return {
+            "status": "healthy",
+            "channel": status["name"],
+            "version": status["version"],
+            "policies_count": status["policies"]["resource_types_count"],
+            "stats": status["stats"],
+            "uptime_seconds": status["uptime_seconds"],
+        }
+    except Exception as e:
+        logger.debug("Terraform cost gate unavailable: %s", e)
+        return {"status": "unavailable", "reason": str(e)[:120]}
+
+
+def _terraform_gate_stats() -> Dict[str, Any]:
+    try:
+        gate = _get_cost_gate()
+        return gate.get_stats()
+    except Exception as e:
+        logger.debug("Terraform cost gate stats unavailable: %s", e)
+        return {"error": str(e)[:120]}
+
+
+def _ensure_plan_request(request: TerraformPlanEvaluationRequest) -> None:
+    if not request.plan and not request.plan_json:
+        raise HTTPException(status_code=422, detail="Either 'plan' or 'plan_json' is required")
+
+
+def _plan_from_request(request: TerraformPlanEvaluationRequest) -> Dict[str, Any]:
+    if request.plan_json:
+        return json.loads(request.plan_json)
+    return request.plan or {}
+
+
+def _budget_from_request(request: TerraformPlanEvaluationRequest):
+    if not request.budget:
+        return None
+    from agents.cost_policy import BudgetProfile
+    return BudgetProfile.from_dict(request.budget)
+
+
+def _evaluate_plan_with_gate(gate, request: TerraformPlanEvaluationRequest, plan: Dict[str, Any], budget):
+    return gate.evaluate_plan(
+        plan,
+        project_id=request.project_id,
+        budget=budget,
+        metadata=request.metadata or {},
+    )
+
+
+async def _result_from_report(report, request: TerraformPlanEvaluationRequest) -> Dict[str, Any]:
+    result = report.to_dict()
+    evidence_run_id = await _record_cost_gate_evidence(report, request, result)
+    if evidence_run_id:
+        result["evidence_run_id"] = evidence_run_id
+    return result
+
+
+def _log_blocked_report(report) -> None:
+    if not report.is_blocked:
+        return
+    logger.warning(
+        "🚫 Cost Gate BLOCKED plan %s: %d critical/high violations",
+        report.report_id,
+        report.critical_count + report.high_count,
+    )
+
+
+def _resource_config_from_request(request: PolicyUpdateRequest) -> Dict[str, Any]:
+    from agents.cost_policy import ResourceTypeConfig
+    config = ResourceTypeConfig(
+        resource_type=request.resource_type,
+        allowed_instance_families=request.allowed_instance_families,
+        max_instance_size=request.max_instance_size,
+        recommended_storage_tier=request.recommended_storage_tier,
+        max_storage_gb=request.max_storage_gb,
+        cost_per_unit_hourly=request.cost_per_unit_hourly,
+        required_tags=request.required_tags,
+        max_count=request.max_count,
+        blocked_regions=request.blocked_regions,
+        notes=request.notes,
+    )
+    return config.to_dict()
+
+
+def _single_policy_response(gate, resource_type: str) -> Dict[str, Any]:
+    config = gate._engine.get_resource_config(resource_type)
+    if config:
+        return {"resource_type": resource_type, "policy": config.to_dict()}
+    raise HTTPException(status_code=404, detail=f"No policy for resource type: {resource_type}")
+
+
+def _require_budget(gate):
+    budget = gate.get_budget()
+    if not budget:
+        raise HTTPException(status_code=404, detail="No budget profile configured")
+    return budget
+
+
+def _history_report_summary(report) -> Dict[str, Any]:
+    return {
+        "report_id": report.report_id,
+        "project_id": report.project_id,
+        "decision": report.decision.value,
+        "violations_count": len(report.violations),
+        "critical_count": report.critical_count,
+        "high_count": report.high_count,
+        "estimated_monthly_cost_usd": report.estimated_monthly_cost_usd,
+        "timestamp": report.timestamp,
+    }
+
+
+def _history_response(reports) -> Dict[str, Any]:
+    return {
+        "count": len(reports),
+        "reports": [_history_report_summary(report) for report in reports],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════
 # API Endpoints
 # ══════════════════════════════════════════════════════════════════
@@ -159,36 +297,13 @@ async def cost_gate_health():
 
     P2.2: 默认 token 语义，附带 terraform (legacy) 健康状态。
     """
-    # Token gate health（北极星）
-    token_health = {"status": "healthy", "engine": "token_budget"}
-    try:
-        from .token_gate_routes import _stats as _tok_stats
-        token_health["token_stats"] = dict(_tok_stats)
-    except Exception:
-        pass
-
-    # Terraform gate health (legacy)
-    tf_health: Dict[str, Any] = {"status": "unavailable"}
-    try:
-        gate = _get_cost_gate()
-        status = gate.get_status()
-        tf_health = {
-            "status": "healthy",
-            "channel": status["name"],
-            "version": status["version"],
-            "policies_count": status["policies"]["resource_types_count"],
-            "stats": status["stats"],
-            "uptime_seconds": status["uptime_seconds"],
-        }
-    except Exception as e:
-        logger.debug("Terraform cost gate unavailable: %s", e)
-        tf_health = {"status": "unavailable", "reason": str(e)[:120]}
+    token_health = _token_gate_health()
 
     return {
         "status": token_health["status"],
         "default_semantics": "token",
         "token": token_health,
-        "terraform": tf_health,
+        "terraform": _terraform_gate_health(),
     }
 
 
@@ -212,44 +327,15 @@ async def evaluate_terraform_plan(request: TerraformPlanEvaluationRequest):
         422: Budget exceeded (BLOCK decision) — CI/CD should treat as failure
     """
     gate = _get_cost_gate()
-
-    if not request.plan and not request.plan_json:
-        raise HTTPException(status_code=422, detail="Either 'plan' or 'plan_json' is required")
+    _ensure_plan_request(request)
 
     try:
-        if request.plan_json:
-            plan = json.loads(request.plan_json)
-        else:
-            plan = request.plan
-
-        # Convert budget if provided
-        budget = None
-        if request.budget:
-            from agents.cost_policy import BudgetProfile
-            budget = BudgetProfile.from_dict(request.budget)
-
-        report = gate.evaluate_plan(
-            plan,
-            project_id=request.project_id,
-            budget=budget,
-            metadata=request.metadata or {},
-        )
-
-        result = report.to_dict()
-        evidence_run_id = await _record_cost_gate_evidence(report, request, result)
-        if evidence_run_id:
-            result["evidence_run_id"] = evidence_run_id
-
-        # If blocked, return 422 to signal CI/CD failure
-        if report.is_blocked:
-            logger.warning(
-                "🚫 Cost Gate BLOCKED plan %s: %d critical/high violations",
-                report.report_id,
-                report.critical_count + report.high_count,
-            )
-            # We still return 200 here because the CI/CD script checks decision field
-            # But we include clear blocking info
-
+        plan = _plan_from_request(request)
+        budget = _budget_from_request(request)
+        report = _evaluate_plan_with_gate(gate, request, plan, budget)
+        result = await _result_from_report(report, request)
+        # We still return 200 for blocked reports because CI/CD checks decision field.
+        _log_blocked_report(report)
         return result
 
     except json.JSONDecodeError as e:
@@ -272,15 +358,9 @@ async def list_policies(
         Policy configurations
     """
     gate = _get_cost_gate()
-    policies = gate.get_policies()
-
     if resource_type:
-        config = gate._engine.get_resource_config(resource_type)
-        if config:
-            return {"resource_type": resource_type, "policy": config.to_dict()}
-        raise HTTPException(status_code=404, detail=f"No policy for resource type: {resource_type}")
-
-    return policies
+        return _single_policy_response(gate, resource_type)
+    return gate.get_policies()
 
 
 @cost_gate_router.post("/policies")
@@ -294,22 +374,7 @@ async def upsert_policy(request: PolicyUpdateRequest):
         Updated policy confirmation
     """
     gate = _get_cost_gate()
-
-    from agents.cost_policy import ResourceTypeConfig
-    config = ResourceTypeConfig(
-        resource_type=request.resource_type,
-        allowed_instance_families=request.allowed_instance_families,
-        max_instance_size=request.max_instance_size,
-        recommended_storage_tier=request.recommended_storage_tier,
-        max_storage_gb=request.max_storage_gb,
-        cost_per_unit_hourly=request.cost_per_unit_hourly,
-        required_tags=request.required_tags,
-        max_count=request.max_count,
-        blocked_regions=request.blocked_regions,
-        notes=request.notes,
-    )
-
-    result = gate.update_policy(config.to_dict())
+    result = gate.update_policy(_resource_config_from_request(request))
     logger.info("📋 Cost policy updated: %s", request.resource_type)
     return result
 
@@ -339,10 +404,7 @@ async def get_budget():
         Budget profile
     """
     gate = _get_cost_gate()
-    budget = gate.get_budget()
-    if not budget:
-        raise HTTPException(status_code=404, detail="No budget profile configured")
-    return budget
+    return _require_budget(gate)
 
 
 @cost_gate_router.post("/budget")
@@ -377,22 +439,7 @@ async def get_history(
     """
     gate = _get_cost_gate()
     reports = gate.get_history(project_id=project_id, limit=limit)
-    return {
-        "count": len(reports),
-        "reports": [
-            {
-                "report_id": r.report_id,
-                "project_id": r.project_id,
-                "decision": r.decision.value,
-                "violations_count": len(r.violations),
-                "critical_count": r.critical_count,
-                "high_count": r.high_count,
-                "estimated_monthly_cost_usd": r.estimated_monthly_cost_usd,
-                "timestamp": r.timestamp,
-            }
-            for r in reports
-        ],
-    }
+    return _history_response(reports)
 
 
 @cost_gate_router.get("/history/{report_id}")
@@ -421,27 +468,10 @@ async def get_stats():
 
     P2.2: 默认返回 token gate 统计（北极星），附带 terraform legacy 统计。
     """
-    # Token gate stats（北极星）
-    token_stats: Dict[str, Any] = {}
-    try:
-        from .token_gate_routes import _stats as _tok_stats
-        token_stats = dict(_tok_stats)
-    except Exception:
-        pass
-
-    # Terraform gate stats (legacy)
-    tf_stats: Dict[str, Any] = {}
-    try:
-        gate = _get_cost_gate()
-        tf_stats = gate.get_stats()
-    except Exception as e:
-        logger.debug("Terraform cost gate stats unavailable: %s", e)
-        tf_stats = {"error": str(e)[:120]}
-
     return {
         "default_semantics": "token",
-        "token": token_stats,
-        "terraform": tf_stats,
+        "token": _token_gate_stats(),
+        "terraform": _terraform_gate_stats(),
     }
 
 

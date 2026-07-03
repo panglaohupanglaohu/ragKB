@@ -83,6 +83,11 @@ class AgentTask:
 
 
 StatusCallback = Callable[[AgentTask, TaskStatus, TaskStatus], None]
+_UNSET = object()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class TaskEngine:
@@ -184,10 +189,7 @@ class TaskEngine:
         if task is None:
             return None
         if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-            old = task.status
-            task.status = TaskStatus.CANCELLED
-            task.completed_at = datetime.now(timezone.utc).isoformat()
-            self._fire_callbacks(task, old, TaskStatus.CANCELLED)
+            self._transition_task(task, TaskStatus.CANCELLED, completed_at=True)
             self._store.save_task(task)
             await self._record_task_evidence(task)
             self._publish_event("cancelled", task)
@@ -199,14 +201,13 @@ class TaskEngine:
         if task is None:
             return None
         if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-            old = task.status
-            task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now(timezone.utc).isoformat()
-            if result is not None:
-                task.result = result
-            else:
-                task.result = {"message": f"Task '{task.title}' completed"}
-            self._fire_callbacks(task, old, TaskStatus.COMPLETED)
+            result_payload = result if result is not None else {"message": f"Task '{task.title}' completed"}
+            self._transition_task(
+                task,
+                TaskStatus.COMPLETED,
+                completed_at=True,
+                result=result_payload,
+            )
             self._store.save_task(task)
             await self._record_task_evidence(task)
             self._publish_event("completed", task)
@@ -219,10 +220,7 @@ class TaskEngine:
         if task is None:
             return None
         if task.status == TaskStatus.PENDING:
-            old = task.status
-            task.status = TaskStatus.RUNNING
-            task.started_at = datetime.now(timezone.utc).isoformat()
-            self._fire_callbacks(task, old, TaskStatus.RUNNING)
+            self._transition_task(task, TaskStatus.RUNNING, started_at=True)
             self._store.save_task(task)
             self._publish_event("started", task)
         return task
@@ -233,11 +231,12 @@ class TaskEngine:
         if task is None:
             return None
         if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-            old = task.status
-            task.status = TaskStatus.FAILED
-            task.error = error
-            task.completed_at = datetime.now(timezone.utc).isoformat()
-            self._fire_callbacks(task, old, TaskStatus.FAILED)
+            self._transition_task(
+                task,
+                TaskStatus.FAILED,
+                completed_at=True,
+                error=error,
+            )
             self._store.save_task(task)
             await self._record_task_evidence(task)
             self._publish_event("failed", task)
@@ -286,11 +285,12 @@ class TaskEngine:
             if task is None or task.status != TaskStatus.PENDING:
                 continue
             if not self._dependencies_met(task):
-                old = task.status
-                task.status = TaskStatus.FAILED
-                task.error = "Dependency not met"
-                task.completed_at = datetime.now(timezone.utc).isoformat()
-                self._fire_callbacks(task, old, TaskStatus.FAILED)
+                self._transition_task(
+                    task,
+                    TaskStatus.FAILED,
+                    completed_at=True,
+                    error="Dependency not met",
+                )
                 await self._record_task_evidence(task)
                 self._publish_event("failed", task)
                 self._cascade_dependents()
@@ -300,10 +300,7 @@ class TaskEngine:
                 await self._execute(task)
 
     async def _execute(self, task: AgentTask) -> None:
-        old_status = task.status
-        task.status = TaskStatus.RUNNING
-        task.started_at = datetime.now(timezone.utc).isoformat()
-        self._fire_callbacks(task, old_status, TaskStatus.RUNNING)
+        self._transition_task(task, TaskStatus.RUNNING, started_at=True)
         self._publish_event("started", task)
         try:
             if self._executor:
@@ -319,24 +316,26 @@ class TaskEngine:
                                "leaving task pending until an executor is registered",
                                task.task_id, task.title)
                 await asyncio.sleep(0)
-                task.status = TaskStatus.PENDING
-                task.started_at = ""
-                task.result = task.result or {"message": "No executor registered"}
-                self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.PENDING)
+                self._transition_task(
+                    task,
+                    TaskStatus.PENDING,
+                    started_at="",
+                    result=task.result or {"message": "No executor registered"},
+                )
                 self._store.save_task(task)
                 return
-            task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now(timezone.utc).isoformat()
-            self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.COMPLETED)
+            self._transition_task(task, TaskStatus.COMPLETED, completed_at=True)
             self._store.save_task(task)
             await self._record_task_evidence(task)
             self._publish_event("completed", task)
         except Exception as exc:
             logger.error("TaskEngine: task %s failed — %s", task.task_id, exc, exc_info=True)
-            task.status = TaskStatus.FAILED
-            task.error = str(exc)
-            task.completed_at = datetime.now(timezone.utc).isoformat()
-            self._fire_callbacks(task, TaskStatus.RUNNING, TaskStatus.FAILED)
+            self._transition_task(
+                task,
+                TaskStatus.FAILED,
+                completed_at=True,
+                error=str(exc),
+            )
             self._store.save_task(task)
             await self._record_task_evidence(task)
             self._publish_event("failed", task)
@@ -395,19 +394,39 @@ class TaskEngine:
             except Exception:
                 pass
 
+    def _transition_task(
+        self,
+        task: AgentTask,
+        new_status: TaskStatus,
+        *,
+        started_at: Any = _UNSET,
+        completed_at: Any = _UNSET,
+        result: Any = _UNSET,
+        error: Any = _UNSET,
+    ) -> None:
+        old_status = task.status
+        task.status = new_status
+        if started_at is True:
+            task.started_at = _utc_now_iso()
+        elif started_at is not _UNSET:
+            task.started_at = started_at
+        if completed_at is True:
+            task.completed_at = _utc_now_iso()
+        elif completed_at is not _UNSET:
+            task.completed_at = completed_at
+        if result is not _UNSET:
+            task.result = result
+        if error is not _UNSET:
+            task.error = error
+        self._fire_callbacks(task, old_status, new_status)
+
     def _publish_event(self, kind: str, task: AgentTask) -> None:
         """Emit lightweight task lifecycle events for downstream trackers."""
         try:
             from .domain_events import DomainEvent, EventType, TaskSnapshot
             from .event_bus import get_event_bus
 
-            event_type = {
-                "created": EventType.TASK_CREATED,
-                "started": EventType.TASK_STARTED,
-                "completed": EventType.TASK_COMPLETED,
-                "failed": EventType.TASK_FAILED,
-                "cancelled": EventType.TASK_CANCELLED,
-            }.get(kind)
+            event_type = _event_type_for_kind(kind, EventType)
             if event_type is None:
                 return
 
@@ -420,6 +439,16 @@ class TaskEngine:
             get_event_bus().publish(event)
         except Exception:
             logger.exception("TaskEngine: failed to publish %s event for %s", kind, task.task_id)
+
+
+def _event_type_for_kind(kind: str, event_type_cls: Any) -> Any:
+    return {
+        "created": event_type_cls.TASK_CREATED,
+        "started": event_type_cls.TASK_STARTED,
+        "completed": event_type_cls.TASK_COMPLETED,
+        "failed": event_type_cls.TASK_FAILED,
+        "cancelled": event_type_cls.TASK_CANCELLED,
+    }.get(kind)
 
 
 _engine: Optional[TaskEngine] = None

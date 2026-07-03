@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -46,45 +46,55 @@ class TokenBudgetEngine:
         score = run.get("score", 0)
         calls = run.get("calls", 0)
 
-        # 1. Token 超预算
+        eff = _token_efficiency(score, total)
+
         if budget.max_tokens and total > budget.max_tokens:
-            violations.append((TokenViolationType.TOKEN_OVER_BUDGET.value, "critical"))
+            _add_violation(violations, TokenViolationType.TOKEN_OVER_BUDGET, "critical")
 
-        # 2. 低 Token 效率（score/1k tokens）
-        eff = score / max(total / 1000, 1e-6) if total > 0 else 0.0
         if budget.min_efficiency and eff < budget.min_efficiency:
-            violations.append((TokenViolationType.LOW_TOKEN_EFFICIENCY.value, "high"))
+            _add_violation(violations, TokenViolationType.LOW_TOKEN_EFFICIENCY, "high")
 
-        # 3. 冗余 LLM 调用（可萃取 skill）— 需要调用方提供 dup_intent_calls
         dup_calls = run.get("dup_intent_calls", 0)
         if dup_calls >= 2:
-            violations.append((TokenViolationType.REDUNDANT_LLM_CALLS.value, "medium"))
+            _add_violation(violations, TokenViolationType.REDUNDANT_LLM_CALLS, "medium")
 
-        # 4. Skill 路由缺失 — 需要调用方提供 skill_available + used_raw_llm
         if run.get("skill_available") and run.get("used_raw_llm"):
-            violations.append((TokenViolationType.SKILL_ROUTING_MISS.value, "medium"))
+            _add_violation(violations, TokenViolationType.SKILL_ROUTING_MISS, "medium")
 
-        # 5. 演练 Token 突增 — 需要调用方提供 burst_rate
         burst_rate = run.get("burst_rate", 0)
         if budget.max_burst_per_min and burst_rate > budget.max_burst_per_min:
-            violations.append((TokenViolationType.DRILL_TOKEN_BURST.value, "high"))
-
-        # 决策
-        severities = {sev for _, sev in violations}
-        if severities & {"critical", "high"}:
-            decision = "block"
-        elif violations:
-            decision = "warn"
-        else:
-            decision = "pass"
+            _add_violation(violations, TokenViolationType.DRILL_TOKEN_BURST, "high")
 
         return {
-            "decision": decision,
+            "decision": _decision_from_violations(violations),
             "efficiency": round(eff, 4),
             "total_tokens": total,
             "calls": calls,
             "violations": [{"type": t, "severity": s} for t, s in violations],
         }
+
+
+def _token_efficiency(score: float, total_tokens: int) -> float:
+    if total_tokens <= 0:
+        return 0.0
+    return score / max(total_tokens / 1000, 1e-6)
+
+
+def _add_violation(
+    violations: List[Tuple[str, str]],
+    violation_type: TokenViolationType,
+    severity: str,
+) -> None:
+    violations.append((violation_type.value, severity))
+
+
+def _decision_from_violations(violations: List[Tuple[str, str]]) -> str:
+    severities = {severity for _, severity in violations}
+    if severities & {"critical", "high"}:
+        return "block"
+    if violations:
+        return "warn"
+    return "pass"
 
 
 ENGINE = TokenBudgetEngine()

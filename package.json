@@ -5,16 +5,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "rtk vite --config vite.config.mjs",
-    "backend": "rtk python3 src/backend/main.py --port 8080",
+    "dev": "vite --config vite.config.mjs",
+    "backend": "node scripts/run-python.cjs src/backend/main.py --port 8080",
     "start": "concurrently \"npm run backend\" \"npm run dev\"",
-    "build": "rtk vite build --config vite.config.mjs",
-    "test": "rtk python3 -m pytest -q",
-    "test:backend": "rtk python3 -m pytest -q src/backend/tests",
-    "test:frontend": "rtk npx vitest run",
-    "test:root": "rtk python3 -m pytest -q tests",
-    "lint": "rtk python3 -m compileall -q src/backend",
-    "preview": "rtk vite preview --config vite.config.mjs"
+    "build": "vite build --config vite.config.mjs",
+    "test": "node scripts/run-python.cjs -m pytest -q",
+    "test:backend": "node scripts/run-python.cjs -m pytest -q src/backend/tests",
+    "test:frontend": "vitest run",
+    "test:root": "node scripts/run-python.cjs -m pytest -q tests",
+    "lint": "node scripts/run-python.cjs -m compileall -q src/backend",
+    "typecheck": "node scripts/run-python.cjs -m compileall -q src/backend",
+    "preview": "vite preview --config vite.config.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

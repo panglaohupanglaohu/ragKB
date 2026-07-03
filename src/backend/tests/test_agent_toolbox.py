@@ -244,18 +244,20 @@ class TestDispatchToolCall:
     def test_dispatch_unknown_tool(self):
         result = dispatch_tool_call("unknown_tool", "{}")
         assert result["ok"] is False
+        assert result["error"] == "unknown tool: unknown_tool"
 
     def test_dispatch_bad_json_args(self):
         result = dispatch_tool_call("read_file", "not json")
         assert result["ok"] is False
+        assert result["error"].startswith("bad arguments JSON:")
 
     def test_dispatch_bad_kwargs(self):
         result = dispatch_tool_call(
             "read_file",
             json.dumps({"path": "tests/__init__.py", "extra_bad_kwarg": True}),
         )
-        # Either ok=False due to TypeError, or ok=True (if extra kwarg ignored)
-        assert "ok" in result  # 至少返回了有效结构
+        assert result["ok"] is False
+        assert result["error"].startswith("bad arguments:")
 
 
 # ═══════════════════════════════════════════════════

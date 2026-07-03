@@ -103,6 +103,32 @@ class TestRetryAndEscalation:
         assert entry["discussion_topic"] == "讨论主题"
         assert entry["round_number"] == 2
 
+    @pytest.mark.asyncio
+    async def test_degraded_window_short_circuits_to_fallback(self, engine, participant, monkeypatch):
+        chat_fn = AsyncMock()
+        engine._chat_fn = chat_fn
+        monkeypatch.setattr("agents.plaza_engine.time.monotonic", lambda: 10.0)
+        engine._llm_degraded_until = 20.0
+
+        content = await engine._generate_agent_content(participant, "test prompt")
+
+        assert "Test Agent" in content
+        assert engine._last_call_was_fallback is True
+        chat_fn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_provider_fallback_text_uses_deterministic_content(self, engine, participant):
+        async def fallback_chat(*args, **kwargs):
+            return SimpleNamespace(response="当前 LLM 未连接，请稍后重试")
+
+        engine._chat_fn = fallback_chat
+
+        content = await engine._generate_agent_content(participant, "test prompt")
+
+        assert "Test Agent" in content
+        assert engine._last_call_was_fallback is True
+        assert len(engine._escalation_queue) == 0
+
     def test_resolve_escalation(self, engine):
         engine._escalation_queue.append({
             "agent_id": "a1",

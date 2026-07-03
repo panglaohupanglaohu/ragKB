@@ -11,6 +11,8 @@ dist/
 .env
 *.log
 *.bak
+/.perm_test_*
+/tests/_test_*_temp.*
 config/.api_keys.json
 config/.master_key
 config/.dev_admin_password
@@ -30,3 +32,9 @@ src/docs/agent_handoffs/
 # disabled nested-repo metadata (kept locally for reversibility)
 .git_disabled/
 **/.git_disabled/
+/.idea/.gitignore
+/.idea/agentdt.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/libraries/MPLUSRounded1c_Regular_typeface_json.xml
+/.idea/vcs.xml

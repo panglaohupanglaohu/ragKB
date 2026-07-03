@@ -15,29 +15,45 @@ from typing import Dict, Any
 
 logger = logging.getLogger("evolution.constraints")
 
+DEFAULT_EMPTY_ORIGINAL_MAX_LENGTH = 5000
+DEFAULT_MIN_EVOLVED_LENGTH = 20
+TARGET_MAX_LENGTH_RATIOS = {
+    "skill": 1.5,
+    "rule": 1.3,
+    "prompt": 1.2,
+}
+NUMBERED_STEP_RE = re.compile(r'^\s*\d+[\.\)、]', re.MULTILINE)
+META_COMMENTARY_PATTERNS = [
+    re.compile(r'^(以下是|这是|下面是).*(改进|优化|更新|修改)', re.MULTILINE),
+    re.compile(r'^(改进|优化)后的', re.MULTILINE),
+    re.compile(r'^(注意|说明)[:：]', re.MULTILINE),
+    re.compile(r'(如上所述|以上就是)', re.MULTILINE),
+]
+
 
 def check_length(original: str, evolved: str, max_ratio: float = 1.5) -> bool:
     """演化后文本不超过原始的 max_ratio 倍."""
     if not original:
-        return len(evolved) < 5000
+        return len(evolved) < DEFAULT_EMPTY_ORIGINAL_MAX_LENGTH
     return len(evolved) <= len(original) * max_ratio
 
 
-def check_not_empty(evolved: str, min_length: int = 20) -> bool:
+def check_not_empty(evolved: str, min_length: int = DEFAULT_MIN_EVOLVED_LENGTH) -> bool:
     """演化后文本不能为空或过短."""
     return len(evolved.strip()) >= min_length
 
 
+def _chinese_ratio(text: str) -> float:
+    if not text:
+        return 0
+    cn = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+    return cn / len(text)
+
+
 def check_language_consistency(original: str, evolved: str) -> bool:
     """如果原始是中文为主，演化后也应该是中文为主."""
-    def chinese_ratio(text: str) -> float:
-        if not text:
-            return 0
-        cn = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-        return cn / len(text)
-
-    orig_cn = chinese_ratio(original)
-    evol_cn = chinese_ratio(evolved)
+    orig_cn = _chinese_ratio(original)
+    evol_cn = _chinese_ratio(evolved)
     # If original is >20% Chinese, evolved should be at least 10% Chinese
     if orig_cn > 0.2 and evol_cn < 0.1:
         return False
@@ -49,9 +65,8 @@ def check_language_consistency(original: str, evolved: str) -> bool:
 
 def check_format_preservation(original: str, evolved: str) -> bool:
     """如果原始有编号步骤，演化后也应该有."""
-    # Check numbered steps pattern
-    orig_has_numbered = bool(re.search(r'^\s*\d+[\.\)、]', original, re.MULTILINE))
-    evol_has_numbered = bool(re.search(r'^\s*\d+[\.\)、]', evolved, re.MULTILINE))
+    orig_has_numbered = bool(NUMBERED_STEP_RE.search(original))
+    evol_has_numbered = bool(NUMBERED_STEP_RE.search(evolved))
     if orig_has_numbered and not evol_has_numbered:
         return False
     return True
@@ -59,16 +74,15 @@ def check_format_preservation(original: str, evolved: str) -> bool:
 
 def check_no_meta_commentary(evolved: str) -> bool:
     """演化后文本不应包含元评论（如"以下是改进版"之类）."""
-    meta_patterns = [
-        r'^(以下是|这是|下面是).*(改进|优化|更新|修改)',
-        r'^(改进|优化)后的',
-        r'^(注意|说明)[:：]',
-        r'(如上所述|以上就是)',
-    ]
-    for p in meta_patterns:
-        if re.search(p, evolved[:200], re.MULTILINE):
+    sample = evolved[:200]
+    for pattern in META_COMMENTARY_PATTERNS:
+        if pattern.search(sample):
             return False
     return True
+
+
+def _max_ratio_for_target(target_type: str) -> float:
+    return TARGET_MAX_LENGTH_RATIOS.get(target_type, TARGET_MAX_LENGTH_RATIOS["skill"])
 
 
 def validate_all(original: str, evolved: str, target_type: str = "skill") -> Dict[str, Any]:
@@ -77,7 +91,7 @@ def validate_all(original: str, evolved: str, target_type: str = "skill") -> Dic
     Returns:
         {"passed": bool, "violations": [...], "checks": {...}}
     """
-    max_ratio = {"skill": 1.5, "rule": 1.3, "prompt": 1.2}.get(target_type, 1.5)
+    max_ratio = _max_ratio_for_target(target_type)
 
     checks = {
         "length": check_length(original, evolved, max_ratio),

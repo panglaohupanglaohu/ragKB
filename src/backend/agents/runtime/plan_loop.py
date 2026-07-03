@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 from ..execution_registry import ToolPermissionContext
 from .events import make_runtime_event_emitter
@@ -43,6 +43,74 @@ def _deps_satisfied(plan: Any, step: Any, completed_status: Any) -> bool:
     )
 
 
+def _build_plan(
+    *,
+    prompt: str,
+    plan_builder: Callable[..., Any],
+    tools: Optional[List[Dict[str, Any]]],
+    plan_middleware: Optional[Callable[[Any], Any]],
+) -> Any:
+    plan = plan_builder(
+        prompt,
+        available_tools=_extract_available_tool_names(tools),
+    )
+    if plan_middleware:
+        plan = plan_middleware(plan)
+    plan.status = "running"
+    return plan
+
+
+def _mark_step_skipped(step: Any, reason: str, skipped_status: Any) -> None:
+    step.status = skipped_status
+    step.error = reason
+
+
+def _complete_non_tool_step(step: Any, completed_status: Any) -> None:
+    step.status = completed_status
+    if step.action == "think":
+        step.result = f"思考: {step.description}"
+    elif step.action == "delegate":
+        step.result = f"已委派: {step.description}"
+
+
+async def _execute_tool_step(
+    *,
+    executor: Any,
+    step: Any,
+    agent_id: str,
+    permission_context: Optional[ToolPermissionContext],
+    completed_status: Any,
+    failed_status: Any,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    started_at = time.monotonic()
+    result = await executor.execute(
+        step.tool_name,
+        step.tool_args,
+        agent_id=agent_id,
+        permission_context=permission_context,
+    )
+    step.duration_ms = (time.monotonic() - started_at) * 1000
+    step.status = completed_status if result.success else failed_status
+    step.result = result.output
+    if not result.success:
+        step.error = result.error
+
+    observation = {
+        "step": step.step_id,
+        "tool": step.tool_name,
+        "success": result.success,
+        "output": result.output[:1000],
+    }
+    event_payload = {
+        "step_id": step.step_id,
+        "tool": step.tool_name,
+        "success": result.success,
+        "output": result.output[:500],
+        "duration_ms": step.duration_ms,
+    }
+    return observation, event_payload
+
+
 async def run_plan_loop(
     harness: Any,
     *,
@@ -62,27 +130,25 @@ async def run_plan_loop(
     from ..tool_executor import get_tool_executor
 
     executor = get_tool_executor()
-    plan = plan_builder(
-        prompt,
-        available_tools=_extract_available_tool_names(tools),
+    plan = _build_plan(
+        prompt=prompt,
+        plan_builder=plan_builder,
+        tools=tools,
+        plan_middleware=plan_middleware,
     )
     _runtime_id, emit_event = make_runtime_event_emitter(
         loop_kind="plan_loop",
         session_id=session_id,
         on_event=on_event,
     )
-    if plan_middleware:
-        plan = plan_middleware(plan)
 
-    plan.status = "running"
     observations: List[Dict[str, Any]] = []
     iteration = 0
     emit_event("plan_start", {"goal": prompt, "steps": len(plan.steps)})
 
     for step in plan.steps:
         if iteration >= max_iterations:
-            step.status = PlanStepStatus.SKIPPED
-            step.error = "Iteration cap reached"
+            _mark_step_skipped(step, "Iteration cap reached", PlanStepStatus.SKIPPED)
             emit_event("step_complete", {"step": step.to_dict()})
             continue
         iteration += 1
@@ -90,56 +156,25 @@ async def run_plan_loop(
 
         if step.action == "tool_call" and step.tool_name:
             if not _deps_satisfied(plan, step, PlanStepStatus.COMPLETED):
-                step.status = PlanStepStatus.SKIPPED
-                step.error = "Dependencies not met"
+                _mark_step_skipped(step, "Dependencies not met", PlanStepStatus.SKIPPED)
                 emit_event("step_complete", {"step": step.to_dict()})
                 continue
 
             step.status = PlanStepStatus.RUNNING
-            started_at = time.monotonic()
-            result = await executor.execute(
-                step.tool_name,
-                step.tool_args,
+            observation, tool_event = await _execute_tool_step(
+                executor=executor,
+                step=step,
                 agent_id=agent_id,
                 permission_context=permission_context,
+                completed_status=PlanStepStatus.COMPLETED,
+                failed_status=PlanStepStatus.FAILED,
             )
-            step.duration_ms = (time.monotonic() - started_at) * 1000
-            if result.success:
-                step.status = PlanStepStatus.COMPLETED
-                step.result = result.output
-            else:
-                step.status = PlanStepStatus.FAILED
-                step.error = result.error
-                step.result = result.output
-            observations.append(
-                {
-                    "step": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:1000],
-                }
-            )
-            emit_event(
-                "tool_result",
-                {
-                    "step_id": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:500],
-                    "duration_ms": step.duration_ms,
-                },
-            )
+            observations.append(observation)
+            emit_event("tool_result", tool_event)
             emit_event("step_complete", {"step": step.to_dict()})
             continue
 
-        if step.action == "think":
-            step.status = PlanStepStatus.COMPLETED
-            step.result = f"思考: {step.description}"
-        elif step.action == "respond":
-            step.status = PlanStepStatus.COMPLETED
-        elif step.action == "delegate":
-            step.status = PlanStepStatus.COMPLETED
-            step.result = f"已委派: {step.description}"
+        _complete_non_tool_step(step, PlanStepStatus.COMPLETED)
         emit_event("step_complete", {"step": step.to_dict()})
 
     synthesis_prompt = _build_synthesis_prompt(prompt, plan, observations)
@@ -183,18 +218,17 @@ async def stream_plan_loop(
     from ..tool_executor import get_tool_executor
 
     executor = get_tool_executor()
-    plan = plan_builder(
-        prompt,
-        available_tools=_extract_available_tool_names(tools),
+    plan = _build_plan(
+        prompt=prompt,
+        plan_builder=plan_builder,
+        tools=tools,
+        plan_middleware=plan_middleware,
     )
     _runtime_id, emit_event = make_runtime_event_emitter(
         loop_kind="plan_loop",
         session_id=session_id,
         on_event=on_event,
     )
-    if plan_middleware:
-        plan = plan_middleware(plan)
-    plan.status = "running"
     observations: List[Dict[str, Any]] = []
     iteration = 0
 
@@ -202,8 +236,7 @@ async def stream_plan_loop(
 
     for step in plan.steps:
         if iteration >= max_iterations:
-            step.status = PlanStepStatus.SKIPPED
-            step.error = "Iteration cap reached"
+            _mark_step_skipped(step, "Iteration cap reached", PlanStepStatus.SKIPPED)
             yield emit_event("step_complete", {"step": step.to_dict()})
             continue
         iteration += 1
@@ -212,49 +245,25 @@ async def stream_plan_loop(
 
         if step.action == "tool_call" and step.tool_name:
             if not _deps_satisfied(plan, step, PlanStepStatus.COMPLETED):
-                step.status = PlanStepStatus.SKIPPED
-                step.error = "Dependencies not met"
+                _mark_step_skipped(step, "Dependencies not met", PlanStepStatus.SKIPPED)
                 yield emit_event("step_complete", {"step": step.to_dict()})
                 continue
 
             step.status = PlanStepStatus.RUNNING
-            started_at = time.monotonic()
-            result = await executor.execute(
-                step.tool_name,
-                step.tool_args,
+            observation, tool_event = await _execute_tool_step(
+                executor=executor,
+                step=step,
                 agent_id=agent_id,
                 permission_context=permission_context,
+                completed_status=PlanStepStatus.COMPLETED,
+                failed_status=PlanStepStatus.FAILED,
             )
-            step.duration_ms = (time.monotonic() - started_at) * 1000
-            step.status = PlanStepStatus.COMPLETED if result.success else PlanStepStatus.FAILED
-            step.result = result.output
-            step.error = result.error
-            observations.append(
-                {
-                    "step": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:1000],
-                }
-            )
-            yield emit_event(
-                "tool_result",
-                {
-                    "step_id": step.step_id,
-                    "tool": step.tool_name,
-                    "success": result.success,
-                    "output": result.output[:500],
-                    "duration_ms": step.duration_ms,
-                },
-            )
+            observations.append(observation)
+            yield emit_event("tool_result", tool_event)
             yield emit_event("step_complete", {"step": step.to_dict()})
             continue
 
-        step.status = PlanStepStatus.COMPLETED
-        if step.action == "think":
-            step.result = f"思考: {step.description}"
-        elif step.action == "delegate":
-            step.result = f"已委派: {step.description}"
+        _complete_non_tool_step(step, PlanStepStatus.COMPLETED)
         yield emit_event("step_complete", {"step": step.to_dict()})
 
     plan.status = "completed"

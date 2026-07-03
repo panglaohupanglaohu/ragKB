@@ -496,7 +496,14 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Call the chat completions endpoint."""
-        import aiohttp
+        try:
+            import aiohttp
+        except ModuleNotFoundError as exc:
+            return {
+                "error": True,
+                "status": 0,
+                "message": f"Missing runtime dependency: {exc.name}. Install project dependencies and retry.",
+            }
 
         def _is_codebuddy_param_error(txt: str) -> bool:
             t = (txt or "").lower()
@@ -792,6 +799,103 @@ class ChatHarness:
             return round((total_tokens / 1000.0) * 0.004, 6)
         return 0.0
 
+    def _check_turn_budget(
+        self,
+        budget_guard,
+        *,
+        session: ChatSession,
+        agent_id: str,
+        team_id: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int,
+    ):
+        return budget_guard.check(
+            session_id=session.session_id,
+            agent_id=agent_id,
+            team_id=team_id,
+            estimated_tokens=self._estimate_tokens_from_messages(
+                messages,
+                max_tokens=max_tokens,
+            ),
+        )
+
+    @staticmethod
+    def _budget_blocked_text(message: str) -> str:
+        return (
+            f"本次请求因 token 预算限制被拦截。\n\n"
+            f"{message}\n\n"
+            f"可以缩小问题范围、减少上下文，或提高预算上限后重试。"
+        )
+
+    @staticmethod
+    def _usage_from_raw(raw_usage: Dict[str, Any]) -> UsageSummary:
+        return UsageSummary(
+            input_tokens=raw_usage.get("prompt_tokens", 0),
+            output_tokens=raw_usage.get("completion_tokens", 0),
+            total_tokens=raw_usage.get("total_tokens", 0),
+        )
+
+    def _usage_from_stream(
+        self,
+        raw_usage: Dict[str, Any],
+        *,
+        messages: List[Dict[str, Any]],
+        content: str,
+    ) -> UsageSummary:
+        prompt_tokens = raw_usage.get(
+            "prompt_tokens",
+            self._estimate_tokens_from_text("\n".join(str(msg.get("content", "")) for msg in messages)),
+        )
+        completion_tokens = raw_usage.get(
+            "completion_tokens",
+            self._estimate_tokens_from_text(content),
+        )
+        total_tokens = raw_usage.get(
+            "total_tokens",
+            prompt_tokens + completion_tokens,
+        )
+        return UsageSummary(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
+    def _record_usage(
+        self,
+        budget_guard,
+        *,
+        session: ChatSession,
+        agent_id: str,
+        team_id: str,
+        model: str,
+        usage: UsageSummary,
+        record_zero: bool = True,
+    ) -> None:
+        if not usage.total_tokens and not record_zero:
+            return
+        token_ctx = get_token_ctx()
+        budget_guard.record_usage(
+            UsageRecord(
+                session_id=session.session_id,
+                agent_id=agent_id or token_ctx.get("agent_id", ""),
+                team_id=team_id or token_ctx.get("team_id", ""),
+                model=model,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                total_tokens=usage.total_tokens,
+                cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
+                phase=token_ctx.get("phase", "task"),
+                skill_id=token_ctx.get("skill_id", ""),
+                scenario_id=token_ctx.get("scenario_id", ""),
+                run_id=token_ctx.get("run_id", ""),
+            )
+        )
+        session.total_usage = session.total_usage.add(
+            usage.input_tokens,
+            usage.output_tokens,
+        )
+        self._total_tokens += usage.total_tokens
+
     # ── Session Management ───────────────────────────────────
 
     def get_or_create_session(
@@ -955,23 +1059,17 @@ class ChatHarness:
         messages = session.build_openai_messages()
         model = model_override or config.model
         budget_guard = get_budget_guard()
-        estimated_tokens = self._estimate_tokens_from_messages(
-            messages,
-            max_tokens=config.max_tokens,
-        )
-        budget_check = budget_guard.check(
-            session_id=session.session_id,
+        budget_check = self._check_turn_budget(
+            budget_guard,
+            session=session,
             agent_id=agent_id,
             team_id=team_id,
-            estimated_tokens=estimated_tokens,
+            messages=messages,
+            max_tokens=config.max_tokens,
         )
         if not budget_check.allowed:
             error_msg = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
-            fallback = (
-                f"本次请求因 token 预算限制被拦截。\n\n"
-                f"{error_msg}\n\n"
-                f"可以缩小问题范围、减少上下文，或提高预算上限后重试。"
-            )
+            fallback = self._budget_blocked_text(error_msg)
             session.add_assistant_message(fallback)
             session.history.add("budget_exceeded", error_msg)
             return TurnResult(
@@ -1026,32 +1124,16 @@ class ChatHarness:
 
         # Token usage
         raw_usage = raw.get("usage", {})
-        usage = UsageSummary(
-            input_tokens=raw_usage.get("prompt_tokens", 0),
-            output_tokens=raw_usage.get("completion_tokens", 0),
-            total_tokens=raw_usage.get("total_tokens", 0),
+        usage = self._usage_from_raw(raw_usage)
+        self._record_usage(
+            budget_guard,
+            session=session,
+            agent_id=agent_id,
+            team_id=team_id,
+            model=model,
+            usage=usage,
+            record_zero=False,
         )
-        _ctx = get_token_ctx()
-        budget_guard.record_usage(
-            UsageRecord(
-                session_id=session.session_id,
-                agent_id=agent_id or _ctx.get("agent_id", ""),
-                team_id=team_id or _ctx.get("team_id", ""),
-                model=model,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
-                total_tokens=usage.total_tokens,
-                cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
-                phase=_ctx.get("phase", "task"),
-                skill_id=_ctx.get("skill_id", ""),
-                scenario_id=_ctx.get("scenario_id", ""),
-                run_id=_ctx.get("run_id", ""),
-            )
-        )
-        session.total_usage = session.total_usage.add(
-            usage.input_tokens, usage.output_tokens
-        )
-        self._total_tokens += usage.total_tokens
 
         # Handle tool calls if present
         tool_invocations = self._extract_tool_calls(message)
@@ -1112,33 +1194,19 @@ class ChatHarness:
                         content = final_content
                         stop_reason = "tool_result"
                     second_usage = second_raw.get("usage", {})
-                    second_total = second_usage.get("total_tokens", 0)
-                    _ctx2 = get_token_ctx()
-                    budget_guard.record_usage(
-                        UsageRecord(
-                            session_id=session.session_id,
-                            agent_id=agent_id or _ctx2.get("agent_id", ""),
-                            team_id=team_id or _ctx2.get("team_id", ""),
-                            model=model,
-                            input_tokens=second_usage.get("prompt_tokens", 0),
-                            output_tokens=second_usage.get("completion_tokens", 0),
-                            total_tokens=second_total,
-                            cost_usd=self._estimate_cost_usd(model, second_total),
-                            phase=_ctx2.get("phase", "task"),
-                            skill_id=_ctx2.get("skill_id", ""),
-                            scenario_id=_ctx2.get("scenario_id", ""),
-                            run_id=_ctx2.get("run_id", ""),
-                        )
+                    second_summary = self._usage_from_raw(second_usage)
+                    self._record_usage(
+                        budget_guard,
+                        session=session,
+                        agent_id=agent_id,
+                        team_id=team_id,
+                        model=model,
+                        usage=second_summary,
                     )
                     usage = usage.add(
                         second_usage.get("prompt_tokens", 0),
                         second_usage.get("completion_tokens", 0),
                     )
-                    session.total_usage = session.total_usage.add(
-                        second_usage.get("prompt_tokens", 0),
-                        second_usage.get("completion_tokens", 0),
-                    )
-                    self._total_tokens += second_usage.get("total_tokens", 0)
 
         session.add_assistant_message(content)
 
@@ -1174,22 +1242,17 @@ class ChatHarness:
         session.compact_if_needed()
         messages = session.build_openai_messages()
         model = model_override or config.model
-        budget_check = budget_guard.check(
-            session_id=session.session_id,
+        budget_check = self._check_turn_budget(
+            budget_guard,
+            session=session,
             agent_id=agent_id,
             team_id=team_id,
-            estimated_tokens=self._estimate_tokens_from_messages(
-                messages,
-                max_tokens=config.max_tokens,
-            ),
+            messages=messages,
+            max_tokens=config.max_tokens,
         )
         if not budget_check.allowed:
             message = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
-            fallback = (
-                f"本次请求因 token 预算限制被拦截。\n\n"
-                f"{message}\n\n"
-                f"可以缩小问题范围、减少上下文，或提高预算上限后重试。"
-            )
+            fallback = self._budget_blocked_text(message)
             session.add_assistant_message(fallback)
             yield {"type": "message_start", "session_id": session.session_id, "model": model}
             yield {"type": "message_delta", "text": fallback}
@@ -1221,46 +1284,19 @@ class ChatHarness:
                     yield {"type": "message_delta", "text": text}
 
         session.add_assistant_message(full_content)
-        prompt_tokens = raw_usage.get(
-            "prompt_tokens",
-            self._estimate_tokens_from_text("\n".join(str(msg.get("content", "")) for msg in messages)),
+        usage = self._usage_from_stream(
+            raw_usage,
+            messages=messages,
+            content=full_content,
         )
-        completion_tokens = raw_usage.get(
-            "completion_tokens",
-            self._estimate_tokens_from_text(full_content),
+        self._record_usage(
+            budget_guard,
+            session=session,
+            agent_id=agent_id,
+            team_id=team_id,
+            model=model,
+            usage=usage,
         )
-        total_tokens = raw_usage.get(
-            "total_tokens",
-            prompt_tokens + completion_tokens,
-        )
-        usage = UsageSummary(
-            input_tokens=prompt_tokens,
-            output_tokens=completion_tokens,
-            total_tokens=total_tokens,
-        )
-        if usage.total_tokens:
-            _ctx3 = get_token_ctx()
-            budget_guard.record_usage(
-                UsageRecord(
-                    session_id=session.session_id,
-                    agent_id=agent_id or _ctx3.get("agent_id", ""),
-                    team_id=team_id or _ctx3.get("team_id", ""),
-                    model=model,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    total_tokens=usage.total_tokens,
-                    cost_usd=self._estimate_cost_usd(model, usage.total_tokens),
-                    phase=_ctx3.get("phase", "task"),
-                    skill_id=_ctx3.get("skill_id", ""),
-                    scenario_id=_ctx3.get("scenario_id", ""),
-                    run_id=_ctx3.get("run_id", ""),
-                )
-            )
-            session.total_usage = session.total_usage.add(
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            self._total_tokens += usage.total_tokens
         self._total_calls += 1
         yield {
             "type": "message_stop",
