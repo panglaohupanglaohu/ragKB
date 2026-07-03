@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentsgroup-config
+  namespace: agentsgroup
+data:
+  model_pool.json: |
+    {
+      "build_system": {
+        "codebuddy": {
+          "model_id": "codebuddy",
+          "provider": "deepseek",
+          "name": "deepseek-v4-pro",
+          "max_tokens": 4096,
+          "temperature": 0.7,
+          "is_default": true,
+          "enabled": true,
+          "api_key": "",
+          "api_base_url": "https://api.deepseek.com"
+        }
+      },
+      "ai_coding": {
+        "qwen3": {
+          "model_id": "qwen3",
+          "provider": "deepseek",
+          "name": "deepseek-v4-pro",
+          "max_tokens": 4096,
+          "temperature": 0.7,
+          "is_default": true,
+          "enabled": true,
+          "api_key": "",
+          "api_base_url": "https://api.deepseek.com"
+        }
+      }
+    }
+  settings.json: |
+    {
+      "system": {
+        "name": "AgentsGroup2026",
+        "version": "1.0.0",
+        "description": "Agent Management + Evolution + Chat Platform"
+      },
+      "server": {
+        "host": "0.0.0.0",
+        "port": 8080
+      },
+      "llm": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "api_base_url": "https://api.deepseek.com",
+        "api_key": "",
+        "max_tokens": 8192,
+        "temperature": 0.7,
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high"
+      },
+      "openclaw": {
+        "enabled": true,
+        "default_gateway": "http://localhost:3008",
+        "protocol_version": "v1"
+      },
+      "sandbox": {
+        "mode": "lite"
+      },
+      "budget": {
+        "per_session_max": 200000,
+        "per_agent_daily_max": 2000000,
+        "per_team_daily_max": 10000000,
+        "on_exceed": "halt",
+        "alert_threshold": 0.8
+      }
+    }

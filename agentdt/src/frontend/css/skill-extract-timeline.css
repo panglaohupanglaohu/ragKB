@@ -1,0 +1,424 @@
+/**
+ * Skill Extraction Timeline CSS
+ * Dark theme, consistent with AgentsGroup2026 monitoring panel style.
+ * No external dependencies.
+ */
+
+/* ── Timeline Panel Container ──────────────────────────────────── */
+.sk-timeline-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100vw;
+  z-index: 1000;
+  background: #0d1117;
+  border-left: 1px solid #1e2a3a;
+  display: flex;
+  flex-direction: column;
+  font-family: "SF Mono","Menlo","Consolas","JetBrains Mono",monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.5);
+  transition: transform 0.3s ease;
+  transform: translateX(0);
+}
+.sk-timeline-panel.sk-timeline--hidden {
+  transform: translateX(100%);
+}
+
+/* ── Header ───────────────────────────────────────────────────── */
+.sk-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #1e2a3a;
+  flex-shrink: 0;
+}
+.sk-timeline-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sk-timeline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #58a6ff;
+}
+.sk-timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b949e;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.sk-timeline-dot--ok { background: #3fb950; }
+.sk-timeline-dot--err { background: #f85149; animation: sk-pulse 1s infinite; }
+.sk-timeline-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sk-timeline-conn-label {
+  font-size: 10px;
+  color: #8b949e;
+}
+.sk-timeline-close-btn {
+  background: none;
+  border: 1px solid #1e2a3a;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.sk-timeline-close-btn:hover {
+  border-color: #f85149;
+  color: #f85149;
+}
+
+/* ── Phase Bar (Horizontal Step Cards) ─────────────────────────── */
+.sk-phase-bar {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px;
+  background: #0d1117;
+  border-bottom: 1px solid #1e2a3a;
+  overflow-x: auto;
+  flex-shrink: 0;
+  min-height: 70px;
+}
+.sk-phase-step {
+  flex: 1;
+  min-width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid #1e2a3a;
+  border-radius: 4px;
+  position: relative;
+  transition: all 0.3s;
+}
+.sk-phase--completed {
+  background: rgba(63,185,80,0.08);
+  border-color: #3fb950;
+}
+.sk-phase--active {
+  background: rgba(88,166,255,0.1);
+  border-color: #58a6ff;
+}
+.sk-phase--locked {
+  background: rgba(255,255,255,0.01);
+  border-color: #1e2a3a;
+  opacity: 0.5;
+}
+.sk-phase-icon { font-size: 14px; line-height: 1; }
+.sk-phase-label {
+  font-size: 8px;
+  color: #8b949e;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.sk-phase--active .sk-phase-label { color: #58a6ff; }
+.sk-phase--completed .sk-phase-label { color: #3fb950; }
+.sk-phase-progress {
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.sk-phase-fill {
+  height: 100%;
+  background: #58a6ff;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.sk-phase--completed .sk-phase-fill { background: #3fb950; }
+.sk-phase-status {
+  font-size: 9px;
+  margin-top: 1px;
+}
+.sk-phase-lock-hint {
+  font-size: 7px;
+  color: #8b949e;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+/* ── Timeline Body ────────────────────────────────────────────── */
+.sk-timeline-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  position: relative;
+}
+
+/* ── Timeline Track ───────────────────────────────────────────── */
+.sk-timeline-line {
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #1e2a3a;
+  z-index: 0;
+}
+.sk-timeline-empty {
+  color: #8b949e;
+  text-align: center;
+  padding: 40px 0;
+  font-size: 12px;
+}
+
+/* ── Timeline Node ────────────────────────────────────────────── */
+.sk-tl-node {
+  position: relative;
+  padding-left: 40px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.sk-tl-node:hover {
+  opacity: 0.85;
+}
+.sk-tl-node-dot {
+  position: absolute;
+  left: 16px;
+  top: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15);
+  z-index: 1;
+}
+@keyframes sk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(88,166,255,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(88,166,255,0); }
+}
+
+/* ── Timeline Node Card ───────────────────────────────────────── */
+.sk-tl-node-card {
+  border: 1px solid #1e2a3a;
+  border-radius: 5px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.02);
+  transition: border-color 0.2s;
+}
+.sk-tl-node:hover .sk-tl-node-card {
+  border-color: #30363d;
+}
+.sk-tl-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.sk-tl-node-phase {
+  font-size: 11px;
+  font-weight: 500;
+  color: #c9d1d9;
+}
+.sk-tl-node-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.sk-tl-node-agent {
+  font-size: 9px;
+  color: #8b949e;
+  margin-left: auto;
+}
+.sk-tl-node-desc {
+  font-size: 10px;
+  color: #8b949e;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.sk-tl-node-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  color: #484f58;
+}
+.sk-tl-node-card-count {
+  color: #58a6ff;
+}
+
+/* ── Inline Completion Cards ──────────────────────────────────── */
+.sk-inline-cards {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sk-inline-card {
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.02);
+  border-left: 3px solid #1e2a3a;
+  border-radius: 0 3px 3px 0;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.sk-inline-card:hover {
+  background: rgba(255,255,255,0.04);
+}
+.sk-inline-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+.sk-inline-card-preview {
+  font-size: 9px;
+  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sk-inline-card-review {
+  color: #d29922;
+  margin-top: 2px;
+}
+
+/* ── Card Detail Panel ────────────────────────────────────────── */
+.sk-card-detail {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 55%;
+  background: #161b22;
+  border-top: 2px solid #30363d;
+  overflow-y: auto;
+  z-index: 2;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
+}
+.sk-card-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #0d1117;
+  border-bottom: 1px solid #1e2a3a;
+  font-size: 13px;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.sk-card-detail-body {
+  padding: 14px;
+}
+.sk-card-detail-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 11px;
+}
+.sk-card-detail-field {
+  margin-bottom: 12px;
+}
+.sk-card-detail-field label {
+  display: block;
+  font-size: 10px;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.sk-card-detail-content {
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid #1e2a3a;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  min-height: 40px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sk-card-detail-review {
+  border-color: #3a2a1a;
+  background: rgba(210,153,34,0.05);
+  color: #e3b341;
+}
+.sk-card-detail-meta-json {
+  font-size: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid #1e2a3a;
+  border-radius: 3px;
+  padding: 8px;
+  overflow-x: auto;
+  color: #8b949e;
+}
+
+/* ── Floating Toggle Button ───────────────────────────────────── */
+.sk-timeline-toggle-btn {
+  position: fixed;
+  right: 8px;
+  top: 68px;
+  z-index: 999;
+  background: #161b22;
+  border: 1px solid #1e2a3a;
+  color: #58a6ff;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-family: "SF Mono","Menlo","Consolas",monospace;
+  transition: all 0.2s;
+  display: none;  /* shown by JS */
+}
+.sk-timeline-toggle-btn:hover {
+  border-color: #58a6ff;
+  background: rgba(88,166,255,0.08);
+}
+.sk-timeline-toggle-btn--visible {
+  display: block;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+.sk-timeline-body::-webkit-scrollbar,
+.sk-card-detail::-webkit-scrollbar,
+.sk-phase-bar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.sk-timeline-body::-webkit-scrollbar-thumb,
+.sk-card-detail::-webkit-scrollbar-thumb,
+.sk-phase-bar::-webkit-scrollbar-thumb {
+  background: #1e2a3a;
+  border-radius: 2px;
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sk-timeline-panel {
+    width: 100%;
+  }
+  .sk-phase-label {
+    font-size: 7px;
+  }
+}

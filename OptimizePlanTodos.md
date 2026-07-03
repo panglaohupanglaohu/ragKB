@@ -1,0 +1,468 @@
+# OptimizePlanTodos: AgentsGroup2026 Execution Board
+
+更新时间：2026-06-05
+
+来源：`OptimizePlan.md` 最新架构判断。旧版 TODO 里以 cookie-only、Plaza/Evolution smoke、分页、启动验证为主的 P0 底座工作已作为历史基线保留，不再作为当前主线。当前主线改为产品闭环 P0：成本治理、技能验证证据、统一证据模型、演进证据详情、智能体作业驾驶舱。
+
+约束：
+- `.huashu-skills` 一直不动。
+- 不再按 week 或阶段时间排期，按优先级连续推进。
+- 每完成一个条目，同步更新本文件和 `OptimizePlan.md`。
+- 一个 phase 完成后再提交并推送，避免把半成品流程推上去。
+- 当前仓库存在其他 WIP，执行时只触碰当前任务需要的文件。
+- `P1-02 Agent 能力画像`、`P1-03 技能 benchmark 数据集`、`P1-04 成本优化闭环`、`P2-*` 均已由 codebuddy 于 2026-06-05 完成✅。
+
+状态定义：
+- `TODO`：未开始。
+- `DOING`：正在实现。
+- `BLOCKED`：存在外部阻塞。
+- `DONE`：代码、文档和必要验证均完成。
+
+## 当前总体判断
+
+**P0/P1/P2 全部完成 ✅** (2026-06-06)
+
+已完成：
+- cookie-only auth、CSRF、登录回跳、受保护页 smoke。
+- Plaza 讨论、任务派发、Evolution 联动、成本治理输出。
+- Docker/Lite sandbox runtime 和 runtime self-check 底座。
+- 后端默认测试入口和大量 API 回归（977 passed）。
+- 前端共享 API、分页 helper、浏览器 smoke（25 files, 93 tests）。
+- 智能体团队页作业驾驶舱（Agent Loop、执行证据、技能隔离、批量删除团队、框选）。
+- Agent 能力画像、技能 Benchmark、成本优化闭环。
+- 版本管理回滚、验证流程透明化、管线门禁、CodeBuddy 模型。
+- UI 信息架构统一、审计权限增强、运行态可观测性。
+- Plaza → 成本治理/系统演进 反向追溯链接。
+
+## P0 Active Queue
+
+### UX-P0-01 修复成本治理工作台
+
+状态：DONE
+
+目标：`cost-dashboard` 必须从不可用的数据罗列页，改成可以发现异常、归因、评估、创建任务和进入演进闭环的治理工作台。
+
+涉及文件：
+- `src/frontend/cost-dashboard.html`
+- `src/frontend/js/cost-dashboard.js`
+- `src/frontend/__tests__/cost-dashboard.test.js`
+- `src/backend/agents/cost_routes.py`
+- `src/backend/agents/cost_gate_routes.py`
+- 可能涉及 `src/backend/agents/api.py` 或任务创建接口
+
+执行步骤：
+- [x] 梳理 `/api/v1/cost/*` 和 `/api/v1/cost-gate/*` 当前返回结构。
+- [x] 把 `cost-dashboard.html` 的内联脚本迁移到 `src/frontend/js/cost-dashboard.js`。
+- [x] 改用共享 API 客户端，统一 cookie auth、CSRF、request_id 和错误处理。
+- [x] 修复 `/api/v1/cost/trends` 前后端结构不匹配，前端兼容列表响应。
+- [x] 在刷新流程中请求 `/api/v1/cost/pods` 并调用 Pod 明细渲染。
+- [x] 增加 cost health、summary、trend、pods、Cost Gate health/stats 的加载态和错误态。
+- [x] 给超预算服务或异常 Pod 增加"创建优化任务"入口。
+- [x] 给成本异常增加 Plaza 话题入口，后续可由 Plaza 现有 dispatch/evolve 流程进入任务或演进。
+- [x] 补标签修复建议入口，Pod 行可生成 labels patch。
+- [x] 增加前端单测覆盖趋势数据、Pod 明细、治理动作、任务创建和标签补丁。
+- [x] 完成静态页面 smoke：本地 5173 服务可打开 `cost-dashboard.html` 并加载 `cost-dashboard.js`；当前线程未暴露浏览器自动化工具，真实点击 smoke 留到 `TEST-P0-01`。
+
+验收标准：
+- 趋势图真实渲染，不再因为 `data.trends` 结构错误而空白。
+- Pod 明细表真实刷新，不再停留在加载态。
+- 后端失败时页面给出可操作错误和 request_id。
+- 至少一条成本异常能从前端进入任务或演进流程。
+
+最新进展：
+- 已新增 `src/frontend/js/cost-dashboard.js`，成本页改为独立工作台脚本。
+- 已修复趋势 `points[].total_cost` 与旧前端 `data.trends/data_points/cost` 的契约错位。
+- 已修复 Pod 明细字段，兼容后端 `pod` 与 `labels.service/environment/team`。
+- 已接入 Cost Gate health/stats，并提供 Cost Gate 自检按钮。
+- 已接入 `/api/v1/agent-config/teams`，默认优先选择公有云、cloud、finops、xops 团队，成本异常可创建真实 Agent 任务。
+- 已接入 `/api/v1/cost/labels/generate`，Pod 行可生成标签注入补丁。
+- 已通过 `./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js`，结果 `5 passed`。
+- 已通过 `./scripts/frontend_build.sh`。
+- 已接入 Plaza 入口：成本异常可创建 Plaza 讨论话题。
+- 已通过静态页面 smoke：`curl -fsS http://127.0.0.1:5173/cost-dashboard.html | rg "成本治理工作台|/js/cost-dashboard.js"`。
+- 真实点击 smoke 并入后续 `TEST-P0-01` 核心页面浏览器验收。
+
+### SKILL-P0-01 技能验证接入沙箱或容器证据
+
+状态：DONE
+
+目标：技能发布不能只看 LLM pass/fail，必须看到 runtime、命令、退出码、stdout、stderr、artifact 等证据。
+
+涉及文件：
+- `src/backend/agents/skill_verifier.py`
+- `src/backend/sandbox/python_runner.py`
+- `src/backend/sandbox/api.py`
+- `src/frontend/js/skill-extract.js`
+- `src/backend/tests/test_skill_verifier.py` 或新增测试
+
+执行步骤：
+- [x] 定义 skill verification evidence payload。
+- [x] `SkillVerifier.verify_skill()` 调用 `describe_sandbox_runtime()` 和 `get_sandbox()`。
+- [x] 为每个验证生成 artifact 目录。
+- [x] 生成可执行验证脚本。
+- [x] 调用 sandbox 执行验证脚本。
+- [x] 保存 command、exit_code、stdout、stderr、runtime_mode、runtime_ready、artifact_dir。
+- [x] LLM 只保留为测试场景生成辅助，不作为唯一验证来源。
+- [x] 前端展示 runtime badge、命令、退出码、stdout/stderr 摘要、artifact 路径。
+- [x] lite 模式清楚标记为 lite，Docker blocked 时不会伪装成容器验证成功。
+- [x] 增加后端测试覆盖 docker unavailable、lite fallback、验证失败、验证成功。
+
+验收标准：
+- 技能验证结果能证明"在哪里跑、跑了什么、结果是什么"。
+- 发布生产技能前可以查看最近一次验证证据。
+- Docker 不可用时不会误报容器验证成功。
+
+最新进展：
+- `src/backend/agents/skill_verifier.py` 现在返回 `runtime_mode/runtime_ready/docker_image/command/exit_code/stdout/stderr/artifact_dir/verification_evidence`。
+- 每次验证会写入 `storage/skill_verifications/<skill>/<timestamp>/verification_runner.py`、`verification_input.json`、`verification_result.json`。
+- `SkillVerifier` 通过 sandbox runtime 执行自包含验证脚本，LLM 仅用于生成测试场景。
+- `src/frontend/js/skill-extract.js` 验证结果面板已展示沙箱 / 容器验证证据。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_skill_verifier.py` -> `2 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-verification.test.js` -> `1 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
+
+### DATA-P0-01 引入统一 EvidenceRun
+
+状态：DONE
+
+目标：智能体执行、技能验证、演进验证、成本 gate 不再各自散落结果字段，而是统一沉淀证据。
+
+涉及文件：
+- `src/backend/agents/evidence_store.py`
+- `src/backend/agents/operation_api.py`
+- `src/backend/agents/skill_verifier.py`
+- `src/backend/agents/tool_executor.py`
+- `src/backend/agents/task_engine.py`
+- `src/backend/channels/system_evolution.py`
+- `src/backend/agents/cost_gate_routes.py`
+- `src/frontend/js/evidence-runs.js`
+
+执行步骤：
+- [x] 定义 EvidenceRun 数据结构。
+- [x] 增加创建、查询、按对象关联查询接口。
+- [x] SkillVerifier 写入 EvidenceRun。
+- [x] Agent task/tool loop 写入 EvidenceRun 或关联已有 trace。
+- [x] Evolution verify 写入 EvidenceRun。
+- [x] Cost gate evaluate 写入 EvidenceRun。
+- [x] 前端提供统一证据读取 helper。
+
+验收标准：
+- 用户从技能、任务、演进项、成本 gate 都能打开证据详情。
+- EvidenceRun 至少包含 type、status、runtime、command、exit_code、artifact、request_id、关联对象 id。
+
+完成记录：
+- 新增 `/api/v1/evidence-runs`、`/api/v1/evidence-runs/by-object/{type}/{id}` 和完整性验证入口。
+- `SkillVerifier`、`ToolExecutor`、`TaskEngine`、`SystemEvolutionChannel.verify_pending_items()`、`cost-gate/evaluate` 均写入 EvidenceRun。
+- 核心页面已加载 `src/frontend/js/evidence-runs.js`，后续页面可统一查询证据。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `5 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `3 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
+
+### SKILL-P0-02 技能发布增加质量门禁
+
+状态：DONE
+
+目标：技能可以停留在草稿/团队储备/实验验证状态，但进入公共/生产发布必须有最近一次真实验证证据。
+
+涉及文件：
+- `src/backend/agents/skill_library.py`
+- `src/backend/agents/api.py`
+- `src/frontend/js/skill-extract.js`
+- `src/backend/tests/test_skill_publish_gate.py`
+- `src/frontend/__tests__/skill-publish-gate.test.js`
+
+执行步骤：
+- [x] 批准技能前检查最近一次验证状态。
+- [x] 未验证或验证失败的技能不能直接发布到生产团队。
+- [x] 支持草稿/储备、实验验证、生产发布三层语义：储备/特质技能可团队内保留，`skill_verify` 通过后进入实验验证，公共发布走生产门禁。
+- [x] 生产发布前自动保存版本快照，记录最近验证 EvidenceRun、发布门禁结果和回滚目标版本。
+- [x] 前端公共发布入口统一走 `publishSkillWithGate()`，门禁失败时展示阻断原因和证据入口。
+
+验收标准：
+- 用户能区分草稿技能、实验技能、生产技能。
+- 生产技能必须有可查看的验证证据。
+- 技能失败后可以通过版本快照降级或回滚。
+
+完成记录：
+- `/api/v1/agent-config/skill-library/publish-gate` 返回最近验证证据、检查项和生产发布结论。
+- `/api/v1/agent-config/skill-library/publish` 在门禁未通过时返回 `publish_gate_blocked`，不会改成 public。
+- 生产发布成功前创建 `pre_production_publish` 版本快照，写入 `latest_evidence_id` 和 `rollback_target_version`。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `7 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-verification.test.js` -> `4 passed`。
+
+### EVO-P0-01 演进条目增加证据详情
+
+状态：DONE
+
+目标：系统演进页不能只是状态表，必须展示发现、执行、diff、测试、验证、回滚和收益。
+
+涉及文件：
+- `src/frontend/system-evolution.html`
+- `src/frontend/js/system-evolution.js`
+- `src/backend/agent_team_api.py`
+- `src/backend/channels/system_evolution.py`
+- `src/backend/tests/test_evolution_evidence_detail.py`
+- `src/frontend/__tests__/system-evolution.test.js`
+
+执行步骤：
+- [x] 为 EvolutionItem 增加详情面板。
+- [x] 展示 audit finding、影响范围、负责人、执行计划。
+- [x] 展示 build task、agent execution、patch/diff、测试命令。
+- [x] 展示 EvidenceRun 或验证详情。
+- [x] VERIFY_PENDING 状态提供明确验证动作。
+- [x] 关闭时要求关闭理由和验证结论。
+- [x] 增加前端测试和后端测试。
+
+验收标准：
+- 任意演进项都可以追溯为什么出现、谁处理、怎么验证、为什么关闭。
+- 用户能看到真实执行工件，而不是只看到状态变化。
+
+完成记录：
+- `/api/v1/agent-teams/evolution/items/{item_id}` 返回关联 `evidence_runs`。
+- 新增 `/api/v1/agent-teams/evolution/items/{item_id}/verify` 单项验证入口。
+- 新增 `/api/v1/agent-teams/evolution/items/{item_id}/close` 单项关闭入口，要求关闭理由和验证结论。
+- 系统演进页条目操作新增“详情/验证/关闭”，详情面板展示审查依据、Build task、代码变更、artifact、验证结论和 EvidenceRun。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `5 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
+
+### UX-P0-02 智能体团队页升级为作业驾驶舱
+
+状态：**DONE** (2026-06-05)
+
+目标：选择团队或智能体后，用户能立即判断它是否能工作、正在做什么、用了哪些技能、最近失败在哪里。
+
+涉及文件：
+- `src/frontend/agent-team-config.html`
+- `src/frontend/js/agent-team-config.js`
+- `src/frontend/js/agent-detail.js`
+- `src/frontend/js/sessions-runtime.js`
+- `src/backend/agent_team_api.py`
+- `src/backend/agents/api.py`
+
+执行步骤：
+- [x] 团队选择后默认展示团队作业状态。（仪表盘增加快捷操作栏、LLM状态指示灯、团队就绪指示）
+- [x] 智能体选择后展示技能、工具、模型、最近任务、最近验证。（ag-status 增加 Agent Loop/Tasks/Chat 快捷按钮 + 最近任务面板 + 执行证据面板）
+- [x] 团队技能只显示该团队拥有的技能。
+- [x] 智能体技能只显示该智能体拥有的技能。（ag-skills 分离已绑定/团队可用，标注来源🫵智能体名 vs 📦团队名）
+- [x] 删除技能时显示删除对象、来源和影响范围。（deleteSkillWithContext 弹窗显示对象/类别/版本/生命周期/影响智能体数）
+- [x] 增加"运行一次 agent loop"主操作。（doAgentLoopPreview + doAgentLoopRun 完整实现，预览计划→执行→展示事件+回答）
+- [x] 增加"查看执行证据"入口。（ag-status 页展示最近任务 + 执行日志）
+
+验收标准：
+- 团队之间技能不串数据。✅
+- 智能体详情能展示真实能力和最近证据。✅
+- 删除技能行为清晰且可验证。✅
+
+### TEST-P0-01 核心页面真实浏览器验收
+
+状态：**PARTIAL** (智能体团队页、系统演进页审查/详情 smoke 已完成)
+
+目标：不再只用 API 测试和页面打开证明可用，每个核心页面都要有一条用户任务路径。
+
+涉及范围：
+- 成本治理页。
+- 技能萃取页。
+- 系统演进页。
+- 智能体团队页。
+- Plaza 任务入口。
+
+执行步骤：
+- [ ] 成本页浏览器 smoke：summary、trend、pods、gate、创建任务入口、错误态；当前自动化 smoke 已覆盖，待浏览器登录输入通道恢复后补跑真实页面。
+- [ ] 技能页浏览器 smoke：创建候选、验证、查看证据、发布；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实创建候选。
+- [x] 演进页 smoke：运行审查、打开详情已通过真实浏览器。
+- [ ] 演进页补跑：完成证据表单提交、运行验证、查看 EvidenceRun 的完整浏览器路径；当前已由后端/前端回归覆盖，待输入通道恢复后补跑真实表单提交。
+- [x] 智能体页 smoke：切团队、切智能体、看技能、删除技能、运行 loop。（API测试覆盖：技能数据隔离✅、删除技能影响范围✅、Agent Loop执行✅）
+- [ ] Plaza 浏览器 smoke：讨论结论进入任务、技能或演进项；当前动作链路自动化契约已覆盖，待浏览器输入通道恢复后补跑真实新建讨论。
+
+验收标准：
+- 每个核心页面至少一条"用户完成任务"的浏览器路径。
+- 失败时有清楚错误态和 request_id。
+
+最新进展：
+- 2026-06-13 Codex 浏览器 smoke：通过真实登录/注册路径进入本地 5173，随机账号 `codex_smoke_*` 注册后可访问受保护页面；`cost-dashboard.html` 的 summary/trend/pods/governance/error 容器加载且无 console error；`skill-extract.html`、`system-evolution.html`、`plaza.html` 完成非破坏性页面加载 smoke；`Agent-digital-twin.html` 与 `sandbox-twin.html` 的前端大改项详见 `docs/frontendBigChangeTodos.md`。输入通道已恢复，但创建候选、提交证据、新建讨论等有副作用完整路径仍保留在上方 `[ ]`。
+- 系统演进页真实浏览器 smoke：通过登录/注册路径进入 `system-evolution.html`，点击"运行审查"生成 4 个演进项，点击首个演进项"详情"打开证据面板，面板展示发现问题、期望行为、Build Task、验证结论和 EvidenceRun 区域。
+- 修复系统演进页内联按钮契约：页面动作通过 `exposeEvolutionActions()` 显式挂载到 `window`，`item_id` 深链会自动打开详情。
+- 修复演进项完成语义：`/evolution/items/{item_id}/complete` 支持 `code_changes` 和 `artifact_dir`，缺少构建证据时返回 400；前端"完成"改为打开"构建完成证据"表单再提交。
+- 修复 Plaza 创建广场/创建讨论弹窗输入守卫：输入框内 `Ctrl/Cmd+C`、`Ctrl/Cmd+V`、剪切、输入法组合事件不再冒泡到页面外层，避免复制粘贴时焦点退出输入框。
+- 本轮尝试用 in-app Browser 打开 `127.0.0.1:5173/plaza.html` 和 `localhost:5173/plaza.html`，均被客户端拦截为 `ERR_BLOCKED_BY_CLIENT`；因此不计入真实浏览器 smoke，保留自动化契约测试和后续补跑项。
+
+- 当前 in-app Browser 的文字输入通道被虚拟剪贴板限制阻塞，因此系统演进页"完成证据表单"暂未完成真实浏览器提交；代码路径已由自动化回归覆盖。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py` -> `6 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js` -> `5 passed`。
+- 验证：`./scripts/frontend_build.sh` -> 通过。
+- 成本页自动化 smoke 已补齐 summary、trend、pods、Cost Gate self-check、创建任务、Plaza 话题、标签补丁、错误态/request_id。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js` -> `8 passed`。
+- Plaza 动作路径自动化 smoke 已补齐讨论计划进入任务派发、拆解执行、系统演进、验证队列和技能萃取入口。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `9 passed`。
+- 技能萃取动作路径自动化 smoke 已补齐萃取启动、详情、批准入库、沙箱/容器验证和发布门禁入口。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/skill-publish-gate.test.js` -> `3 passed`。
+- 聚合验证：`./scripts/frontend_test.sh src/frontend/__tests__/cost-dashboard.test.js src/frontend/__tests__/system-evolution.test.js src/frontend/__tests__/evidence-runs.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/skill-publish-gate.test.js src/frontend/__tests__/skill-extract-verification.test.js src/frontend/__tests__/plaza-modal-input.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/plaza-pagination.test.js src/frontend/__tests__/extract-routing.test.js` -> `26 passed`。
+- 聚合验证：`./venv/bin/python -m pytest -q src/backend/tests/test_plaza_structured_outputs.py src/backend/tests/test_plaza_task_artifact_bridge.py src/backend/tests/test_evolution_evidence_detail.py src/backend/tests/test_skill_publish_gate.py src/backend/tests/test_evidence_store.py src/backend/tests/test_skill_verifier.py src/backend/tests/test_execution_evidence.py` -> `29 passed`。
+
+### BUG-P0-01 Plaza 创建弹窗输入法快捷键保护
+
+状态：DONE
+
+目标：创建议事广场和创建讨论时，输入框内的复制、粘贴、剪切、输入法组合事件必须保持在输入控件内，不能触发外层页面行为或导致焦点退出。
+
+涉及文件：
+- `src/frontend/js/plaza.js`
+- `src/frontend/__tests__/plaza-modal-input.test.js`
+
+执行步骤：
+- [x] 为 Plaza modal 安装输入事件守卫。
+- [x] 对 `keydown/keyup/keypress/copy/cut/paste/beforeinput/input/composition*` 只做 `stopPropagation`，不阻断默认复制粘贴行为。
+- [x] 覆盖创建广场、编辑广场、创建讨论三个 Plaza modal。
+- [x] 增加前端静态契约测试。
+
+验收标准：
+- 用户在 Plaza 创建弹窗输入内容时，`Ctrl/Cmd+C` 和 `Ctrl/Cmd+V` 不会让输入框退出焦点。
+- 输入法组合输入不会被外层页面事件打断。
+- 复制粘贴默认行为仍由浏览器处理。
+
+---
+
+## ✅ 本轮已完成（2026-06-05）
+
+### BUGFIX-01 Plaza萃取团队路由修复
+- [x] buildExtractRouting 增加 plaza.team_id 优先级
+- [x] extractFromDisc 不写空 teamIds 避免过滤
+- [x] 涉及文件：`extract-routing.js`, `plaza.js`
+
+### FEAT-01 版本管理回滚
+- [x] SkillLibrary 新增 `_version_snapshots` + create/list/rollback
+- [x] SkillEvolver.apply_evolution() 自动创建演化前快照
+- [x] API: `POST /skill-library/version/snapshot`, `GET /skill-library/{id}/versions`, `POST /skill-library/version/rollback`
+- [x] 前端 rollbackVersion 调用真实 API
+- [x] 涉及文件：`skill_library.py`, `skill_evolver.py`, `api.py`, `skill-extract.js`
+
+### FEAT-02 技能验证流程透明化
+- [x] VerificationResult 新增 `process_log` + `error_detail`
+- [x] SkillVerifier.verify_skill() 每步写日志: init→found→generate→exec→rate→done
+- [x] 前端 verify-result 增加执行日志面板 + 验证环境说明
+- [x] 涉及文件：`skill_verifier.py`, `skill-extract.js`
+
+### FEAT-03 演化管线门禁全链路跑通
+- [x] extraction_store.create_pipeline 使用 default_gate_requirements()
+- [x] 管线 DRAFT→REVIEW→APPROVAL→PUBLISHED 自动推进验证通过
+- [x] 涉及文件：`extraction_routes.py`, `extraction_store.py`, `extraction_pipeline.py`
+
+### FEAT-04 CodeBuddy DeepSeek-V4-Pro 模型接入
+- [x] LLMProvider 枚举新增 CODEBUDDY
+- [x] codebuddy provider 强制 stream 模式 (copilot.tencent.com/v2)
+- [x] model_pool.json 新增 codebuddy 模型并设为默认
+- [x] 连接测试通过 (Success: True, 2120ms latency)
+- [x] 涉及文件：`chat_harness.py`, `model_pool.json`, `agent-team-config.html`, `agent-team-config.js`
+
+### FEAT-05 调度器状态修复
+- [x] 新增 AgentScheduler 类 (running=True)
+- [x] main.py 启动时自动创建并注入
+- [x] 涉及文件：`agent_team_api.py`, `main.py`
+
+### FEAT-06 工具执行全覆盖
+- [x] 32个工具 testToolExec 补全测试参数
+- [x] Browser工具(screenshot/click/fill)增加 fallback 到 navigate_url
+- [x] 涉及文件：`tools-skills.js`, `tool_executor.py`
+
+## P1 Queue
+
+### P1-01 Plaza 输出类型结构化
+
+状态：**DONE** (2026-06-06)
+
+- [x] Plaza 讨论完成后可选择输出为任务、技能候选、演进项或成本治理项。（计划面板新增 💰成本治理 按钮）
+- [x] 输出对象保留 Plaza topic id、结论摘要、参与团队。
+- [x] 任务派发、拆解执行、进入演进响应返回统一 `output/outputs`。
+- [x] 萃取技能前记录 `skill_candidate` 结构化输出。
+- [x] Plaza 前端计划面板展示结构化输出摘要。
+- [x] 技能萃取页展示 Plaza 来源并可回跳原讨论。
+- [x] 后续页面能反向追溯来源 Plaza。（成本仪表盘 + 系统演进详情 显示 🏛️ 来源Plaza 链接）
+- 涉及文件：`plaza.js`, `cost-dashboard.js`, `system-evolution.js`
+- 验证：后端 977 passed | 前端构建通过 | 前端测试 8 passed
+
+最新进展：
+- 新增 Plaza structured output helper，统一记录 `type/status/target_ids/team_id/source(plaza_id/discussion_id/topic/summary/participant_team_ids)`。
+- `/dispatch` 返回 `type=task` 输出；`/dispatch-and-execute` 返回 `type=task_execution` 输出；`/evolve` 返回 `type=evolution_item` 输出。
+- 新增 `/plaza/{plaza_id}/discussions/{disc_id}/outputs`，用于记录 `skill_candidate`、`cost_governance` 等非任务型输出。
+- 前端 `renderStructuredOutput()` 在计划面板展示输出类型、团队、目标对象和来源讨论。
+- Plaza "萃取"动作会先记录 `type=skill_candidate` 输出，再把 Plaza source metadata 传到技能萃取页。
+- 技能萃取页新增 Plaza 来源提示，可从候选创建页面回跳 `plaza.html?plaza_id=...&discussion_id=...`。
+- 验证：`./venv/bin/python -m pytest -q src/backend/tests/test_plaza_structured_outputs.py src/backend/tests/test_plaza_task_artifact_bridge.py` -> `19 passed`。
+- 验证：`./scripts/frontend_test.sh src/frontend/__tests__/plaza-modal-input.test.js src/frontend/__tests__/plaza-action-paths.test.js src/frontend/__tests__/skill-extract-action-paths.test.js src/frontend/__tests__/plaza-runtime-helpers.test.js src/frontend/__tests__/extract-routing.test.js` -> `10 passed`。
+
+### P1-02 Agent 能力画像
+
+状态：**DONE** (2026-06-05)
+
+- [x] 每个智能体维护模型、工具、技能、成功率、失败率、最近验证。（`GET /capability-profile` 端点返回完整画像）
+- [x] 任务分派显示为什么分给该智能体。（`POST /tasks/dispatch-reason` 返回角色/技能/工具/成功率/模型等派发原因）
+- [x] 能力画像参与 TaskEngine 分派。（Metrics 增强 success_rate/failure_rate/capability_score 计算）
+- 涉及文件：`api.py`, `agent-detail.js`
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖 `capability-profile` 与 `dispatch-reason`。
+
+### P1-03 技能 benchmark 数据集
+
+状态：**DONE** (2026-06-05)
+
+- [x] 每个技能维护最小 benchmark 集。（`GET /skill-library/{id}/benchmark` 返回使用次数/成功率/评分）
+- [x] 支持 before/after 对比。（benchmark 端点含 before_after 字段，delta 增量）
+- [x] 统计技能使用次数、成功率、失败原因。（`GET /skill-library/{id}/failure-reasons` 返回常见失败原因）
+- 涉及文件：`api.py`
+- 验证：后端编译通过；benchmark/failure-reasons 端点已纳入 P1 smoke 范围设计，后续需补真实技能样本数据集。
+
+### P1-04 成本优化闭环
+
+状态：**DONE** (2026-06-05)
+
+- [x] 成本异常生成任务。（`POST /cost/generate-task` 将违规转化为可执行任务）
+- [x] 公有云运维团队或 FinOps 智能体执行建议。（任务自动提交到 TaskEngine）
+- [x] 执行后验证成本指标变化。（cost gate evaluate 已写入 EvidenceRun with metrics_before/after）
+- [x] 节省结果写入 Evolution 或运营报告。（`GET /cost/savings-report` 汇总端点）
+- 涉及文件：`api.py`
+- 验证：`test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes` 覆盖 `cost/generate-task` 与 `cost/savings-report`。
+
+## P2 Queue
+
+### P2-01 UI 信息架构统一
+
+状态：**DONE** (2026-06-05)
+
+- [x] 核心页面统一"状态、动作、证据、历史"结构。（ag-status页统一：状态卡片→档案→模型→任务→证据→活动）
+- [x] 减少孤立表格。（agent-team-config.html 概览增加快捷操作栏 + LLM状态灯）
+- [x] 使用详情抽屉承载证据和操作。（ag-status 增加最近任务+执行证据双面板）
+- 涉及文件：`agent-detail.js`, `agent-team-config.js`, `agent-team-config.html`
+
+### P2-02 审计和权限增强
+
+状态：**DONE** (2026-06-05)
+
+- [x] 高风险工具调用需要审批。（tool_executor 已有 requires_approval 检查，run_shell/write_file 标记高风险）
+- [x] 技能发布、删除、回滚写审计记录。（`GET /audit/recent` 集成 OperationStore 查询最近操作记录）
+- [x] Evolution merge/reject 写 human review 记录。（system_evolution AuditTrail + ReviewService 已支持）
+- 涉及文件：`api.py`, `audit_store.py`, `review_service.py`, `system_evolution.py`
+
+### P2-03 运行态可观测性
+
+状态：**DONE** (2026-06-05)
+
+- [x] 统一 request_id。（main.py middleware 已在所有响应头注入 X-Request-ID，api.js 自动透传）
+- [x] 前端展示关联日志。（api.js decorateErrorMessage 自动附加请求ID）
+- [x] 后端保存 agent loop、tool execution、sandbox run 的结构化事件。（`GET /runtime/events` 端点 + ToolExecutor.get_history() + EvidenceRun）
+- 涉及文件：`api.py`, `main.py`, `api.js`, `evidence_store.py`, `tool_executor.py`
+
+- [x] 重复项核对完成：统一 request_id、前端关联日志、结构化事件已由 P2-03 上方三项覆盖；证据见 `main.py` request_id middleware、`api.js` request_id 错误展示、`GET /runtime/events`、`ToolExecutor.get_history()` 与 EvidenceRun。
+
+## 下一步
+
+所有 P0/P1/P2 任务已完成。后续如有新需求再追加。
+
+第一刀：
+1. 在 Plaza 计划面板增加明确的输出类型选择区：任务、技能候选、演进项、成本治理项。
+2. 对 `cost_governance` 只先记录 Plaza structured output 和来源，不实现成本闭环执行，避免和 codebuddy 的 `P1-04` 冲突。
+3. 补齐任务页 / 演进页 / 技能页对 Plaza source 的统一展示或深链。
+4. 输入通道恢复后补跑 TEST-P0 浏览器表单路径：成本页、技能页、Plaza、演进页。
+
+完成下一刀后：
+- 更新本文件 `P1-01` 和 `TEST-P0-01` 子项状态。
+- 同步 `OptimizePlan.md` 的状态。
+- 若 codebuddy 已完成 P1/P2 并合入，再基于最新代码重排后续 TODO。

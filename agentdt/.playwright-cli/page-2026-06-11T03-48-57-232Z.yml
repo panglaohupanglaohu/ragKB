@@ -1,0 +1,537 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: DT
+        - heading "智能体数字孪生" [level=1] [ref=e6]
+      - navigation "主导航" [ref=e7]:
+        - link "智能体团队" [ref=e8] [cursor=pointer]:
+          - /url: /agent-team-config.html
+        - link "议事广场" [ref=e9] [cursor=pointer]:
+          - /url: /plaza.html
+        - link "技能萃取/赋予" [ref=e10] [cursor=pointer]:
+          - /url: /skill-extract.html
+        - generic: 数字孪生
+        - link "系统演进" [ref=e11] [cursor=pointer]:
+          - /url: /system-evolution.html
+        - link "成本监控" [ref=e12] [cursor=pointer]:
+          - /url: /cost-dashboard.html
+      - generic [ref=e13]:
+        - generic [ref=e14]: 系统运行中
+        - button "导入" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - text: 导入
+        - button "导出" [ref=e20] [cursor=pointer]:
+          - img [ref=e21]
+          - text: 导出
+        - generic [ref=e24]:
+          - generic [ref=e25]: T
+          - generic [ref=e26]: testuser
+          - button "登出" [ref=e27] [cursor=pointer]
+    - generic [ref=e28]:
+      - generic [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - generic [ref=e32]: ★
+        - text: 环境空间
+      - generic [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+        - text: 系统状态
+      - generic [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+        - text: 交互流
+        - generic [ref=e42]: "0"
+      - generic [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+        - text: 编排管线
+      - generic [ref=e47] [cursor=pointer]:
+        - img [ref=e48]
+        - text: CLI
+  - generic [ref=e50]:
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - heading "智能体团队" [level=3] [ref=e53]
+        - generic [ref=e54]: "28"
+      - generic [ref=e55]:
+        - button "Build System 7" [ref=e215] [cursor=pointer]
+        - button "Energy First Principle 6" [ref=e216] [cursor=pointer]
+        - button "公有云xOPs 11" [ref=e217] [cursor=pointer]
+        - button "Updated Team 0" [ref=e218] [cursor=pointer]
+        - button "Test Team Alpha 0" [ref=e219] [cursor=pointer]
+        - button "AI 编程团队 4" [ref=e220] [cursor=pointer]
+      - generic [ref=e56]:
+        - generic [ref=e222]:
+          - text: Build System
+          - generic [ref=e224]: "7"
+        - generic [ref=e225]:
+          - generic [ref=e226]:
+            - generic [ref=e227]: P
+            - generic [ref=e228]:
+              - generic [ref=e229]: PM
+              - generic [ref=e230]: project_manager
+          - generic [ref=e232]:
+            - generic [ref=e233]: ▣0
+            - generic [ref=e234]: ◈3
+            - generic [ref=e235]: ○—
+        - generic [ref=e236]:
+          - generic [ref=e237]:
+            - generic [ref=e238]: R
+            - generic [ref=e239]:
+              - generic [ref=e240]: Researcher
+              - generic [ref=e241]: researcher
+          - generic [ref=e243]:
+            - generic [ref=e244]: ▣0
+            - generic [ref=e245]: ◈3
+            - generic [ref=e246]: ○—
+        - generic [ref=e247]:
+          - generic [ref=e248]:
+            - generic [ref=e249]: A
+            - generic [ref=e250]:
+              - generic [ref=e251]: Architect
+              - generic [ref=e252]: architect
+          - generic [ref=e254]:
+            - generic [ref=e255]: ▣0
+            - generic [ref=e256]: ◈3
+            - generic [ref=e257]: ○—
+        - generic [ref=e258]:
+          - generic [ref=e259]:
+            - generic [ref=e260]: D
+            - generic [ref=e261]:
+              - generic [ref=e262]: Developer
+              - generic [ref=e263]: developer
+          - generic [ref=e265]:
+            - generic [ref=e266]: ▣0
+            - generic [ref=e267]: ◈4
+            - generic [ref=e268]: ○—
+        - generic [ref=e269]:
+          - generic [ref=e270]:
+            - generic [ref=e271]: T
+            - generic [ref=e272]:
+              - generic [ref=e273]: Tester
+              - generic [ref=e274]: qa_engineer
+          - generic [ref=e276]:
+            - generic [ref=e277]: ▣0
+            - generic [ref=e278]: ◈4
+            - generic [ref=e279]: ○—
+        - generic [ref=e280]:
+          - generic [ref=e281]:
+            - generic [ref=e282]: D
+            - generic [ref=e283]:
+              - generic [ref=e284]: Deployer
+              - generic [ref=e285]: devops
+          - generic [ref=e287]:
+            - generic [ref=e288]: ▣0
+            - generic [ref=e289]: ◈3
+            - generic [ref=e290]: ○—
+        - generic [ref=e291]:
+          - generic [ref=e292]:
+            - generic [ref=e293]: D
+            - generic [ref=e294]:
+              - generic [ref=e295]: Doc Writer
+              - generic [ref=e296]: documentation
+          - generic [ref=e298]:
+            - generic [ref=e299]: ▣0
+            - generic [ref=e300]: ◈3
+            - generic [ref=e301]: ○—
+        - generic [ref=e303]:
+          - text: Energy First Principle
+          - generic [ref=e305]: "6"
+        - generic [ref=e306]:
+          - generic [ref=e307]:
+            - generic [ref=e308]: P
+            - generic [ref=e309]:
+              - generic [ref=e310]: PUE Optimizer
+              - generic [ref=e311]: energy_optimizer
+          - generic [ref=e313]:
+            - generic [ref=e314]: ▣0
+            - generic [ref=e315]: ◈4
+            - generic [ref=e316]: ○—
+        - generic [ref=e317]:
+          - generic [ref=e318]:
+            - generic [ref=e319]: T
+            - generic [ref=e320]:
+              - generic [ref=e321]: Thermal Sentinel
+              - generic [ref=e322]: thermal_engineer
+          - generic [ref=e324]:
+            - generic [ref=e325]: ▣0
+            - generic [ref=e326]: ◈4
+            - generic [ref=e327]: ○—
+        - generic [ref=e328]:
+          - generic [ref=e329]:
+            - generic [ref=e330]: P
+            - generic [ref=e331]:
+              - generic [ref=e332]: Policy Engine
+              - generic [ref=e333]: policy_analyst
+          - generic [ref=e335]:
+            - generic [ref=e336]: ▣0
+            - generic [ref=e337]: ◈4
+            - generic [ref=e338]: ○—
+        - generic [ref=e339]:
+          - generic [ref=e340]:
+            - generic [ref=e341]: D
+            - generic [ref=e342]:
+              - generic [ref=e343]: Darwin Ratchet
+              - generic [ref=e344]: evolution_engineer
+          - generic [ref=e346]:
+            - generic [ref=e347]: ▣0
+            - generic [ref=e348]: ◈5
+            - generic [ref=e349]: ○—
+        - generic [ref=e350]:
+          - generic [ref=e351]:
+            - generic [ref=e352]: A
+            - generic [ref=e353]:
+              - generic [ref=e354]: Anomaly Watchdog
+              - generic [ref=e355]: anomaly_detector
+          - generic [ref=e357]:
+            - generic [ref=e358]: ▣0
+            - generic [ref=e359]: ◈4
+            - generic [ref=e360]: ○—
+        - generic [ref=e361]:
+          - generic [ref=e362]:
+            - generic [ref=e363]: F
+            - generic [ref=e364]:
+              - generic [ref=e365]: Forecast Planner
+              - generic [ref=e366]: forecast_analyst
+          - generic [ref=e368]:
+            - generic [ref=e369]: ▣0
+            - generic [ref=e370]: ◈4
+            - generic [ref=e371]: ○—
+        - generic [ref=e373]:
+          - text: 公有云xOPs
+          - generic [ref=e375]: "11"
+        - generic [ref=e376]:
+          - generic [ref=e377]:
+            - generic [ref=e378]: 云
+            - generic [ref=e379]:
+              - generic [ref=e380]: 云平台运维运营负责人
+              - generic [ref=e381]: cloud_ops_finops_owner
+          - generic [ref=e383]:
+            - generic [ref=e384]: ▣0
+            - generic [ref=e385]: ◈3
+            - generic [ref=e386]: ○—
+        - generic [ref=e387]:
+          - generic [ref=e388]:
+            - generic [ref=e389]: 平
+            - generic [ref=e390]:
+              - generic [ref=e391]: 平台SRE架构师
+              - generic [ref=e392]: platform_sre_architect
+          - generic [ref=e394]:
+            - generic [ref=e395]: ▣0
+            - generic [ref=e396]: ◈4
+            - generic [ref=e397]: ○—
+        - generic [ref=e398]:
+          - generic [ref=e399]:
+            - generic [ref=e400]: 自
+            - generic [ref=e401]:
+              - generic [ref=e402]: 自动化与平台工程师
+              - generic [ref=e403]: automation_platform_engineer
+          - generic [ref=e405]:
+            - generic [ref=e406]: ▣0
+            - generic [ref=e407]: ◈4
+            - generic [ref=e408]: ○—
+        - generic [ref=e409]:
+          - generic [ref=e410]:
+            - generic [ref=e411]: 安
+            - generic [ref=e412]:
+              - generic [ref=e413]: 安全与合规工程师
+              - generic [ref=e414]: security_compliance_engineer
+          - generic [ref=e416]:
+            - generic [ref=e417]: ▣0
+            - generic [ref=e418]: ◈4
+            - generic [ref=e419]: ○—
+        - generic [ref=e420]:
+          - generic [ref=e421]:
+            - generic [ref=e422]: 值
+            - generic [ref=e423]:
+              - generic [ref=e424]: 值班与事件指挥官
+              - generic [ref=e425]: incident_commander
+          - generic [ref=e427]:
+            - generic [ref=e428]: ▣0
+            - generic [ref=e429]: ◈4
+            - generic [ref=e430]: ○—
+        - generic [ref=e431]:
+          - generic [ref=e432]:
+            - generic [ref=e433]: F
+            - generic [ref=e434]:
+              - generic [ref=e435]: FinOps分析师
+              - generic [ref=e436]: finops_analyst
+          - generic [ref=e438]:
+            - generic [ref=e439]: ▣0
+            - generic [ref=e440]: ◈3
+            - generic [ref=e441]: ○—
+        - generic [ref=e442]:
+          - generic [ref=e443]:
+            - generic [ref=e444]: A
+            - generic [ref=e445]:
+              - generic [ref=e446]: AWS云服务负责人
+              - generic [ref=e447]: aws_service_owner
+          - generic [ref=e449]:
+            - generic [ref=e450]: ▣0
+            - generic [ref=e451]: ◈3
+            - generic [ref=e452]: ○—
+        - generic [ref=e453]:
+          - generic [ref=e454]:
+            - generic [ref=e455]: A
+            - generic [ref=e456]:
+              - generic [ref=e457]: Azure云服务负责人
+              - generic [ref=e458]: azure_service_owner
+          - generic [ref=e460]:
+            - generic [ref=e461]: ▣0
+            - generic [ref=e462]: ◈3
+            - generic [ref=e463]: ○—
+        - generic [ref=e464]:
+          - generic [ref=e465]:
+            - generic [ref=e466]: A
+            - generic [ref=e467]:
+              - generic [ref=e468]: Aliyun云服务负责人
+              - generic [ref=e469]: aliyun_service_owner
+          - generic [ref=e471]:
+            - generic [ref=e472]: ▣0
+            - generic [ref=e473]: ◈3
+            - generic [ref=e474]: ○—
+        - generic [ref=e475]:
+          - generic [ref=e476]:
+            - generic [ref=e477]: G
+            - generic [ref=e478]:
+              - generic [ref=e479]: GCP云服务负责人
+              - generic [ref=e480]: gcp_service_owner
+          - generic [ref=e482]:
+            - generic [ref=e483]: ▣0
+            - generic [ref=e484]: ◈3
+            - generic [ref=e485]: ○—
+        - generic [ref=e486]:
+          - generic [ref=e487]:
+            - generic [ref=e488]: 国
+            - generic [ref=e489]:
+              - generic [ref=e490]: 国内云服务负责人
+              - generic [ref=e491]: domestic_cloud_service_owner
+          - generic [ref=e493]:
+            - generic [ref=e494]: ▣0
+            - generic [ref=e495]: ◈3
+            - generic [ref=e496]: ○—
+        - generic [ref=e498]:
+          - text: Updated Team
+          - generic [ref=e500]: "0"
+        - generic [ref=e502]:
+          - text: Test Team Alpha
+          - generic [ref=e504]: "0"
+        - generic [ref=e506]:
+          - text: AI 编程团队
+          - generic [ref=e508]: "4"
+        - generic [ref=e509]:
+          - generic [ref=e510]:
+            - generic [ref=e511]: 项
+            - generic [ref=e512]:
+              - generic [ref=e513]: 项目经理
+              - generic [ref=e514]: project_manager
+          - generic [ref=e516]:
+            - generic [ref=e517]: ▣0
+            - generic [ref=e518]: ◈4
+            - generic [ref=e519]: ○—
+        - generic [ref=e520]:
+          - generic [ref=e521]:
+            - generic [ref=e522]: 技
+            - generic [ref=e523]:
+              - generic [ref=e524]: 技术研究员
+              - generic [ref=e525]: researcher
+          - generic [ref=e527]:
+            - generic [ref=e528]: ▣0
+            - generic [ref=e529]: ◈4
+            - generic [ref=e530]: ○—
+        - generic [ref=e531]:
+          - generic [ref=e532]:
+            - generic [ref=e533]: 全
+            - generic [ref=e534]:
+              - generic [ref=e535]: 全栈开发
+              - generic [ref=e536]: developer
+          - generic [ref=e538]:
+            - generic [ref=e539]: ▣0
+            - generic [ref=e540]: ◈5
+            - generic [ref=e541]: ○—
+        - generic [ref=e542]:
+          - generic [ref=e543]:
+            - generic [ref=e544]: 测
+            - generic [ref=e545]:
+              - generic [ref=e546]: 测试工程师
+              - generic [ref=e547]: qa_engineer
+          - generic [ref=e549]:
+            - generic [ref=e550]: ▣0
+            - generic [ref=e551]: ◈5
+            - generic [ref=e552]: ○—
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - img [ref=e62]
+          - generic [ref=e64]: ★
+          - text: 环境空间
+        - generic [ref=e65]:
+          - button "平面视图" [ref=e66] [cursor=pointer]:
+            - img [ref=e67]
+            - text: 平面视图
+          - button "创建空间" [ref=e72] [cursor=pointer]:
+            - img [ref=e73]
+            - text: 创建空间
+      - generic [ref=e553]:
+        - button "议事厅" [ref=e554] [cursor=pointer]
+        - button "萃取室" [ref=e555] [cursor=pointer]
+        - button "工作坊" [ref=e556] [cursor=pointer]
+        - button "知识库" [ref=e557] [cursor=pointer]
+        - button "演练场" [ref=e558] [cursor=pointer]
+        - button "休息区" [ref=e559] [cursor=pointer]
+      - generic [ref=e74]:
+        - img
+        - generic "点击展开完整系统状态" [ref=e76] [cursor=pointer]:
+          - generic [ref=e77]:
+            - generic [ref=e78]: ◈ 系统状态
+            - generic [ref=e79]: 展开 →
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - generic [ref=e82]: "0"
+              - generic [ref=e83]: 沙箱会话
+            - generic [ref=e84]:
+              - generic [ref=e85]: "0"
+              - generic [ref=e86]: 仿真步数
+            - generic [ref=e87]:
+              - generic [ref=e88]: "0"
+              - generic [ref=e89]: 提取SOP
+            - generic [ref=e90]:
+              - generic [ref=e91]: —
+              - generic [ref=e92]: 最优评分
+        - generic:
+          - generic:
+            - img
+            - text: 拖拽旋转 · 滚轮缩放 · 右键平移
+          - generic: ◇ 议事厅 — 28 个智能体
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]: 沙箱会话
+          - generic [ref=e98]: "3"
+        - generic [ref=e99]:
+          - generic [ref=e100]: 总仿真步
+          - generic [ref=e101]: "1"
+        - generic [ref=e102]:
+          - generic [ref=e103]: 提取SOP
+          - generic [ref=e104]: "0"
+        - generic [ref=e105]:
+          - generic [ref=e106]: 最优评分
+          - generic [ref=e107]: —
+      - generic [ref=e108]:
+        - generic [ref=e109]: 运行时
+        - generic "点击重连" [ref=e111]: lite · 在线
+        - button "刷新" [ref=e113] [cursor=pointer]
+        - button "自检" [ref=e114] [cursor=pointer]
+      - generic [ref=e115]:
+        - generic [ref=e116]: ◈ SECS 演练 Pipeline
+        - generic [ref=e117]:
+          - generic [ref=e119] [cursor=pointer]:
+            - generic [ref=e121]: L1
+            - generic [ref=e123]: 🌐MADTwin
+          - generic [ref=e126] [cursor=pointer]:
+            - generic [ref=e128]: L2
+            - generic [ref=e130]: 📋AAS
+          - generic [ref=e133] [cursor=pointer]:
+            - generic [ref=e135]: L3
+            - generic [ref=e137]: 🎮TwinLoop
+          - generic [ref=e140] [cursor=pointer]:
+            - generic [ref=e142]: L4
+            - generic [ref=e144]: 🎯MADCG
+          - generic [ref=e145]: ↩
+          - generic [ref=e147]: 🌀Loop
+      - generic [ref=e148]:
+        - generic [ref=e149]: 会话
+        - code [ref=e150]: —
+        - button "📋" [ref=e151] [cursor=pointer]
+        - generic [ref=e152]:
+          - generic [ref=e153]: 模式:—
+          - generic [ref=e154]: 步:0
+          - generic [ref=e155]: 分:—
+          - generic [ref=e156]: 空闲
+      - generic [ref=e157]:
+        - generic [ref=e158]: 🎯 演练配置
+        - generic [ref=e159]:
+          - button "👥 选择演练团队" [active] [ref=e160] [cursor=pointer]
+          - button "🏟️ 选择演练场景" [ref=e161] [cursor=pointer]
+      - generic [ref=e162]:
+        - generic [ref=e163]: 仿真参数
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - radio "What-if" [checked] [ref=e166]
+            - text: What-if
+          - generic [ref=e167]:
+            - radio "并行" [ref=e168]
+            - text: 并行
+          - generic [ref=e169]:
+            - radio "演化" [ref=e170]
+            - text: 演化
+          - generic [ref=e171]:
+            - generic [ref=e172]: 步
+            - generic [ref=e173]: "150"
+        - slider [ref=e174]: "150"
+        - generic [ref=e175]:
+          - generic [ref=e176]: "加速: 3x"
+          - slider [ref=e177]: "3"
+        - generic [ref=e178]:
+          - button "💥 注入故障 ▾" [ref=e180] [cursor=pointer]
+          - button "🔄 任务变更" [disabled] [ref=e181]
+          - button "➕ 智能体加入" [disabled] [ref=e182]
+          - button "➖ 智能体离开" [disabled] [ref=e183]
+        - generic [ref=e185]: 💡 启动演练后可注入事件，记录将显示在此
+      - generic [ref=e186]:
+        - button "▶ 请先选择团队" [disabled] [ref=e187]
+        - button "🎬 房间任务流程仿真" [ref=e188] [cursor=pointer]
+      - generic [ref=e189]:
+        - generic [ref=e190]:
+          - generic [ref=e191]: 🖥️ 实时控制台
+          - button "清空" [ref=e192] [cursor=pointer]
+        - generic [ref=e193]: "11:48:36 ✓ 新功能模块已加载: 房间动效|弹幕|连线|故障菜单|收益浮卡|萃取|升级|分屏"
+      - generic [ref=e194]:
+        - generic [ref=e195]:
+          - button "📥 沙箱进料" [ref=e196] [cursor=pointer]
+          - button "📤 沙箱出料" [ref=e197] [cursor=pointer]
+        - generic [ref=e198]:
+          - generic [ref=e199]:
+            - button "任务" [ref=e200] [cursor=pointer]
+            - button "环境" [ref=e201] [cursor=pointer]
+            - button "种子技能" [ref=e202] [cursor=pointer]
+            - button "运行参数" [ref=e203] [cursor=pointer]
+          - generic [ref=e205]: 启动仿真后显示任务
+      - generic [ref=e206]:
+        - generic [ref=e207]:
+          - generic [ref=e208]: 📜 演练历史
+          - button "刷新" [ref=e209] [cursor=pointer]
+        - generic [ref=e210]:
+          - generic "点击查看仿真报告" [ref=e560] [cursor=pointer]:
+            - generic [ref=e561]: 3ce56f24 what_if
+            - generic [ref=e562]: created · 0步 · 6月11日 11:46 📊🔄
+          - generic "点击查看仿真报告" [ref=e563] [cursor=pointer]:
+            - generic [ref=e564]: ffd4de6e what_if
+            - generic [ref=e565]: paused · 1步 · 6月11日 11:32 📊🔄
+          - generic "点击查看仿真报告" [ref=e566] [cursor=pointer]:
+            - generic [ref=e567]: 38c75138 what_if
+            - generic [ref=e568]: created · 0步 · 6月11日 11:32 📊🔄
+      - generic [ref=e212]:
+        - generic [ref=e213]: 🤝 协作图 [5v7]
+        - img [ref=e214]
+  - generic [ref=e570]:
+    - generic [ref=e571]:
+      - heading "👥 选择演练团队" [level=3] [ref=e572]
+      - button "✕" [ref=e573] [cursor=pointer]
+    - generic [ref=e575]:
+      - generic [ref=e578] [cursor=pointer]:
+        - generic [ref=e579]: 👥 Build System
+        - generic [ref=e580]: build_system · 7 个智能体
+      - generic [ref=e583] [cursor=pointer]:
+        - generic [ref=e584]: 👥 AI 编程团队
+        - generic [ref=e585]: ai_coding · 4 个智能体
+      - generic [ref=e588] [cursor=pointer]:
+        - generic [ref=e589]: 👥 公有云xOPs
+        - generic [ref=e590]: d083a568 · 11 个智能体
+      - generic [ref=e593] [cursor=pointer]:
+        - generic [ref=e594]: 👥 Energy First Principle
+        - generic [ref=e595]: energy_first_principle · 6 个智能体
+      - generic [ref=e598] [cursor=pointer]:
+        - generic [ref=e599]: 👥 Test Team Alpha
+        - generic [ref=e600]: 19d079d4 · 0 个智能体
+      - generic [ref=e603] [cursor=pointer]:
+        - generic [ref=e604]: 👥 Updated Team
+        - generic [ref=e605]: 31e7594e · 0 个智能体

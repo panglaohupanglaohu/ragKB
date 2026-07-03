@@ -1,0 +1,332 @@
+/* ============================================================
+   AgentsGroup2026 — Theme Layer
+   4 themes: day | dusk (default) | night | bright
+   Two variable families coexist for backward compat:
+     --shironeri / --ishi / --koke ...   (wabi-sabi page tokens)
+     --ob-bg-* / --ob-text-* ...         (OpenBridge component tokens)
+   Both driven by the same [data-obc-theme] switch.
+   Depends on base.css (radius/spacing/shadow primitives).
+   ============================================================ */
+
+/* ═══ Dusk (default — concrete deep blue-gray) ═══ */
+:root,
+[data-obc-theme='dusk'] {
+  --shironeri: #1A1F25;
+  --ishi: #21272D;
+  --kabe: #30363D;
+  --hai: #424A52;
+  --nezumi: #64707A;
+  --rubber: #3B434C;
+  --rubber-hover: #424A52;
+  --rubber-press: #4A535C;
+  --sumi: #EEF2F5;
+  --sumi-2: #A2ABB4;
+  --sumi-3: #7C8792;
+  --koke: #6BC47F;
+  --mizui: #22D3EE;
+  --shu: #E07070;
+  --kitsune: #D4A44A;
+  --fuji: #A78BFA;
+  --text: #D7DEE4;
+  --text-2: #A2ABB4;
+  --text-3: #7C8792;
+  --groove: #3B434C;
+  --ridge: rgba(255, 255, 255, 0.06);
+  --muted: #7C8792;
+
+  /* OpenBridge component tokens */
+  --ob-bg-global: var(--shironeri);
+  --ob-bg-body: var(--shironeri);
+  --ob-bg-section: var(--ishi);
+  --ob-bg-backdrop: var(--kabe);
+  --ob-bg-panel: var(--ishi);
+  --ob-bg-card: #2A3037;
+  --ob-bg-card-hover: var(--kabe);
+  --ob-bg-input: var(--ishi);
+  --ob-bg-raised: var(--hai);
+  --ob-text-primary: #EEF2F5;
+  --ob-text-secondary: #D7DEE4;
+  --ob-text-tertiary: #A2ABB4;
+  --ob-text-disabled: #4A535C;
+  --ob-text-inverse: var(--shironeri);
+  --ob-border: var(--groove);
+  --ob-border-strong: var(--nezumi);
+  --ob-border-subtle: var(--ridge);
+  --ob-accent: #A6B0BA;
+  --ob-accent-hover: #CFD6DD;
+  --ob-accent-light: rgba(166, 176, 186, 0.15);
+  --ob-accent-text: var(--shironeri);
+  --ob-alarm: var(--shu);
+  --ob-warning: var(--kitsune);
+  --ob-caution: #E0C060;
+  --ob-running: var(--koke);
+  --ob-on-alarm: var(--shironeri);
+  --ob-on-warning: var(--shironeri);
+  --ob-on-caution: var(--shironeri);
+  --ob-green: var(--koke);
+  --ob-cyan: var(--mizui);
+  --ob-red: var(--shu);
+  --ob-orange: var(--kitsune);
+  --ob-teal: var(--koke);
+  --ob-nav-bg: var(--ishi);
+  --ob-nav-active: var(--koke);
+  --ob-nav-text: var(--sumi-3);
+  --ob-nav-text-active: #EEF2F5;
+
+  /* radius — unified (no longer hardcoded 0px) */
+  --ob-radius-sm: var(--radius-sm);
+  --ob-radius-md: var(--radius-md);
+  --ob-radius-lg: var(--radius-lg);
+  --ob-radius-xl: var(--radius-lg);
+  --ob-radius-round: var(--radius-pill);
+
+  /* shadow alpha */
+  --ws-shadow: rgba(0, 0, 0, 0.20);
+  --ws-shadow-md: rgba(0, 0, 0, 0.30);
+  --ws-shadow-lg: rgba(0, 0, 0, 0.40);
+
+  /* concrete tokens used by plaza.html */
+  --concrete: #23282E;
+  --concrete-light: var(--kabe);
+  --concrete-pale: var(--hai);
+  --concrete-dark: var(--shironeri);
+  --concrete-deep: #0F1419;
+  --surface: #2D333A;
+  --surface-light: var(--groove);
+  --slit-light: #CFD6DD;
+  --slit-glow: #A6B0BA;
+  --bronze: #737C86;
+  --bronze-light: #98A2AC;
+  --ink: #EEF2F5;
+}
+
+[data-obc-theme='dusk'] body, body {
+  background: #1A1F25;
+  color: #D7DEE4;
+}
+[data-obc-theme='dusk'] body::before, body::before {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+                    radial-gradient(rgba(255, 255, 255, 0.008) 1px, transparent 1px);
+}
+
+/* ═══ Day (standard daylight) ═══ */
+[data-obc-theme='day'] {
+  --shironeri: #ffffff;
+  --ishi: #f0f0f0;
+  --kabe: #e0e0e0;
+  --hai: #c8c8c8;
+  --nezumi: #8e8e8e;
+  --rubber: #c8c8c8;
+  --rubber-hover: #b0b0b0;
+  --rubber-press: #a0a0a0;
+  --sumi: #3d3d3d;
+  --sumi-2: #535353;
+  --sumi-3: #707070;
+  --koke: #335483;
+  --mizui: #0e7490;
+  --shu: #c5003a;
+  --kitsune: #956b26;
+  --fuji: #6d28d9;
+  --text: #3d3d3d;
+  --text-2: #535353;
+  --text-3: #707070;
+  --groove: #dddddd;
+  --ridge: rgba(255, 255, 255, 0.6);
+  --muted: #707070;
+
+  --ob-bg-global: #ffffff;
+  --ob-bg-body: #f7f7f7;
+  --ob-bg-section: #f0f0f0;
+  --ob-bg-backdrop: #e0e0e0;
+  --ob-bg-panel: #ffffff;
+  --ob-bg-card: #ffffff;
+  --ob-bg-card-hover: #f7f7f7;
+  --ob-bg-input: #ffffff;
+  --ob-bg-raised: #535353;
+  --ob-text-primary: #3d3d3d;
+  --ob-text-secondary: #535353;
+  --ob-text-tertiary: #707070;
+  --ob-text-disabled: #cacaca;
+  --ob-text-inverse: #ffffff;
+  --ob-border: #dddddd;
+  --ob-border-strong: #8e8e8e;
+  --ob-border-subtle: rgba(0, 0, 0, 0.06);
+  --ob-accent: #335483;
+  --ob-accent-hover: #2a4872;
+  --ob-accent-light: #e1ebf9;
+  --ob-accent-text: #ffffff;
+  --ob-alarm: #e30019;
+  --ob-warning: #fe9413;
+  --ob-caution: #ffdb37;
+  --ob-running: #008300;
+  --ob-on-alarm: #ffffff;
+  --ob-on-warning: #1a1a1a;
+  --ob-on-caution: #3d3d3d;
+  --ob-green: #00805f;
+  --ob-cyan: #3c98bc;
+  --ob-red: #a55a6a;
+  --ob-orange: #956726;
+  --ob-teal: #007e7c;
+  --ob-nav-bg: #f0f0f0;
+  --ob-nav-active: #335483;
+  --ob-nav-text: #535353;
+  --ob-nav-text-active: #ffffff;
+
+  --ws-shadow: rgba(0, 0, 0, 0.04);
+  --ws-shadow-md: rgba(0, 0, 0, 0.08);
+  --ws-shadow-lg: rgba(0, 0, 0, 0.12);
+}
+
+[data-obc-theme='day'] body {
+  background: #f7f7f7;
+  color: #3d3d3d;
+}
+
+/* ═══ Night (IMO night-vision — amber/green on black) ═══ */
+[data-obc-theme='night'] {
+  --shironeri: rgb(0, 0, 0);
+  --ishi: rgb(5, 5, 0);
+  --kabe: rgba(71, 71, 0, 0.2);
+  --hai: rgba(71, 71, 0, 0.25);
+  --nezumi: rgba(71, 71, 0, 0.45);
+  --rubber: rgb(10, 10, 0);
+  --rubber-hover: rgb(15, 15, 0);
+  --rubber-press: rgb(20, 20, 0);
+  --sumi: rgb(71, 71, 0);
+  --sumi-2: rgba(71, 71, 0, 0.65);
+  --sumi-3: rgba(71, 71, 0, 0.45);
+  --koke: rgb(0, 51, 21);
+  --mizui: rgb(0, 51, 21);
+  --shu: rgb(77, 0, 5);
+  --kitsune: rgb(92, 44, 0);
+  --fuji: rgb(92, 44, 0);
+  --text: rgb(71, 71, 0);
+  --text-2: rgba(71, 71, 0, 0.65);
+  --text-3: rgba(71, 71, 0, 0.45);
+  --groove: rgba(71, 71, 0, 0.2);
+  --ridge: rgba(71, 71, 0, 0.1);
+  --muted: rgba(71, 71, 0, 0.45);
+
+  --ob-bg-global: rgb(10, 10, 0);
+  --ob-bg-body: rgb(0, 0, 0);
+  --ob-bg-section: rgb(0, 0, 0);
+  --ob-bg-backdrop: rgb(5, 5, 0);
+  --ob-bg-panel: rgb(10, 10, 0);
+  --ob-bg-card: rgb(10, 10, 0);
+  --ob-bg-card-hover: rgb(15, 15, 0);
+  --ob-bg-input: rgb(0, 0, 0);
+  --ob-bg-raised: rgb(15, 15, 0);
+  --ob-text-primary: rgb(71, 71, 0);
+  --ob-text-secondary: rgba(71, 71, 0, 0.65);
+  --ob-text-tertiary: rgba(71, 71, 0, 0.45);
+  --ob-text-disabled: rgba(71, 71, 0, 0.25);
+  --ob-text-inverse: rgb(0, 0, 0);
+  --ob-border: rgba(71, 71, 0, 0.2);
+  --ob-border-strong: rgb(26, 26, 0);
+  --ob-border-subtle: rgba(71, 71, 0, 0.1);
+  --ob-accent: rgb(0, 51, 21);
+  --ob-accent-hover: rgb(0, 61, 26);
+  --ob-accent-light: rgba(0, 71, 30, 0.15);
+  --ob-accent-text: rgb(0, 51, 21);
+  --ob-alarm: rgb(77, 0, 5);
+  --ob-warning: rgb(92, 44, 0);
+  --ob-caution: rgb(92, 69, 0);
+  --ob-running: rgb(23, 56, 0);
+  --ob-on-alarm: rgb(0, 0, 0);
+  --ob-on-warning: rgb(0, 0, 0);
+  --ob-on-caution: rgb(0, 0, 0);
+  --ob-green: rgb(12, 39, 33);
+  --ob-cyan: rgb(49, 95, 114);
+  --ob-red: rgb(43, 18, 27);
+  --ob-orange: rgb(112, 84, 51);
+  --ob-teal: rgb(42, 98, 96);
+  --ob-nav-bg: rgb(0, 0, 0);
+  --ob-nav-active: rgb(0, 51, 21);
+  --ob-nav-text: rgba(71, 71, 0, 0.45);
+  --ob-nav-text-active: rgb(71, 71, 0);
+
+  --ws-shadow: none;
+  --ws-shadow-md: none;
+  --ws-shadow-lg: none;
+}
+
+[data-obc-theme='night'] body {
+  background: rgb(0, 0, 0);
+  color: rgb(71, 71, 0);
+}
+[data-obc-theme='night'] body::before {
+  background-image: none;
+}
+
+/* ═══ Bright (high contrast, full sunlight) ═══ */
+[data-obc-theme='bright'] {
+  --shironeri: #ffffff;
+  --ishi: #ffffff;
+  --kabe: #8e8e8e;
+  --hai: #8e8e8e;
+  --nezumi: #535353;
+  --rubber: #e9e9e9;
+  --rubber-hover: #d0d0d0;
+  --rubber-press: #b0b0b0;
+  --sumi: #1a1a1a;
+  --sumi-2: #3d3d3d;
+  --sumi-3: #535353;
+  --koke: #223c61;
+  --mizui: #0e5e7c;
+  --shu: #eb0014;
+  --kitsune: #956b26;
+  --fuji: #5b21b6;
+  --text: #1a1a1a;
+  --text-2: #3d3d3d;
+  --text-3: #535353;
+  --groove: #8e8e8e;
+  --ridge: rgba(0, 0, 0, 0.08);
+  --muted: #535353;
+
+  --ob-bg-global: #ffffff;
+  --ob-bg-body: #ffffff;
+  --ob-bg-section: #ffffff;
+  --ob-bg-backdrop: #ffffff;
+  --ob-bg-panel: #ffffff;
+  --ob-bg-card: #ffffff;
+  --ob-bg-card-hover: #e9e9e9;
+  --ob-bg-input: #ffffff;
+  --ob-bg-raised: #3d3d3d;
+  --ob-text-primary: #1a1a1a;
+  --ob-text-secondary: #3d3d3d;
+  --ob-text-tertiary: #535353;
+  --ob-text-disabled: #cacaca;
+  --ob-text-inverse: #ffffff;
+  --ob-border: #8e8e8e;
+  --ob-border-strong: #535353;
+  --ob-border-subtle: rgba(0, 0, 0, 0.08);
+  --ob-accent: #223c61;
+  --ob-accent-hover: #335483;
+  --ob-accent-light: #ccdef6;
+  --ob-accent-text: #ffffff;
+  --ob-alarm: #eb0014;
+  --ob-warning: #fe9413;
+  --ob-caution: #e4ba02;
+  --ob-running: #068306;
+  --ob-on-alarm: #ffffff;
+  --ob-on-warning: #1a1a1a;
+  --ob-on-caution: #1a1a1a;
+  --ob-green: #00805f;
+  --ob-cyan: #3c98bc;
+  --ob-red: #a55a6a;
+  --ob-orange: #956726;
+  --ob-teal: #007e7c;
+  --ob-nav-bg: #f0f0f0;
+  --ob-nav-active: #223c61;
+  --ob-nav-text: #535353;
+  --ob-nav-text-active: #ffffff;
+
+  --ws-shadow: rgba(0, 0, 0, 0.06);
+  --ws-shadow-md: rgba(0, 0, 0, 0.10);
+  --ws-shadow-lg: rgba(0, 0, 0, 0.15);
+}
+
+[data-obc-theme='bright'] body {
+  background: #ffffff;
+  color: #1a1a1a;
+}

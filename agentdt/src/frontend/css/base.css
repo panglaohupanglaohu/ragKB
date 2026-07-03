@@ -1,0 +1,195 @@
+/* ============================================================
+   AgentsGroup2026 — Base Layer (Design Tokens + Reset + Shell)
+   Single source of truth for all pages. Include FIRST, before
+   theme.css / components.css / topbar-ws.css.
+
+   Layers:
+     base.css       — tokens, reset, typography, scrollbar, noise
+     theme.css      — 4 themes (day | dusk | night | bright)
+     components.css — shared UI components (btn/card/field/...)
+   ============================================================ */
+
+:root {
+  /* ── Core palette: Wabi-Sabi ── */
+  --shironeri: #1A1F25;
+  --ishi: #21272D;
+  --kabe: #30363D;
+  --hai: #424A52;
+  --nezumi: #64707A;
+  --sumi: #EEF2F5;
+  --sumi-2: #A2ABB4;
+  --sumi-3: #7C8792;
+  --groove: #3B434C;
+  --ridge: rgba(255, 255, 255, 0.06);
+
+  /* ── Accent colors ── */
+  --koke: #6BC47F;      /* moss — green/lime, running/ok */
+  --mizui: #22D3EE;     /* water — cyan (separated from --koke) */
+  --shu: #E07070;       /* vermilion — red/alarm */
+  --kitsune: #D4A44A;   /* fox — amber/warning */
+  --fuji: #A78BFA;      /* wisteria — purple, 4th semantic (digital-twin) */
+
+  /* ── Semantic aliases ── */
+  --cyan: var(--mizui);
+  --cyan-s: var(--mizui);
+  --lime: var(--koke);
+  --amber: var(--kitsune);
+  --red: var(--shu);
+  --pink: var(--shu);
+  --purple: var(--fuji);
+  --text: var(--sumi);
+  --muted: var(--sumi-3);
+  --dim: var(--sumi-3);
+
+  /* ── Backgrounds ── */
+  --bg: var(--shironeri);
+  --panel: var(--shironeri);
+  --panel2: var(--ishi);
+
+  /* ── Borders ── */
+  --line: var(--groove);
+  --line-light: var(--groove);
+
+  /* ── Typography ── */
+  --font-serif: 'Noto Serif SC', serif;
+  --font-sans: 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* ── Layout ── */
+  --sbw: 240px;
+
+  /* ── Border radius (unified micro-rounding) ── */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* ── Spacing scale (8pt grid) ── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-8: 48px;
+
+  /* ── Shadows (unified naming; per-theme alpha via --ws-shadow*) ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.45);
+
+  /* ── Motion ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 0.12s;
+  --dur: 0.18s;
+  --dur-slow: 0.3s;
+
+  /* ── z-index ladder ── */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 1000;
+  --z-modal: 1100;
+  --z-toast: 1200;
+
+  /* ── Font-size scale ── */
+  --fs-eyebrow: 10px;
+  --fs-caption: 11px;
+  --fs-body: 13px;
+  --fs-body-lg: 14px;
+  --fs-h4: 15px;
+  --fs-h3: 17px;
+  --fs-h2: 20px;
+  --fs-h1: 24px;
+  --fs-display: 32px;
+  --fs-data: 24px;
+
+  /* ── Shadow alpha hooks (overridden per-theme in theme.css) ── */
+  --ws-shadow: rgba(0, 0, 0, 0.20);
+  --ws-shadow-md: rgba(0, 0, 0, 0.30);
+  --ws-shadow-lg: rgba(0, 0, 0, 0.40);
+}
+
+/* ═══ Browser Compatibility — oklch() / color-mix() fallbacks ═══ */
+
+@supports not (color: oklch(0 0 0)) {
+  :root {
+    --color-bg-overlay: rgba(0, 0, 0, 0.3);
+  }
+}
+
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .speech-bubble {
+    border-color: rgba(166, 176, 186, 0.4) !important;
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.08), inset 0 0 14px rgba(255, 255, 255, 0.03) !important;
+  }
+  .speech-bubble::after {
+    border-right-color: rgba(166, 176, 186, 0.4) !important;
+    border-bottom-color: rgba(166, 176, 186, 0.4) !important;
+  }
+  .speech-bubble.history {
+    opacity: 0.14 !important;
+  }
+  .speech-bubble.speaking {
+    box-shadow: 0 0 26px rgba(255, 255, 255, 0.1), inset 0 0 16px rgba(255, 255, 255, 0.05) !important;
+  }
+}
+
+/* ═══ Global Reset ═══ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── 和紙 (washi) texture — single source, was duplicated 4x ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+                    radial-gradient(rgba(255, 255, 255, 0.008) 1px, transparent 1px);
+  background-size: 5px 5px, 7px 7px;
+  background-position: 0 0, 3px 3px;
+}
+
+/* ═══ Scrollbar (unified 8px, theme-aware) ═══ */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--nezumi);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--sumi-3); }
+
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--nezumi) transparent; }
+
+/* night theme: scrollbar recedes */
+[data-obc-theme='night'] ::-webkit-scrollbar-thumb { background: rgba(71, 71, 0, 0.3); }
+
+/* oklch fallback for scrollbar thumb */
+@supports not (color: oklch(0 0 0)) {
+  ::-webkit-scrollbar-thumb { background: #64707A; }
+}
+
+/* ═══ Focus visibility (a11y baseline) ═══ */
+:focus-visible {
+  outline: 2px solid var(--koke);
+  outline-offset: 2px;
+}
