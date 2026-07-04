@@ -1391,6 +1391,9 @@
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
 
+      // 办公室 3D 观测钩子: SECS 通道的 step 同样喂给数字办公室（递文件/协作光线动画）
+      try { if (window.OfficeAPI && window.OfficeAPI.ingestStep) window.OfficeAPI.ingestStep(d); } catch (e) {}
+
       // L4: 把本步 agent 行为喂进「协作·交互」时间线（from=agent 名，便于按团队过滤）
       try {
         if (d.agent_actions && window.S && Array.isArray(window.S.messages)) {

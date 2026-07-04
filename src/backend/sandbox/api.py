@@ -524,6 +524,8 @@ async def stream_simulation(session_id: str, request: Request) -> StreamingRespo
                 "messages_count": len(step.messages),
                 "total_steps": session.max_steps,
                 "agent_roles": {t.source_agent_id: t.role for t in (session.twins or [])},
+                # twin_id → 真身 agent_id 映射：前端(协作图/办公室3D)据此把孪生副本对齐回真身
+                "twin_agents": {t.twin_id: t.source_agent_id for t in (session.twins or [])},
             }
             yield f"data: {json.dumps(event_data)}\n\n"
 
@@ -547,6 +549,8 @@ async def stream_simulation(session_id: str, request: Request) -> StreamingRespo
                         "messages_count": len(step.messages),
                         "total_steps": session.max_steps,
                         "agent_roles": {t.source_agent_id: t.role for t in (session.twins or [])},
+                        # twin_id → 真身 agent_id 映射：前端(协作图/办公室3D)据此把孪生副本对齐回真身
+                        "twin_agents": {t.twin_id: t.source_agent_id for t in (session.twins or [])},
                     }
                     yield f"data: {json.dumps(event_data)}\n\n"
                 last_step_count = current_count

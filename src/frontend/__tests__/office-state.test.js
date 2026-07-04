@@ -75,6 +75,73 @@ describe('office-state reducer', () => {
     expect(JSON.stringify(s0)).toBe(frozen);
   });
 
+  it('team_reset 整体替换花名册: 移除未选成员并清理其协作边', () => {
+    let s = reduce(initialState(), {
+      type: 'team_sync',
+      agents: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    });
+    s = reduce(s, { type: 'step', agentActions: { a: { action: 'offer_help', target: 'c' } } });
+    s = reduce(s, { type: 'team_reset', agents: [{ id: 'a' }, { id: 'b' }] });
+    expect(Object.keys(s.agents)).toEqual(['a', 'b']);
+    expect(s.edges.length).toBe(0);            // 指向被移除成员的边一并清理
+    expect(s.agents.a.deskIndex).toBe(0);
+    expect(s.agents.a.activity).toBe('working');
+  });
+
+  it('座位保序前移: 顺序抖动不动座, 减员时保留者前移压缩不互换', () => {
+    let s = reduce(initialState(), {
+      type: 'team_sync', agents: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    });
+    // 同一批人换个顺序 reset → 座位恒等映射，无人移动（不玩抢椅子）
+    s = reduce(s, { type: 'team_reset', agents: [{ id: 'c' }, { id: 'a' }, { id: 'b' }] });
+    expect(s.agents.a.deskIndex).toBe(0);
+    expect(s.agents.b.deskIndex).toBe(1);
+    expect(s.agents.c.deskIndex).toBe(2);
+    // 模拟幽灵成员场景: a/c 曾被挤到后排(10/12号桌), 幽灵清除后应前移压缩且保持相对次序
+    s.agents.a.deskIndex = 10;
+    s.agents.c.deskIndex = 12;
+    s = reduce(s, { type: 'team_reset', agents: [{ id: 'c' }, { id: 'a' }] });
+    expect(s.agents.a.deskIndex).toBe(0);      // 前移到前排
+    expect(s.agents.c.deskIndex).toBe(1);      // 相对次序保持 a<c
+    // 新人排在保留者之后
+    s = reduce(s, { type: 'team_reset', agents: [{ id: 'a' }, { id: 'c' }, { id: 'd' }] });
+    expect(s.agents.d.deskIndex).toBe(2);
+  });
+
+  it('设施排队: 容量1, FIFO, 到时释放队首补位并重新计时', () => {
+    let s = reduce(initialState(), {
+      type: 'team_sync', agents: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    });
+    const t0 = 1000000;
+    s = reduce(s, { type: 'break_request', agentId: 'a', facility: 'toilet', now: t0 });
+    s = reduce(s, { type: 'break_request', agentId: 'b', facility: 'toilet', now: t0 + 1000 });
+    s = reduce(s, { type: 'break_request', agentId: 'c', facility: 'toilet', now: t0 + 2000 });
+    expect(s.facilities.toilet.occupant).toBe('a');
+    expect(s.facilities.toilet.queue).toEqual(['b', 'c']);       // FIFO 排队
+    expect(s.facilities.toilet.until).toBe(t0 + 300e3);          // 马桶停留 5 分钟
+    expect(s.agents.b.activity).toBe('toilet');
+    // 未到时: 不释放
+    s = reduce(s, { type: 'break_tick', now: t0 + 200e3 });
+    expect(s.facilities.toilet.occupant).toBe('a');
+    // 到时: a 回工位, b 补位并重新计时 5 分钟
+    s = reduce(s, { type: 'break_tick', now: t0 + 300e3 });
+    expect(s.agents.a.activity).toBe('working');
+    expect(s.facilities.toilet.occupant).toBe('b');
+    expect(s.facilities.toilet.queue).toEqual(['c']);
+    expect(s.facilities.toilet.until).toBe(t0 + 300e3 + 300e3);
+  });
+
+  it('咖啡机停留 1 分钟; 排队中被 team_reset 移除的成员出队', () => {
+    let s = reduce(initialState(), {
+      type: 'team_sync', agents: [{ id: 'a' }, { id: 'b' }],
+    });
+    s = reduce(s, { type: 'break_request', agentId: 'a', facility: 'coffee', now: 0 });
+    s = reduce(s, { type: 'break_request', agentId: 'b', facility: 'coffee', now: 1 });
+    expect(s.facilities.coffee.until).toBe(60e3);                // 咖啡 1min
+    s = reduce(s, { type: 'team_reset', agents: [{ id: 'a' }] });
+    expect(s.facilities.coffee.queue).toEqual([]);               // b 离编即出队
+  });
+
   it('store dispatch/subscribe 工作正常', () => {
     const store = createStore();
     let called = 0;

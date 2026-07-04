@@ -4,7 +4,7 @@
  * 接管策略: 重载 window._dt3dBuildRoom；rest-area(枯山水·Owner 隐藏款) 仍委托旧实现，原样保留。
  * 数据源: OfficeState 单一 store；输入 = 位置轮询 + handleTrialEvent 钩子 + transitionTrialStatus 钩子。
  */
-import { createStore, collabStats } from './office-state.js';
+import { createStore, collabStats, setBreakTimeScale } from './office-state.js';
 import { createOfficeScene } from './office-scene.js';
 
 const FLAG_ON = new URLSearchParams(location.search).get('office3d') === '1';
@@ -62,30 +62,143 @@ function bootOffice() {
   };
 
   // ── 输入 1: 位置/团队 轮询（window.S 由 secs-core 维护，只读） ──
+  // 尊重左栏团队选择: 只显示选中团队的成员；成员级筛选经 OfficeAPI.setRoster 覆盖。
+  let memberFilter = null;   // Set<agentId> | null（null = 不做成员级过滤）
+  let lastRosterKey = '';
   function syncPositions() {
     try {
       const S = window.S || {};
       const positions = S.positions || {};
-      const teamAgents = [];
-      (S.teams || []).forEach((t) => (t.agents || []).forEach((a) =>
-        teamAgents.push({ id: a.agent_id || a.id, name: a.name, role: a.role })));
-      if (teamAgents.length) store.dispatch({ type: 'team_sync', agents: teamAgents });
-      for (const [agentId, room] of Object.entries(positions)) {
-        store.dispatch({ type: 'position', agentId, room });
+      const selected = Array.isArray(S.selectedTeams) ? S.selectedTeams.filter(Boolean) : [];
+      const teams = (S.teams || []).filter(
+        (t) => !selected.length || selected.includes(t.team_id || t.id)
+      );
+      let roster = [];
+      teams.forEach((t) => (t.agents || []).forEach((a) =>
+        roster.push({ id: a.agent_id || a.id, name: a.name, role: a.role, team: t.team_id || t.id || '' })));
+      if (memberFilter) roster = roster.filter((a) => memberFilter.has(a.id));
+      // 混沌拓扑合并（与协作图同口径）: 演练注入的「智能体离开」剔除、「增援加入」并入。
+      // 增援 Agent 不在团队花名册里，只存在于 _chaosTopoState —— 这是它们进办公室的唯一通道。
+      const chaos = window._chaosTopoState || { removed: {}, added: [] };
+      roster = roster.filter((a) => !chaos.removed[a.id]);
+      (chaos.added || []).forEach((ad) => {
+        if (ad.agent_id && !roster.some((a) => a.id === ad.agent_id)) {
+          roster.push({
+            id: ad.agent_id, name: ad.name || ad.agent_id,
+            role: '增援', team: ad._teamId || '',
+          });
+        }
+      });
+      if (roster.length) {
+        const key = roster.map((a) => a.id).sort().join(',');   // 顺序无关: 成员集不变不触发重置
+        if (key !== lastRosterKey) {          // 花名册变化才整体重置（含移除未选团队成员）
+          lastRosterKey = key;
+          store.dispatch({ type: 'team_reset', agents: roster });
+        }
+        const ids = new Set(roster.map((a) => a.id));
+        for (const [agentId, room] of Object.entries(positions)) {
+          if (ids.has(agentId)) store.dispatch({ type: 'position', agentId, room });
+        }
       }
     } catch (e) { /* 只读同步失败不致命 */ }
   }
   setInterval(syncPositions, 2000);
+  // 混沌加入/离开即时反映到办公室（不等 2s 轮询）
+  for (const fn of ['_dt2dChaosJoin', '_dt2dChaosLeave', '_dt2dChaosReset']) {
+    const orig = window[fn];
+    if (typeof orig === 'function') {
+      window[fn] = function (...args) {
+        const r = orig.apply(this, args);
+        try { syncPositions(); } catch (e) { /* 非致命 */ }
+        return r;
+      };
+    }
+  }
   setInterval(() => store.dispatch({ type: 'tick', dt: 1 }), 1000);
 
+  // ── 作息调度（错峰 + 排队） ──
+  // 频率: 咖啡≈1h / 马桶≈2h / 跑步机≈6h。停留与排队由 store 的设施占位模型管理
+  //（咖啡 1min、跑步机 5min、马桶 5min，容量 1，FIFO）。
+  // 错峰算法: 团队内相位均匀分布——同队第 i 个成员(共 N 人)的首次到点
+  //   due = now + mean × (i+0.5)/N × jitter(0.9~1.1)
+  // 之后 due += mean × (0.8~1.2)。再加团队并发闸: 同队已有人在该设施(占用或排队)则顺延，
+  // 保证「一个团队不会集体去咖啡机」。
+  // ?breakspeed=60 → 时间加速 60 倍（演示/调试排队行为）: 频率与停留时长同比缩短
+  const SPEED = Math.max(1, Number(new URLSearchParams(location.search).get('breakspeed')) || 1);
+  setBreakTimeScale(SPEED);
+  const BREAK_MEAN = {
+    coffee: 3600e3 / SPEED, toilet: 7200e3 / SPEED, treadmill: 21600e3 / SPEED,
+  };
+  const nextBreakAt = {};   // agentId -> {facility: dueTs}
+  let staggerKey = '';
+  function initStagger(state) {
+    const byTeam = {};
+    for (const a of Object.values(state.agents)) {
+      (byTeam[a.team || '_'] = byTeam[a.team || '_'] || []).push(a.id);
+    }
+    const now = Date.now();
+    for (const members of Object.values(byTeam)) {
+      members.sort();
+      members.forEach((id, i) => {
+        nextBreakAt[id] = {};
+        for (const [fac, mean] of Object.entries(BREAK_MEAN)) {
+          nextBreakAt[id][fac] = now + mean * ((i + 0.5) / members.length) * (0.9 + Math.random() * 0.2);
+        }
+      });
+    }
+  }
+  function teammateBusyAt(state, agent, facility) {
+    const f = state.facilities[facility];
+    if (!f) return false;
+    const ids = [f.occupant, ...f.queue].filter(Boolean);
+    return ids.some((id) => id !== agent.id && (state.agents[id] || {}).team === agent.team);
+  }
+  setInterval(() => store.dispatch({ type: 'break_tick', now: Date.now() }),
+    Math.max(1000, 5e3 / SPEED));
+  setInterval(() => {
+    const state = store.getState();
+    const rosterKey = Object.keys(state.agents).sort().join(',');
+    if (rosterKey !== staggerKey) { staggerKey = rosterKey; initStagger(state); }
+    if (state.mirror || state.meeting.active) return;   // 孪生演练/开会时不摸鱼
+    const now = Date.now();
+    for (const agent of Object.values(state.agents)) {
+      if (!nextBreakAt[agent.id] || agent.activity !== 'working') continue;
+      for (const fac of Object.keys(BREAK_MEAN)) {
+        if (now < nextBreakAt[agent.id][fac]) continue;
+        if (teammateBusyAt(state, agent, fac)) {
+          // 团队并发闸: 同队有人在此设施 → 顺延一个错峰间隔
+          nextBreakAt[agent.id][fac] = now + BREAK_MEAN[fac] * 0.15 * (0.8 + Math.random() * 0.4);
+          continue;
+        }
+        nextBreakAt[agent.id][fac] = now + BREAK_MEAN[fac] * (0.8 + Math.random() * 0.4);
+        store.dispatch({ type: 'break_request', agentId: agent.id, facility: fac, now });
+        break;   // 一次只去一个地方
+      }
+    }
+  }, Math.max(1000, 20e3 / SPEED));
+
   // ── 输入 2: 孪生事件钩子（step / 讨论 / 状态机），不改旧函数行为 ──
+  // 孪生副本 → 真身对齐: SSE 的 agent_actions 以 twin_id 为键，
+  // 用事件携带的 twin_agents 映射回真身 agent_id，办公室里的人才对得上号。
+  // 两条演练通道共用: 试炼导演台(handleTrialEvent) + SECS 面板 SSE(secs-core 调 ingestStep)。
+  function ingestStep(ev) {
+    try {
+      const raw = ev.agent_actions || (ev.data && ev.data.agent_actions) || {};
+      const twinMap = ev.twin_agents || (ev.data && ev.data.twin_agents) || {};
+      const mapped = {};
+      for (const [k, v] of Object.entries(raw)) {
+        const realId = twinMap[k] || k;
+        const act = typeof v === 'string' ? { action: v } : { ...(v || {}) };
+        if (act.target) act.target = twinMap[act.target] || act.target;
+        if (act.to) act.to = twinMap[act.to] || act.to;
+        mapped[realId] = act;
+      }
+      store.dispatch({ type: 'step', agentActions: mapped });
+    } catch (e) { /* 观测层不阻塞业务 */ }
+  }
   const legacyHandle = window.handleTrialEvent;
   window.handleTrialEvent = function (ev) {
-    try {
-      if (ev && ev.type === 'step') {
-        store.dispatch({ type: 'step', agentActions: ev.agent_actions || (ev.data && ev.data.agent_actions) || {} });
-      }
-    } catch (e) { /* 观测层不阻塞业务 */ }
+    if (ev && ev.type === 'step') ingestStep(ev);
     if (typeof legacyHandle === 'function') return legacyHandle(ev);
   };
   const legacyTransition = window.transitionTrialStatus;
@@ -101,7 +214,14 @@ function bootOffice() {
   window.OfficeAPI = {
     dispatch: store.dispatch,
     getState: store.getState,
+    ingestStep,
     collabStats: (n) => collabStats(store.getState(), n),
+    // 成员级筛选（供左栏树状成员选择器调用）: ids=null 恢复团队级
+    setRoster(agentIds) {
+      memberFilter = agentIds && agentIds.length ? new Set(agentIds) : null;
+      lastRosterKey = '';
+      syncPositions();
+    },
     meeting(active, speakerId, boardLine, participantIds) {
       window.OfficeAPI._speakerId = speakerId || null;
       store.dispatch({ type: 'discussion', active, speakerId, boardLine, participantIds });

@@ -44,9 +44,16 @@ class WorldStateManager:
         """同步单个智能体状态."""
         self._agent_states[agent_id] = state
 
-    def sync_agents_from_team(self, team_config: Dict[str, Any]) -> None:
-        """从团队配置批量同步智能体状态."""
+    def sync_agents_from_team(self, team_config: Dict[str, Any], *, replace: bool = True) -> None:
+        """从团队配置批量同步智能体状态.
+
+        replace=True（默认）: 同步即全量镜像——本次团队就是孪生世界的全部成员。
+        旧行为是逐个 update 从不清空，多次切换团队后世界累积出跨团队的幽灵成员，
+        导致演练 twins/协作图数量与所选团队对不上（如 7 人团队出现 40 节点协作图）。
+        """
         agents = team_config.get("agents", [])
+        if replace and agents:
+            self._agent_states = {}
         for agent in agents:
             agent_id = agent.get("id", agent.get("name", "unknown"))
             self._agent_states[agent_id] = {
