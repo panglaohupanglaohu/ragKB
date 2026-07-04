@@ -1816,5 +1816,20 @@
       "shared-singleton",
       "ewma"
     ]
+  },
+  {
+    "id": "bug-042-office-agent-model-regression",
+    "timestamp": "2026-07-04T09:30:00.000000",
+    "error_message": "Agent-digital-twin.html?office3d=1 里的 Agent 造型像黑色圆柱/棋子，没有复用 plaza 里的 agent 模型语言",
+    "file": "src/frontend/js/office/office-scene.js",
+    "root_cause": "office-engine 首版 buildAgentFigure 重新手写了 CapsuleGeometry + SphereGeometry + ConeGeometry 站桩造型，偏离用户要求的 plaza agent 模型骨架，也与 Marvis 办公室参考图的角色观感不一致",
+    "fix": "将 buildAgentFigure 改为 plaza 风格头环 + U 形身体 + 彩色光环 + 名字 sprite；移除胶囊/球头/尖耳；动画改为驱动 group.userData.bobRoot，避免依赖旧模型 child[0]。office-state 9/9、node --check、npm run build 通过",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "office3d",
+      "threejs",
+      "visual-regression"
+    ]
   }
 ]

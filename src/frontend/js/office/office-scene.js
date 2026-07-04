@@ -125,32 +125,63 @@ export function createOfficeScene(canvas, container) {
     return { anchor: new THREE.Vector3(-9.6, 0, 8.2) };
   }
 
-  // ── Agent 造型: 深色小兽 + 项圈色 + 名牌（自有皮肤，替代 plaza 旧造型） ──
+  // ── Agent 造型: 复用 Plaza 的头环 + U 形身体 + 光环模型语言 ──
   function buildAgentFigure(def) {
     const g = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: C.agent, roughness: 0.55 });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.5, 4, 12), bodyMat);
-    body.position.y = 0.85; body.castShadow = true; g.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), bodyMat);
-    head.position.y = 1.6; head.castShadow = true; g.add(head);
-    for (const s of [-1, 1]) {                                   // 双角耳
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 8), bodyMat);
-      ear.position.set(0.26 * s, 2.0, 0); ear.rotation.z = -0.5 * s; ear.castShadow = true; g.add(ear);
+    const model = new THREE.Group();
+    const col = new THREE.Color(def.collar || C.agent);
+    const scale = 0.78;
+    g.userData.bobRoot = model;
+    g.userData.labelColor = `#${col.getHexString()}`;
+
+    const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.86, side: THREE.DoubleSide });
+    const glowMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.24, side: THREE.DoubleSide });
+    const inkMat = new THREE.MeshBasicMaterial({ color: 0x14161a, transparent: true, opacity: 0.16, side: THREE.DoubleSide });
+
+    const headR = 0.34 * scale, headTube = 0.04 * scale;
+    const head = new THREE.Mesh(new THREE.TorusGeometry(headR, headTube, 12, 32), outlineMat);
+    head.position.y = 2.0 * scale;
+    model.add(head);
+
+    const headGlow = new THREE.Mesh(new THREE.TorusGeometry(headR, headTube * 4, 12, 32), glowMat);
+    headGlow.position.copy(head.position);
+    model.add(headGlow);
+
+    const pts = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32, a = Math.PI * t;
+      pts.push(new THREE.Vector3(-Math.cos(a) * 0.48 * scale, (1.25 - Math.sin(a) * 0.65) * scale, 0));
     }
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.09, 8, 20),
-      new THREE.MeshStandardMaterial({ color: def.collar, roughness: 0.4 }));
-    collar.rotation.x = Math.PI / 2; collar.position.y = 1.22; g.add(collar);
-    g.add(makeLabel(def.name));
+    const curve = new THREE.CatmullRomCurve3(pts);
+    model.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.14 * scale, 8, false), inkMat));
+    model.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.04 * scale, 8, false), outlineMat));
+    model.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.12 * scale, 8, false), glowMat));
+
+    const glowRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.35 * scale, 0.56 * scale, 32),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
+    );
+    glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = 0.01;
+    model.add(glowRing);
+    g.userData.glowRing = glowRing;
+
+    g.add(model);
+    g.add(makeLabel(def.name, col));
     agentsGroup.add(g);
     return g;
   }
-  function makeLabel(text) {
+  function makeLabel(text, color) {
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
     const ctx = cv.getContext('2d');
-    ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillStyle = '#2a2e34'; ctx.fillText(String(text).slice(0, 12), 128, 42);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
-    sp.scale.set(2.6, 0.65, 1); sp.position.y = 2.6;
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.font = '800 24px "Noto Sans SC", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+    const label = String(text || '').slice(0, 12);
+    ctx.strokeText(label, 128, 33);
+    ctx.fillStyle = `#${color.getHexString()}`; ctx.fillText(label, 128, 33);
+    const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sp.scale.set(2.35, 0.58, 1); sp.position.y = 2.35;
     return sp;
   }
 
@@ -292,8 +323,12 @@ export function createOfficeScene(canvas, container) {
     for (const f of Object.values(figures)) {
       f.group.position.lerp(f.target, 0.06);
       const act = f.def.activity;
-      f.group.children[0].position.y = 0.85 +
-        (act === 'treadmill' ? Math.abs(Math.sin(t * 8)) * 0.18 : Math.sin(t * 2 + f.def.deskIndex) * 0.03);
+      const bobRoot = f.group.userData.bobRoot || f.group.children[0];
+      if (bobRoot) {
+        bobRoot.position.y = act === 'treadmill'
+          ? Math.abs(Math.sin(t * 8)) * 0.18
+          : Math.sin(t * 2 + f.def.deskIndex) * 0.03;
+      }
       if (act === 'meeting' && f.def.id === (window.OfficeAPI && window.OfficeAPI._speakerId)) {
         f.group.position.y = Math.abs(Math.sin(t * 6)) * 0.1;   // 发言者轻跳
       } else { f.group.position.y = 0; }

@@ -3,6 +3,7 @@
 > Chronological action log. Hooks and AI append to this file automatically.
 > Old sessions are consolidated by the daemon weekly.
 
+- 2026-07-04T09:30:00Z | 修复 office3d Agent 造型跑偏 | src/frontend/js/office/office-scene.js | 按用户校准，Agent-digital-twin.html?office3d=1 的 Agent 从胶囊/球头/尖耳站桩改为复用 plaza 头环+U形身体+地面光环模型语言；动画改 bobRoot，避免依赖旧 child[0]；office-state 9/9、node --check、vite build 通过 | ~1k |
 - 2026-06-12T14:48:00Z | G1-2 完成收口：在 skill_extractor.approve_item 接入 ClassificationStore.seed_reserve_from_extraction（幂等），实现“萃取完成即写入 reserve 分类记录”；新增 tests/test_skill_classifier.py::test_seed_reserve_from_extraction_idempotent，pytest 14 passed。
 - 2026-06-12T14:58:00Z | G3-2 本机联测收口：trial_api 增加 routing_comparison/routing_benefit 输出，branches 列表暴露 routing_strategy；新增 tests/test_v4_apis.py::test_routing_strategy_fork_comparison；pytest tests/test_v4_apis.py 14 passed。
 | 04:36 | 核对5份todos+排查协作图空白(已修复) | docs/Agent数字孪生场景演练与技能进化todos.md | C-4.1/D-0.2核销为[x]+新增G分派章节(Claude/Reasonix) | ~3k |
