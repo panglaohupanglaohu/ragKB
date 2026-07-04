@@ -47,6 +47,8 @@ class SECSOrchestrator:
         # Layer 4: 集体智慧对齐
         self.critic = GlobalCritic()
         self.aligner = StrategyAligner(self.critic, self.zero_exp)
+        # 孪生世界中已知的团队（sync_world 注册），供 trial_api 幻影团队校验放行。
+        self.known_teams: set = set()
 
         # LLM 模式标志
         self._llm_mode = False
@@ -135,6 +137,8 @@ class SECSOrchestrator:
         workflow_edges: List[Dict] = None,
     ) -> None:
         """同步世界状态."""
+        if team_id:
+            self.known_teams.add(team_id)
         if agents:
             self.world_state.sync_agents_from_team({"agents": agents})
         if resources:
@@ -250,9 +254,11 @@ class SECSOrchestrator:
                 # Step 1: 执行仿真
                 session = await self.twin_loop.run_simulation(session_id)
 
-                # 检查是否被用户中断（stop_event / pause）
-                if session.status != SandboxStatus.RUNNING:
-                    # 被 stop/pause 中断 → 跳过后续对齐，直接返回
+                # 检查是否被用户中断（stop_event / pause）或仿真失败。
+                # 注意: run_simulation 正常结束时状态是 EVALUATING（等待对齐），
+                # 只有 PAUSED/FAILED 才是中断——用 != RUNNING 判断会把正常完成
+                # 误判为中断，跳过对齐并让会话永久卡在 evaluating。
+                if session.status in (SandboxStatus.PAUSED, SandboxStatus.FAILED):
                     logger.info("⏹ 仿真被中断 (status=%s)，跳过对齐与 Gate", session.status.value)
                     return {
                         "session_id": session.session_id,

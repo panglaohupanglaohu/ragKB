@@ -23,6 +23,21 @@ import pytest
 
 from channels.openclaw_sync import OpenClawSyncChannel
 from channels.marine_base import ChannelStatus, ChannelPriority
+from agents.ab_testing import reset_ab_test_manager
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ab_test_manager():
+    """隔离全局 ABTestManager 单例的 EWMA 状态.
+
+    OpenClawSyncChannel 通过 get_ab_test_manager() 共享同一个模块级单例，
+    前序用例的事件会改动共享的 EWMA 阈值/决策历史，使
+    test_process_sync_request_deep_dependency 在全量顺序下偶发失败。
+    每个用例前后重置单例，保证 EWMA 状态干净。
+    """
+    reset_ab_test_manager()
+    yield
+    reset_ab_test_manager()
 
 
 class TestOpenClawSyncChannel:

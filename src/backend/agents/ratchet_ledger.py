@@ -55,7 +55,7 @@ class RatchetLedger:
                 pass
         tmp = self._file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(self._file)
+        tmp.replace(self._file)
 
     # ── 核心: 推进 ────────────────────────────────────────
 

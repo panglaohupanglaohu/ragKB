@@ -702,7 +702,7 @@
         onComplete: async function () {
           // ② 真正触发后端推进（闭→锁）
           try {
-            var resp = await fetch('/api/v1/cost/tokens/ratchet/advance', {
+            var resp = await (window._agFetch || fetch)('/api/v1/cost/tokens/ratchet/advance', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ team_id: team, window: '7d' }),

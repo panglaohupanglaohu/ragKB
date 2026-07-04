@@ -108,7 +108,7 @@ async function generateScenarioFromDesc(){
   var tid = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) || '';
   if (typeof _dtLogConsole === 'function') _dtLogConsole('✨ LLM 生成场景中（最多重试 3 次）...', 'info');
   try {
-    var r = await fetch('/api/v1/scenarios/generate', { method:'POST', headers:{'Content-Type':'application/json'},
+    var r = await (window._agFetch || fetch)('/api/v1/scenarios/generate', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ description: desc, team_id: tid }) });
     var d = await r.json();
     if (!r.ok) throw new Error((d.detail && (d.detail.message||d.detail)) || ('HTTP '+r.status));
@@ -116,7 +116,7 @@ async function generateScenarioFromDesc(){
     var summary = '场景草稿: ' + spec.name + '\n房间: ' + (spec.world.rooms||[]).map(function(x){return x.name}).join('/') +
       '\n任务: ' + (spec.taskflow||[]).length + ' 个 · 混沌阶段: ' + (spec.chaos_script||[]).length + ' 个\n\n保存到场景库？';
     if (!confirm(summary)) { if (typeof _dtLogConsole === 'function') _dtLogConsole('场景草稿已丢弃', 'info'); return; }
-    var sr = await fetch('/api/v1/scenarios', { method:'POST', headers:{'Content-Type':'application/json'},
+    var sr = await (window._agFetch || fetch)('/api/v1/scenarios', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ spec: spec }) });
     var sd = await sr.json();
     if (!sr.ok) throw new Error(JSON.stringify(sd.detail||sd));

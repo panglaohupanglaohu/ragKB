@@ -434,9 +434,9 @@
 
       function getNextUrl() {
         var params = new URLSearchParams(window.location.search);
-        var next = params.get('next') || '/agent-team-config-new.html';
+        var next = params.get('next') || '/agent-team-config.html';
         if (!next || next.charAt(0) !== '/' || next.indexOf('//') === 0) {
-          return '/agent-team-config-new.html';
+          return '/agent-team-config.html';
         }
         return next;
       }

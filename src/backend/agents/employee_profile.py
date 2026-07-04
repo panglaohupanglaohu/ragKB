@@ -98,7 +98,7 @@ class EmployeeProfileStore:
         p = self._path(agent_id, kind)
         tmp = p.with_suffix(".tmp")
         tmp.write_text(content, encoding="utf-8")
-        tmp.rename(p)
+        tmp.replace(p)
         return {"ok": True, "kind": kind, "bytes": len(content.encode("utf-8"))}
 
     def ensure_defaults(self, agent_id: str, profile: Optional[Dict[str, Any]] = None) -> Dict[str, bool]:
@@ -126,7 +126,7 @@ class EmployeeProfileStore:
         if not mem_p.exists():
             tmp = mem_p.with_suffix(".tmp")
             tmp.write_text(DEFAULT_MEMORY_HEADER, encoding="utf-8")
-            tmp.rename(mem_p)
+            tmp.replace(mem_p)
             created["memory"] = True
         # focus / heartbeat
         if not self._path(agent_id, "focus").exists():

@@ -72,6 +72,39 @@ from .tool_registry import ToolRegistry, get_default_tools
 
 router = APIRouter(prefix="/api/v1/agent-config", tags=["agent-config"])
 
+try:
+    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
+    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
+except Exception:
+    _DEFAULT_PAGE_SIZE = 50
+    _MAX_PAGE_SIZE = 200
+
+
+def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
+    """Preserve old array responses by default while enabling optional pagination.
+
+    Same contract as agent_team_api._paginate_optional: with limit=0 and offset=0
+    the plain list is returned (backward compatible); otherwise a pagination
+    envelope {items,total,limit,offset,has_more} is returned.
+    """
+    limit = getattr(limit, "default", limit)
+    offset = getattr(offset, "default", offset)
+    limit = int(limit or 0)
+    offset = max(int(offset or 0), 0)
+    if limit <= 0 and offset <= 0:
+        return items
+    if limit <= 0:
+        limit = _DEFAULT_PAGE_SIZE
+    limit = min(limit, _MAX_PAGE_SIZE)
+    total = len(items)
+    return {
+        "items": items[offset:offset + limit],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
+
 
 _team_manager: Optional[TeamManager] = None
 _tool_registry: Optional[ToolRegistry] = None
@@ -378,6 +411,7 @@ class PermissionItem(BaseModel):
     resource: str = ""
     access_level: str = "read"
     channels: List[str] = Field(default_factory=list)
+    allowed_tools: List[str] = Field(default_factory=list)
 
 
 class UpdatePermissionsRequest(BaseModel):
@@ -472,8 +506,11 @@ def get_usage_summary(
 
 
 @router.get("/teams", summary="List all teams")
-def list_teams() -> List[Dict[str, Any]]:
-    return [
+def list_teams(
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = [
         {
             "team_id": t.team_id,
             "name": t.name,
@@ -483,6 +520,7 @@ def list_teams() -> List[Dict[str, Any]]:
         }
         for t in _tm().list_teams()
     ]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams-tree", summary="All teams with agents tree")
@@ -548,9 +586,14 @@ def _get_team_or_404(team_id: str):
 
 
 @router.get("/teams/{team_id}/models", summary="List team models")
-def list_models(team_id: str) -> List[Dict[str, Any]]:
+def list_models(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     team = _get_team_or_404(team_id)
-    return [m.to_dict() for m in team.models.values()]
+    items = [m.to_dict() for m in team.models.values()]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post(
@@ -704,8 +747,12 @@ def remove_model(team_id: str, model_id: str) -> Dict[str, str]:
 
 
 @router.get("/tools", summary="List all available tools")
-def list_all_tools() -> List[Dict[str, Any]]:
-    return [t.to_dict() for t in _tr().list_all()]
+def list_all_tools(
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    items = [t.to_dict() for t in _tr().list_all()]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}/tools", summary="List team tools")
@@ -812,7 +859,42 @@ def list_required_skills() -> List[Dict[str, Any]]:
 @router.get("/teams/{team_id}/skills", summary="List team skills")
 def list_team_skills(team_id: str) -> List[Dict[str, Any]]:
     team = _get_team_or_404(team_id)
-    return [s.to_dict() for s in team.skills.values()]
+
+    def _bound_count(skill) -> int:
+        refs = {skill.skill_id, skill.name}
+        if getattr(skill, "slug", ""):
+            refs.add(skill.slug)
+        return sum(
+            1
+            for a in team.agents.values()
+            if any(r in (a.skills or []) for r in refs)
+        )
+
+    items: List[Dict[str, Any]] = []
+    seen: set = set()
+    for s in team.skills.values():
+        d = s.to_dict()
+        d["bound_agent_count"] = _bound_count(s)
+        items.append(d)
+        seen.add(s.skill_id)
+        seen.add(s.name)
+    # Effective skills: builtin registry skills bound to agents without a
+    # materialized team-local copy still surface in the team skill list.
+    bound_refs: set = set()
+    for a in team.agents.values():
+        bound_refs.update(a.skills or [])
+    for ref in bound_refs:
+        if ref in seen:
+            continue
+        resolved = _resolve_registry_skill(ref)
+        if resolved is None or resolved.skill_id in seen or resolved.name in seen:
+            continue
+        d = resolved.to_dict()
+        d["bound_agent_count"] = _bound_count(resolved)
+        items.append(d)
+        seen.add(resolved.skill_id)
+        seen.add(resolved.name)
+    return items
 
 
 # TAB 5 -- AGENTS (5-step wizard)
@@ -840,9 +922,14 @@ def _get_agent_or_404(team_id: str, agent_id: str) -> AgentProfile:
 
 
 @router.get("/teams/{team_id}/agents", summary="List agents in team")
-def list_agents(team_id: str) -> List[Dict[str, Any]]:
+def list_agents(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
-    return [a.to_dict() for a in _tm().list_agents(team_id)]
+    items = [a.to_dict() for a in _tm().list_agents(team_id)]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}", summary="Get agent detail")
@@ -911,11 +998,42 @@ def update_agent_tools(
     "/teams/{team_id}/agents/{agent_id}/skills",
     summary="Update agent skills (wizard step 3)",
 )
+def _resolve_registry_skill(ref: str):
+    """Resolve a skill reference (id / name / slug) against the global registry."""
+    reg = _sr()
+    skill = reg.get(ref)
+    if skill is not None:
+        return skill
+    for s in reg.list_all():
+        if s.name == ref or (s.slug and s.slug == ref):
+            return s
+    return None
+
+
 def update_agent_skills(
     team_id: str, agent_id: str, req: UpdateSkillsRequest
 ) -> Dict[str, Any]:
+    import copy as _copy
+
     agent = _get_agent_or_404(team_id, agent_id)
-    agent.skills = list(req.skill_ids)
+    team = _get_team_or_404(team_id)
+    canonical_ids: List[str] = []
+    for requested in req.skill_ids:
+        if requested in team.skills:
+            canonical_ids.append(requested)
+            continue
+        resolved = _resolve_registry_skill(requested)
+        if resolved is None:
+            # Unknown reference: keep as-is (may be resolved by external stores).
+            canonical_ids.append(requested)
+            continue
+        # Materialize a team-local copy so instructions/tools travel with the team.
+        if resolved.skill_id not in team.skills:
+            team.skills[resolved.skill_id] = _copy.deepcopy(resolved)
+        canonical_ids.append(resolved.skill_id)
+    # Dedupe while preserving order.
+    agent.skills = list(dict.fromkeys(canonical_ids))
+    _tm()._persist()
     return agent.to_dict()
 
 
@@ -938,9 +1056,11 @@ def update_permissions(
                 resource=p.resource,
                 access_level=al,
                 channels=list(p.channels),
+                allowed_tools=list(p.allowed_tools),
             )
         )
     agent.permissions = perms
+    _tm()._persist()
     return agent.to_dict()
 
 
@@ -1196,6 +1316,11 @@ def disable_skill(team_id: str, skill_id: str) -> Dict[str, str]:
     removed = team.skills.pop(skill_id, None)
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team")
+    # Unbind from all agents in this team and persist.
+    for agent in team.agents.values():
+        if skill_id in agent.skills:
+            agent.skills.remove(skill_id)
+    _tm()._persist()
     return {"disabled": skill_id}
 
 
@@ -1247,15 +1372,27 @@ def edit_skill(team_id: str, skill_id: str, req: EditSkillRequest = Body(default
     "/teams/{team_id}/skills/{skill_id}",
     summary="Delete skill from team",
 )
-def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
-    team = _get_team_or_404(team_id)
-    # 技能可能只在技能库(skill_store)里、并未注册进 team.skills（UI 仍会展示），
-    # 因此不能因 team.skills 没有就直接 404；三处都尝试删，全无才报 404。
-    removed = team.skills.pop(skill_id, None)
-    # Remove from all agents in this team（team.agents 是 dict[id→AgentProfile]，须遍历 values）
-    for agent in team.agents.values():
-        if skill_id in agent.skills:
-            agent.skills.remove(skill_id)
+def delete_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
+    _get_team_or_404(team_id)
+    # 技能可能是共享技能（多团队持有副本）、可能只在技能库(skill_store)里、
+    # 也可能只是内置技能的 agent 绑定引用。删除必须：
+    # 1) 从所有团队移除副本；2) 解绑所有 agent 引用；3) 从技能库删除；全无才 404。
+    removed_from_teams: List[str] = []
+    removed_agent_bindings = 0
+    removed_any_copy = False
+    for team in _tm().list_teams():
+        team_touched = False
+        if team.skills.pop(skill_id, None) is not None:
+            removed_any_copy = True
+            team_touched = True
+        # team.agents 是 dict[id→AgentProfile]，须遍历 values
+        for agent in team.agents.values():
+            if skill_id in agent.skills:
+                agent.skills.remove(skill_id)
+                removed_agent_bindings += 1
+                team_touched = True
+        if team_touched:
+            removed_from_teams.append(team.team_id)
     _tm()._persist()
     # Also remove from skill store
     store_deleted = False
@@ -1266,9 +1403,14 @@ def delete_skill(team_id: str, skill_id: str) -> Dict[str, str]:
             store_deleted = bool(lib._skill_store.delete(skill_id))
     except Exception:
         pass
-    if removed is None and not store_deleted:
+    if not removed_any_copy and removed_agent_bindings == 0 and not store_deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team or library")
-    return {"status": "deleted", "skill_id": skill_id}
+    return {
+        "status": "deleted",
+        "skill_id": skill_id,
+        "removed_from_teams": removed_from_teams,
+        "removed_agent_bindings": removed_agent_bindings,
+    }
 
 
 # ── Digital Twin Routes ──────────────────────────────────────────────────
@@ -1300,6 +1442,23 @@ def dt_move_agent(req: DigitalTwinMoveRequest) -> Dict[str, Any]:
     room_id = req.room_id
     if not agent_id or not room_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agent_id and room_id required")
+    # v4 C-4.1: 场景化后房间即业务阶段，迁移必须过 world_state 状态机校验；
+    # 无 orchestrator/无阶段映射时放行（兼容无场景模式）。
+    validation = None
+    try:
+        from sandbox.api import get_orchestrator
+
+        orch = get_orchestrator()
+        if orch is not None:
+            from_room = _dt_state["positions"].get(agent_id, "")
+            validation = orch.world_state.validate_move(from_room, room_id)
+    except Exception:
+        validation = None
+    if validation and not validation.get("allowed", True):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "stage_violation", "reason": validation.get("reason", "")},
+        )
     _dt_state["positions"][agent_id] = room_id
     return {"status": "moved", "agent_id": agent_id, "room_id": room_id}
 
@@ -1542,8 +1701,11 @@ _delegated_tasks: List[Dict[str, Any]] = []
 
 
 @router.get("/templates", summary="List agent templates")
-def list_templates() -> List[Dict[str, Any]]:
-    return _templates
+def list_templates(
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    return _paginate_optional(list(_templates), limit=limit, offset=offset)
 
 
 @router.post("/templates", summary="Create agent template", status_code=status.HTTP_201_CREATED)
@@ -1614,9 +1776,15 @@ def get_agent_relationships(team_id: str, agent_id: str) -> Dict[str, Any]:
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}/sessions", summary="List agent sessions")
-def list_agent_sessions(team_id: str, agent_id: str) -> List[Dict[str, Any]]:
+def list_agent_sessions(
+    team_id: str,
+    agent_id: str,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_agent_or_404(team_id, agent_id)
-    return [s for s in _sessions.values() if s.get("agent_id") == agent_id]
+    items = [s for s in _sessions.values() if s.get("agent_id") == agent_id]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.post(
@@ -1940,9 +2108,14 @@ def _session_tool_invocation_names(reply_text: str, turn_result) -> List[str]:
 
 
 @router.get("/teams/{team_id}/delegations", summary="List delegations for a team")
-def list_team_delegations(team_id: str) -> List[Dict[str, Any]]:
+def list_team_delegations(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
-    return [t for t in _delegated_tasks if t.get("team_id") == team_id]
+    items = [t for t in _delegated_tasks if t.get("team_id") == team_id]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get("/delegations", summary="List all delegated tasks")
@@ -2454,9 +2627,14 @@ async def submit_batch_tasks(
 
 
 @router.get("/teams/{team_id}/tasks", summary="List all tasks for a team")
-def list_team_tasks(team_id: str) -> List[Dict[str, Any]]:
+def list_team_tasks(
+    team_id: str,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
     _get_team_or_404(team_id)
-    return [t.to_dict() for t in _te().get_team_tasks(team_id)]
+    items = [t.to_dict() for t in _te().get_team_tasks(team_id)]
+    return _paginate_optional(items, limit=limit, offset=offset)
 
 
 @router.get(
@@ -5364,7 +5542,7 @@ def _is_ollama_backend() -> bool:
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
         if _os.path.isfile(settings_path):
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = _json.load(f)
             base_url = settings.get("env", {}).get("ANTHROPIC_BASE_URL", "")
             # Ollama typically uses non-Anthropic URLs
@@ -5375,16 +5553,17 @@ def _is_ollama_backend() -> bool:
     return False
 
 
-def _get_deepseek_credentials() -> tuple:
-    """Get DeepSeek API key and base URL from ~/.claude/settings.json.
+def _harness_provider_credentials() -> tuple:
+    """Global provider credentials from ~/.claude/settings.json.
 
-    Returns (api_key, base_url, model) or (None, None, None) if unavailable.
+    Returns (api_key, base_url, model, provider); (None, None, None, provider)
+    when unavailable.
     """
     import json as _json
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
         if _os.path.isfile(settings_path):
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = _json.load(f)
             env = settings.get("env", {})
             api_key = env.get("ANTHROPIC_AUTH_TOKEN", "")
@@ -5398,10 +5577,134 @@ def _get_deepseek_credentials() -> tuple:
             model = _MODEL_MAP.get(model, model)
             if api_key:
                 # Use OpenAI-compatible endpoint for direct API calls
-                return api_key, "https://api.deepseek.com/v1", model
+                return api_key, "https://api.deepseek.com/v1", model, "deepseek"
     except Exception:
         pass
-    return None, None, None
+    return None, None, None, "deepseek"
+
+
+def _get_deepseek_credentials(agent=None, team_id: str = "") -> tuple:
+    """Resolve LLM credentials, preferring the agent's bound team model.
+
+    优先级: agent.model_id 指向的团队模型 → 团队默认模型 → 全局 harness 凭据。
+    Returns (api_key, base_url, model_name)。
+    """
+    if agent is not None and team_id:
+        team = None
+        try:
+            team = _tm().get_team(team_id)
+        except Exception:
+            team = None
+        model = None
+        if team is not None:
+            model_id = getattr(agent, "model_id", "") or ""
+            model = team.models.get(model_id)
+            if model is None:
+                model = next(
+                    (m for m in team.models.values() if getattr(m, "is_default", False)),
+                    None,
+                )
+        if model is not None and getattr(model, "api_key", ""):
+            base_url = (getattr(model, "api_base_url", "") or "").strip().rstrip("/")
+            return model.api_key, base_url, model.name
+    api_key, base_url, model_name, _provider = _harness_provider_credentials()
+    return api_key, base_url, model_name
+
+
+def _complete_session_with_llm_degraded_output(
+    session: Dict[str, Any], task_title: str, error: str
+) -> None:
+    """LLM 认证/连接失败时，以降级草稿收尾会话，避免任务卡死在 running。
+
+    契约: session 标记 completed + exit_code 0 + llm_degraded=True，
+    输出行包含「降级执行草稿」供前端与审计辨识。
+    """
+    lines = session.setdefault("lines", [])
+    lines.append(f"⚠️ LLM 调用失败: {error}\n")
+    lines.append("— 降级执行草稿 —\n")
+    lines.append(f"任务: {task_title}\n")
+    lines.append("LLM 暂不可用，以下为基于任务描述的离线执行草稿，请人工复核后落地。\n")
+    session["status"] = "completed"
+    session["exit_code"] = 0
+    session["llm_degraded"] = True
+    session["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+
+# 领域内多义缩写消歧：按 agent 角色/技能上下文把易混缩写钉死在团队语义上。
+_ACRONYM_DISAMBIGUATION = (
+    {
+        "token": "ri",
+        "context_keywords": (
+            "成本", "账单", "aws", "reserved", "savings plan", "ri/savings", "预算", "预留",
+        ),
+        "expansion": "AWS Reserved Instance（预留实例）",
+        "prompt_note": "（这里的 RI 指 AWS Reserved Instance 预留实例）",
+        "system_note": (
+            "术语约定: 本团队语境中 RI 一律指 AWS Reserved Instance（预留实例），"
+            "不要解释成编程领域的 RI（如 RuntimeIdentifier、ReactiveX 等）。"
+        ),
+    },
+)
+
+
+def _build_agent_loop_prompt_and_system(
+    *, prompt: str = "", team_id: str = "", agent=None, system_prompt: str = ""
+) -> tuple:
+    """构建 agent loop 的有效 prompt 与 system prompt。
+
+    - system prompt = 显式传入 or agent.system_prompt，附加角色与绑定技能说明。
+    - 依据角色/技能上下文对 prompt 中的多义缩写做消歧（如成本域的 RI）。
+    Returns (effective_prompt, system_prompt)。
+    """
+    sys_parts: List[str] = []
+    base_system = system_prompt or (getattr(agent, "system_prompt", "") if agent else "")
+    if base_system:
+        sys_parts.append(base_system)
+    role = getattr(agent, "role", "") if agent else ""
+    if role:
+        sys_parts.append(f"角色: {role}")
+    # 绑定技能: team-local 优先，注册表可用时兜底（不可用时静默跳过）。
+    skills: List[Any] = []
+    if agent is not None:
+        refs = set(agent.skills or [])
+        pools: List[Any] = []
+        try:
+            team = _tm().get_team(team_id) if team_id else None
+            if team is not None:
+                pools.extend(team.skills.values())
+        except Exception:
+            pass
+        try:
+            pools.extend(_sr().list_all())
+        except Exception:
+            pass
+        seen: set = set()
+        for s in pools:
+            if s.skill_id in seen:
+                continue
+            if s.skill_id in refs or s.name in refs or (getattr(s, "slug", "") and s.slug in refs):
+                skills.append(s)
+                seen.add(s.skill_id)
+    for s in skills:
+        entry = f"技能[{s.name}]"
+        if getattr(s, "instructions", ""):
+            entry += f": {s.instructions}"
+        sys_parts.append(entry)
+    # 缩写消歧: prompt 含多义缩写且上下文命中团队领域时，展开写入双端。
+    effective_prompt = prompt
+    context_text = " ".join(
+        [role]
+        + [f"{s.name} {getattr(s, 'description', '')} {getattr(s, 'instructions', '')}" for s in skills]
+    ).lower()
+    prompt_lower = (prompt or "").lower()
+    for rule in _ACRONYM_DISAMBIGUATION:
+        if rule["token"] in prompt_lower and any(
+            kw in context_text for kw in rule["context_keywords"]
+        ):
+            effective_prompt = f"{prompt}\n{rule['prompt_note']}"
+            sys_parts.append(rule["system_note"])
+            sys_parts.append(f"缩写展开: {rule['token'].upper()} = {rule['expansion']}")
+    return effective_prompt, "\n\n".join(p for p in sys_parts if p)
 
 
 # When using DeepSeek as backend, Claude CLI has NO tool access (no file
@@ -5426,7 +5729,7 @@ def _should_use_direct_api(role: str) -> bool:
         import json as _json
         settings_path = _os.path.expanduser("~/.claude/settings.json")
         if _os.path.isfile(settings_path):
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = _json.load(f)
             base_url = settings.get("env", {}).get("ANTHROPIC_BASE_URL", "")
             if base_url and "anthropic.com" not in base_url:
@@ -5584,7 +5887,7 @@ def _build_claude_env() -> dict:
         import json as _json
         settings_path = _os.path.expanduser("~/.claude/settings.json")
         if _os.path.isfile(settings_path):
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = _json.load(f)
             for k, v in settings.get("env", {}).items():
                 cli_env[k] = v
@@ -5928,7 +6231,7 @@ def _run_ollama_direct(session: Dict[str, Any], prompt: str, timeout_sec: int) -
     try:
         settings_path = _os.path.expanduser("~/.claude/settings.json")
         if _os.path.isfile(settings_path):
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = _json.load(f)
             env = settings.get("env", {})
             base_url = env.get("ANTHROPIC_BASE_URL", "")
@@ -7496,7 +7799,17 @@ def update_llm_provider(req: LLMProviderConfigRequest) -> Dict[str, Any]:
                     break
     except Exception:
         pass
-    # P6: 同时持久化到 settings.json 的 llm 段，确保重启后 from_settings_file 能读到
+    # 默认密钥进加密 secret store（.api_keys.json），不落明文。
+    if req.api_key:
+        try:
+            from .secret_store import save_default_llm_api_key
+            save_default_llm_api_key(req.api_key)
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Failed to persist default LLM api key to secret store", exc_info=True
+            )
+    # P6: 同时持久化到 settings.json 的 llm 段（不含 api_key），确保重启后 from_settings_file 能读到
     if req.api_key:
         try:
             import json as _json
@@ -7507,7 +7820,7 @@ def update_llm_provider(req: LLMProviderConfigRequest) -> Dict[str, Any]:
             llm = settings.setdefault("llm", {})
             if req.provider:
                 llm["provider"] = req.provider
-            llm["api_key"] = req.api_key
+            llm.pop("api_key", None)  # 明文密钥不再写入 settings.json，统一走 secret store
             if req.api_base_url:
                 llm["api_base_url"] = req.api_base_url
             if req.model and any(c.isalpha() for c in req.model):
@@ -7805,17 +8118,73 @@ class AgentLoopRequest(BaseModel):
 
 
 @router.post("/agent-loop", summary="Agentic loop with tool execution")
+def _agent_loop_permission_context(agent_id: str):
+    """Locate the agent across teams and build its tool permission context."""
+    if not agent_id:
+        return None
+    try:
+        for team in _tm().list_teams():
+            agents = team.agents if isinstance(team.agents, dict) else {}
+            candidate = agents.get(agent_id)
+            if candidate is not None:
+                return _build_agent_permission_context(candidate)
+    except Exception:
+        pass
+    return None
+
+
 async def run_agent_loop(req: AgentLoopRequest) -> Dict[str, Any]:
     """Execute a full plan→act→observe→reflect agentic loop."""
     harness = get_chat_harness()
+    permission_context = _agent_loop_permission_context(req.agent_id)
+    events: List[Dict[str, Any]] = []
+
+    def _on_event(event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        event: Dict[str, Any] = {"type": event_type}
+        if payload:
+            event.update(payload)
+        events.append(event)
+        record_runtime_event(event)
+
     result = await harness.agent_loop(
         req.prompt,
         agent_id=req.agent_id,
         session_id=req.session_id,
         system_prompt=req.system_prompt,
         max_iterations=req.max_iterations,
+        permission_context=permission_context,
+        on_event=_on_event,
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["events"] = events
+    return payload
+
+
+@router.post("/agent-loop/stream", summary="Run agentic loop with SSE streaming")
+async def run_agent_loop_stream(req: AgentLoopRequest):
+    """Stream the agentic loop as Server-Sent Events, with permission context."""
+    from starlette.responses import StreamingResponse
+
+    harness = get_chat_harness()
+    permission_context = _agent_loop_permission_context(req.agent_id)
+
+    async def event_gen():
+        async for event in harness.agent_loop_stream(
+            req.prompt,
+            agent_id=req.agent_id,
+            session_id=req.session_id,
+            system_prompt=req.system_prompt,
+            max_iterations=req.max_iterations,
+            permission_context=permission_context,
+        ):
+            record_runtime_event(dict(event))
+            yield f"data: {_json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 class PlanPreviewRequest(BaseModel):
@@ -8698,18 +9067,30 @@ def skill_library_browse(
     visibility: str = "",
     category: str = "",
     lifecycle: str = "",
-) -> List[Dict[str, Any]]:
-    return _get_skill_library().browse(
-        team_id=team_id, query=query,
-        visibility_filter=visibility,
-        category_filter=category,
-        lifecycle_filter=lifecycle,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    return _paginate_optional(
+        _get_skill_library().browse(
+            team_id=team_id, query=query,
+            visibility_filter=visibility,
+            category_filter=category,
+            lifecycle_filter=lifecycle,
+        ),
+        limit=limit,
+        offset=offset,
     )
 
 
 @router.get("/skill-library/suggestions", summary="获取演化建议")
-def skill_library_suggestions(team_id: str = "") -> List[Dict[str, Any]]:
-    return _get_skill_evolver().suggest_evolution(team_id)
+def skill_library_suggestions(
+    team_id: str = "",
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    return _paginate_optional(
+        _get_skill_evolver().suggest_evolution(team_id), limit=limit, offset=offset
+    )
 
 
 @router.get("/skill-library/duplicates", summary="检测重复/冗余技能（供成本治理 skill_extraction 杠杆高亮）")
@@ -8798,4 +9179,179 @@ def skill_library_lineage(skill_id: str, team_id: str = "") -> Dict[str, Any]:
 @router.get("/skill-library/{skill_id}/evolution-history", summary="获取技能演化历史")
 def skill_library_evolution_history(skill_id: str, team_id: str = "") -> Dict[str, Any]:
     return _get_skill_evolver().get_evolution_history(team_id, skill_id)
+
+
+# ══════════════════════════════════════════════════════════════════
+# P1/P2 运维面: 能力画像 / 派单理由 / 成本任务 / 审计 / 运行时事件
+# （契约见 tests/test_core_api_smoke.py::test_authenticated_p1_p2_api_shapes）
+# ══════════════════════════════════════════════════════════════════
+
+_runtime_events: List[Dict[str, Any]] = []
+_RUNTIME_EVENTS_MAX = 500
+_cost_tasks: List[Dict[str, Any]] = []
+
+
+def record_runtime_event(event: Dict[str, Any]) -> None:
+    """Append a runtime event to the in-memory ring buffer served by /runtime/events."""
+    _runtime_events.append(dict(event))
+    if len(_runtime_events) > _RUNTIME_EVENTS_MAX:
+        del _runtime_events[: len(_runtime_events) - _RUNTIME_EVENTS_MAX]
+
+
+@router.get(
+    "/teams/{team_id}/agents/{agent_id}/capability-profile",
+    summary="Agent capability profile (metrics + skill/tool coverage)",
+)
+def agent_capability_profile(team_id: str, agent_id: str) -> Dict[str, Any]:
+    agent = _get_agent_or_404(team_id, agent_id)
+    team = _tm().get_team(team_id)
+    metrics = _get_agent_metrics(agent_id) or {}
+    # 解析绑定技能：team-local 优先（含 trait 技能），全局注册表可用时兜底。
+    refs = set(agent.skills or [])
+    pools: List[Any] = []
+    if team:
+        pools.extend(team.skills.values())
+    try:
+        pools.extend(_sr().list_all())
+    except Exception:
+        pass  # 注册表未初始化时仍能解析 team-local 技能
+    resolved: List[Any] = []
+    seen: set = set()
+    for skill in pools:
+        if skill.skill_id in seen:
+            continue
+        if (
+            skill.skill_id in refs
+            or skill.name in refs
+            or (getattr(skill, "slug", "") and skill.slug in refs)
+        ):
+            resolved.append(skill)
+            seen.add(skill.skill_id)
+    verifier_results: Dict[str, Any] = {}
+    try:
+        verifier_results = getattr(_get_skill_verifier(), "_results", {}) or {}
+    except Exception:
+        pass
+    skills_payload = [
+        {
+            "id": s.skill_id,
+            "name": s.name,
+            "visibility": getattr(s, "visibility", ""),
+            "version": getattr(s, "version", 1),
+            "quality_score": getattr(s, "quality_score", 0.0),
+            "verified": bool(verifier_results.get(s.skill_id)),
+        }
+        for s in resolved
+    ]
+    tasks_completed = int(metrics.get("tasks_completed", 0) or 0)
+    tasks_failed = int(metrics.get("tasks_failed", 0) or 0)
+    finished = tasks_completed + tasks_failed
+    success_rate = (tasks_completed / finished) if finished else 0.0
+    # capability_score = 成功率(60%) + 技能覆盖(25%) + 工具覆盖(15%)；无历史时成功率取中性先验 0.5
+    skill_cov = min(len(resolved) / 5.0, 1.0)
+    tool_cov = min(len(agent.tools or []) / 5.0, 1.0)
+    base = success_rate if finished else 0.5
+    capability_score = round(0.6 * base + 0.25 * skill_cov + 0.15 * tool_cov, 4)
+    return {
+        "agent_id": agent_id,
+        "team_id": team_id,
+        "role": agent.role,
+        "success_rate": round(success_rate, 4),
+        "tasks_total": finished,
+        "tasks_completed": tasks_completed,
+        "tasks_failed": tasks_failed,
+        "skill_count": len(skills_payload),
+        "skills": skills_payload,
+        "tool_count": len(agent.tools or []),
+        "capability_score": capability_score,
+    }
+
+
+class DispatchReasonRequest(BaseModel):
+    agent_id: str = ""
+    task_description: str = ""
+
+
+@router.post(
+    "/teams/{team_id}/tasks/dispatch-reason",
+    summary="Explain why an agent fits a task (dispatch transparency)",
+)
+def dispatch_reason(team_id: str, req: DispatchReasonRequest) -> Dict[str, Any]:
+    agent = _get_agent_or_404(team_id, req.agent_id)
+    desc = (req.task_description or "").lower()
+    reasons: List[str] = []
+    skills = _agent_bound_skills(agent, team_id)
+    matched = [s.name for s in skills if s.name and s.name.lower() in desc]
+    if matched:
+        reasons.append(f"技能匹配: {', '.join(matched[:3])}")
+    if agent.role:
+        reasons.append(f"角色 {agent.role} 与任务类型相符")
+    profile = agent_capability_profile(team_id, req.agent_id)
+    if profile["tasks_total"]:
+        reasons.append(
+            f"历史成功率 {profile['success_rate']:.0%}"
+            f"（{profile['tasks_completed']}/{profile['tasks_total']} 任务）"
+        )
+    reasons.append(f"能力评分 {profile['capability_score']}")
+    return {"agent_id": req.agent_id, "team_id": team_id, "reasons": reasons}
+
+
+class CostTaskRequest(BaseModel):
+    team_id: str = ""
+    violation_type: str = ""
+    resource: str = ""
+    estimated_saving: float = 0.0
+    agent_id: str = ""
+
+
+@router.post("/cost/generate-task", summary="Generate remediation task from a cost violation")
+def cost_generate_task(req: CostTaskRequest) -> Dict[str, Any]:
+    import uuid as _uuid
+
+    _get_team_or_404(req.team_id)
+    task_id = f"cost-{_uuid.uuid4().hex[:8]}"
+    payload = {
+        "task_id": task_id,
+        "team_id": req.team_id,
+        "agent_id": req.agent_id,
+        "title": f"成本治理: {req.violation_type} @ {req.resource}",
+        "description": (
+            f"处理成本违规 {req.violation_type}，资源 {req.resource}，"
+            f"预计节省 {req.estimated_saving}"
+        ),
+        "status": "pending",
+        "estimated_saving": float(req.estimated_saving or 0.0),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "metadata": {
+            "source": "cost_gate",
+            "violation_type": req.violation_type,
+            "resource": req.resource,
+        },
+    }
+    _cost_tasks.append(payload)
+    return payload
+
+
+@router.get("/cost/savings-report", summary="Aggregated savings from cost remediation tasks")
+def cost_savings_report() -> Dict[str, Any]:
+    total = sum(t.get("estimated_saving", 0.0) for t in _cost_tasks)
+    return {
+        "total_savings": round(total, 2),
+        "task_count": len(_cost_tasks),
+        "tasks": list(_cost_tasks[-100:]),
+    }
+
+
+@router.get("/audit/recent", summary="Recent audit/review entries")
+async def audit_recent(limit: int = Query(default=20, ge=1, le=200)) -> Dict[str, Any]:
+    from .audit_store import get_audit_store
+
+    store = await get_audit_store()
+    entries = await store.list_entries(limit=limit)
+    return {"entries": [e.to_dict() for e in entries], "total": len(entries)}
+
+
+@router.get("/runtime/events", summary="Recent runtime events (ring buffer)")
+def runtime_events(limit: int = Query(default=100, ge=1, le=_RUNTIME_EVENTS_MAX)) -> Dict[str, Any]:
+    return {"events": list(_runtime_events[-limit:]), "total": len(_runtime_events)}
 

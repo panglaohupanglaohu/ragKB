@@ -1,36 +1,96 @@
-# AgentsGroup2026
+# AgentsGroup2026 — Agent 数字孪生平台
 
-当前仓库的可信入口。
+**系统目标：找出最有效能的智能体团队。** 效能 = 在给定任务上「完成质量 × 成功率」相对「token 成本」的性价比。围绕这个目标，平台提供两条互相咬合的路径：
 
-## 快速定位
+1. **孪生演练路径**（对团队做实验）：团队先在数字孪生沙箱里演练、被混沌事件考验、评分对比、棘轮择优——用仿真代价筛出最能打的团队构型与策略，再进入生产。
+2. **集体智慧路径**（对任务做规划）：Plaza 议事厅里多智能体讨论「如何完成这个任务」，形成结构化**执行计划**；计划经人确认与修改后，通过 人↔智能体、智能体↔智能体 的交互协作执行，执行结果再回流评估。
 
-- 文档入口：[docs/README.md](docs/README.md)
-- 验证基线：[docs/VALIDATION.md](docs/VALIDATION.md)
-- 文档审计：[docs/DOCUMENTATION_AUDIT.md](docs/DOCUMENTATION_AUDIT.md)
-- 当前重构路线：[docs/全仓库分阶段重构路线.md](docs/%E5%85%A8%E4%BB%93%E5%BA%93%E5%88%86%E9%98%B6%E6%AE%B5%E9%87%8D%E6%9E%84%E8%B7%AF%E7%BA%BF.md)
+**两阶段经济学原则**：Plaza 集体智慧阶段**不做 token 优化**（智慧无价，讨论只求不跑题、计划能落地）；成本纪律从执行计划产生后开始——同一份计划在孪生沙箱对 团队×技能×协作 的多个候选组合反复试验（竞标），质量达标者中 token 效益最优的获得执行权。找到最好的团队、最优的技能与协作，正是数字孪生存在的意义。
 
-## 环境
+```
+                    ┌── Plaza 议事：怎么干？ ──→ 执行计划 ──→ 人确认/交互 ─┐
+真实任务 ──┤                                                              ├──→ 协作执行 ──→ 效能评分
+                    └── 孪生演练：谁来干？ ──→ 最优团队/策略 (Ratchet 锁定) ─┘         │
+   ▲                                                                                  │
+   └────────── 技能提取(SkillClaw)→验证→入库→路由复用 · token 归因/门禁 ←─────────────┘
+```
 
-以 Windows PowerShell 在仓库根目录执行。
+## 系统组成：七个域与它们存在的理由
+
+后端为单一 FastAPI 应用（`src/backend/main.py`，端口 8080），前端为多页面原生 JS + Three.js（Vite 构建，开发端口 5173）。约 96k 行 Python，98 个测试文件。每个域在「演练→进化→省钱执行」闭环中承担一个不可缺的角色：
+
+**智能体团队（Team）** — 一切的载体。定义谁在干活：团队 → 成员 Agent（角色/系统提示词/绑定的模型、工具、技能、权限）→ 会话与任务。五步向导创建 Agent，运行时经 `chat_harness` + `runtime/tool_loop`（plan→act→observe→reflect）执行，权限上下文约束每个 Agent 能碰哪些工具。模块：`agents/api.py`、`agent_team_api.py`、`chat_harness.py`；API：`/api/v1/agent-teams`、`/api/v1/agent-config`。
+
+**广场（Plaza）** — **集体智慧的场所：在这里讨论「如何完成任务」，并形成可执行的计划。** 主持人（Moderator）围绕任务话题带多轮结构化讨论：参与 Agent 按座席层级（内圈→中圈→外圈）依次发言、每轮多次交锋、主持人逐轮总结并收敛共识（`plaza_consensus`），全程 SSE 实时推流到 3D 圆桌页面。讨论的落点不是结论文本，而是**执行计划**：计划可由人审阅、修改、追问（人↔智能体交互），经桥接派发为真实任务后由多个 Agent 协作完成（智能体↔智能体交互，task bridge / evolution bridge），执行进度与结果回流讨论与演进。模块：`plaza_engine.py`、`plaza_routes.py`、`plaza_consensus.py`；API：`/api/v1/agent-config/plaza`。
+
+**数字孪生沙箱（Twin Sandbox）** — 核心差异化能力：让团队先在仿真世界里犯错。`world_state` 把真实团队/任务/资源二次映射成世界快照，`twin_loop` spawn 出 Agent 孪生副本做并行 What-if 推演（支持混沌注入：断网、成员离场、技能退化、模型幻觉…），`orchestrator` 串起 快照→仿真→评估→对齐 全管线，试炼（trial）支持分支对比与代际演进，场景（scenario）把房间建模为业务阶段（状态机约束迁移）。产出是被验证过的策略/SOP，而不是猜测。模块：`sandbox/`；API：`/api/v1/sandbox`、`/api/v1/twin-trials`、`/api/v1/scenarios`。
+
+**技能体系（Skills）** — 把「演练中学到的东西」变成可复用资产，这是省 token 的根本手段：好技能让便宜模型也能干对事。SkillClaw 流水线（Filter→Improve→Verify→Solidify）从演练/执行轨迹提取技能，`skill_verifier` 验证后入库，`skill_router` 用 BM25/TF-IDF 两阶段检索重排把 top-K 技能注入 Agent 提示词，`skill_tracker` 跟踪命中率反哺路由。模块：`skill_library.py`、`skill_router.py`、`skill_extractor.py`、`skill_evolver.py`；API：`/api/v1/skill-router`、`/api/v1/extraction`、`/api/v1/skill-classification`。
+
+**成本与 Token 门禁（Cost）** — 北极星指标的度量与执法。所有 LLM 调用 token 经 `token_context` 归因到 团队/阶段/run_id，`cost_aggregator` 汇总，budget guard 扣减预算，cost-gate 在预算超限时阻断。演练消耗与生产消耗分列。旧的 Terraform 资源成本体系（`cost_policy.py`）为 LEGACY。API：`/api/v1/cost`、`/api/v1/cost-gate`、`/api/v1/token-factory`。
+
+**系统演进（Evolution）** — 闭环的马达。`evolution/`（fitness/mutator/optimizer）对策略与技能做变异-评估-择优，**Ratchet 棘轮**保证只进不退：新策略必须在孪生对比中胜过基线才能锁定为新的代际（generation），成本效率棘轮同理。API：`/api/v1/twin-evolution`、`/api/v1/ratchet`、`/api/v1/sustainability`。
+
+**运行时（Runtime）** — 各域共用的执行地基：`tool_loop`（多轮工具循环 + 上下文预算 + token 计量）、`plan_loop`、`state_machine`、runtime events。模块：`agents/runtime/`。
+
+前端页面与域一一对应：`agent-team-config`（团队配置）、`plaza`（3D 圆桌议事）、`Agent-digital-twin`（试炼导演台：场景卡片/故障注入/分支/评分/反哺）、`sandbox-twin`（SECS 演练总台）、`digital-twin-cli`（命令行式孪生操作）、`skill-extract`（技能萃取）、`system-evolution`（演进看板）、`cost-dashboard`（token 成本治理）、`tasks`、`datacenter-ratchet-evolution`、`index`。
+
+## 快速开始
+
+要求：Node.js ≥ 22、Python ≥ 3.11。
+
+macOS / Linux：
+
+```bash
+npm install
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+npm start          # 同时起后端(8080) + 前端 dev(5173)
+```
+
+Windows PowerShell：
 
 ```powershell
 npm install
-venv\Scripts\python.exe -m pip install -e ".[dev]"
+python -m venv venv; venv\Scripts\python.exe -m pip install -e ".[dev]"
+npm start
 ```
 
-本仓库优先使用本地 Python 虚拟环境：`.venv`，其次 `venv`。当前验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
+`scripts/run-python.cjs` 会自动选择 `.venv` → `venv` → 系统 Python。也可用 `./start.sh` / `start.ps1`（含鉴权引导）。
 
-## 常用命令
+## 验证命令
 
-```powershell
-npm run lint
-npm run typecheck
-npm run build
-npm test
+```bash
+npm run lint        # python -m compileall（当前通过）
+npm run typecheck   # 同上（无真正静态类型检查，见优化规划）
+npm run build       # vite build
+npm test            # 后端 + 根目录 pytest
+npm run test:frontend   # vitest
 ```
 
-注意：截至 `2026-06-26`，`lint` 和 `typecheck` 是当前可通过基线；`build` 和测试仍有已记录的遗留失败。不要把旧 README 或历史计划中的能力描述当成已验证事实。
+当前基线状态以 [docs/VALIDATION.md](docs/VALIDATION.md) 为准；已知遗留失败（测试契约漂移等）记录在同一文件，修复计划见 [docs/OPTIMIZATION_TODOS_2026H2.md](docs/OPTIMIZATION_TODOS_2026H2.md)。**不要把历史计划文档中的能力描述当成已验证事实。**
 
-## 文档状态
+## 文档导航
 
-旧的长篇 README、HTML 导出版、根目录历史计划和 TODO 已归档到 [docs/archive/root-legacy](docs/archive/root-legacy)。归档内容仅作历史参考，默认视为 `needs verification`。
+| 文档 | 用途 |
+| --- | --- |
+| [docs/README.md](docs/README.md) | 文档入口与可信度规则 |
+| [docs/VALIDATION.md](docs/VALIDATION.md) | 验证基线与已知失败 |
+| [docs/OPTIMIZATION_PLAN_2026H2.md](docs/OPTIMIZATION_PLAN_2026H2.md) | **当前优化规划**（孪生验证 + 最低 token 成本目标） |
+| [docs/OPTIMIZATION_TODOS_2026H2.md](docs/OPTIMIZATION_TODOS_2026H2.md) | **当前 Todos**（按执行模型分层标注） |
+| [docs/全仓库分阶段重构路线.md](docs/全仓库分阶段重构路线.md) | 工程收口重构路线 |
+| [docs/archive/root-legacy](docs/archive/root-legacy) | 历史 README 与旧计划（仅参考） |
+
+`docs/` 下 plan/todos 文件需签名头，规则见 [docs/SIGNING_RULE.md](docs/SIGNING_RULE.md)，校验：`node scripts/check-docs-signoff.cjs --strict`。
+
+## 核心概念速查
+
+- **TwinLoop**（`sandbox/twin_loop.py`）：snapshot_world → spawn_twins → run_simulation → evaluate_outcomes → inject_best_strategy 的仿真在环闭环；支持混沌注入与熟练度结算。
+- **SECS 演练**：团队 + 场景驱动的 演练→评估→进化 循环，SSE 实时推流到 3D 前端。
+- **SkillRouter**：BM25/TF-IDF 双阶段检索重排，把 top-K 技能注入 agent system prompt（无 GPU 依赖）。
+- **SkillClaw 流水线**：Filter → Improve → Verify → Solidify，从演练轨迹提取技能并验证后入库。
+- **Token 北极星**：新成本体系以 token 为唯一口径（`token_policy.py` + cost-gate）；`cost_policy.py` 的 Terraform 成本规则为 LEGACY。
+- **Ratchet（棘轮）**：演进只进不退——新策略必须在孪生环境中证明优于基线才允许发布。
+
+## 部署
+
+Docker：`Dockerfile` + `docker/`；K8s：`k8s/`（含成本标签 mutating webhook）。可观测性：可选 OpenTelemetry（`pip install -e ".[otel]"`）。

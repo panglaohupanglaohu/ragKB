@@ -81,7 +81,7 @@ async function startEvolution(){
     auto_apply: false
   };
   try {
-    var r = await fetch('/api/v1/twin-evolution/runs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    var r = await (window._agFetch || fetch)('/api/v1/twin-evolution/runs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     var d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
     if (window._sx) window._sx.evolutionRunId = d.run_id;
@@ -243,7 +243,7 @@ async function rollbackEvolution(){
     var targetVer = Math.max(1, (run.winner.new_version || 2) - 1);
     var teamId = (typeof _selectedTeamId !== 'undefined' && _selectedTeamId) || (window._DTS && window._DTS.directorConfig.team_id) || run.team_id || '';
     if (!window.confirm('回滚技能 "' + run.winner.skill_name + '" 到版本 v' + targetVer + '？ 此操作会创建快照后再回滚。')) return;
-    var rr = await fetch('/api/v1/agent-config/skill-library/version/rollback', {
+    var rr = await (window._agFetch || fetch)('/api/v1/agent-config/skill-library/version/rollback', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ team_id: teamId, skill_id: skillId, target_version: targetVer })
     });

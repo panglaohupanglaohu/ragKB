@@ -111,14 +111,14 @@ class TrialStore:
         # 先备份旧文件
         if STORAGE_FILE.exists():
             try:
-                STORAGE_FILE.rename(BACKUP_FILE)
+                STORAGE_FILE.replace(BACKUP_FILE)
             except OSError:
                 pass
 
         # 原子写入
         tmp_file = STORAGE_FILE.with_suffix(".tmp")
         tmp_file.write_text(json_text, encoding="utf-8")
-        tmp_file.rename(STORAGE_FILE)
+        tmp_file.replace(STORAGE_FILE)
 
     # ── Trial CRUD ────────────────────────────────────────
 

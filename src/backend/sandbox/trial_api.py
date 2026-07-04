@@ -60,6 +60,18 @@ def resolve_team_id(team_id: str) -> str:
     by_name = {(getattr(t, "name", "") or "").strip().lower(): t.team_id for t in teams}
     if tid.lower() in by_name:
         return by_name[tid.lower()]
+    # 孪生世界中注册过的团队（orchestrator.sync_world）不是幻影团队：
+    # 沙箱演练允许仅存在于孪生侧的团队。
+    try:
+        orch = get_orchestrator()
+        known = getattr(orch, "known_teams", set()) if orch is not None else set()
+        if tid in known:
+            return tid
+        if norm in known:
+            logger.info("team_id 归一(孪生世界): %s → %s", tid, norm)
+            return norm
+    except Exception:
+        pass
     raise HTTPException(
         status_code=400,
         detail=f"未知团队 '{team_id}'：请从已存在团队中选择（可用: {sorted(ids)}），"

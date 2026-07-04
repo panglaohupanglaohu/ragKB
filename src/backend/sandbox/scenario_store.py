@@ -85,7 +85,7 @@ class ScenarioStore:
         path = self._custom_dir / f"{spec.scenario_id}.json"
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(path)
+        tmp.replace(path)
         self._scenarios[spec.scenario_id] = spec
         return {"ok": True, "scenario_id": spec.scenario_id}
 

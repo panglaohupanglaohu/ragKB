@@ -1659,7 +1659,7 @@
       return;
     }
     try {
-      var resp = await fetch(COST_API + '/targets', {
+      var resp = await (window._agFetch || fetch)(COST_API + '/targets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

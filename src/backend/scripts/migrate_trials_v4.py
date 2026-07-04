@@ -46,7 +46,7 @@ def migrate(dry_run: bool = False) -> dict:
             backup.write_text(TRIALS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
         tmp = TRIALS_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(TRIALS_FILE)
+        tmp.replace(TRIALS_FILE)
 
     return {"ok": True, "migrated": migrated, "total": len(trials), "dry_run": dry_run}
 

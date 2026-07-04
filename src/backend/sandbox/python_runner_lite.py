@@ -280,6 +280,11 @@ class LiteSandbox:
             def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
                 for prefix in _BLOCKED_IMPORT_PREFIXES:
                     if name == prefix or name.startswith(prefix + "."):
+                        # 已在 sys.modules 中的模块(如被本沙箱中和过的 subprocess)允许透传，
+                        # 否则 stdlib 传递依赖(platform→subprocess、uuid→platform)会被误杀；
+                        # 用户代码的显式危险导入仍由 AST 静态检查拦截。
+                        if name in sys.modules:
+                            break
                         _blocked(f"blocked dangerous import: {{name}}")
                 return _original_import(name, globals, locals, fromlist, level)
             builtins.__import__ = _safe_import

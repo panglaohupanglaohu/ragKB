@@ -213,7 +213,7 @@ class ClassificationStore:
         p = self._path(team_id)
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(p)
+        tmp.replace(p)
 
     def reclassify_team(
         self,

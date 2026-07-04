@@ -337,6 +337,22 @@ async def _dispatch_discussion_tasks(
     if not plan_source:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
 
+    # P6-2 落地性关卡: 结构化计划存在时，审查未过或未经人批准 → 不允许派发。
+    # （无结构化计划的旧流程不受影响，保持向后兼容。）
+    structured_plan = load_plan_from_discussion(disc)
+    if structured_plan is not None:
+        plan_issues = validate_plan(structured_plan)
+        if plan_issues:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "落地性审查未通过，不允许派发", "issues": plan_issues},
+            )
+        if structured_plan.status not in ("approved", "dispatched"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "执行计划尚未批准，请先 POST .../execution-plan/approve"},
+            )
+
     tasks_data = _parse_plan_table(plan_source)
     if not tasks_data or (len(tasks_data) == 1 and tasks_data[0].get("title") == "演化需求"):
         from .chat_harness import get_chat_harness
@@ -428,6 +444,21 @@ async def _dispatch_discussion_tasks(
     disc.plan["task_count"] = len(created_tasks)
     disc.plan["team_id"] = team_id
     disc.plan["dispatched_at"] = datetime.now(timezone.utc).isoformat()
+
+    # P5-2: 步骤 ↔ 任务 绑定（1 步骤 1 任务），执行状态可回流到计划。
+    if structured_plan is not None:
+        by_title = {s.title: s for s in structured_plan.steps}
+        pending_steps = [s for s in structured_plan.steps if s.status == "pending"]
+        for i, task in enumerate(created_tasks):
+            title = str(task.get("title", "")).strip()
+            step = by_title.get(title) or by_title.get(title[:120])
+            if step is None and i < len(pending_steps):
+                step = pending_steps[i]  # 同一解析器同序兜底
+            if step is not None and step.status == "pending":
+                step.status = "dispatched"
+                step.task_id = task.get("task_id", "")
+        structured_plan.status = "dispatched"
+        save_plan_to_discussion(disc, structured_plan)
     return created_tasks
 
 
@@ -946,113 +977,145 @@ async def refresh_plan(plaza_id: str, disc_id: str) -> Dict[str, Any]:
     return result
 
 
+# ── P5-1/P6-2/P5-2: 结构化执行计划（集体智慧的产出契约） ─────────
+
+
+class ApprovePlanRequest(BaseModel):
+    approved_by: str = ""
+    force: bool = False   # 显式跳过落地性审查（保留人的最终决定权）
+
+
+class PlanStepStatusRequest(BaseModel):
+    status: str = "completed"
+    task_id: str = ""
+
+
+def _resolve_plaza_discussion(engine, plaza_id: str, disc_id: str):
+    plaza = engine.get_plaza(plaza_id)
+    if not plaza:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "广场不存在")
+    disc = engine.get_discussion(plaza_id, disc_id)
+    if not disc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
+    return plaza, disc
+
+
+@router.get(
+    "/{plaza_id}/discussions/{disc_id}/execution-plan",
+    summary="获取结构化执行计划 + 落地性审查结果 (P5-1/P6-2)",
+)
+async def get_execution_plan(plaza_id: str, disc_id: str, rebuild: bool = False) -> Dict[str, Any]:
+    engine = get_plaza_engine()
+    plaza, disc = _resolve_plaza_discussion(engine, plaza_id, disc_id)
+    plan = None if rebuild else load_plan_from_discussion(disc)
+    if plan is None:
+        source = _get_plan_source(disc)
+        if not source:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
+        plan = build_plan_from_text(
+            source,
+            plaza_id=plaza_id,
+            discussion_id=disc_id,
+            topic=disc.topic,
+            goal=getattr(disc, "goal", "") or "",
+            revision=_get_plan_revision(disc),
+        )
+        save_plan_to_discussion(disc, plan)
+        engine._store.save_plaza(plaza)
+    issues = validate_plan(plan)
+    return {
+        "plan": plan.to_dict(),
+        "issues": issues,
+        "dispatchable": (not issues) and plan.status in ("approved", "dispatched"),
+    }
+
+
+@router.post(
+    "/{plaza_id}/discussions/{disc_id}/execution-plan/approve",
+    summary="人批准执行计划（落地性审查关卡，过关才可派发）",
+)
+async def approve_execution_plan(
+    plaza_id: str, disc_id: str, req: ApprovePlanRequest,
+) -> Dict[str, Any]:
+    engine = get_plaza_engine()
+    plaza, disc = _resolve_plaza_discussion(engine, plaza_id, disc_id)
+    plan = load_plan_from_discussion(disc)
+    if plan is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "尚无结构化计划，请先 GET .../execution-plan 生成",
+        )
+    issues = validate_plan(plan)
+    if issues and not req.force:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "落地性审查未通过", "issues": issues},
+        )
+    plan.status = "approved"
+    plan.approved_by = req.approved_by or "user"
+    save_plan_to_discussion(disc, plan)
+    engine._store.save_plaza(plaza)
+    await engine._broadcast(disc.id, {
+        "type": "plan_approved",
+        "plan_id": plan.plan_id,
+        "approved_by": plan.approved_by,
+        "forced": bool(issues),
+    })
+    return {"status": "approved", "plan": plan.to_dict(), "issues": issues}
+
+
+@router.post(
+    "/{plaza_id}/discussions/{disc_id}/execution-plan/steps/{step_id}/status",
+    summary="步骤执行状态回流（任务完成/失败 → 计划进度，P5-2）",
+)
+async def update_plan_step_status(
+    plaza_id: str, disc_id: str, step_id: str, req: PlanStepStatusRequest,
+) -> Dict[str, Any]:
+    engine = get_plaza_engine()
+    plaza, disc = _resolve_plaza_discussion(engine, plaza_id, disc_id)
+    plan = load_plan_from_discussion(disc)
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "尚无结构化计划")
+    step = plan.get_step(step_id)
+    if step is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"步骤 {step_id} 不存在")
+    if req.status not in STEP_STATUSES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"非法状态 {req.status}，允许: {STEP_STATUSES}",
+        )
+    step.status = req.status
+    if req.task_id:
+        step.task_id = req.task_id
+    plan.refresh_status()
+    save_plan_to_discussion(disc, plan)
+    engine._store.save_plaza(plaza)
+    await engine._broadcast(disc.id, {
+        "type": "plan_step_updated",
+        "plan_id": plan.plan_id,
+        "step_id": step_id,
+        "step_status": step.status,
+        "plan_status": plan.status,
+    })
+    if plan.status == "completed":
+        await engine._broadcast(disc.id, {
+            "type": "plan_completed", "plan_id": plan.plan_id,
+        })
+    return {"plan_status": plan.status, "step": step.to_dict()}
+
+
 # ── 派发并立即执行 ──────────────────────────────────────────
 
 
-def _parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
-    """从 markdown 表格或列表格式中提取任务项.
-    
-    只接受结构化格式（表格/列表），拒绝按行分割兜底。
-    返回空列表时，调用方应回退到 LLM 拆解或单任务兜底。"""
-    import re
-    tasks: List[Dict[str, Any]] = []
-
-    priority_map = {"P0": 1, "P1": 1, "P2": 2, "P3": 3, "1": 1, "2": 2, "3": 3}
-
-    # ── 策略 1: Markdown 表格 ──
-    table_lines = [
-        line.strip()
-        for line in plan_text.splitlines()
-        if line.strip().startswith("|") and line.strip().endswith("|")
-    ]
-    if len(table_lines) >= 3:
-        header_cells = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
-        if any("任务" in cell for cell in header_cells):
-            for row_line in table_lines[2:]:
-                cells = [cell.strip() for cell in row_line.strip("|").split("|")]
-                if len(cells) < 6:
-                    continue
-                if not cells[0] or re.fullmatch(r"-{3,}", cells[0].replace(" ", "")):
-                    continue
-                title = cells[1]
-                responsible = cells[2]
-                priority = cells[3]
-                dependencies = cells[4]
-                expected_artifact = cells[5]
-                # 质量校验：过滤明显的非任务行
-                if not _is_valid_task_title(title):
-                    continue
-                description = "\n".join(
-                    line for line in [
-                        f"负责角色: {responsible}" if responsible else "",
-                        f"依赖: {dependencies}" if dependencies and dependencies != "-" else "",
-                        f"预期产出: {expected_artifact}" if expected_artifact else "",
-                    ] if line
-                )
-                tasks.append({
-                    "title": title,
-                    "description": description or title,
-                    "priority": priority_map.get(priority.strip(), 2),
-                    "responsible": responsible,
-                    "dependencies": dependencies,
-                    "expected_artifact": expected_artifact,
-                })
-            if tasks:
-                return tasks
-
-    # ── 策略 2: 列表格式 ( - 标题: 描述 ) ──
-    list_items = re.findall(r'[-*]\s+(.+?)[:：]\s*(.+)', plan_text)
-    if list_items:
-        for title, desc in list_items:
-            clean_title = title.strip()
-            if not _is_valid_task_title(clean_title):
-                continue
-            tasks.append({
-                "title": clean_title,
-                "description": desc.strip(),
-                "priority": 2,
-                "responsible": "",
-                "dependencies": "",
-                "expected_artifact": "",
-            })
-        if tasks:
-            return tasks
-
-    # ── 不执行按行分割兜底 ──
-    # 非结构化文本应回退到 LLM 拆解或单任务兜底，避免生成垃圾任务
-    # 例如系统提示、代码块、错误消息等不应被当作任务标题
-    return []
-
-
-# ── 任务标题质量校验 ────────────────────────────────────
-
-_GARBAGE_TITLE_PATTERNS = [
-    re.compile(r"^```"),                          # 代码块
-    re.compile(r"我的定位[:：]"),                   # 系统提示
-    re.compile(r"你是议事长"),                      # prompt
-    re.compile(r"^⚠️"),                           # 错误/警告
-    re.compile(r"^💡"),                           # UI 提示
-    re.compile(r"我是 AgentsGroup"),               # AI 回复
-    re.compile(r"当前系统功能正常"),                 # 降级回复
-    re.compile(r"^[#]{1,6}\s"),                   # Markdown 标题
-    re.compile(r"[{}]"),                          # JSON/错误片段
-    re.compile(r"Authentication\s+Fails"),         # 认证错误
-    re.compile(r"api key"),                       # API key 错误
-    re.compile(r"^{.*}$"),                        # 纯 JSON 行
-]
-
-def _is_valid_task_title(title: str) -> bool:
-    """检查任务标题是否为有效的人类任务描述，排除代码块/系统提示/错误等."""
-    if not title or len(title.strip()) < 3:
-        return False
-    # 标题过长（>150字符）大概率不是任务标题
-    if len(title) > 150:
-        return False
-    t = title.strip()
-    for pattern in _GARBAGE_TITLE_PATTERNS:
-        if pattern.search(t):
-            return False
-    return True
+# 计划解析唯一实现已迁至 execution_plan.py（P5-1），此处保留同名别名兼容既有调用与测试。
+from .execution_plan import (
+    STEP_STATUSES,
+    build_plan_from_text,
+    is_valid_task_title as _is_valid_task_title,
+    load_plan_from_discussion,
+    parse_plan_table as _parse_plan_table,
+    save_plan_to_discussion,
+    validate_plan,
+)
 
 
 @router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行")
@@ -1401,13 +1464,19 @@ async def interject_to_moderator(
             f"最近对话:\n{recent}\n\n"
             f"现在，观察者（用户）向你提出了建议/问题:\n"
             f"「{req.message}」\n\n"
-            f"请判断并回应，严格遵守下面格式之一:\n"
-            f"格式 A：如果需要生成一个新的讨论\n"
+            f"分诊判据——满足以下任意一条，就必须发起新一轮团队讨论（格式 A）:\n"
+            f"1. 用户的问题会推翻或实质修改已形成的结论/执行计划；\n"
+            f"2. 回答需要多个专业角色的视角（技术/成本/风险等），你一个人答会以偏概全；\n"
+            f"3. 用户提出了讨论中未覆盖的新约束、新目标或新信息；\n"
+            f"4. 你对答案没有把握，或团队内本就存在分歧。\n"
+            f"只有当问题是澄清性、解释性的（问「为什么」「什么意思」，答案已在讨论中）才直接答复（格式 B）。\n\n"
+            f"严格遵守下面格式之一:\n"
+            f"格式 A：发起新一轮团队讨论\n"
             f"[NEW_DISCUSSION]\n"
             f"TOPIC: 新讨论标题\n"
             f"GOAL: 新讨论要收敛的问题\n"
-            f"REPLY: 你对用户的简短说明\n\n"
-            f"格式 B：如果不需要新讨论\n"
+            f"REPLY: 你对用户的简短说明（告知已发起团队讨论及原因）\n\n"
+            f"格式 B：仅当问题是澄清性的\n"
             f"REPLY: 直接解释，简洁有力，2-4 句\n\n"
             f"- 不要客套，像苏格拉底一样直接"
         )
@@ -1446,6 +1515,9 @@ async def interject_to_moderator(
             )
             if new_disc:
                 new_disc.goal = goal or req.message
+                # 修复: 议事长决定开新讨论后必须真正启动它——此前只创建不启动，
+                # 新讨论停在 OPEN 状态，用户以为团队在讨论实际无事发生。
+                _schedule_discussion_run(engine, plaza_id, new_disc.id)
 
     mod_msg = PlazaMessage(
         discussion_id=disc.id,

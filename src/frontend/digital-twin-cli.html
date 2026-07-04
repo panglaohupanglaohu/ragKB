@@ -645,7 +645,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ═══ 阶段六：CLI Trial 命令组扩展 (C-01~C-03) ═══
 window._trialCommands = {
   'trial.create': {desc:'创建新试炼',fn:async(args)=>{
-    var resp=await fetch('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:(args[0]||'build-system'),mode:(args[1]||'what_if'),max_steps:parseInt(args[2])||150})});
+    var resp=await (window._agFetch || fetch)('/api/v1/twin-trials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:(args[0]||'build-system'),mode:(args[1]||'what_if'),max_steps:parseInt(args[2])||150})});
     var d=await resp.json();return d.error?'Error: '+d.error:'✅ Trial '+d.trial_id+' created, branch='+d.branch_id;
   }},
   'trial.list': {desc:'列出所有试炼',fn:async()=>{
@@ -662,27 +662,27 @@ Branches: '+(d.branches||[]).length+' | Steps:'+d.total_steps+' | Score:'+(d.bes
   }},
   'trial.fork': {desc:'分裂分支',fn:async(args)=>{
     if(!args[0]||!args[1]) return 'Usage: trial.fork <trial_id> <branch_id> [name]';
-    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fork_from_branch_id:args[1],name:args[2]||''})});
+    var r=await (window._agFetch || fetch)('/api/v1/twin-trials/'+args[0]+'/branches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fork_from_branch_id:args[1],name:args[2]||''})});
     var d=await r.json();return d.error?'Error: '+d.error:'✅ Forked: branch='+d.branch_id;
   }},
   'trial.inject': {desc:'注入事件',fn:async(args)=>{
     if(!args[0]||!args[1]||!args[2]) return 'Usage: trial.inject <trial_id> <branch_id> <event_type>';
-    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/branches/'+args[1]+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:args[2],payload:{}})});
+    var r=await (window._agFetch || fetch)('/api/v1/twin-trials/'+args[0]+'/branches/'+args[1]+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:args[2],payload:{}})});
     return '✅ Injected: '+args[2];
   }},
   'trial.eval': {desc:'五维评估',fn:async(args)=>{
     if(!args[0]) return 'Usage: trial.eval <trial_id>';
-    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/evaluate',{method:'POST'});
+    var r=await (window._agFetch || fetch)('/api/v1/twin-trials/'+args[0]+'/evaluate',{method:'POST'});
     var d=await r.json();return d.error?'Error: '+'d.error':'Score: '+d.total_score+' | TC:'+((d.task_completion||0)*100).toFixed(0)+'%';
   }},
   'trial.extract': {desc:'萃取SOP',fn:async(args)=>{
     if(!args[0]) return 'Usage: trial.extract <trial_id>';
-    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/extract-sop',{method:'POST'});
+    var r=await (window._agFetch || fetch)('/api/v1/twin-trials/'+args[0]+'/extract-sop',{method:'POST'});
     var d=await r.json();return d.error?'Error: ':'✅ Extracted '+(d.sops||[]).length+' SOP(s)';
   }},
   'trial.feedback': {desc:'反哺Agent',fn:async(args)=>{
     if(!args[0]) return 'Usage: trial.feedback <trial_id>';
-    var r=await fetch('/api/v1/twin-trials/'+args[0]+'/feedback',{method:'POST'});
+    var r=await (window._agFetch || fetch)('/api/v1/twin-trials/'+args[0]+'/feedback',{method:'POST'});
     var d=await r.json();return '✅ Applied: '+d.applied_sops+' SOPs, '+d.updated_agents.length+' agents updated';
   }},
   'trial.status': {desc:'当前Trial状态',fn:()=>{

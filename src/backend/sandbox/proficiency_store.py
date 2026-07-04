@@ -85,7 +85,7 @@ class ProficiencyStore:
         path = self._prof_path(team_id)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.rename(path)
+        tmp.replace(path)
 
     def get_agent_proficiency(self, team_id: str, agent_id: str) -> Dict[str, float]:
         """获取某 agent 的 skill -> success_rate 映射 (twin spawn 用)."""

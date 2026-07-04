@@ -1970,7 +1970,7 @@ window.enterEvolution = async function() {
   // 直接 fetch 以便拿到后端真实原因（尚无执行计划 / 演化引擎未初始化 等），不再笼统报"失败"
   let r = null, detail = '';
   try {
-    const resp = await fetch(`${API}/plaza/${curPlaza}/discussions/${curDisc}/evolve`, {
+    const resp = await (window._agFetch || fetch)(`${API}/plaza/${curPlaza}/discussions/${curDisc}/evolve`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
       body: JSON.stringify({ team_id: teamId || '' })
     });

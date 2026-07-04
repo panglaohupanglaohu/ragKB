@@ -964,12 +964,31 @@ body {
 
     <!-- ═══ 试炼生命周期 + 技能进化（由试炼导演台合并而来）═══ -->
     <div class="rp-section" style="padding:8px 12px">
+      <!-- D-1.1: 场景卡片选择器（loadScenarioList 渲染，替代旧 select 下拉） -->
+      <div class="dp-section"><label class="dp-label">演练场景</label>
+        <div id="dp-scenario-cards" class="mode-grid"></div>
+        <div id="dp-scenario-info" style="display:none;font-size:10px;color:var(--dim);margin-top:4px"></div>
+      </div>
       <div class="dp-section"><label class="dp-label">任务目标</label><input type="text" id="dp-task-name" class="dp-input" placeholder="如：运行开发流程仿真"><textarea id="dp-task-desc" class="dp-textarea" rows="2" placeholder="描述..."></textarea></div>
       <div class="dp-header-status" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <button type="button" class="dt-health-badge" id="dt-room-map-health" onclick="window._dtRoomMapHealth&&window._dtRoomMapHealth()" title="刷新 roomAgentMap 健康检查">单源 ?</button>
         <span class="dp-status-badge" id="dp-status-badge">● 就绪</span>
       </div>
       <div class="dp-actions" id="dt-action-buttons"></div>
+      <!-- 手动回归入口: 试炼创建（与沙箱推演统一入口并存, frontendBigChange 拆分后保留） -->
+      <button type="button" class="btn btn-primary" id="dp-btn-create-trial" onclick="createTrial()" style="width:100%;margin-top:6px">🧪 创建试炼</button>
+      <!-- 💥 故障注入面板 (showInjectDropdown 切换; doInjectEvent 注入混沌事件) -->
+      <div class="dp-section" id="inject-event-panel" style="display:none;margin-top:6px"><label class="dp-label">💥 故障注入</label>
+        <div class="inject-event-types">
+          <button type="button" class="inject-btn" onclick="doInjectEvent('network_delay')">🌐 网络延迟</button>
+          <button type="button" class="inject-btn" onclick="doInjectEvent('agent_leave')">🚪 成员离场</button>
+          <button type="button" class="inject-btn" onclick="doInjectEvent('task_change')">📝 任务变更</button>
+          <button type="button" class="inject-btn" onclick="doInjectEvent('skill_degraded')">📉 技能退化</button>
+          <button type="button" class="inject-btn" onclick="doInjectEvent('model_hallucination')">🌀 模型幻觉</button>
+          <button type="button" class="inject-btn" onclick="doInjectEvent('logic_deadlock')">🔒 逻辑死锁</button>
+        </div>
+        <div class="inject-history-list" id="inject-history-list"></div>
+      </div>
       <div class="dp-section" id="branch-manager" style="display:none"><label class="dp-label">🔀 分支管理</label><div id="branch-list" class="branch-list"></div></div>
       <!-- v4 D-2: 技能进化面板 -->
       <div class="dp-section" id="skill-evolution-panel" style="margin-top:6px">
@@ -1088,6 +1107,8 @@ body {
 <script src="/js/ag-context.js"></script>
 <script src="/js/digital-twin-cli.js" defer></script>
 <script src="/js/digital-twin-cli-3d.js" type="module"></script>
+<!-- P7-1: 统一办公室场景（?office3d=1 灰度开启；rest-area 枯山水仍走旧实现） -->
+<script src="/js/office/office-boot.js" type="module"></script>
 
 <!-- ═══ SECS 仿真报告弹窗 ═══ -->
 <div id="secs-report-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);align-items:center;justify-content:center">

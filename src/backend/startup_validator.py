@@ -100,7 +100,8 @@ class StartupValidator:
 
     def __init__(self, base_url: str = "http://localhost:8080"):
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.AsyncClient(timeout=10.0)
+        # trust_env=False: 自检目标是本机服务，不应被环境代理(HTTP(S)_PROXY/ALL_PROXY)劫持。
+        self.client = httpx.AsyncClient(timeout=10.0, trust_env=False)
         self._results: List[CheckResult] = []
 
     async def close(self):

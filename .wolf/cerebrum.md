@@ -39,3 +39,6 @@
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
 - 任务执行支持两种模式(execution_mode)：linear=原线性 Claude 流水线(默认)；collaborative=智能体广场多轮讨论(`_start_task_collaboration`→plaza create_plaza/add_participant/create_discussion/run_discussion→共识→回写 task.metadata.collaboration+artifacts→_finalize_task_terminal_state)。广场用 set_chat_fn(harness.chat) 即系统配置 LLM。批量/队列路径(_real_task_executor)暂仍线性。
+
+- [用户校准 2026-07-04] 两阶段经济学铁律: Plaza集体智慧阶段绝不做token优化/预算约束/效能计量(智慧无价,只求不跑题+计划落地); 成本纪律从执行计划产生后开始; 数字孪生的意义=对同一计划做团队×技能×协作的候选组合竞标,质量达标中选token效益最优者执行。任何成本优化建议不得触碰讨论阶段。
+- [用户原则 2026-07-04] 考察智能体之间的协作能力必须在 Agents 数字孪生场景下完成——孪生3D不是装饰,是协作的观测仪器(协作光线/热度统计/镜像层)。

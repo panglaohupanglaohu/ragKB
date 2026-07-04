@@ -187,19 +187,8 @@ _AUTH_EXEMPT_PATHS = {
     "/api/v1/health",
     "/api/v1/info",
     "/api/v1/log/client-error",
-    # 只读元数据端点 — 前端页面加载时可能先于登录被调用，豁免避免401日志噪声
-    "/api/v1/agent-config/agents",
-    "/api/v1/agent-config/teams",
-    "/api/v1/agent-config/skills",
-    "/api/v1/agent-config/tools",
-    "/api/v1/agent-config/digital-twin/state",
-    "/api/v1/agent-config/tasks/stats",
-    "/api/v1/extraction/stats",
-    # 启动自检内部端点 — httpx 调自己不带 auth，豁免避免日志噪声
-    "/api/v1/agent-teams/overview",
-    "/api/v1/agent-teams/evolution/status",
-    "/api/v1/agent-teams/evolution/summary",
-    "/api/v1/bridge-chat/status",
+    # 注：agent-teams/overview、evolution/status|summary、bridge-chat/status 不再豁免；
+    # startup_validator 已把「401 + health service online」视为可达（_protected_module_check）。
     # 沙箱运行时自检 — 前端调用，豁免认证
     "/api/v1/sandbox/runtime-status",
     "/api/v1/sandbox/runtime-self-check",
@@ -208,7 +197,6 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/startup-check",
     "/api/v1/webhook/",
     "/api/v1/cost",
-    "/api/v1/agent-config/teams",     # teams / teams-tree / teams/{id} 全部豁免
     "/api/v1/sandbox/",               # 沙箱所有 API（sessions/sync/stats/world等）
     "/api/v1/twin-trials",            # 试炼 API 全部豁免
     "/api/v1/scenarios",              # v4 场景库 API 豁免（前端数字孪生页调用）
@@ -218,6 +206,21 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/sustainability",         # 全局 P0: 可持续性评估
     "/api/v1/agent-employee",         # AgentsGroupConfig: 数字员工档案
 )
+# 只读元数据端点 — 前端页面加载时可能先于登录被调用，仅豁免安全方法(GET/HEAD/OPTIONS)。
+# 写操作(POST/PUT/DELETE/PATCH)一律要求认证：曾经的全前缀豁免让未登录请求可以
+# 创建/修改/删除团队，属于安全缺口（见 test_api_integration_extended::TestAuthGuard）。
+_AUTH_EXEMPT_READONLY_PATHS = {
+    "/api/v1/agent-config/agents",
+    "/api/v1/agent-config/teams",
+    "/api/v1/agent-config/skills",
+    "/api/v1/agent-config/tools",
+    "/api/v1/agent-config/tasks/stats",
+    "/api/v1/extraction/stats",
+}
+_AUTH_EXEMPT_READONLY_PREFIXES = (
+    "/api/v1/agent-config/teams",     # teams / teams-tree / teams/{id} 只读豁免
+)
+_SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 def _check_rate_limit(store: dict, key: str, limit: int, window: int = _RATE_LIMIT_WINDOW) -> bool:
     """Return True if request is allowed, False if rate-limited."""
@@ -244,8 +247,14 @@ def _is_rate_limit_exempt(path: str) -> bool:
     return path in _RATE_LIMIT_EXEMPT_PATHS or path.startswith("/api/v1/startup-check")
 
 
-def _is_auth_exempt(path: str) -> bool:
-    return path in _AUTH_EXEMPT_PATHS or any(path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES)
+def _is_auth_exempt(path: str, method: str = "GET") -> bool:
+    if path in _AUTH_EXEMPT_PATHS or any(path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES):
+        return True
+    if method.upper() not in _SAFE_HTTP_METHODS:
+        return False
+    return path in _AUTH_EXEMPT_READONLY_PATHS or any(
+        path.startswith(prefix) for prefix in _AUTH_EXEMPT_READONLY_PREFIXES
+    )
 
 
 def _match_sensitive_rate_limit(path: str) -> int | None:
@@ -874,7 +883,7 @@ async def csrf_middleware(request: Request, call_next):
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         path = request.url.path
         # Skip CSRF for auth-exempt, rate-limit-exempt endpoints, or Bearer token requests
-        if not _is_rate_limit_exempt(path) and not _is_auth_exempt(path):
+        if not _is_rate_limit_exempt(path) and not _is_auth_exempt(path, request.method):
             auth_header = request.headers.get("authorization", "")
             if not auth_header.lower().startswith("bearer "):
                 csrf_header = request.headers.get("x-csrf-token", "")
@@ -974,7 +983,7 @@ def _get_auth_mode() -> str:
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/v1/") and not _is_auth_exempt(path):
+    if path.startswith("/api/v1/") and not _is_auth_exempt(path, request.method):
         token = _extract_request_token(request, request.headers.get("authorization", ""))
         username = _validate_token(token)
         if not username:

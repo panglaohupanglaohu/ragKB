@@ -44,6 +44,7 @@ function buildContext(requestImpl) {
       if (!elements[id]) elements[id] = makeElement(defaults[id] || {});
       return elements[id];
     },
+    querySelector() { return null; },
     createElement() {
       return makeElement();
     },
@@ -52,6 +53,7 @@ function buildContext(requestImpl) {
 
   const window = {
     __AG_COST_DASHBOARD_NO_INIT__: true,
+    location: { search: '', pathname: '/cost-dashboard.html' },
     AG: {
       escapeHtml(value) {
         return String(value ?? '')
@@ -74,179 +76,135 @@ function buildContext(requestImpl) {
     URLSearchParams,
     encodeURIComponent,
     setInterval: vi.fn(),
-    fetch: vi.fn(),
+    setTimeout: vi.fn(),
+    fetch: vi.fn(() => Promise.resolve({ ok: false, json: async () => null })),
     console,
   });
   vm.runInContext(read('src/frontend/js/cost-dashboard.js'), context);
   return { context, elements };
 }
 
-function sampleSummary() {
+// Token 北极星口径样本
+function tokenTeams() {
   return {
-    summary: {
-      total_cost: 42.5,
-      pod_count: 2,
-      container_count: 2,
-      service_count: 1,
-      environment_count: 1,
-      team_count: 1,
-      by_team: [{ value: 'cloud', total_cost: 42.5 }],
-    },
+    teams: [
+      { team_id: 'alpha', token_efficiency: 0.8, grade: 'A', tokens_consumed: 1000, trial_count: 4, total_score: 2, data_quality: 'measured', recommendations: [] },
+      { team_id: 'omega', token_efficiency: 0.02, grade: 'D', tokens_consumed: 90000, trial_count: 1, total_score: 1, data_quality: 'estimated', recommendations: [{ detail: '降低演练频率' }] },
+    ],
+    reallocations: [{ from_team: 'omega', to_team: 'alpha', tokens: 18000 }],
   };
 }
 
-describe('cost governance dashboard', () => {
-  it('normalizes backend trend lists and renders total_cost points', () => {
+describe('cost governance dashboard (token 口径)', () => {
+  it('renders a token trend series using point.total (not dollar cost)', () => {
     const { context, elements } = buildContext(vi.fn());
-    const trends = context.window.CostDashboard.normalizeTrends([{
-      dimension: 'service',
-      value: 'checkout',
-      total: 22.5,
+
+    context.window.CostDashboard.renderTrends({
+      dimension: 'team',
+      value: 'cloud_ops',
+      total: 22500,
       points: [
-        { timestamp: '2026-06-05T08:00:00Z', total_cost: 10 },
-        { timestamp: '2026-06-05T09:00:00Z', total_cost: 12.5 },
+        { timestamp: '2026-06-05T08:00:00Z', total: 10000 },
+        { timestamp: '2026-06-05T09:00:00Z', total: 12500 },
       ],
-    }]);
+    });
 
-    context.window.CostDashboard.renderTrends(trends);
-
-    expect(elements['trends-chart'].innerHTML).toContain('$10.00');
-    expect(elements['trends-chart'].innerHTML).toContain('$12.50');
-    expect(elements['trends-chart'].innerHTML).toContain('checkout');
+    // 副标题按 token 汇总，不再是美元
+    expect(elements['trends-sub'].innerHTML).toContain('cloud_ops');
+    expect(elements['trends-sub'].innerHTML).toContain('22,500');
+    expect(elements['trends-sub'].innerHTML).toContain('tokens');
+    expect(elements['trends-sub'].innerHTML).not.toContain('$');
+    // 图表区渲染 svg 折线
+    expect(elements['trends-chart'].innerHTML).toContain('line-chart');
   });
 
-  it('normalizes pod labels from /cost/pods and renders the pod table', () => {
+  it('renders token detail rows with run_id/phase/team_id/skill_id/calls/total', () => {
     const { context, elements } = buildContext(vi.fn());
-    const pods = context.window.CostDashboard.normalizePods([{
-      pod: 'checkout-7d9',
-      namespace: 'prod',
-      cpu_cost: 3,
-      ram_cost: 2,
-      network_cost: 1,
-      total_cost: 6,
-      labels: { service: 'checkout', environment: 'production', team: 'cloud-ops' },
-    }]);
 
-    context.window.CostDashboard.renderPodsTable(pods);
+    context.window.CostDashboard.renderPodsTable([
+      { run_id: 'run-abcdef1234567890', phase: 'evaluating', team_id: 'cloud_ops', skill_id: 'cost-opt', calls: 3, total: 6000 },
+    ]);
 
-    expect(elements['pods-tbody'].innerHTML).toContain('checkout-7d9');
-    expect(elements['pods-tbody'].innerHTML).toContain('checkout');
-    expect(elements['pods-tbody'].innerHTML).toContain('cloud-ops');
-    expect(elements['pods-tbody'].innerHTML).toContain('创建任务');
-    expect(elements['pods-tbody'].innerHTML).toContain('标签补丁');
+    const html = elements['pods-tbody'].innerHTML;
+    expect(html).toContain('run-abcdef123456');   // run_id 前 16 字符
+    expect(html).toContain('evaluating');          // phase
+    expect(html).toContain('cloud_ops');           // team_id
+    expect(html).toContain('cost-opt');            // skill_id
+    expect(html).toContain('>3<');                 // calls
+    expect(html).toContain('6,000 tokens');        // total
   });
 
-  it('refreshes summary, trends, pods, teams, and governance state through the shared API client', async () => {
+  it('refreshes summary, trends, token detail, and efficiency through the token endpoints', async () => {
     const request = vi.fn(async (url) => {
       if (url === '/api/v1/cost/health') return { status: 'ok', data_age_seconds: 12 };
       if (url === '/api/v1/cost-gate/health') return { status: 'healthy' };
       if (url === '/api/v1/cost-gate/stats') return { passed: 1, warned: 2, blocked: 3 };
-      if (url.startsWith('/api/v1/cost/summary?')) return sampleSummary();
-      if (url.startsWith('/api/v1/cost/by-service?')) return [{ dimension: 'service', value: 'checkout', total_cost: 42.5 }];
-      if (url.startsWith('/api/v1/cost/trends?')) {
-        return [{
-          dimension: 'service',
-          value: 'checkout',
-          total: 42.5,
-          points: [{ timestamp: '2026-06-05T08:00:00Z', total_cost: 42.5 }],
-        }];
+      if (url.startsWith('/api/v1/cost/summary?')) return { summary: { by_team: [], by_service: [], service_count: 1, pod_count: 0 } };
+      if (url.startsWith('/api/v1/cost/tokens/breakdown?')) return [{ key: 'cloud_ops', total: 5000, calls: 10 }];
+      if (url.startsWith('/api/v1/cost/tokens/trend?')) {
+        return { dimension: 'team', value: 'cloud_ops', total: 5000, points: [{ timestamp: '2026-06-05T08:00:00Z', total: 5000 }] };
       }
-      if (url.startsWith('/api/v1/cost/pods?')) {
-        return [{
-          pod: 'checkout-7d9',
-          namespace: 'prod',
-          total_cost: 42.5,
-          labels: { service: 'checkout', environment: 'production', team: 'cloud-ops' },
-        }];
+      if (url.startsWith('/api/v1/cost/tokens/detail?')) {
+        return [{ run_id: 'run-cloud-0001', phase: 'task', team_id: 'cloud_ops', skill_id: 'cost-opt', calls: 4, total: 5000 }];
       }
-      if (url === '/api/v1/sustainability/group') {
-        return { teams: [{ team_id: 'cloud_ops', token_efficiency: 0.42, grade: 'B', tokens_consumed: 5000, data_quality: 'measured', recommendations: [] }], reallocations: [] };
+      if (url.startsWith('/api/v1/cost/tokens/overview?')) {
+        return { summary: { total: 5000, calls: 10 }, by_team: [{ team_id: 'cloud_ops', total: 5000, calls: 10 }], by_phase: { task: { total: 5000 } } };
       }
-      if (url === '/api/v1/agent-config/teams?limit=200&offset=0') {
-        return { items: [{ team_id: 'cloud_ops', name: '公有云运维团队' }] };
-      }
+      if (url === '/api/v1/cost/tokens/ratchet') return null;
+      if (url === '/api/v1/sustainability/group') return tokenTeams();
+      if (url === '/api/v1/agent-config/teams?limit=200&offset=0') return { items: [{ team_id: 'cloud_ops', name: '公有云运维团队' }] };
       return null;
     });
     const { context, elements } = buildContext(request);
 
     await context.window.CostDashboard.refreshDashboard();
 
-    expect(request.mock.calls.some(([url]) => url.startsWith('/api/v1/cost/pods?'))).toBe(true);
-    expect(elements['summary-grid'].innerHTML).toContain('$42.50');
-    expect(elements['trends-chart'].innerHTML).toContain('$42.50');
-    expect(elements['pods-tbody'].innerHTML).toContain('checkout-7d9');
-    expect(elements['efficiency-panel'].innerHTML).toContain('cloud_ops');
-    expect(elements['efficiency-panel'].innerHTML).toContain('0.4200');
-    expect(elements['governance-panel'].innerHTML).toContain('创建优化任务');
-    expect(elements['governance-panel'].innerHTML).toContain('创建 Plaza 话题');
+    // 明细主源切到 token detail / overview
+    expect(request.mock.calls.some(([url]) => url.startsWith('/api/v1/cost/tokens/detail?'))).toBe(true);
+    expect(request.mock.calls.some(([url]) => url.startsWith('/api/v1/cost/tokens/overview?'))).toBe(true);
+    expect(elements['pods-tbody'].innerHTML).toContain('run-cloud-0001');
+    expect(elements['pods-tbody'].innerHTML).toContain('tokens');
+    expect(elements['efficiency-panel'].innerHTML).toContain('omega');
+    expect(elements['summary-grid'].innerHTML).toContain('5,000'); // 窗口总 Token
   });
 
   it('renders the token efficiency perspective from sustainability results', () => {
     const { context, elements } = buildContext(vi.fn());
 
-    context.window.CostDashboard.renderEfficiencyView({
-      teams: [
-        { team_id: 'alpha', token_efficiency: 0.8, grade: 'A', tokens_consumed: 1000, data_quality: 'measured', recommendations: [] },
-        { team_id: 'omega', token_efficiency: 0.02, grade: 'D', tokens_consumed: 90000, data_quality: 'estimated', recommendations: [{ detail: '降低演练频率' }] },
-      ],
-      reallocations: [{ from_team: 'omega', to_team: 'alpha', tokens: 18000 }],
-    });
+    context.window.CostDashboard.renderEfficiencyView(tokenTeams());
 
     expect(elements['efficiency-panel'].innerHTML).toContain('alpha');
     expect(elements['efficiency-panel'].innerHTML).toContain('omega');
-    expect(elements['efficiency-panel'].innerHTML).toContain('18,000');
+    expect(elements['efficiency-panel'].innerHTML).toContain('18,000'); // 再分配 tokens
     expect(elements['efficiency-panel'].innerHTML).toContain('降低演练频率');
+    expect(elements['efficiency-panel'].innerHTML).toContain('0.8000'); // token_efficiency
   });
 
-  it('creates a real agent task from a cost anomaly target', async () => {
+  it('creates a real agent task from a token cost breakdown target', async () => {
     const request = vi.fn(async (url, opts) => {
+      if (url === '/api/v1/cost/targets?status=active') return [];
+      if (url === '/api/v1/cost/targets') return { id: 'tgt-1' };
       if (url === '/api/v1/agent-config/teams/cloud_ops/tasks') {
         expect(opts.method).toBe('POST');
         const body = JSON.parse(opts.body);
-        expect(body.title).toContain('成本优化');
+        expect(body.title).toContain('Token 成本优化');
         expect(body.metadata.source).toBe('cost-dashboard');
-        expect(body.metadata.cost_target.value).toBe('checkout');
+        expect(body.metadata.cost_target.key).toBe('cloud_ops');
+        expect(body.metadata.cost_target.total).toBe(42500);
         return { task_id: 'task-cost-1' };
       }
       return null;
     });
     const { context, elements } = buildContext(request);
-    context.window.CostDashboard.state.breakdown = [{ dimension: 'service', value: 'checkout', total_cost: 42.5 }];
+    context.window.CostDashboard.state.breakdown = [{ key: 'cloud_ops', total: 42500, calls: 10 }];
 
     const created = await context.window.CostDashboard.createOptimizationTask('breakdown', 0);
 
     expect(created.task_id).toBe('task-cost-1');
-    expect(elements['cost-action-result'].textContent).toContain('task-cost-1');
+    expect(elements['cost-action-result'].innerHTML).toContain('task-cost-1');
   });
 
-  it('generates a label injection patch for a selected pod', async () => {
-    const request = vi.fn(async (url, opts) => {
-      if (url.startsWith('/api/v1/cost/labels/generate?')) {
-        expect(opts.method).toBe('POST');
-        expect(url).toContain('pod_name=checkout-7d9');
-        expect(url).toContain('service=checkout');
-        return { patch: [{ op: 'add', path: '/metadata/labels/service', value: 'checkout' }] };
-      }
-      return null;
-    });
-    const { context, elements } = buildContext(request);
-    context.window.CostDashboard.state.pods = [{
-      pod: 'checkout-7d9',
-      namespace: 'prod',
-      service: 'checkout',
-      environment: 'production',
-      team: 'cloud-ops',
-      total_cost: 42.5,
-      labels: {},
-    }];
-
-    const patch = await context.window.CostDashboard.generateLabelPatch('pod', 0);
-
-    expect(patch.patch[0].value).toBe('checkout');
-    expect(elements['cost-action-result'].innerHTML).toContain('service');
-  });
-
-  it('creates a Plaza discussion from the selected cost target', async () => {
+  it('creates a Plaza discussion from the selected token cost target', async () => {
     const request = vi.fn(async (url, opts) => {
       if (url === '/api/v1/agent-config/plaza?limit=50&offset=0') {
         return { items: [{ id: 'plaza-cost', name: '成本治理议事厅' }] };
@@ -254,7 +212,7 @@ describe('cost governance dashboard', () => {
       if (url === '/api/v1/agent-config/plaza/plaza-cost/discussions') {
         expect(opts.method).toBe('POST');
         const body = JSON.parse(opts.body);
-        expect(body.topic).toContain('成本治理');
+        expect(body.topic).toContain('Token 成本治理');
         expect(body.description).toContain('cost-dashboard');
         expect(body.goal).toContain('成本优化任务');
         return { id: 'disc-cost-1', topic: body.topic };
@@ -262,49 +220,37 @@ describe('cost governance dashboard', () => {
       return null;
     });
     const { context, elements } = buildContext(request);
-    context.window.CostDashboard.state.breakdown = [{ dimension: 'service', value: 'checkout', total_cost: 42.5 }];
+    context.window.CostDashboard.state.breakdown = [{ key: 'cloud_ops', total: 42500, calls: 10 }];
 
     const created = await context.window.CostDashboard.createPlazaTopic('breakdown', 0);
 
     expect(created.discussion.id).toBe('disc-cost-1');
-    expect(elements['cost-action-result'].innerHTML).toContain('打开议事厅');
+    expect(elements['cost-action-result'].innerHTML).toContain('打开该话题');
   });
 
-  it('shows an actionable request_id error state when cost data is unavailable', async () => {
-    const request = vi.fn(async () => null);
-    const { context, elements } = buildContext(request);
-
-    await context.window.CostDashboard.refreshDashboard();
-
-    expect(elements['dashboard-alert'].textContent).toContain('成本接口暂时没有返回可用数据');
-    expect(elements['dashboard-alert'].textContent).toContain('请求ID: req-cost-1');
-    expect(elements['dashboard-alert'].classList.contains('show')).toBe(true);
-    expect(elements['summary-grid'].innerHTML).toContain('暂无成本摘要');
-    expect(elements['pods-tbody'].innerHTML).toContain('暂无 Pod 成本明细');
-  });
-
-  it('runs a Cost Gate self-check and refreshes gate stats', async () => {
+  it('runs a Token Gate self-check and refreshes gate stats', async () => {
     const request = vi.fn(async (url, opts) => {
-      if (url === '/api/v1/cost-gate/evaluate') {
+      if (url === '/api/v1/cost-gate/token/evaluate') {
         expect(opts.method).toBe('POST');
         const body = JSON.parse(opts.body);
-        expect(body.project_id).toBe('cost-dashboard-self-check');
-        expect(body.metadata.source).toBe('cost-dashboard');
-        return { decision: 'blocked', violations: [{ id: 'gpu-budget' }] };
+        expect(body.inline.total).toBe(90000); // 取 token 消耗最高团队为样本
+        expect(body.budget.max_tokens).toBe(1000000);
+        return { decision: 'block', violations: [{ id: 'token-budget' }], efficiency: 0.02 };
       }
-      if (url === '/api/v1/cost-gate/stats') {
+      if (url === '/api/v1/cost-gate/token/stats') {
         return { passed: 1, warned: 0, blocked: 1 };
       }
       return null;
     });
     const { context, elements } = buildContext(request);
+    context.window.CostDashboard.state.sustainability = tokenTeams();
 
     const report = await context.window.CostDashboard.runCostGateSelfCheck();
 
-    expect(report.decision).toBe('blocked');
-    expect(elements['cost-action-result'].innerHTML).toContain('Gate 决策');
-    expect(elements['cost-action-result'].innerHTML).toContain('blocked');
+    expect(report.decision).toBe('block');
+    expect(elements['cost-action-result'].innerHTML).toContain('Token Gate');
+    expect(elements['cost-action-result'].innerHTML).toContain('block');
     expect(elements['governance-panel'].innerHTML).toContain('Gate 统计');
-    expect(elements['governance-panel'].innerHTML).toContain('阻断 1');
+    expect(elements['governance-panel'].innerHTML).toContain('1 阻');
   });
 });

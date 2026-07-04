@@ -3,7 +3,7 @@
  * 从数字孪生拉取 6 个房间，场景选择后实际切换 3D 场景
  * 加载方式: <script type="module" src="/js/sandbox-twin-3d.js"></script>
  */
-import * as THREE from '/vendor/three/build/three.module.js';
+import * as THREE from 'three';
 
 // ── 全局状态 ──
 let scene, camera, renderer, controls, clock;

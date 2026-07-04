@@ -1,6 +1,23 @@
 # Validation Baseline
 
-Last updated: 2026-06-26
+Last updated: 2026-07-04
+
+## 2026-07-04 Update (Linux, Claude Fable 5)
+
+大规模修复后基线（Linux 沙箱 / Python 3.10 / Node 22，详见 [reports/test-triage-2026H2.md](reports/test-triage-2026H2.md)）：
+
+| Command | Status | Result |
+| --- | --- | --- |
+| `python -m pytest src/backend/tests tests` | **Pass** | 1388 passed, 7 skipped, 0 failed（曾 96/46 失败） |
+| `npx vitest run` | Fail (known) | 7 failed / 164 passed — 全部为 cost-dashboard 旧美元口径测试，待按 token 北极星口径重写（Todos P0-10） |
+| `npx vite build` | **Pass** | ✓ built（three.js vendor 路径已修复） |
+| `python -m compileall -q src/backend` | **Pass** | — |
+
+已知遗留：cost-dashboard 测试重写（P0-10）、`test_openclaw_sync` 偶发顺序 flaky（P0-11）、Windows 侧 `Path.rename`/GBK 可移植性未复验（P0-5）。以下 2026-06-26 Windows 基线保留作历史对照。
+
+---
+
+（以下为 2026-06-26 Windows 历史基线）
 
 ## Environment Assumptions
 

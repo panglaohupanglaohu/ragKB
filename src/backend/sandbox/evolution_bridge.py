@@ -437,7 +437,7 @@ class EvolutionBridge:
             path = d / f"{run.run_id}.json"
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(run.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.rename(path)
+            tmp.replace(path)
         except Exception as e:
             logger.warning(f"EvolutionRun 持久化失败 (非致命): {e}")
 

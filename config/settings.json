@@ -12,7 +12,6 @@
     "provider": "deepseek",
     "model": "deepseek-v4-pro",
     "api_base_url": "https://api.deepseek.com",
-    "api_key": "stored-secret",
     "max_tokens": 4096,
     "temperature": 0.7,
     "thinking": {
