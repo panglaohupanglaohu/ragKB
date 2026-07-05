@@ -34,6 +34,55 @@ describe('office-state reducer', () => {
     expect(collabStats(s, 5)[0]).toEqual({ pair: 'dev→qa', count: 2 });
   });
 
+  it('step 动作词表: delegate 与 comm 边类型区分', () => {
+    let s = reduce(initialState(), { type: 'step', agentActions: { pm: { action: 'delegate', target: 'dev' } } });
+    s = reduce(s, { type: 'step', agentActions: { dev: { action: 'communicate', target: 'qa' } } });
+    const kinds = s.edges.map((e) => e.kind).sort();
+    expect(kinds).toEqual(['comm', 'delegate']);
+    expect(s.agents.pm.lastAction).toBe('delegate');
+  });
+
+  it('step 动作词表: communicate broadcast 产生 broadcast 边（无定向目标）', () => {
+    const s = reduce(initialState(), { type: 'step', agentActions: { pm: { action: 'communicate', target: 'broadcast' } } });
+    const bc = s.edges.find((e) => e.kind === 'broadcast');
+    expect(bc).toBeTruthy();
+    expect(bc.from).toBe('pm');
+    expect(bc.to).toBe('*');
+  });
+
+  it('step 动作词表: execute_skill 记录 skillUsed, claim_task 记录 task', () => {
+    let s = reduce(initialState(), { type: 'step', agentActions: { dev: { action: 'execute_skill', skill_used: 'code_review' } } });
+    expect(s.agents.dev.skillUsed).toBe('code_review');
+    expect(s.agents.dev.activity).toBe('working');
+    s = reduce(s, { type: 'step', agentActions: { dev: { action: 'claim_task', task: 'T-42' } } });
+    expect(s.agents.dev.task).toBe('T-42');
+    expect(s.agents.dev.lastAction).toBe('claim_task');
+  });
+
+  it('step 动作词表: idle → idle 活动', () => {
+    const s = reduce(initialState(), { type: 'step', agentActions: { dev: { action: 'idle' } } });
+    expect(s.agents.dev.activity).toBe('idle');
+  });
+
+  it('workflow_sync 归一工作流边（源→目标+内容/类型+顺序）', () => {
+    const s = reduce(initialState(), {
+      type: 'workflow_sync',
+      edges: [
+        { source: 'pm', target: 'dev', channel: '任务卡', message_type: 'delegate' },
+        { source: 'dev', target: 'qa', channel: '构建产物', message_type: 'request' },
+        { source: '', target: 'x' },   // 缺 from → 丢弃
+      ],
+    });
+    expect(s.workflow.length).toBe(2);
+    expect(s.workflow[0]).toMatchObject({ from: 'pm', to: 'dev', content: '任务卡', type: 'delegate', order: 0 });
+    expect(s.workflow[1]).toMatchObject({ from: 'dev', to: 'qa', content: '构建产物', order: 1 });
+  });
+
+  it('stages_sync 存房间业务阶段映射', () => {
+    const s = reduce(initialState(), { type: 'stages_sync', stages: { research: 0, build: 1, review: 2 } });
+    expect(s.stages).toEqual({ research: 0, build: 1, review: 2 });
+  });
+
   it('disabled 动作让 Agent 去茶水吧（混沌可视化）', () => {
     const s = reduce(initialState(), { type: 'step', agentActions: { ops: { action: 'disabled' } } });
     expect(s.agents.ops.activity).toBe('coffee');
@@ -149,5 +198,149 @@ describe('office-state reducer', () => {
     store.dispatch({ type: 'team_sync', agents: [{ id: 'x' }] });
     expect(called).toBe(1);
     expect(store.getState().agents.x).toBeTruthy();
+  });
+
+  // ── M2-4: 工作流顺序约束 ──────────────────────────────────
+
+  it('M2-4: workflow 顺序约束 — 前序交接未完成时后序 delegate 不渲染边', () => {
+    let s = reduce(initialState(), {
+      type: 'workflow_sync',
+      edges: [
+        { source: 'pm', target: 'dev', channel: '需求文档' },   // order=0
+        { source: 'dev', target: 'qa', channel: '构建产物' },    // order=1
+      ],
+    });
+    // dev 尝试先 delegate 给 qa（跳过 pm→dev），应被顺序约束阻止
+    s = reduce(s, { type: 'step', agentActions: { dev: { action: 'delegate', target: 'qa' } } });
+    expect(s.edges.filter((e) => e.kind === 'delegate')).toHaveLength(0);
+    expect(s.workflowProgress).toBe(0); // 未推进
+
+    // pm delegate 给 dev（order=0，正确顺序），应渲染并推进
+    s = reduce(s, { type: 'step', agentActions: { pm: { action: 'delegate', target: 'dev' } } });
+    expect(s.edges.filter((e) => e.kind === 'delegate')).toHaveLength(1);
+    expect(s.workflowProgress).toBe(1);
+
+    // 现在 dev delegate 给 qa（order=1），应渲染并推进
+    s = reduce(s, { type: 'step', agentActions: { dev: { action: 'delegate', target: 'qa' } } });
+    expect(s.edges.filter((e) => e.kind === 'delegate')).toHaveLength(2);
+    expect(s.workflowProgress).toBe(2);
+  });
+
+  it('M2-4: 无 workflow 边时不受顺序约束（自由模式）', () => {
+    const s = reduce(initialState(), {
+      type: 'step', agentActions: { dev: { action: 'delegate', target: 'qa' } },
+    });
+    expect(s.edges.filter((e) => e.kind === 'delegate')).toHaveLength(1);
+  });
+
+  it('M2-4: 串行 vs 并行拓扑产生可区分的递交序列', () => {
+    // 串行: a→b→c
+    const serial = reduce(initialState(), {
+      type: 'workflow_sync',
+      edges: [
+        { source: 'a', target: 'b' },
+        { source: 'b', target: 'c' },
+      ],
+    });
+    let s1 = reduce(serial, { type: 'step', agentActions: { a: { action: 'delegate', target: 'b' } } });
+    s1 = reduce(s1, { type: 'step', agentActions: { b: { action: 'delegate', target: 'c' } } });
+    const serialEdges = s1.edges.filter((e) => e.kind === 'delegate');
+
+    // 并行: a→b, a→c (a 同时 delegate 给 b 和 c)
+    const parallel = reduce(initialState(), {
+      type: 'workflow_sync',
+      edges: [
+        { source: 'a', target: 'b' },
+        { source: 'a', target: 'c' },
+      ],
+    });
+    let s2 = reduce(parallel, { type: 'step', agentActions: { a: { action: 'delegate', target: 'b' } } });
+    s2 = reduce(s2, { type: 'step', agentActions: { a: { action: 'delegate', target: 'c' } } });
+    const parallelEdges = s2.edges.filter((e) => e.kind === 'delegate');
+
+    // 串行: 两条边按序推进，都被渲染
+    expect(serialEdges.length).toBe(2);
+    expect(serialEdges[0].from).toBe('a');
+    expect(serialEdges[1].from).toBe('b');
+    // 并行: 两条边都来自 a，第二条也应被渲染（同一 agent 的不同 target）
+    expect(parallelEdges.length).toBe(2);
+    expect(parallelEdges.every((e) => e.from === 'a')).toBe(true);
+  });
+
+  // ── M3-1: 显式工作流图 ────────────────────────────────────
+
+  it('M3-1: workflow_graph_sync 构建节点(角色·技能·模型档)+边', () => {
+    const s = reduce(initialState(), {
+      type: 'workflow_graph_sync',
+      nodes: [
+        { id: 'pm', role: 'project_manager', skills: ['planning'], model_tier: 'standard' },
+        { id: 'dev', role: 'developer', skills: ['python', 'terraform'], model_tier: 'economy' },
+      ],
+      edges: [
+        { source: 'pm', target: 'dev', channel: '需求文档', message_type: 'delegate' },
+      ],
+    });
+    expect(s.workflowGraph.nodes.length).toBe(2);
+    expect(s.workflowGraph.nodes[0]).toMatchObject({ id: 'pm', role: 'project_manager', modelTier: 'standard' });
+    expect(s.workflowGraph.nodes[0].skills).toEqual(['planning']);
+    expect(s.workflowGraph.edges.length).toBe(1);
+    expect(s.workflowGraph.edges[0]).toMatchObject({ from: 'pm', to: 'dev', content: '需求文档' });
+  });
+
+  it('M3-1: 两种拓扑(串行 vs 并行+Review)在工作流图上可区分', () => {
+    // 串行拓扑
+    const serial = reduce(initialState(), {
+      type: 'workflow_graph_sync',
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      edges: [{ source: 'a', target: 'b' }, { source: 'b', target: 'c' }],
+    });
+    // 并行+Review 拓扑
+    const parallel = reduce(initialState(), {
+      type: 'workflow_graph_sync',
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'r' }],
+      edges: [
+        { source: 'a', target: 'b' }, { source: 'a', target: 'c' },
+        { source: 'b', target: 'r' }, { source: 'c', target: 'r' },
+      ],
+    });
+    // 串行: 2 条边，a→b→c
+    expect(serial.workflowGraph.edges.length).toBe(2);
+    expect(serial.workflowGraph.edges[1].from).toBe('b');
+    // 并行+Review: 4 条边，b 和 c 都指向 r
+    expect(parallel.workflowGraph.edges.length).toBe(4);
+    const reviewEdges = parallel.workflowGraph.edges.filter((e) => e.to === 'r');
+    expect(reviewEdges.length).toBe(2);
+  });
+
+  // ── M3-2: 协作热度面板联动工作流图 ────────────────────────
+
+  it('M3-2: highlight_workflow_edge 设置高亮边', () => {
+    let s = reduce(initialState(), {
+      type: 'workflow_graph_sync',
+      nodes: [{ id: 'a' }, { id: 'b' }],
+      edges: [{ source: 'a', target: 'b' }],
+    });
+    expect(s.workflowGraph.highlightedEdge).toBeNull();
+    s = reduce(s, { type: 'highlight_workflow_edge', edgeKey: 'a→b' });
+    expect(s.workflowGraph.highlightedEdge).toBe('a→b');
+  });
+
+  // ── M4-4: 竞标画中画 ──────────────────────────────────────
+
+  it('M4-4: bidding_sync 同步候选排名与胜者', () => {
+    const s = reduce(initialState(), {
+      type: 'bidding_sync',
+      active: true,
+      candidates: [
+        { candidate_id: 'c0', operator: 'C0', operator_desc: '基线', quality_score: 0.92, token_consumed: 1000, rank: 2 },
+        { candidate_id: 'c1', operator: 'R5', operator_desc: '降档', quality_score: 0.91, token_consumed: 700, rank: 1 },
+      ],
+      winner_id: 'c1',
+      ranking: [],
+    });
+    expect(s.biddingView.active).toBe(true);
+    expect(s.biddingView.candidates.length).toBe(2);
+    expect(s.biddingView.candidates[0]).toMatchObject({ id: 'c0', operator: 'C0', score: 0.92, token: 1000 });
+    expect(s.biddingView.winnerId).toBe('c1');
   });
 });

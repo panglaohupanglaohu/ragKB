@@ -4,30 +4,44 @@
  * 加载顺序: secs-core.js → director.js → v4-scenarios.js → v4-evolution.js
  */
 
-// ── D-1.1: 场景卡片列表加载 ──
+// ── D-1.1 / 闭环 M1-5: 场景卡片列表加载（分区：计划演练=讨论产出 · 样例自检=内置） ──
+function _scenarioCardHtml(s){
+  var stars = '★'.repeat(s.difficulty || 1);
+  var bestHtml = s.best_score != null ? '<span class="sc-best">🏆 ' + Math.round(s.best_score*100) + '%</span>' : '';
+  var icon = s.category==='incident'?'🚨':s.category==='data_pipeline'?'📡':s.category==='marketing'?'📢':s.category==='code_delivery'?'💻':'🎧';
+  return '<span class="mode-icon">' + icon + '</span>' +
+    '<span class="mode-name">' + s.name + '</span><span class="sc-stars">' + stars + '</span>' + bestHtml;
+}
+function _appendScenarioCard(container, s){
+  window._scenarioIndex[s.scenario_id] = s;
+  var card = document.createElement('div');
+  card.className = 'mode-card scenario-card';
+  card.setAttribute('data-scenario', s.scenario_id);
+  card.setAttribute('data-origin', s.source === 'plan' ? 'plan' : 'sample');
+  card.onclick = function(){ onScenarioChange(s.scenario_id); };
+  card.innerHTML = _scenarioCardHtml(s);
+  container.appendChild(card);
+}
 async function loadScenarioList(){
   var cards = document.getElementById('dp-scenario-cards');
   if (!cards) return;
-  cards.innerHTML = '';
-  // 自由模式卡片
-  cards.innerHTML = '<div class="mode-card scenario-card sc-free sc-active" data-scenario="" onclick="onScenarioChange(\'\')">' +
-    '<span class="mode-icon">🌍</span><span class="mode-name">自由模式</span><span class="mode-desc">无场景约束</span></div>';
+  window._scenarioIndex = {};
+  // 顶部提示 + 自由模式卡片（真实演练来自 Plaza 讨论计划；内置测试样例不再出现在菜单）
+  cards.innerHTML = '<div class="sc-hint" style="grid-column:1/-1;font-size:11px;color:var(--dim);margin-bottom:4px">🏛️ 真实演练来自 <b>Plaza 讨论产出的执行计划</b>。</div>' +
+    '<div class="mode-card scenario-card sc-free sc-active" data-scenario="" data-origin="free" onclick="onScenarioChange(\'\')">' +
+    '<span class="mode-icon">🌍</span><span class="mode-name">自由模式</span><span class="mode-desc">无场景约束</span></div>' +
+    '<div id="dp-scenario-plan" style="display:contents"></div>';
   try {
-    var r = await fetch('/api/v1/scenarios');
-    var d = await r.json();
-    window._scenarioIndex = {};
-    (d.scenarios || []).forEach(function(s){
-      window._scenarioIndex[s.scenario_id] = s;
-      var stars = '★'.repeat(s.difficulty || 1);
-      var bestHtml = s.best_score != null ? '<span class="sc-best">🏆 ' + Math.round(s.best_score*100) + '%</span>' : '';
-      var card = document.createElement('div');
-      card.className = 'mode-card scenario-card';
-      card.setAttribute('data-scenario', s.scenario_id);
-      card.onclick = function(){ onScenarioChange(s.scenario_id); };
-      card.innerHTML = '<span class="mode-icon">' + (s.category==='incident'?'🚨':s.category==='data_pipeline'?'📡':s.category==='marketing'?'📢':s.category==='code_delivery'?'💻':'🎧') + '</span>' +
-        '<span class="mode-name">' + s.name + '</span><span class="sc-stars">' + stars + '</span>' + bestHtml;
-      cards.appendChild(card);
-    });
+    // 只列「讨论计划产出」的场景（source=plan）；客户端再兜底过滤，杜绝内置样例混入。
+    var planWrap = document.getElementById('dp-scenario-plan');
+    var pr = await fetch('/api/v1/scenarios?source=plan');
+    var pd = await pr.json();
+    var planList = (pd.scenarios || []).filter(function(s){ return s.source === 'plan'; });
+    if (planList.length) {
+      planList.forEach(function(s){ _appendScenarioCard(planWrap, s); });
+    } else {
+      planWrap.innerHTML = '<div class="sc-empty" style="grid-column:1/-1;padding:10px;border:1px dashed var(--border);border-radius:8px;font-size:11px;color:var(--dim)">暂无「讨论产出」的演练计划 — 去 <a href="/plaza.html" style="color:var(--cyan)">议事广场</a> 讨论收敛出执行计划后，在此演练。</div>';
+    }
   } catch(e) { console.warn('[DT] 场景列表加载失败:', e); }
 }
 

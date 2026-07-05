@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="Claude Fable 5" kind="llm" doc="todos" ts="2026-07-04T07:06:00Z" -->
+<!-- docs-signoff: author="Claude Fable 5" kind="llm" doc="todos" ts="2026-07-05T03:12:00Z" -->
 # 优化 Todos 2026H2（按执行模型分层）
 
 > 文档状态：current。规划依据：[OPTIMIZATION_PLAN_2026H2.md](OPTIMIZATION_PLAN_2026H2.md)。
@@ -65,7 +65,7 @@
   验收：校准报告 API + 测试；G4 指标可在演进页查看。
 - [ ] **P3-4 [GLM] 场景集扩充**：按既有 scenario schema 批量补 ≥10 个覆盖主要团队类型的标准场景。
   验收：场景通过 scenario_compiler 校验并可在前端选择。
-- [ ] **P3-5 [F5] 孪生 Agent 行为一致性评测（PICon 式）**：孪生副本必须与生产真身同 prompt/技能/模型档；建立一致性测试集——同一情境下孪生与真身的决策/输出一致率，低于阈值说明孪生失真、竞标结论不可迁移。这是 sim-to-real 校准（P3-3 Spearman）之前更细粒度的保真度关卡。
+- [x] **P3-5 [F5] 孪生 Agent 行为一致性评测（PICon 式）**：**已由 数字办公室协作演练todos.md M5-2 完成**（sandbox/twin_consistency.py，6 测试过；剩前端展示为 GLM 项）。原描述：孪生副本必须与生产真身同 prompt/技能/模型档；建立一致性测试集——同一情境下孪生与真身的决策/输出一致率，低于阈值说明孪生失真、竞标结论不可迁移。这是 sim-to-real 校准（P3-3 Spearman）之前更细粒度的保真度关卡。
   验收：一致性评测脚本 + 报告；一致率纳入孪生可信度指标并在演练页展示。
 
 ## P4 架构收口
@@ -87,13 +87,13 @@
 
 - [x] **P5-1 [F5] 执行计划的结构化契约**（2026-07-04 完成）：`agents/execution_plan.py`——ExecutionPlan/PlanStep schema（步骤/负责角色/验收依据/依赖/优先级/状态机 draft→approved→dispatched→completed）、`build_plan_from_text` 把议事长计划文本编译为结构（计划解析唯一实现迁入本模块）、随讨论持久化于 `disc.plan["structured"]`；`GET .../execution-plan` 可获取结构化计划+审查结果。11 个测试全过。
 - [~] **P5-2 [F5] 计划 → 任务派发闭环**（2026-07-04 主链路完成）：`POST .../execution-plan/approve` 人批准（审查不过 422，可 force）→ dispatch 时落地性关卡强制执行（结构化计划未批准/审查不过 → 400，旧无结构化流程不受影响）→ 派发后步骤↔任务绑定（task_id 回填、状态 dispatched）→ `POST .../execution-plan/steps/{id}/status` 执行状态回流，全部完成自动置 completed 并 SSE 广播 plan_approved/plan_step_updated/plan_completed。E2E 测试过（讨论→计划→批准→派发→回流→完成）。剩余：完成后自动触发效能评分写入 ratchet/cost_aggregator（依赖 P1-4 口径）。
-- [ ] **P5-3 [GLM] 计划面板人机交互前端**：plaza 页 plan-panel 补全——计划步骤可视化、人工编辑/批准/驳回、逐步骤执行状态、追问某步骤（人↔Agent 对话锚定到步骤）。
-  验收：vitest 契约测试 + 手工冒烟；驳回后计划可重议。
-- [ ] **P5-4 [F5] 执行计划的孪生竞标（数字孪生的核心意义）**：ExecutionPlan 上生产前，在孪生沙箱对**同一份计划**做多候选组合的反复试验——候选 = 团队构型 × 技能组合 × 协作结构，每个候选跑 twin-trials 得到 (成功率, 完成质量, token 消耗)；在成功率/质量达标的候选中选 **token 效益最优**者获得执行权，结果写入 ratchet（该任务类型的最优执行者被锁定为代际基线，后来者必须更优才能取代）。首版候选可枚举（≥3 组），搜索升级见 P5-6。**前置**：P3-2 真实 LLM 决策模式——启发式概率下的竞标排名不可信。
+- [x] **P5-3 [GLM] 计划面板人机交互前端**：plaza 页 plan-panel 补全——计划步骤可视化、人工编辑/批准/驳回、逐步骤执行状态、追问某步骤（人↔Agent 对话锚定到步骤）。
+  验收：vitest 契约测试 + 手工冒烟；驳回后计划可重议。（2026-07-05 完成：plaza.js 新增 loadExecutionPlan/renderExecutionPlan（步骤+落地性 issues 缺项）+ approveExecutionPlan（含强制批准保留人最终决定权，接 422 issues）+ rejectExecutionPlan（=refreshPlan 重议）+ askPlanStep（锚定步骤→interject 追问）；接后端 execution-plan/approve/refresh-plan/interject；plaza-action-paths.test.js 加 P5-3 契约用例，vitest 189 全绿 + build 通过；手工冒烟待本机）
+- [→] **P5-4 [F5] 执行计划的孪生竞标（数字孪生的核心意义）**：**已移交** [数字办公室协作演练todos.md](数字办公室协作演练todos.md) M4（候选生成规格见其 plan §4.5；演练对象语义已校准为「任务」，见 M1-6），本条不再单独执行。原描述：ExecutionPlan 上生产前，在孪生沙箱对**同一份计划**做多候选组合的反复试验——候选 = 团队构型 × 技能组合 × 协作结构，每个候选跑 twin-trials 得到 (成功率, 完成质量, token 消耗)；在成功率/质量达标的候选中选 **token 效益最优**者获得执行权，结果写入 ratchet（该任务类型的最优执行者被锁定为代际基线，后来者必须更优才能取代）。首版候选可枚举（≥3 组），搜索升级见 P5-6。**前置**：P3-2 真实 LLM 决策模式——启发式概率下的竞标排名不可信。
   验收：E2E：一份计划 → ≥3 个候选组合孪生竞标 → 按 (质量达标 ∧ token 最省) 选出胜者 → 派发执行 → 竞标记录与排名可在计划面板查看；ratchet 记录该任务类型的最优执行者。
-- [ ] **P5-5 [F5] 协作结构显式化（可搜索的工作流图）**：把候选的「协作方式」从标量 `collaboration_weight` 升级为显式工作流图：节点=（角色, 绑定技能, 模型档），边=（依赖顺序, 信息传递内容）；复用 `world_state.workflow_edges` 与 `CollaborationSOP` 承载；ExecutionPlan 步骤 ↔ 工作流节点互相映射。这是协作可被优化的前提——结构不进搜索空间，就谈不上优化协作。
+- [→] **P5-5 [F5] 协作结构显式化（可搜索的工作流图）**：**已移交** 数字办公室协作演练todos.md M3-1（M2-4/M2-5 已完成部分底座），本条不再单独执行。原描述：把候选的「协作方式」从标量 `collaboration_weight` 升级为显式工作流图：节点=（角色, 绑定技能, 模型档），边=（依赖顺序, 信息传递内容）；复用 `world_state.workflow_edges` 与 `CollaborationSOP` 承载；ExecutionPlan 步骤 ↔ 工作流节点互相映射。这是协作可被优化的前提——结构不进搜索空间，就谈不上优化协作。
   验收：twin-trials 接受工作流图作为候选参数并按图约束仿真执行顺序/通信；两个不同拓扑（如 串行流水 vs 并行+Review）在同一计划上产生可区分的评分。
-- [ ] **P5-6 [F5] 竞标搜索升级：AFlow 式 MCTS/进化搜索**：候选生成从人工枚举升级为自动搜索——变异算子：换角色、换技能绑定、改依赖顺序、增删 Review/Ensemble 节点、升降模型档；用孪生评分 (质量, token) 做适应度，MCTS 或进化搜索（复用 `agents/evolution/` mutator/optimizer 骨架）在试验预算内探索；胜出的协作结构固化为 CollaborationSOP 入技能库，同类任务直接复用（FlowBank 思路），复用即跳过搜索。
+- [→] **P5-6 [F5] 竞标搜索升级：AFlow 式 MCTS/进化搜索**：**已移交** 数字办公室协作演练todos.md M4 后续（M4-1 记录的 (算子,Δtoken,Δ质量) 即其训练数据），本条不再单独执行。原描述：候选生成从人工枚举升级为自动搜索——变异算子：换角色、换技能绑定、改依赖顺序、增删 Review/Ensemble 节点、升降模型档；用孪生评分 (质量, token) 做适应度，MCTS 或进化搜索（复用 `agents/evolution/` mutator/optimizer 骨架）在试验预算内探索；胜出的协作结构固化为 CollaborationSOP 入技能库，同类任务直接复用（FlowBank 思路），复用即跳过搜索。
   验收：标准任务集上，搜索产出的协作结构比人工枚举基线 token 效益提升 ≥20%（质量不降）；胜出 SOP 可被第二个同类计划直接复用并跳过搜索。
 
 ## P6 Plaza 讨论质量与计划落地性（2026-07 调研落地，经用户校准）
@@ -103,7 +103,7 @@
 
 - [ ] **P6-1 [F5] 跑题守卫与目标收敛**：每轮收束时 moderator 对照讨论目标（disc.goal）做偏航检测——本轮内容与目标的相关性、是否引入无关话题；偏航则下一轮子问题强制拉回，连续偏航则点名最相关角色发言。讨论的终止条件是「目标问题已被回答且计划要素齐备」，而不是轮次耗尽。
   验收：注入跑题干扰的测试话题集上，最终计划仍完整覆盖 goal；偏航事件在时间线可见。
-- [~] **P6-2 [F5] 计划落地性审查（可执行性关卡）**（2026-07-04 关卡完成）：`execution_plan.validate_plan`——计划非空、每步骤必须有 标题/负责角色/验收依据，依赖必须可解析且不得自依赖；审查不过 → approve 422 / dispatch 400（残缺计划测试验证无法派发）。剩余：审查意见回写讨论时间线 + moderator 自动追问补齐（GLM 按本契约接线）。
+- [~] **P6-2 [F5] 计划落地性审查（可执行性关卡）**（2026-07-04 关卡完成；2026-07-05 Review 修复：与孪生侧审查统一为唯一实现 `validate_plan(profile='dispatch'|'twin')`，plan_scenario_bridge 降级为适配层）：`execution_plan.validate_plan`——计划非空、每步骤必须有 标题/负责角色/验收依据，依赖必须可解析且不得自依赖；审查不过 → approve 422 / dispatch 400（残缺计划测试验证无法派发）。剩余：审查意见回写讨论时间线 + moderator 自动追问补齐（GLM 按本契约接线）。
 - [ ] **P6-3 [GLM] 匿名化汇总与共识判定**：moderator 收束与 plaza_consensus 判定时，把发言剥离 agent 名字/座席层级（去内圈权威偏差），只看内容与证据。
   验收：consensus 单测通过；汇总 prompt 中无发言者身份字段。
 - [ ] **P6-4 [F5] 结构化发言（typed epistemic acts）**：发言标注类型（主张/证据/反驳/让步/提问），PlazaMessage 增加 act_type 字段；共识 = 未被有效反驳的主张集合；该结构直接喂给 P5-1 的 ExecutionPlan 生成，使计划每一步可溯源到讨论中的主张与证据。

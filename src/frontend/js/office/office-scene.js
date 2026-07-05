@@ -16,7 +16,9 @@ const C = {
 
 // 4 列工位，列间距加宽，中央留共享区走廊（x ∈ [-2.9, 2.9]）
 const COL_X = [-12.0, -6.2, 6.2, 12.0];
-const ROW_Z0 = -7, ROW_DZ = 4.2;
+// ROW_DZ 拉大到 6.5：同列桌子前后间隙 ~3.6（桌+椅进深约 2.9），
+// 让猫沿外侧工位列穿行时能明显看到它在桌与桌之间走动。
+const ROW_Z0 = -7, ROW_DZ = 6.5;
 
 export function createOfficeScene(canvas, container) {
   const W = container.clientWidth || 800, H = container.clientHeight || 600;
@@ -64,6 +66,13 @@ export function createOfficeScene(canvas, container) {
   const props = new THREE.Group(); scene.add(props);
   const agentsGroup = new THREE.Group(); scene.add(agentsGroup);
   const edgesGroup = new THREE.Group(); scene.add(edgesGroup);
+  const stageBandsGroup = new THREE.Group(); scene.add(stageBandsGroup);   // M2-5 阶段分区带
+  const fxGroup = new THREE.Group(); scene.add(fxGroup);                    // M2-2/M2-3 波纹/脉冲特效
+  let workflowMap = {};          // M2-4: "from|to" -> 传递内容
+  let workflowOrder = {};        // M2-4: "from|to" -> 递交顺序序号
+  let stageBandsKey = '';        // M2-5: 阶段映射签名，避免重复重建
+  const ripples = [];            // M2-3: 广播波纹 [{mesh, t, from}]
+  const broadcastSeen = new Set();
 
   const furnMat = () => new THREE.MeshStandardMaterial({ color: C.furniture, roughness: 0.9 });
   function box(w, h, d, x, y, z, mat, parent) {
@@ -205,7 +214,7 @@ export function createOfficeScene(canvas, container) {
     file.position.set(0.5, 1.05, 0.28); file.visible = false; g.add(file);
     g.add(makeLabel(def.name));
     agentsGroup.add(g);
-    return { group: g, file, head };
+    return { group: g, file, head, glowRing };
   }
   function disposeFigure(f) {
     f.group.traverse((node) => {
@@ -225,21 +234,156 @@ export function createOfficeScene(canvas, container) {
     return sp;
   }
 
-  // ── 猫: 固定巡逻路线 + 每个点位随机停留（先让它动起来） ──
+  // ── M2-4/M2-5: 工作流内容标签 + 业务阶段分区带 ──
+  function makeContentLabel(text, color) {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 48;
+    const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 256, 48);
+    ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#' + new THREE.Color(color != null ? color : 0x3b4048).getHexString();
+    ctx.fillText(String(text || '').slice(0, 16), 128, 24);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(cv), transparent: true, depthTest: false,
+    }));
+    sp.scale.set(3, 0.6, 1);
+    return sp;
+  }
+  const STAGE_COLORS = [0x4d9de0, 0x34d399, 0xf59e0b, 0xf472b6, 0xa78bfa, 0x2bb8a8];
+  function renderStageBands(stages) {
+    const entries = Object.entries(stages || {});
+    const key = entries.map(([r, s]) => r + ':' + s).sort().join(',');
+    if (key === stageBandsKey) return;      // 幂等：阶段映射不变不重建
+    stageBandsKey = key;
+    while (stageBandsGroup.children.length) {
+      const o = stageBandsGroup.children.pop();
+      o.traverse && o.traverse((n) => {
+        if (n.geometry) n.geometry.dispose();
+        const ms = Array.isArray(n.material) ? n.material : (n.material ? [n.material] : []);
+        ms.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+      });
+      stageBandsGroup.remove(o);
+    }
+    if (!entries.length) return;
+    const stagesSet = Array.from(new Set(entries.map(([, s]) => Number(s)))).sort((a, b) => a - b);
+    stagesSet.forEach((stage, i) => {
+      const z = -12 + i * 5.2;
+      const band = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 4.6),
+        new THREE.MeshBasicMaterial({ color: STAGE_COLORS[i % STAGE_COLORS.length], transparent: true, opacity: 0.06, side: THREE.DoubleSide })
+      );
+      band.rotation.x = -Math.PI / 2; band.position.set(0, 0.02, z);
+      stageBandsGroup.add(band);
+      const roomName = (entries.find(([, s]) => Number(s) === stage) || [])[0] || ('阶段' + stage);
+      const label = makeContentLabel('阶段' + stage + ' · ' + roomName, STAGE_COLORS[i % STAGE_COLORS.length]);
+      label.position.set(-13, 0.8, z);
+      stageBandsGroup.add(label);
+    });
+  }
+  function attachFileLabel(f, text) {
+    if (f.fileLabel) { f.file.remove(f.fileLabel); f.fileLabel.material.map.dispose(); f.fileLabel.material.dispose(); }
+    f.fileLabel = makeContentLabel(text, 0x2b6cb0);
+    f.fileLabel.position.set(0, 0.4, 0);
+    f.file.add(f.fileLabel);   // 作为 file 子节点，随 file.visible 自动显隐
+  }
+
+  // ── M2-3: 广播波纹（communicate target=broadcast）——以发言者为圆心的地面涟漪 ──
+  function spawnRipple(pos, color) {
+    const mesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.4, 0.6, 40),
+      new THREE.MeshBasicMaterial({ color: color != null ? color : 0x4d9de0, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(pos.x, 0.03, pos.z);
+    fxGroup.add(mesh);
+    ripples.push({ mesh, t: 0 });
+  }
+
+  // ── M2-2: 技能脉冲（execute_skill）——工位上方脉冲技能名 ──
+  function triggerSkillPulse(f, skill) {
+    if (f.skillPulse) { f.group.remove(f.skillPulse); f.skillPulse.material.map.dispose(); f.skillPulse.material.dispose(); }
+    const sp = makeContentLabel('⚡ ' + skill, 0xf59e0b);
+    sp.position.set(0, 2.9, 0);
+    sp.scale.set(0.1, 0.02, 1);
+    f.group.add(sp);
+    f.skillPulse = sp;
+    f.skillPulseT = 0;
+  }
+
+
   const CAT_ROUTE = [
     [12, 10], [12, -4], [6, -9], [0, -11], [-6, -9], [-12, -4], [-12, 10], [-4, 13], [4, 13],
   ];
   function buildCat() {
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 });
-    box(0.55, 0.3, 0.28, 0, 0.22, 0, mat, g);
-    box(0.3, 0.26, 0.26, 0.36, 0.42, 0, mat, g);
-    for (const s of [-1, 1]) box(0.08, 0.14, 0.06, 0.36 + 0.06 * s, 0.62, 0.09 * s, mat, g);
-    const tail = box(0.08, 0.4, 0.08, -0.34, 0.44, 0, mat, g);
+    const furMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.85 });
+
+    // ── 4 条锥形腿（锥尖着地，锥底嵌入猫身）──
+    const legs = [];
+    for (const [lx, lz] of [[0.17, 0.09], [0.17, -0.09], [-0.17, 0.09], [-0.17, -0.09]]) {
+      const leg = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.26, 8), furMat);
+      leg.position.set(lx, 0.13, lz);   // 中心 0.13：锥尖到 0 着地，锥底 0.26 入身
+      leg.rotation.x = Math.PI;         // 尖朝下
+      leg.castShadow = true;
+      g.add(leg);
+      legs.push(leg);
+    }
+    // ── 身体（坐落在腿上）──
+    box(0.56, 0.24, 0.26, 0, 0.32, 0, furMat, g);
+    // ── 头 ──
+    const head = box(0.28, 0.26, 0.26, 0.42, 0.50, 0, furMat, g);
+    // ── 尖耳（圆锥，纯猫毛色）──
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 4), furMat);
+      ear.position.set(0.40, 0.69, 0.095 * s);
+      ear.castShadow = true;
+      g.add(ear);
+    }
+    // ── 尾巴（上翘，动画甩动）──
+    const tail = box(0.07, 0.44, 0.07, -0.34, 0.5, 0, furMat, g);
     tail.rotation.z = 0.5;
+    // 猫气泡: 演练解说员——显示 演练任务 / 仿真参数 / 种子技能注入
+    const bubbleCv = document.createElement('canvas');
+    bubbleCv.width = 512; bubbleCv.height = 160;
+    const bubbleTex = new THREE.CanvasTexture(bubbleCv);
+    const bubble = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: bubbleTex, transparent: true, depthTest: false,
+    }));
+    bubble.scale.set(4.4, 1.375, 1);
+    bubble.position.y = 1.55;
+    bubble.visible = false;
+    g.add(bubble);
+    function drawBubble(text) {
+      const ctx = bubbleCv.getContext('2d');
+      ctx.clearRect(0, 0, 512, 160);
+      if (!text) { bubbleTex.needsUpdate = true; bubble.visible = false; return; }
+      // 按宽度折行（最多 3 行）
+      ctx.font = '24px sans-serif';
+      const lines = [];
+      let cur = '';
+      for (const ch of String(text)) {
+        if (ch === '\n' || ctx.measureText(cur + ch).width > 440) {
+          lines.push(cur); cur = ch === '\n' ? '' : ch;
+          if (lines.length === 3) { cur += '…'; break; }
+        } else cur += ch;
+      }
+      if (cur && lines.length < 3) lines.push(cur);
+      const h = 34 + lines.length * 30;
+      // 圆角气泡 + 小尾巴
+      ctx.fillStyle = 'rgba(255,255,255,0.96)';
+      ctx.strokeStyle = '#c8cdd4'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(8, 8, 496, h, 16);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(236, h + 8); ctx.lineTo(256, h + 30); ctx.lineTo(276, h + 8);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#2a2e34';
+      lines.forEach((l, i) => ctx.fillText(l, 24, 42 + i * 30));
+      bubbleTex.needsUpdate = true;
+      bubble.visible = true;
+    }
     g.position.set(CAT_ROUTE[0][0], 0, CAT_ROUTE[0][1]);
     scene.add(g);
-    return { group: g, tail, waypoint: 1, dwell: 0, speed: 1.6 };
+    return { group: g, tail, legs, head, drawBubble, waypoint: 1, dwell: 0, speed: 1.6 };
   }
 
   // ── 装配 ──
@@ -257,7 +401,7 @@ export function createOfficeScene(canvas, container) {
   }
 
   // ── 状态投影 ──
-  const figures = {};       // id -> {group, file, target, baseY, def, courier}
+  const figures = {};       // id -> {group, file, glowRing, target, baseY, def, courier}
   const edgeMeshes = new Map();
   const processedEdges = new Set();
   let mirrorOn = false;
@@ -286,6 +430,13 @@ export function createOfficeScene(canvas, container) {
   }
 
   function applyState(state) {
+    // M2-4/M2-5: 工作流内容映射 + 业务阶段分区带
+    workflowMap = {}; workflowOrder = {};
+    (state.workflow || []).forEach((w) => {
+      workflowMap[w.from + '|' + w.to] = w.content;
+      workflowOrder[w.from + '|' + w.to] = w.order;
+    });
+    renderStageBands(state.stages || {});
     const meetingIds = Object.values(state.agents)
       .filter((a) => a.activity === 'meeting').map((a) => a.id);
     for (const agent of Object.values(state.agents)) {
@@ -293,7 +444,7 @@ export function createOfficeScene(canvas, container) {
       if (!f) {
         const built = buildAgentFigure(agent);
         f = figures[agent.id] = {
-          group: built.group, file: built.file,
+          group: built.group, file: built.file, glowRing: built.glowRing,
           target: new THREE.Vector3(), baseY: 0, def: agent, courier: null,
         };
         const t = targetFor(agent, 0, 1, state.facilities);
@@ -302,6 +453,11 @@ export function createOfficeScene(canvas, container) {
       f.def = agent;
       const t = targetFor(agent, Math.max(meetingIds.indexOf(agent.id), 0), meetingIds.length, state.facilities);
       f.target.copy(t.pos); f.baseY = t.y;
+      // M2-2: execute_skill → 工位上方技能脉冲（skillUsed 变化时触发）
+      if (agent.skillUsed && agent.skillUsed !== f.lastSkill) {
+        f.lastSkill = agent.skillUsed;
+        triggerSkillPulse(f, agent.skillUsed);
+      }
       const desk = deskFor(agent.deskIndex);
       const on = agent.activity === 'working';
       desk.screen.material.color.setHex(on ? C.screenOn : C.screenOff);
@@ -328,16 +484,32 @@ export function createOfficeScene(canvas, container) {
       });
     }
     // 新协作边 → 递文件动画任务（Agent 拿文件走到下游工位交接）
+    // M2-3: broadcast 边（to='*'）→ 以发言者为圆心的地面波纹（不走递文件）
     for (const e of state.edges) {
+      if (e.kind !== 'broadcast') continue;
+      const bkey = e.from + '|' + Math.ceil(e.ttl);
+      if (broadcastSeen.has(bkey)) continue;
+      broadcastSeen.add(bkey);
+      setTimeout(() => broadcastSeen.delete(bkey), 4000);
+      const fa = figures[e.from];
+      if (fa) spawnRipple(fa.group.position, (fa.def && fa.def.collar) || 0x4d9de0);
+    }
+    for (const e of state.edges) {
+      if (e.kind === 'broadcast') continue;
       const key = e.from + '|' + e.to + '|' + Math.ceil(e.ttl);
       const routeKey = e.from + '|' + e.to;
       if (processedEdges.has(routeKey)) continue;
       const fa = figures[e.from], fb = figures[e.to];
       if (fa && fb && !fa.courier) {
+        const order = workflowOrder[e.from + '|' + e.to];
+        // M2-4 顺序约束: 有更早序号的工作流递交仍在进行 → 本次先等（下游等上游交完）
+        if (order != null && _hasEarlierActiveCourier(order)) continue;
         processedEdges.add(routeKey);
         setTimeout(() => processedEdges.delete(routeKey), 8000);   // 同一对 8s 内不重复跑腿
-        fa.courier = { phase: 'go', toId: e.to, kind: e.kind };
+        const content = workflowMap[e.from + '|' + e.to];          // M2-4: 传递内容
+        fa.courier = { phase: 'go', toId: e.to, kind: e.kind, content, order };
         fa.file.visible = true;
+        if (content) attachFileLabel(fa, content);                 // 文件上显示传递内容标签
       }
       void key;
     }
@@ -353,17 +525,29 @@ export function createOfficeScene(canvas, container) {
       const p2 = fb.group.position.clone().setY(1.8);
       const mid = p0.clone().add(p2).multiplyScalar(0.5).setY(3.6);
       const curve = new THREE.QuadraticBezierCurve3(p0, mid, p2);
+      const edgeColor = e.kind === 'help' ? 0x2bb8a8 : e.kind === 'delegate' ? 0xf59e0b : 0x4d9de0;
       if (!mesh) {
         mesh = new THREE.Mesh(
           new THREE.TubeGeometry(curve, 20, 0.045, 6, false),
-          new THREE.MeshBasicMaterial({
-            color: e.kind === 'help' ? 0x2bb8a8 : 0x4d9de0, transparent: true, opacity: 0.8,
-          })
+          new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.8 })
         );
         edgesGroup.add(mesh); edgeMeshes.set(key, mesh);
+        if (e.kind === 'delegate') {                       // M2-3: 委派有向箭头
+          const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.16, 0.42, 10),
+            new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.9 })
+          );
+          cone.name = 'arrow'; mesh.add(cone);
+        }
       } else {
         mesh.geometry.dispose();
         mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.045, 6, false);
+      }
+      const arrow = mesh.getObjectByName && mesh.getObjectByName('arrow');
+      if (arrow) {                                          // 箭头指向下游末端
+        const dir = p2.clone().sub(p0).setY(0).normalize();
+        arrow.position.copy(p2.clone().addScaledVector(dir, -0.3));
+        arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
       }
       mesh.material.opacity = Math.max(e.ttl / 6, 0.1) * 0.8;
     }
@@ -374,6 +558,11 @@ export function createOfficeScene(canvas, container) {
       }
     }
     boardTex.draw(state.meeting.boardLines);
+    // 猫气泡跟随状态
+    if (state.catNote !== applyState._lastCatNote) {
+      applyState._lastCatNote = state.catNote;
+      cat.drawBubble(state.catNote);
+    }
     if (state.mirror !== mirrorOn) {
       mirrorOn = state.mirror;
       // 镜像层视觉: 蓝图幽灵化（半透明 + 蓝调），形状可读，区分度靠色调与徽标
@@ -442,11 +631,66 @@ export function createOfficeScene(canvas, container) {
     f.group.lookAt(back.x, 0, back.z);
   }
 
+  function nearestCatLure() {
+    let nearest = null;
+    let best = Infinity;
+    for (const f of Object.values(figures)) {
+      if (f.courier) continue;
+      const dx = f.group.position.x - cat.group.position.x;
+      const dz = f.group.position.z - cat.group.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; nearest = f; }
+    }
+    return nearest;
+  }
+
+  // M2-4: 是否有更早序号的工作流递交仍在进行（顺序约束用）
+  function _hasEarlierActiveCourier(order) {
+    for (const f of Object.values(figures)) {
+      if (f.courier && f.courier.order != null && f.courier.order < order) return true;
+    }
+    return false;
+  }
+
+  // M2-2/M2-3: 波纹扩散 + 技能脉冲动画（每帧推进，结束即释放）
+  function _stepFx(dt) {
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i];
+      r.t += dt;
+      const s = 1 + r.t * 6;
+      r.mesh.scale.set(s, s, s);
+      r.mesh.material.opacity = Math.max(0, 0.6 - r.t * 0.5);
+      if (r.mesh.material.opacity <= 0.01) {
+        fxGroup.remove(r.mesh); r.mesh.geometry.dispose(); r.mesh.material.dispose();
+        ripples.splice(i, 1);
+      }
+    }
+    for (const f of Object.values(figures)) {
+      if (!f.skillPulse) continue;
+      f.skillPulseT += dt;
+      const p = f.skillPulseT;
+      if (p < 0.25) {                                   // 弹出
+        const k = p / 0.25;
+        f.skillPulse.scale.set(2.4 * k, 0.5 * k, 1);
+      } else if (p < 1.4) {                             // 停留
+        f.skillPulse.scale.set(2.4, 0.5, 1);
+        f.skillPulse.material.opacity = 1;
+      } else if (p < 1.9) {                             // 淡出
+        f.skillPulse.material.opacity = Math.max(0, 1 - (p - 1.4) / 0.5);
+      } else {
+        f.group.remove(f.skillPulse);
+        f.skillPulse.material.map.dispose(); f.skillPulse.material.dispose();
+        f.skillPulse = null;
+      }
+    }
+  }
+
   function animate() {
     if (disposed) return;
     requestAnimationFrame(animate);
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.getElapsedTime();
+    const catLure = nearestCatLure();
     for (const f of Object.values(figures)) {
       if (f.courier) { stepCourier(f, dt, t); continue; }
       // 常规: 平滑走向目标 + 落座高度 + 轻微呼吸/跑步颠簸
@@ -459,11 +703,25 @@ export function createOfficeScene(canvas, container) {
       _v.copy(f.target).setY(f.baseY + bob);
       f.group.position.lerp(_v, 0.06);
       if (act === 'working') f.group.lookAt(f.group.position.x, f.group.position.y, f.group.position.z - 4); // 面朝屏幕(-z)
+      if (f === catLure) {
+        f.group.lookAt(cat.group.position.x, f.group.position.y, cat.group.position.z);
+        if (f.glowRing) {
+          const pulse = (Math.sin(t * 7) + 1) / 2;
+          f.glowRing.material.opacity = 0.24 + pulse * 0.42;
+          const ringScale = 1 + pulse * 0.38;
+          f.glowRing.scale.set(ringScale, ringScale, ringScale);
+        }
+      } else if (f.glowRing) {
+        f.glowRing.material.opacity = 0.22;
+        f.glowRing.scale.set(1, 1, 1);
+      }
     }
     // 猫巡逻: 头部引导转向——先转身对准目标，再沿自身朝向前进（不平移漂移）
     if (cat.dwell > 0) {
       cat.dwell -= dt;
       cat.tail.rotation.z = 0.5 + Math.sin(t * 3) * 0.3;      // 停下时甩尾巴
+      cat.group.position.y += (0 - cat.group.position.y) * 0.2; // 身体落回
+      if (cat.legs) cat.legs.forEach((leg) => { leg.rotation.x += (Math.PI - leg.rotation.x) * 0.2; }); // 腿归位（锥尖朝下）
     } else {
       const [wx, wz] = CAT_ROUTE[cat.waypoint];
       const dx = wx - cat.group.position.x, dz = wz - cat.group.position.z;
@@ -485,10 +743,17 @@ export function createOfficeScene(canvas, container) {
           const heading = cat.group.rotation.y + Math.PI / 2;   // 还原为世界方向角
           cat.group.position.x += Math.sin(heading) * cat.speed * dt * align;
           cat.group.position.z += Math.cos(heading) * cat.speed * dt * align;
-          cat.group.position.y = Math.abs(Math.sin(t * 9)) * 0.05 * align;
+          // 颠颠跑: 身体大幅上下弹跳
+          const hop = Math.abs(Math.sin(t * 8));
+          cat.group.position.y = hop * 0.14 * align;
+          // 对角腿交替前后摆动（叠加在锥尖朝下的基础旋转上）
+          if (cat.legs) cat.legs.forEach((leg, i) => {
+            leg.rotation.x = Math.PI + Math.sin(t * 8 + (i % 2 ? Math.PI : 0)) * 0.45 * align;
+          });
         }
       }
     }
+    _stepFx(dt);
     controls.update();
     renderer.render(scene, camera);
   }

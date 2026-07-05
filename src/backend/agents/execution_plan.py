@@ -269,21 +269,32 @@ def build_plan_from_text(
 # ── P6-2: 落地性审查（可执行性关卡） ───────────────────────────
 
 
-def validate_plan(plan: ExecutionPlan) -> List[Dict[str, str]]:
-    """落地性审查: 返回问题清单，空列表 = 可派发.
+def validate_plan(plan: ExecutionPlan, profile: str = "dispatch") -> List[Dict[str, str]]:
+    """落地性审查（唯一实现，禁止另起炉灶）: 返回问题清单，空列表 = 通过.
 
-    规则: 计划非空；每步骤必须有 标题/负责角色/验收依据(预期产出)；依赖必须能
-    解析到计划内的其他步骤（按序号或标题）。
+    基础规则（所有 profile）: 计划非空；每步骤必须有 标题/负责角色/验收依据(预期产出)；
+    依赖必须能解析到计划内的其他步骤（按序号或标题）且不得自依赖。
+    profile='dispatch': 生产派发关卡（approve/dispatch 使用）。
+    profile='twin':     进孪生演练关卡——在基础规则上叠加「每步骤必须声明所需技能」
+                        （孪生按技能生成任务流，无技能无法仿真执行）。
     """
     issues: List[Dict[str, str]] = []
     if not plan.steps:
         issues.append({"step_id": "", "field": "steps", "message": "计划为空：讨论尚未收敛出可执行步骤"})
         return issues
-    known_refs: set = set()
-    for s in plan.steps:
-        known_refs.add(str(s.index))
-        if s.title:
-            known_refs.add(s.title)
+    known_titles = {s.title for s in plan.steps if s.title}
+    known_indexes = {str(s.index) for s in plan.steps}
+
+    def _dep_index(dep: str) -> Optional[str]:
+        """依赖引用归一: 支持 裸序号/步骤N/stepN/sN（与编译器同口径）。"""
+        m = re.fullmatch(r"(?:步骤|step|s)?\s*0*(\d+)", dep.strip(), re.IGNORECASE)
+        return m.group(1) if m else None
+
+    def _dep_resolves(dep: str) -> bool:
+        if dep in known_titles:
+            return True
+        idx = _dep_index(dep)
+        return idx is not None and idx in known_indexes
     for s in plan.steps:
         if not is_valid_task_title(s.title):
             issues.append({"step_id": s.step_id, "field": "title",
@@ -295,12 +306,15 @@ def validate_plan(plan: ExecutionPlan) -> List[Dict[str, str]]:
             issues.append({"step_id": s.step_id, "field": "acceptance",
                            "message": f"步骤{s.index}「{s.title[:20]}」缺少预期产出/验收依据"})
         for dep in s.dependencies:
-            if dep == str(s.index) or dep == s.title:
+            if _dep_index(dep) == str(s.index) or dep == s.title:
                 issues.append({"step_id": s.step_id, "field": "dependencies",
                                "message": f"步骤{s.index} 依赖自身"})
-            elif dep not in known_refs:
+            elif not _dep_resolves(dep):
                 issues.append({"step_id": s.step_id, "field": "dependencies",
                                "message": f"步骤{s.index} 的依赖「{dep}」无法解析到计划内步骤"})
+        if profile == "twin" and not (s.required_skills or []):
+            issues.append({"step_id": s.step_id, "field": "required_skills",
+                           "message": f"步骤{s.index}「{s.title[:20]}」缺所需技能（孪生按技能仿真执行）"})
     return issues
 
 

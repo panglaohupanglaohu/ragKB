@@ -39,6 +39,12 @@ export function initialState() {
     collab: {},        // "from→to" -> count（协作热度，考察协作能力的核心数据）
     meeting: { active: false, speakerId: null, boardLines: [] },
     mirror: false,     // 孪生镜像层
+    catNote: '',       // 猫头顶气泡: 演练任务 / 仿真参数 / 种子技能注入
+    workflow: [],      // M2-4: 工作流边 [{from,to,content,type,weight,order}]（结构化交接顺序+内容）
+    workflowProgress: 0, // M2-4: 当前已推进到第几条边（顺序约束：前序交接未完成不得触发后序）
+    workflowGraph: { nodes: [], edges: [], highlightedEdge: null }, // M3-1: 显式工作流图（节点=角色·技能·模型档，边=依赖·内容）
+    biddingView: { active: false, candidates: [], winnerId: null, ranking: [] }, // M4-4: 竞标画中画
+    stages: {},        // M2-5: 房间业务阶段 {room_id: stage}
     facilities: {      // facility -> {occupant, until, queue[]}
       coffee: { occupant: null, until: 0, queue: [] },
       treadmill: { occupant: null, until: 0, queue: [] },
@@ -65,6 +71,9 @@ function ensureAgent(state, id, extra) {
       activity: 'working',   // 默认在工位落座干活
       deskIndex,
       layer: 'prod',
+      lastAction: '',        // 最近一次 twin 动作（claim_task/execute_skill/delegate/...）
+      skillUsed: '',         // execute_skill 的 skill_used
+      task: '',              // 当前认领/执行的任务
     };
   }
   if (extra) Object.assign(state.agents[id], extra);
@@ -154,17 +163,84 @@ export function reduce(prev, event) {
     }
     case 'step': {
       // 孪生仿真步: agent_actions → 状态/协作光线（协作能力的观测点）
+      // 对齐 twin 动作词表 (llm_decision.py):
+      //   claim_task | work_on_task | execute_skill | offer_help | delegate | communicate | idle
       const actions = event.agentActions || {};
       for (const [id, act] of Object.entries(actions)) {
         const agent = ensureAgent(state, id);
         const a = typeof act === 'string' ? { action: act } : (act || {});
-        if (a.action === 'offer_help' || a.action === 'communicate' || a.action === 'delegate') {
-          addEdge(state, id, a.target || a.to, a.action === 'offer_help' ? 'help' : 'comm');
-          agent.activity = 'working';
-        } else if (a.action === 'disabled' || a.action === 'rest') {
-          agent.activity = 'coffee';
-        } else if (a.action) {
-          agent.activity = 'working';
+        const action = a.action || '';
+        const target = a.target || a.to || '';
+        agent.lastAction = action;
+
+        // M2-4: 工作流顺序约束 — delegate/communicate 须按 workflow 边顺序推进
+        // 前序交接未完成（workflowProgress < edge.order）时，不渲染协作边但仍记录动作
+        const _isWorkflowOrdered = () => {
+          if (!state.workflow.length) return false;
+          return state.workflow.some((w) => w.from === id && (w.to === target || w.to === '*'));
+        };
+        const _workflowAllows = () => {
+          // 无工作流边 → 不约束（自由模式）
+          if (!state.workflow.length) return true;
+          // 有工作流边但当前 agent/target 不在任何边上 → 不约束
+          const relevant = state.workflow.filter((w) => w.from === id);
+          if (!relevant.length) return true;
+          // 当前 agent 有工作流边 → 检查顺序
+          const nextEdge = relevant.find((w) => w.order === state.workflowProgress);
+          return !!nextEdge;
+        };
+        const _advanceWorkflow = () => {
+          // 推进到下一条边
+          if (state.workflowProgress < state.workflow.length) {
+            state.workflowProgress += 1;
+          }
+        };
+
+        switch (action) {
+          case 'offer_help':
+            addEdge(state, id, target, 'help');
+            agent.activity = 'working';
+            break;
+          case 'delegate':                                   // 委派：有向，与沟通区分
+            if (_workflowAllows()) {
+              addEdge(state, id, target, 'delegate');
+              _advanceWorkflow();
+            }
+            agent.activity = 'working';
+            break;
+          case 'communicate':
+            if (target === 'broadcast' || a.broadcast) {       // 广播：无定向目标
+              state.edges.push({ from: id, to: '*', kind: 'broadcast', ttl: EDGE_TTL });
+              if (state.edges.length > EDGE_MAX) state.edges.splice(0, state.edges.length - EDGE_MAX);
+            } else {
+              if (_workflowAllows()) {
+                addEdge(state, id, target, 'comm');
+                _advanceWorkflow();
+              }
+            }
+            agent.activity = 'working';
+            break;
+          case 'claim_task':
+            agent.task = a.task || a.task_id || agent.task || '';
+            agent.activity = 'working';
+            break;
+          case 'execute_skill':
+            agent.skillUsed = a.skill_used || a.skill || '';
+            agent.activity = 'working';
+            break;
+          case 'work_on_task':
+            if (a.task || a.task_id) agent.task = a.task || a.task_id;
+            agent.activity = 'working';
+            break;
+          case 'disabled':
+          case 'rest':
+            agent.activity = 'coffee';
+            break;
+          case 'idle':
+            agent.activity = 'idle';
+            break;
+          default:
+            if (action) agent.activity = 'working';
         }
       }
       break;
@@ -228,11 +304,76 @@ export function reduce(prev, event) {
       }
       break;
     }
+    case 'cat_say': {
+      state.catNote = String(event.text || '').slice(0, 120);
+      break;
+    }
     case 'tick': {
       const dt = event.dt || 1;
       state.edges = state.edges
         .map((e) => ({ ...e, ttl: e.ttl - dt }))
         .filter((e) => e.ttl > 0);
+      break;
+    }
+    case 'workflow_sync': {
+      // M2-4: 同步工作流拓扑（源→目标 + 传递内容/类型），按给定顺序编号
+      state.workflow = (event.edges || []).map((e, i) => ({
+        from: e.from || e.source || '',
+        to: e.to || e.target || '',
+        content: e.content || e.channel || '',
+        type: e.type || e.message_type || 'request',
+        weight: e.weight != null ? e.weight : 1,
+        order: e.order != null ? e.order : i,
+      })).filter((e) => e.from && e.to);
+      // 重置顺序进度
+      state.workflowProgress = 0;
+      break;
+    }
+    case 'stages_sync': {
+      // M2-5: 同步房间业务阶段映射 {room_id: stage}
+      state.stages = { ...(event.stages || {}) };
+      break;
+    }
+    case 'workflow_graph_sync': {
+      // M3-1: 同步显式工作流图（节点=角色·技能·模型档，边=依赖·内容）
+      state.workflowGraph = {
+        nodes: (event.nodes || []).map((n) => ({
+          id: n.id || '',
+          role: n.role || '',
+          skills: Array.isArray(n.skills) ? n.skills : [],
+          modelTier: n.model_tier || n.modelTier || '',
+        })),
+        edges: (event.edges || state.workflow || []).map((e, i) => ({
+          from: e.from || e.source || '',
+          to: e.to || e.target || '',
+          content: e.content || e.channel || '',
+          type: e.type || e.message_type || 'request',
+          order: e.order != null ? e.order : i,
+        })),
+        highlightedEdge: null,
+      };
+      break;
+    }
+    case 'highlight_workflow_edge': {
+      // M3-2: 协作热度面板点击 → 高亮工作流图对应边
+      state.workflowGraph = { ...state.workflowGraph, highlightedEdge: event.edgeKey || null };
+      break;
+    }
+    case 'bidding_sync': {
+      // M4-4: 竞标画中画 — 同步候选排名与胜者
+      state.biddingView = {
+        active: !!event.active,
+        candidates: (event.candidates || []).map((c) => ({
+          id: c.id || c.candidate_id || '',
+          operator: c.operator || '',
+          desc: c.desc || c.operator_desc || '',
+          score: c.score || c.quality_score || 0,
+          token: c.token || c.token_consumed || 0,
+          rank: c.rank || 0,
+        })),
+        winnerId: event.winnerId || event.winner_id || null,
+        ranking: event.ranking || [],
+      };
       break;
     }
     default:

@@ -83,6 +83,32 @@ def test_store_loads_five_builtin_seeds():
     assert store.load_errors == []
 
 
+def test_store_source_filter_partitions_builtin_and_plan():
+    """M1-1: source 过滤区分内置样例与讨论产出计划场景。"""
+    from sandbox.scenario_store import ScenarioStore
+    from sandbox.scenario_models import ScenarioSpec, RoomSpec, ScenarioTask, ScenarioWorld
+    store = ScenarioStore()
+    # 内置样例: 5 个种子
+    builtin = store.list(source="builtin")
+    assert len(builtin) >= 5
+    assert all(s.source == "builtin" for s in builtin)
+    # 讨论产出: 初始为空
+    assert store.list(source="plan") == []
+    # 注入一个 plan 来源场景后，只在 source=plan 出现，不污染 builtin
+    plan_spec = ScenarioSpec(
+        scenario_id="plan_demo", name="计划演练demo", source="plan",
+        world=ScenarioWorld(rooms=[RoomSpec(room_id="r1", name="调研", stage=0)]),
+        taskflow=[ScenarioTask(task_id="t1", name="调研", room_id="r1")],
+    )
+    store._scenarios[plan_spec.scenario_id] = plan_spec
+    assert [s.scenario_id for s in store.list(source="plan")] == ["plan_demo"]
+    assert "plan_demo" not in {s.scenario_id for s in store.list(source="builtin")}
+    # all / 空 → 全部
+    assert store.list(source="all") == store.list()
+    assert "plan_demo" in {s.scenario_id for s in store.list()}
+
+
+
 def test_seed_scenarios_all_compile():
     from sandbox.scenario_store import ScenarioStore
     from sandbox.scenario_compiler import compile_scenario, build_chaos_timeline

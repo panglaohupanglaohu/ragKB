@@ -45,9 +45,11 @@ def _best_score_map() -> Dict[str, float]:
 async def list_scenarios(
     category: str = Query(default=""),
     tag: str = Query(default=""),
+    source: str = Query(default="", description="来源过滤: plan(讨论产出)|builtin(内置样例)|all|空=全部"),
     team_id: str = Query(default="", description="传入则按该团队角色/技能匹配度排序"),
 ) -> Dict[str, Any]:
-    """B-1.1: 场景列表（含历史最佳分）。传 team_id 时附匹配度并按匹配度降序（闭环优化 C2′）。"""
+    """B-1.1: 场景列表（含历史最佳分）。传 team_id 时附匹配度并按匹配度降序（闭环优化 C2′）。
+    source 过滤（数字办公室闭环 M1-1）：plan=Plaza 讨论产出的执行计划场景，builtin=内置测试样例。"""
     store = get_scenario_store()
     best = _best_score_map()
     # 选团队时取一次团队快照，用于复用 match_team 算每个场景的匹配度
@@ -68,7 +70,7 @@ async def list_scenarios(
         except Exception as e:
             logger.warning(f"list_scenarios 团队快照失败: {e}")
     items = []
-    for s in store.list(category=category, tag=tag):
+    for s in store.list(category=category, tag=tag, source=source):
         item = {
             "scenario_id": s.scenario_id, "name": s.name, "category": s.category,
             "description": s.description, "tags": s.tags, "difficulty": s.difficulty,
@@ -114,6 +116,24 @@ async def create_scenario(req: CreateScenarioRequest) -> Dict[str, Any]:
     if not result.get("ok"):
         raise HTTPException(status_code=422, detail=result)
     return {"ok": True, "scenario_id": spec.scenario_id}
+
+
+class AssignPlanRequest(BaseModel):
+    plan: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/from-plan")
+async def assign_plan_to_twin_endpoint(req: AssignPlanRequest) -> Dict[str, Any]:
+    """M1-4: Plaza 讨论产出的 ExecutionPlan → 落地性审查 → 编译 → 落库为 source=plan 场景。
+
+    审查不过返回 422 + 缺项 issues；成功返回 {ok, scenario_id}。
+    这是「讨论→计划→孪生演练」闭环把计划送进孪生菜单的唯一入口。
+    """
+    from .plan_scenario_bridge import assign_plan_to_twin
+    result = assign_plan_to_twin(req.plan or {})
+    if not result.get("ok"):
+        raise HTTPException(status_code=422, detail=result)
+    return result
 
 
 @router.post("/generate")

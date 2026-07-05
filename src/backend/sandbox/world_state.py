@@ -222,6 +222,27 @@ class WorldStateManager:
             "agent_count": len(self._agent_states),
             "resource_count": len(self._resources),
             "workflow_edges": len(self._workflow_edges),
+            # M2-4: 透出工作流边明细（源→目标 + 传递语义），供办公室 3D 按边顺序渲染递交
+            "workflow_edges_detail": [
+                {
+                    "source": e.source_agent_id, "target": e.target_agent_id,
+                    "channel": e.channel, "message_type": e.message_type,
+                    "weight": e.weight,
+                }
+                for e in self._workflow_edges
+            ],
+            # M2-5: 透出房间业务阶段映射，供办公室 3D 按阶段分区
+            "room_stages": dict(getattr(self, "_room_stages", {}) or {}),
+            # M3-1: 透出工作流图节点（角色·技能·模型档），供办公室渲染显式工作流图
+            "workflow_nodes": [
+                {
+                    "id": aid,
+                    "role": s.get("role", ""),
+                    "skills": list(s.get("skills", []) or []),
+                    "model_tier": s.get("model_tier", ""),
+                }
+                for aid, s in self._agent_states.items()
+            ],
             "constraints": len(self._constraints),
             "pending_tasks": len(self._pending_tasks),
             "global_metrics": self._global_metrics,

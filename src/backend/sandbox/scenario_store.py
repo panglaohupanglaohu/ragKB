@@ -58,12 +58,15 @@ class ScenarioStore:
 
     # ── 查询 ──────────────────────────────────────────────
 
-    def list(self, category: str = "", tag: str = "") -> List[ScenarioSpec]:
+    def list(self, category: str = "", tag: str = "", source: str = "") -> List[ScenarioSpec]:
         result = list(self._scenarios.values())
         if category:
             result = [s for s in result if s.category == category]
         if tag:
             result = [s for s in result if tag in s.tags]
+        # 来源过滤: plan=讨论产出 / builtin=内置样例 / custom / all|空=全部
+        if source and source != "all":
+            result = [s for s in result if s.source == source]
         return sorted(result, key=lambda s: (s.source != "builtin", s.scenario_id))
 
     def get(self, scenario_id: str) -> Optional[ScenarioSpec]:

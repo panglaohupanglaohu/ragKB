@@ -100,9 +100,61 @@ function bootOffice() {
           if (ids.has(agentId)) store.dispatch({ type: 'position', agentId, room });
         }
       }
+      syncScenarioStages();       // M2-5: 选中场景 → 阶段分区带
     } catch (e) { /* 只读同步失败不致命 */ }
   }
+  // M2-5: 从当前选中场景 spec 的 world.rooms[].stage 派发业务阶段映射（幂等，变化才派发）
+  let lastStageKey = '';
+  function syncScenarioStages() {
+    const rooms = (window._sx && _sx.scenarioSpec && _sx.scenarioSpec.world && _sx.scenarioSpec.world.rooms) || [];
+    const stages = {};
+    rooms.forEach((r) => { if (r && r.room_id != null) stages[r.name || r.room_id] = Number(r.stage || 0); });
+    const key = Object.entries(stages).map(([k, v]) => k + ':' + v).sort().join(',');
+    if (key === lastStageKey) return;
+    lastStageKey = key;
+    store.dispatch({ type: 'stages_sync', stages });
+  }
   setInterval(syncPositions, 2000);
+
+  // ── 猫气泡 = 演练解说员（优先级: 种子技能注入 > 运行中的仿真参数 > 当前演练任务） ──
+  const MODE_LABEL = { what_if: 'What-if', multi_branch: '并行', parallel: '并行', evolutionary: '演化' };
+  let seedNote = null;          // {text, until} 种子技能注入的置顶提示（45s）
+  function catContextNote() {
+    if (seedNote && Date.now() < seedNote.until) return seedNote.text;
+    const sx = window._sx || {};
+    if (sx.simRunning) {
+      const modeEl = document.querySelector('input[name="secs-mode"]:checked');
+      const mode = MODE_LABEL[(modeEl && modeEl.value) || (window._DTS && window._DTS.selectedMode)] || 'What-if';
+      const steps = (document.getElementById('secs-steps') || {}).value || sx.maxSteps || 150;
+      const speed = (document.getElementById('secs-speed-slider') || {}).value || 10;
+      return `🐈 仿真参数\n模式 ${mode} · 步数 ${steps} · 加速 ${speed}x`;
+    }
+    // 任务来源链: SECS 任务选择(_selectedTaskGoal) > 场景名 > 任务下拉 > 导演台输入框 > 场景id
+    const selOpt = (el) => (el && el.selectedIndex > 0
+      ? el.options[el.selectedIndex].textContent.trim() : '');
+    const task = (window._selectedTaskGoal && window._selectedTaskGoal.name)
+      || (sx.scenarioSpec && sx.scenarioSpec.name)
+      || selOpt(document.getElementById('secs-task-select'))
+      || ((document.getElementById('dp-task-name') || {}).value || '').trim()
+      || (sx.scenarioId ? String(sx.scenarioId) : '');
+    return task ? `🐈 演练任务\n${task}` : '';
+  }
+  setInterval(() => {
+    store.dispatch({ type: 'cat_say', text: catContextNote() });
+  }, 2000);
+  // 种子技能注入 → 气泡置顶显示注入的技能名（沙箱进料 · 💉 注入按钮）
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest && e.target.closest('#btn-inject-skill');
+    if (!btn) return;
+    const sel = document.getElementById('skill-inject-select');
+    const name = sel && sel.selectedIndex > 0
+      ? sel.options[sel.selectedIndex].textContent.trim() : '';
+    if (name) {
+      seedNote = { text: `🐈 种子技能已注入\n💉 ${name}`, until: Date.now() + 45e3 };
+      store.dispatch({ type: 'cat_say', text: seedNote.text });
+    }
+  }, true);
+
   // 混沌加入/离开即时反映到办公室（不等 2s 轮询）
   for (const fn of ['_dt2dChaosJoin', '_dt2dChaosLeave', '_dt2dChaosReset']) {
     const orig = window[fn];
@@ -222,6 +274,10 @@ function bootOffice() {
       lastRosterKey = '';
       syncPositions();
     },
+    // M2-4: 显式推送工作流边（源→目标+传递内容）→ 办公室按边渲染递交内容标签
+    syncWorkflow(edges) { store.dispatch({ type: 'workflow_sync', edges: edges || [] }); },
+    // M2-5: 显式推送房间业务阶段映射 {room_id: stage} → 办公室阶段分区带
+    syncStages(map) { store.dispatch({ type: 'stages_sync', stages: map || {} }); },
     meeting(active, speakerId, boardLine, participantIds) {
       window.OfficeAPI._speakerId = speakerId || null;
       store.dispatch({ type: 'discussion', active, speakerId, boardLine, participantIds });

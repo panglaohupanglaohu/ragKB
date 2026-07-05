@@ -1898,8 +1898,10 @@ function renderPlanCard(planContent, revised = false) {
       <button class="plan-btn primary" onclick="dispatchAndExecute()">拆解并执行</button>
       <button class="plan-btn accent" onclick="enterEvolution()">进入演化</button>
       <button class="plan-btn accent" onclick="enterCostGov()" title="将讨论结论作为成本治理输入">💰 成本治理</button>
+      <button class="plan-btn" onclick="loadExecutionPlan()" title="结构化执行计划：逐步骤审查/批准/驳回/追问">📋 结构化审查</button>
       <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
-    </div></div>`;
+    </div>
+    <div id="exec-plan-body" style="margin-top:8px"></div></div>`;
   if (preferredTeam && $('assign-team')) {
     // Re-apply value defensively in case option order changes during rerender.
     $('assign-team').value = preferredTeam;
@@ -2423,6 +2425,107 @@ window.refreshPlan = async function() {
   } else {
     toast('刷新失败');
   }
+};
+
+/* ═══════════ P5-3 结构化执行计划面板（批准/驳回/逐步骤追问） ═══════════ */
+const _PLAN_STEP_STATUS = {
+  pending: { label: '待执行', color: 'var(--dim)' },
+  dispatched: { label: '执行中', color: 'var(--slit-glow)' },
+  completed: { label: '已完成', color: '#34d399' },
+  failed: { label: '失败', color: '#ef4444' },
+};
+
+window.loadExecutionPlan = async function(rebuild = false) {
+  if (!curPlaza || !curDisc) { toast('请先选择讨论'); return; }
+  const body = $('exec-plan-body');
+  if (body) body.innerHTML = '<div style="font-size:10px;color:var(--dim);padding:6px">加载结构化计划…</div>';
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/execution-plan${rebuild ? '?rebuild=true' : ''}`);
+  if (!r || !r.plan) { if (body) body.innerHTML = '<div style="font-size:10px;color:var(--dim);padding:6px">尚无结构化计划，先完成讨论或点「刷新计划」。</div>'; return; }
+  renderExecutionPlan(r);
+};
+
+function renderExecutionPlan(r) {
+  const body = $('exec-plan-body');
+  if (!body) return;
+  const plan = r.plan || {};
+  const issues = r.issues || [];
+  const steps = plan.steps || [];
+  // 落地性审查缺项（按步聚合）
+  const issueByStep = {};
+  issues.forEach((i) => { (issueByStep[i.step] = issueByStep[i.step] || []).push(i.field || i.issue || ''); });
+  const stepsHtml = steps.map((s) => {
+    const st = _PLAN_STEP_STATUS[s.status] || _PLAN_STEP_STATUS.pending;
+    const miss = issueByStep[s.step_id] || [];
+    const missHtml = miss.length ? `<div style="font-size:9px;color:#ef4444;margin-top:2px">⚠ 缺: ${esc(miss.join(' / '))}</div>` : '';
+    const skills = (s.required_skills || []).map((k) => `<span class="chip">${esc(k)}</span>`).join('');
+    return `<div class="exec-step" style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b style="font-size:11px">${s.index != null ? s.index + '. ' : ''}${esc(s.title || s.step_id)}</b>
+        <span style="font-size:9px;color:${st.color}">● ${st.label}</span>
+      </div>
+      <div style="font-size:9px;color:var(--dim);margin-top:2px">角色: ${esc(s.responsible_role || '—')} · 验收: ${esc(s.acceptance || '—')}</div>
+      ${skills ? `<div style="margin-top:3px">${skills}</div>` : ''}
+      ${missHtml}
+      <div style="margin-top:4px"><button class="plan-btn" style="font-size:9px;padding:2px 6px" onclick="askPlanStep('${esc(s.step_id)}','${esc((s.title || '').replace(/'/g, ''))}')">💬 追问此步骤</button></div>
+    </div>`;
+  }).join('') || '<div style="font-size:10px;color:var(--dim)">计划暂无步骤</div>';
+
+  const approved = plan.status === 'approved' || plan.status === 'dispatched';
+  const gate = issues.length
+    ? `<div style="font-size:10px;color:#ef4444;margin-bottom:6px">落地性审查未通过：${issues.length} 处缺项，补齐后可批准（或强制批准保留人的最终决定权）。</div>`
+    : `<div style="font-size:10px;color:#34d399;margin-bottom:6px">✅ 落地性审查通过，可批准派发。</div>`;
+
+  body.innerHTML = `<div class="exec-plan" style="border-top:1px dashed var(--line);padding-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <b style="font-size:11px">📋 结构化执行计划 <span style="font-size:9px;color:var(--dim)">rev.${plan.revision || 1} · ${esc(plan.status || 'draft')}</span></b>
+    </div>
+    ${gate}
+    ${stepsHtml}
+    <div class="plan-actions" style="margin-top:6px">
+      ${approved
+        ? '<span style="font-size:10px;color:#34d399">已批准 ✓</span>'
+        : `<button class="plan-btn primary" onclick="approveExecutionPlan(false)">✅ 批准</button>${issues.length ? '<button class="plan-btn" onclick="approveExecutionPlan(true)" title="保留人的最终决定权，跳过审查">强制批准</button>' : ''}`}
+      <button class="plan-btn" onclick="rejectExecutionPlan()" title="驳回并让议事长重新梳理计划（重议）">✖ 驳回·重议</button>
+    </div>
+  </div>`;
+}
+
+window.approveExecutionPlan = async function(force = false) {
+  if (!curPlaza || !curDisc) return;
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/execution-plan/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved_by: localStorage.getItem('ag-user') || 'user', force: !!force }),
+  });
+  if (r && r.status === 'approved') { toast(force ? '已强制批准' : '计划已批准'); loadExecutionPlan(); }
+  else toast('批准失败：落地性审查未通过，请补齐缺项或强制批准');
+};
+
+// 驳回 = 让议事长根据对话重新梳理计划（重议），随后重新加载结构化视图
+window.rejectExecutionPlan = async function() {
+  if (!curPlaza || !curDisc) return;
+  toast('已驳回，议事长重新梳理计划…');
+  await refreshPlan();
+  loadExecutionPlan(true);
+};
+
+// 逐步骤追问：人↔Agent 对话锚定到具体步骤（复用讨论插话通道）
+window.askPlanStep = async function(stepId, stepTitle) {
+  if (!curPlaza || !curDisc) return;
+  const q = window.prompt(`就步骤「${stepTitle || stepId}」向议事长/团队追问：`);
+  if (!q || !q.trim()) return;
+  const message = `【关于步骤 ${stepTitle || stepId}】${q.trim()}`;
+  if (!evtSrc) appendMsg({ agent_name: '用户', niche_role: 'human', content: message });
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/interject`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  if (r) {
+    if (!evtSrc) {
+      if (r.moderator_reply) appendMsg(r.moderator_reply);
+      if (r.nominated_reply) appendMsg(r.nominated_reply);
+    }
+    toast('已就该步骤追问');
+  } else toast('追问失败');
 };
 
 /* ═══════════ SSE ═══════════ */

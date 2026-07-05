@@ -20,6 +20,21 @@ if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_singletons():
+    """根治测试数据污染 (bug-041): 每个用例前后重置共享 ABTestManager 单例的 EWMA 状态，
+    避免前序用例改动共享阈值/决策历史污染后序用例。conftest 层统一，覆盖后端全部测试。"""
+    def _reset():
+        try:
+            from agents.ab_testing import reset_ab_test_manager
+            reset_ab_test_manager()
+        except Exception:
+            pass
+    _reset()
+    yield
+    _reset()
+
+
 @pytest.fixture
 def sample_lamport_clock():
     """提供一个标准的 Lamport 时钟实例."""

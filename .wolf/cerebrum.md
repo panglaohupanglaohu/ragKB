@@ -8,6 +8,8 @@
 
 <!-- How the user likes things done. Code style, tools, patterns, communication. -->
 - [2026-07-04] 数字孪生统一办公室里的 Agent 造型必须复用 plaza 的 agent 模型骨架/视觉语言；不要做成黑色圆柱、棋子或“站桩胶囊”。参考 Marvis 办公室时保持极简白空间，但 Agent 本体用 plaza 风格。
+- [2026-07-05] 统一办公室里的猫不是静态摆件；需要有 Agent↔猫互动过程。基础规则：离猫最近的 Agent 会转身面向猫，并通过闪烁/放大的脚下光圈吸引猫。
+- [2026-07-05] 猫「按有效技能数跳到 Agent 桌上」的逻辑用户明确不要，已撤销；不要再加回。猫互动只保留最近 Agent 转身+光圈吸引。
 
 ## Key Learnings
 

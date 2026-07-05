@@ -31,4 +31,25 @@ describe('plaza action paths', () => {
     expect(source).toContain("sessionStorage.setItem('extract_source'");
     expect(source).toContain("window.location.href = targetUrl.pathname + targetUrl.search");
   });
+
+  it('P5-3: exposes structured execution-plan panel wired to approve/reject/step-question endpoints', () => {
+    const source = read('src/frontend/js/plaza.js');
+    // 入口 + 容器
+    expect(source).toContain('onclick="loadExecutionPlan()"');
+    expect(source).toContain('id="exec-plan-body"');
+    // 加载结构化计划（含落地性 issues）
+    expect(source).toContain('window.loadExecutionPlan = async function');
+    expect(source).toContain('/execution-plan');
+    expect(source).toContain('function renderExecutionPlan(r)');
+    // 批准（含强制批准保留人的最终决定权）
+    expect(source).toContain('window.approveExecutionPlan = async function');
+    expect(source).toContain('/execution-plan/approve');
+    // 驳回 = 重议
+    expect(source).toContain('window.rejectExecutionPlan = async function');
+    expect(source).toContain('await refreshPlan()');
+    // 逐步骤追问（锚定步骤 → 讨论插话）
+    expect(source).toContain('window.askPlanStep = async function');
+    expect(source).toContain('【关于步骤');
+    expect(source).toContain('/interject');
+  });
 });

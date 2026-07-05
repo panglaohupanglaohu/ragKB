@@ -597,10 +597,12 @@
     try {
       var sceneList = [];
 
-      // 0. 演练场景库（真实场景：含 taskflow + rubric，按所选团队匹配度排序）——闭环核心入口
+      // 0. 演练场景库（只列「讨论产出的执行计划」场景 source=plan，按团队匹配度排序）——闭环核心入口
+      // 内置测试样例(builtin)不在此作为主演练目标出现（在场景卡片区的「样例·自检」折叠区）。
       try {
         var _stid = window._selectedTeamId || '';
-        var scnR = await fetch('/api/v1/scenarios' + (_stid ? ('?team_id=' + encodeURIComponent(_stid)) : ''));
+        var _q = 'source=plan' + (_stid ? ('&team_id=' + encodeURIComponent(_stid)) : '');
+        var scnR = await fetch('/api/v1/scenarios?' + _q);
         var scnD = await scnR.json();
         (scnD.scenarios || []).forEach(function (s) {
           var mtxt = '';

@@ -3,6 +3,10 @@
 > Chronological action log. Hooks and AI append to this file automatically.
 > Old sessions are consolidated by the daemon weekly.
 
+- 2026-07-05T02:11:00Z | 撤销猫按有效技能跳桌逻辑(用户要求) | src/frontend/js/office/office-scene.js, office-state.js, office-boot.js, __tests__/office-state.test.js | 移除 skills/effectiveSkillCount 透传+跳桌+阈值+相关单测; 保留最近Agent转身+光圈吸引; office-state 13/13, node --check, build 通过 | ~1k |
+
+- 2026-07-05T01:55:00Z | 设计并落地撸猫过程 | src/frontend/js/office/office-scene.js | 动画层新增 nearestCatLure(): 最近的非递文件 Agent 转身面向猫, 脚下 glowRing 按正弦脉冲闪烁/放大吸引猫; 其他 Agent 光圈复位。node --check、office-state 13/13、vite build 通过 | ~1k |
+- 2026-07-05T02:01:00Z | 猫按有效技能数判断并跳上桌 | src/frontend/js/office/office-state.js, office-boot.js, office-scene.js, src/frontend/__tests__/office-state.test.js | roster 透传 skills/effectiveSkillCount; OfficeState 保存/估算有效技能数; 最近 Agent 有效 skill >=3 时光圈增强, 猫跳到该 Agent 桌面停留; office-state 15/15、node --check、vite build 通过 | ~2k |
 - 2026-07-04T09:30:00Z | 修复 office3d Agent 造型跑偏 | src/frontend/js/office/office-scene.js | 按用户校准，Agent-digital-twin.html?office3d=1 的 Agent 从胶囊/球头/尖耳站桩改为复用 plaza 头环+U形身体+地面光环模型语言；动画改 bobRoot，避免依赖旧 child[0]；office-state 9/9、node --check、vite build 通过 | ~1k |
 - 2026-06-12T14:48:00Z | G1-2 完成收口：在 skill_extractor.approve_item 接入 ClassificationStore.seed_reserve_from_extraction（幂等），实现“萃取完成即写入 reserve 分类记录”；新增 tests/test_skill_classifier.py::test_seed_reserve_from_extraction_idempotent，pytest 14 passed。
 - 2026-06-12T14:58:00Z | G3-2 本机联测收口：trial_api 增加 routing_comparison/routing_benefit 输出，branches 列表暴露 routing_strategy；新增 tests/test_v4_apis.py::test_routing_strategy_fork_comparison；pytest tests/test_v4_apis.py 14 passed。
@@ -170,3 +174,5 @@
 - 2026-07-04T08:25Z | 作息排队论落地: 设施占位模型(容量1,FIFO,咖啡1min/跑步机5min/马桶5min,到时释放队首补位), 错峰算法=团队内相位均匀分布 due=mean×(i+0.5)/N + 团队并发闸(同队有人在该设施则顺延), 3D排队站位沿queueDir成列, team_reset清理离编占位 | office-state 12单测✓ build✓
 - 2026-07-04T08:50Z | 座位语义定稿=保序前移压缩: 同批人顺序抖动→恒等映射不动座; 减员→保留者按原相对次序前移补位(不互换); 新人排其后; 场景空桌随编制收缩拆除+资源释放 | 修复: 幽灵清退后7人坐后排20+号桌的问题 | 13单测✓ build✓
 - 2026-07-04T09:05Z | 混沌增援进办公室: office-boot 合并 _chaosTopoState(added并入roster标记增援/removed剔除, 与协作图同口径), 包裹 _dt2dChaosJoin/Leave/Reset 即时同步不等轮询 | 增援Agent按保序压缩坐到队尾新桌, 离开者桌子拆除 | build✓ 13单测✓
+- 2026-07-05T01:30Z | 猫气泡=演练解说员: office-state catNote + cat_say; office-scene 猫头顶画布气泡(圆角+尾巴,3行折行); office-boot 优先级 种子技能注入(45s置顶,#btn-inject-skill捕获)>运行中仿真参数(secs-mode/steps/speed)>演练任务(_sx.scenarioSpec.name/dp-task-name) 2s轮询 | 19单测✓ build✓
+- 2026-07-05T01:40Z | 测试数据污染清理: ai_coding 移除6个测试Agent(TestAgent01/GetDetailAgent/StartStopAgent×2, 名字判据防误伤), 删2个空测试团队(413abed4/aac93c93), 归档a7c36670测试工作区; 均备份至 storage/_cleanup_backup | 教训: 集成测试写入了真实 team store→已入buglog, 根治=测试store隔离(fixture已有,少数smoke走活服务需排查) | 公有云xOPs为真实团队(uuid id+真实角色名)未动
