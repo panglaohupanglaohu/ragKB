@@ -49,11 +49,11 @@ def get_orchestrator() -> SECSOrchestrator:
 # ── Helper: DT→SECS bridge ──────────────────────────────────
 
 
-def _sync_dt_to_orchestrator(orch: SECSOrchestrator) -> Dict[str, Any]:
-    """从数字孪生 _dt_state 同步到 SECS."""
+def _sync_dt_to_orchestrator(orch: SECSOrchestrator, team_id: str = "") -> Dict[str, Any]:
+    """从数字孪生 _dt_state 同步到 SECS. team_id 非空时只同步该团队 agent."""
     try:
         from agents.api import _dt_state
-        return orch.sync_from_digital_twin(_dt_state)
+        return orch.sync_from_digital_twin(_dt_state, team_id=team_id)
     except Exception as e:
         logger.warning(f"DT 同步失败: {e}")
         return {"synced_agents": 0, "synced_rooms": 0, "synced_edges": 0, "error": str(e)}
@@ -192,10 +192,10 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {req.mode}")
 
-    # 自动从数字孪生同步当前场景
+    # 自动从数字孪生同步当前场景（只同步所选团队的 agent，防止跨团队幽灵成员）
     dt_sync = None
     if req.sync_dt:
-        dt_sync = _sync_dt_to_orchestrator(orch)
+        dt_sync = _sync_dt_to_orchestrator(orch, team_id=req.team_id)
         # DT 无数据时，从 TeamManager 直接同步 agents（含 skills/tools）
         if not dt_sync.get("synced_agents") and not dt_sync.get("error"):
             _sync_team_agents_to_orchestrator(orch, req.team_id)
@@ -234,14 +234,15 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, Any]:
 @router.post("/sync-from-dt")
 async def sync_from_digital_twin(
     scenario_id: str = Query(default=""),
+    team_id: str = Query(default="", description="只同步该团队的 agent（防止跨团队幽灵成员）"),
 ) -> Dict[str, Any]:
     """从数字孪生同步当前场景到 SECS 世界状态。
-    
+
     C-4.2: 可选 scenario_id — 当传入时携带场景房间配置，
     世界状态同步时以场景房间为准。
     """
     orch = get_orchestrator()
-    result = _sync_dt_to_orchestrator(orch)
+    result = _sync_dt_to_orchestrator(orch, team_id=team_id)
     if scenario_id:
         try:
             from .scenario_store import get_scenario_store

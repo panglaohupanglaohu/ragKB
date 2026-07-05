@@ -229,6 +229,8 @@ class AgentTwin:
     messages_received: int = 0
     # v4 A-2.3: 技能熟练度先验 (skill_name -> 成功率, 默认 0.5)
     skill_proficiency: Dict[str, float] = field(default_factory=dict)
+    # 混沌注入的增援 Agent 标记 — 非真实团队成员，仿真结束后清理
+    is_reinforcement: bool = False
 
 
 @dataclass

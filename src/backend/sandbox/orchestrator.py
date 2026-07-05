@@ -71,6 +71,9 @@ class SECSOrchestrator:
         use_llm: bool = False,
     ) -> SandboxSession:
         """创建沙箱会话."""
+        # 清空上一个 session 遗留的 agent 状态（world_state 是单例，跨 session 不自动清理）
+        self.world_state._agent_states = {}
+
         # 如果启用 LLM 模式，注入 LLM 决策函数
         if use_llm or self._llm_mode:
             self.twin_loop._decision_func = self._llm_decision_wrapper
@@ -150,15 +153,33 @@ class SECSOrchestrator:
         if workflow_edges:
             self.world_state.sync_workflow(workflow_edges)
 
-    def sync_from_digital_twin(self, dt_state: Dict[str, Any]) -> Dict[str, Any]:
+    def sync_from_digital_twin(self, dt_state: Dict[str, Any], team_id: str = "") -> Dict[str, Any]:
         """从数字孪生状态同步场景到 SECS 世界.
 
         将 DT 的 rooms/positions/interactions 转换为
         SECS 的 agents/resources/workflow_edges。
+        team_id 非空时只同步该团队的 agent（防止跨团队幽灵成员）。
         """
         rooms = dt_state.get("rooms", [])
         positions = dt_state.get("positions", {})
         interactions = dt_state.get("interactions", [])
+
+        # 如果指定了 team_id，只保留该团队的 agent positions
+        if team_id and _team_manager:
+            try:
+                team = _team_manager.get_team(team_id)
+                if team:
+                    team_agent_ids = set()
+                    team_agents = (team.agents.values() if isinstance(team.agents, dict)
+                                   else (team.agents or []))
+                    for a in team_agents:
+                        aid = getattr(a, 'agent_id', '') or getattr(a, 'name', '')
+                        if aid:
+                            team_agent_ids.add(aid)
+                    if team_agent_ids:
+                        positions = {k: v for k, v in positions.items() if k in team_agent_ids}
+            except Exception:
+                pass
 
         # rooms → 资源 (每个房间是一个空间资源)
         resources = [

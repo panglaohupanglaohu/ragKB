@@ -268,7 +268,7 @@
     refreshBtn.disabled = true;
     try {
       // 使用 /sync-from-dt 从数字孪生拉取实际对象状态同步到世界状态
-      var r = await (window._agFetch || fetch)(SECS+'/sync-from-dt', {
+      var r = await (window._agFetch || fetch)(SECS+'/sync-from-dt?team_id='+encodeURIComponent(_selectedTeamId||''), {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({})

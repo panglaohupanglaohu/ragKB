@@ -330,12 +330,14 @@ export function createOfficeScene(canvas, container) {
     box(0.56, 0.24, 0.26, 0, 0.32, 0, furMat, g);
     // ── 头 ──
     const head = box(0.28, 0.26, 0.26, 0.42, 0.50, 0, furMat, g);
-    // ── 尖耳（圆锥，纯猫毛色）──
+    // ── 圆锥耳朵 ──
+    const ears = [];
     for (const s of [-1, 1]) {
       const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 4), furMat);
       ear.position.set(0.40, 0.69, 0.095 * s);
       ear.castShadow = true;
       g.add(ear);
+      ears.push(ear);
     }
     // ── 尾巴（上翘，动画甩动）──
     const tail = box(0.07, 0.44, 0.07, -0.34, 0.5, 0, furMat, g);
@@ -383,7 +385,7 @@ export function createOfficeScene(canvas, container) {
     }
     g.position.set(CAT_ROUTE[0][0], 0, CAT_ROUTE[0][1]);
     scene.add(g);
-    return { group: g, tail, legs, head, drawBubble, waypoint: 1, dwell: 0, speed: 1.6 };
+    return { group: g, tail, legs, head, ears, drawBubble, waypoint: 1, dwell: 0, speed: 1.6 };
   }
 
   // ── 装配 ──
@@ -721,7 +723,10 @@ export function createOfficeScene(canvas, container) {
       cat.dwell -= dt;
       cat.tail.rotation.z = 0.5 + Math.sin(t * 3) * 0.3;      // 停下时甩尾巴
       cat.group.position.y += (0 - cat.group.position.y) * 0.2; // 身体落回
-      if (cat.legs) cat.legs.forEach((leg) => { leg.rotation.x += (Math.PI - leg.rotation.x) * 0.2; }); // 腿归位（锥尖朝下）
+      if (cat.legs) cat.legs.forEach((leg) => { leg.rotation.z += (0 - leg.rotation.z) * 0.2; }); // 腿归位
+      if (cat.ears) cat.ears.forEach((ear, i) => {             // 停下时耳朵抖动
+        ear.rotation.x = Math.sin(t * 7 + i * Math.PI) * 0.18;
+      });
     } else {
       const [wx, wz] = CAT_ROUTE[cat.waypoint];
       const dx = wx - cat.group.position.x, dz = wz - cat.group.position.z;
@@ -737,6 +742,8 @@ export function createOfficeScene(canvas, container) {
         while (diff < -Math.PI) diff += Math.PI * 2;
         const turn = Math.max(-3.2 * dt, Math.min(3.2 * dt, diff));
         cat.group.rotation.y += turn;
+        cat.tail.rotation.z = 0.5 + Math.sin(t * 6) * 0.12;    // 走动时尾巴轻微晃动
+        if (cat.ears) cat.ears.forEach((ear) => { ear.rotation.x += (0 - ear.rotation.x) * 0.2; }); // 走动时耳朵归位
         // 只有大致对准了才迈步；转身时几乎原地（前进量随夹角衰减）
         const align = Math.max(0, 1 - Math.abs(diff) / 0.9);
         if (align > 0) {
@@ -746,9 +753,9 @@ export function createOfficeScene(canvas, container) {
           // 颠颠跑: 身体大幅上下弹跳
           const hop = Math.abs(Math.sin(t * 8));
           cat.group.position.y = hop * 0.14 * align;
-          // 对角腿交替前后摆动（叠加在锥尖朝下的基础旋转上）
+          // 对角腿沿行进方向前后摆动（绕 z 轴，锥尖朝下由 rotation.x=π 固定）
           if (cat.legs) cat.legs.forEach((leg, i) => {
-            leg.rotation.x = Math.PI + Math.sin(t * 8 + (i % 2 ? Math.PI : 0)) * 0.45 * align;
+            leg.rotation.z = Math.sin(t * 8 + (i % 2 ? Math.PI : 0)) * 0.5 * align;
           });
         }
       }

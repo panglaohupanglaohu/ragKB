@@ -288,6 +288,12 @@ class TwinLoopEngine:
                 session.status = SandboxStatus.EVALUATING if not stop_event.is_set() else SandboxStatus.PAUSED
                 session.updated_at = datetime.now(timezone.utc).isoformat()
 
+                # 清理混沌注入的增援 Agent（非真实团队成员，不影响评估）
+                reinforce_count = sum(1 for t in session.twins if getattr(t, 'is_reinforcement', False))
+                if reinforce_count:
+                    session.twins = [t for t in session.twins if not getattr(t, 'is_reinforcement', False)]
+                    logger.info("🧹 清理 %d 个增援 Agent (session=%s)", reinforce_count, session_id[:8])
+
             except Exception as e:
                 session.status = SandboxStatus.FAILED
                 logger.error(f"❌ 仿真失败: {e}")
@@ -772,6 +778,7 @@ class TwinLoopEngine:
                 current_task=None,
                 strategy_params={},
                 skill_proficiency={s: PROF_DEFAULT for s in gap},
+                is_reinforcement=True,
             )
             session.twins.append(new_twin)
             chaos["events"].append({"step": current_step, "type": "agent_join", "agent": new_id, "skills": list(gap)})
@@ -927,6 +934,10 @@ class TwinLoopEngine:
         if step_num >= session.max_steps:
             session.status = SandboxStatus.COMPLETED
             self._running_sim_states.pop(session_id, None)
+            # 清理增援 Agent
+            reinforce_count = sum(1 for t in session.twins if getattr(t, 'is_reinforcement', False))
+            if reinforce_count:
+                session.twins = [t for t in session.twins if not getattr(t, 'is_reinforcement', False)]
             return {"stepped": False, "reason": "max_steps_reached",
                     "total_steps": session.total_steps_executed, "session_id": session_id}
 
@@ -967,6 +978,10 @@ class TwinLoopEngine:
         if converged:
             session.status = SandboxStatus.COMPLETED
             self._running_sim_states.pop(session_id, None)
+            # 清理增援 Agent
+            reinforce_count = sum(1 for t in session.twins if getattr(t, 'is_reinforcement', False))
+            if reinforce_count:
+                session.twins = [t for t in session.twins if not getattr(t, 'is_reinforcement', False)]
 
         return {
             "stepped": True,
