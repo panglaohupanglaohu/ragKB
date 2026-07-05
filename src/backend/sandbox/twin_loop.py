@@ -593,8 +593,27 @@ class TwinLoopEngine:
             twin.state = action.get("next_state", "idle")
             twin.current_task = action.get("task")
 
+        active_task_ids = []
+        for action in agent_actions.values():
+            if not isinstance(action, dict):
+                continue
+            if action.get("action") in ("claim_task", "execute_skill", "work_on_task"):
+                task_id = action.get("task")
+                if task_id and task_id not in active_task_ids:
+                    active_task_ids.append(task_id)
+
         # 应用状态变化到仿真环境
-        state_changes = self._apply_actions(sim_state, agent_actions)
+        state_changes = self._apply_actions(sim_state, agent_actions, step_num)
+        completed_task_ids = {
+            c.get("task")
+            for c in state_changes
+            if c.get("type") == "task_completed" and c.get("task")
+        }
+        if completed_task_ids:
+            for twin in twins:
+                if twin.current_task in completed_task_ids:
+                    twin.current_task = None
+                    twin.state = "idle"
 
         step.agent_actions = agent_actions
         step.messages = messages
@@ -602,6 +621,13 @@ class TwinLoopEngine:
         step.state_changes = state_changes
         step.disabled_agents = disabled_agents
         step.global_reward = sum(step_rewards.values()) / max(len(step_rewards), 1) if step_rewards else 0.0
+        step.active_task_ids = active_task_ids
+        step.active_task_id = active_task_ids[0] if active_task_ids else ""
+        step.done_task_ids = [
+            t.get("id")
+            for t in sim_state.pending_tasks
+            if t.get("completed") and t.get("id")
+        ]
 
         return step
 
@@ -988,8 +1014,20 @@ class TwinLoopEngine:
             "step_num": step_num,
             "total_steps": session.total_steps_executed,
             "global_reward": step.global_reward,
-            "agent_actions": {k: v.get("action", "unknown") for k, v in step.agent_actions.items()},
+            "agent_actions": {
+                k: v.get("action", "unknown")
+                for k, v in step.agent_actions.items()
+                if isinstance(v, dict)
+            },
+            "active_task_id": step.active_task_id,
+            "active_task_ids": step.active_task_ids,
+            "done_task_ids": step.done_task_ids,
             "messages_count": len(step.messages),
+            "agent_roles": {
+                **{t.source_agent_id: t.role for t in (session.twins or [])},
+                **{t.twin_id: t.role for t in (session.twins or [])},
+            },
+            "twin_agents": {t.twin_id: t.source_agent_id for t in (session.twins or [])},
             "converged": converged,
             "status": session.status.value,
             "session_id": session_id,
@@ -1060,7 +1098,10 @@ class TwinLoopEngine:
 
         # 高探索率 → 随机认领非匹配任务（探索行为）
         if explore > 0.5 and random.random() < (explore - 0.5) * 0.3:
-            available_tasks = [t for t in world.pending_tasks if t.get("assigned_to") is None]
+            available_tasks = [
+                t for t in world.pending_tasks
+                if t.get("assigned_to") is None and not t.get("completed") and not t.get("blocked")
+            ]
             if available_tasks:
                 task = random.choice(available_tasks)
                 return {
@@ -1094,7 +1135,11 @@ class TwinLoopEngine:
         current_task_info = None
         if twin.current_task:
             for t in world.pending_tasks:
-                if t.get("id") == twin.current_task or t.get("assigned_to") == twin.twin_id:
+                if (
+                    (t.get("id") == twin.current_task or t.get("assigned_to") == twin.twin_id)
+                    and not t.get("completed")
+                    and not t.get("blocked")
+                ):
                     current_task_info = t
                     break
 
@@ -1144,7 +1189,7 @@ class TwinLoopEngine:
             t for t in world.pending_tasks
             if t.get("assigned_to") is None and (
                 not t.get("required_roles") or twin.role in t["required_roles"]
-            )
+            ) and not t.get("completed") and not t.get("blocked")
         ]
 
         if available_tasks:
@@ -1322,17 +1367,19 @@ class TwinLoopEngine:
         return round(reward, 4)
 
     def _apply_actions(
-        self, sim_state: WorldStateSnapshot, actions: Dict[str, Dict[str, Any]]
+        self, sim_state: WorldStateSnapshot, actions: Dict[str, Dict[str, Any]], step_num: int = 0
     ) -> List[Dict[str, Any]]:
         """应用动作到仿真状态，返回状态变化."""
         changes = []
         for twin_id, action in actions.items():
+            if not isinstance(action, dict):
+                continue
             action_type = action.get("action")
             task_id = action.get("task")
 
             if action_type == "claim_task":
                 for task in sim_state.pending_tasks:
-                    if task.get("id") == task_id:
+                    if task.get("id") == task_id and not task.get("completed") and not task.get("blocked"):
                         task["assigned_to"] = twin_id
                         task["skill_match"] = action.get("skill_match", [])
                         changes.append({"type": "task_assigned", "task": task_id, "agent": twin_id})
@@ -1342,7 +1389,7 @@ class TwinLoopEngine:
                 # 标记任务进度
                 skill_used = action.get("skill_used")
                 for task in sim_state.pending_tasks:
-                    if task.get("id") == task_id:
+                    if task.get("id") == task_id and not task.get("completed") and not task.get("blocked"):
                         progress = task.get("_progress", 0) + 1
                         task["_progress"] = progress
                         # 技能匹配的任务：每次进度 +2（效率翻倍）
@@ -1355,7 +1402,31 @@ class TwinLoopEngine:
                             "skill": skill_used,
                             "progress": task["_progress"],
                         })
+                        duration = max(int(task.get("base_duration_steps") or 3), 1)
+                        if task["_progress"] >= duration:
+                            task["completed"] = True
+                            task["completed_by"] = twin_id
+                            task["completed_step"] = step_num
+                            changes.append({
+                                "type": "task_completed",
+                                "task": task_id,
+                                "agent": twin_id,
+                                "step": step_num,
+                            })
                         break
+
+        completed_ids = {
+            t.get("id")
+            for t in sim_state.pending_tasks
+            if t.get("completed") and t.get("id")
+        }
+        for task in sim_state.pending_tasks:
+            if not task.get("blocked") or task.get("completed"):
+                continue
+            deps = [d for d in task.get("depends_on", []) if d]
+            if deps and all(dep in completed_ids for dep in deps):
+                task["blocked"] = False
+                changes.append({"type": "task_unblocked", "task": task.get("id"), "depends_on": deps})
 
         return changes
 

@@ -89,6 +89,16 @@
   // ── Utilities ──
   function setT(id, v) { var el = document.getElementById(id); if (el) el.textContent = String(v ?? '—'); }
   function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function _syncTaskflowState(d) {
+    if (!d) return;
+    var activeIds = Array.isArray(d.active_task_ids) ? d.active_task_ids.slice() : [];
+    if (!activeIds.length && d.active_task_id) activeIds = [d.active_task_id];
+    if (activeIds.length || d.active_task_id !== undefined) {
+      _sx.activeTaskIds = activeIds;
+      _sx.activeTaskId = activeIds[0] || d.active_task_id || '';
+    }
+    if (Array.isArray(d.done_task_ids)) _sx.doneTaskIds = d.done_task_ids.slice();
+  }
 
   // ── 控制台日志 ──
   var _consoleLines = [];
@@ -874,6 +884,7 @@
       var fb = document.getElementById('secs-task-btn');
       if (fb) { fb.textContent = '📋 整条场景流程'; fb.style.color = 'var(--green)'; }
       var ot = document.getElementById('o-task'); if (ot) ot.style.display = 'none';
+      try { if (window.dtRefresh) window.dtRefresh('task'); } catch (e) {}
       showToast('已选择：整条场景流程', 'success');
       return;
     }
@@ -1058,6 +1069,9 @@
     _sx.steps = 0;
     _sx.maxSteps = steps;
     _sx.rewardPoints = [];
+    _sx.activeTaskId = '';
+    _sx.activeTaskIds = [];
+    _sx.doneTaskIds = [];
 
     setT('secs-session-id', _sx.sessionId.slice(0,8));
     document.getElementById('secs-btn-launch').style.display = 'none';
@@ -1417,6 +1431,7 @@
       }
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
+      _syncTaskflowState(d);
 
       // 办公室 3D 观测钩子: SECS 通道的 step 同样喂给数字办公室（递文件/协作光线动画）
       try { if (window.OfficeAPI && window.OfficeAPI.ingestStep) window.OfficeAPI.ingestStep(d); } catch (e) {}
@@ -1428,9 +1443,14 @@
           var _ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           var _tmap = { claim_task: 'handoff', use_skill: 'tool-call', llm_call: 'llm-call', broadcast: 'broadcast', offer_help: 'handoff' };
           Object.keys(d.agent_actions).forEach(function (aid) {
-            var a = d.agent_actions[aid] || {}; var act = a.action || a.skill || '';
+            var raw = d.agent_actions[aid] || {};
+            var sk = (d.agent_skills && d.agent_skills[aid]) || {};
+            var a = (raw && typeof raw === 'object') ? raw : {};
+            var act = (typeof raw === 'string' ? raw : '') || a.action || a.skill || sk.action || '';
             if (!act || act === 'idle') return;
-            window.S.messages.push({ time: _ts, from: (_nm[aid] || aid), to: (a.target_agent && (_nm[a.target_agent] || a.target_agent)) || 'System', type: (_tmap[act] || 'tool-call'), content: (a.skill || act), duration: a.duration_ms || a.duration });
+            var sourceId = (d.twin_agents && d.twin_agents[aid]) || aid;
+            var targetId = (d.twin_agents && d.twin_agents[a.target_agent]) || a.target_agent;
+            window.S.messages.push({ time: _ts, from: (_nm[sourceId] || _nm[aid] || sourceId), to: (targetId && (_nm[targetId] || targetId)) || 'System', type: (_tmap[act] || 'tool-call'), content: (a.skill || a.skill_used || sk.skill || act), duration: a.duration_ms || a.duration });
           });
           if (window.S.messages.length > 500) window.S.messages = window.S.messages.slice(-500);
         }
@@ -1463,7 +1483,8 @@
         var skillMap = d.agent_skills||{};
         var entries = Object.keys(d.agent_actions).map(function(aid){
           var name = agentNames[aid]||aid.slice(0,8);
-          var action = d.agent_actions[aid];
+          var rawAction = d.agent_actions[aid];
+          var action = (rawAction && typeof rawAction === 'object') ? (rawAction.action || 'unknown') : rawAction;
           var detail = skillMap[aid];
           var skillStr = '';
           if (detail && detail.skill) {
@@ -1488,8 +1509,8 @@
         var actionKeys = Object.keys(d.agent_actions);
         if (actionKeys.length > 0) {
           // 根据动作类型推断活跃房间：claim_task→议事厅, skill执行→工作坊, transfer→知识库
-          var hasClaim = actionKeys.some(function(k) { var a=d.agent_actions[k]; return a&&(a.action==='claim_task'||a.skill==='claim_task'); });
-          var hasSkill = actionKeys.some(function(k) { var a=d.agent_actions[k]; return a&&a.skill&&a.skill!=='claim_task'&&a.skill!=='idle'; });
+          var hasClaim = actionKeys.some(function(k) { var a=d.agent_actions[k]; var act=typeof a==='string'?a:(a&&(a.action||a.skill)); return act==='claim_task'; });
+          var hasSkill = actionKeys.some(function(k) { var a=d.agent_actions[k]; var act=typeof a==='string'?a:(a&&(a.action||a.skill)); return act&&act!=='claim_task'&&act!=='idle'; });
           if (_sx.steps <= 2) activeRoom = 'council';           // 初始阶段：议事厅
           else if (hasClaim && _sx.steps <= 5) activeRoom = 'council';
           else if (hasSkill) activeRoom = 'workshop';            // 技能执行：工作坊
@@ -2096,6 +2117,7 @@
       setT('secs-session-step', _sx.steps);
       setT('secs-step-num', _sx.steps);
       setT('secs-reward-max', (d.global_reward||0).toFixed(3));
+      _syncTaskflowState(d);
 
       // [fix-T5] 不再写 Step 日志（由 SSE event 统一处理）
       // 如果 SSE 未连接，才写 fallback 日志
@@ -2122,8 +2144,13 @@
           type: 'step', step_id: d.step_num || _sx.steps,
           global_reward: d.global_reward,
           agent_actions: d.agent_actions,
+          agent_roles: d.agent_roles,
+          twin_agents: d.twin_agents,
           messages_count: d.messages_count,
           total_steps: _sx.maxSteps || 150,
+          active_task_id: d.active_task_id,
+          active_task_ids: d.active_task_ids,
+          done_task_ids: d.done_task_ids,
         });
       }
 

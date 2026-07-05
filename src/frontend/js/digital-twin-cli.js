@@ -496,13 +496,26 @@ async function renderPipeline(){
   function depth(id,seen){if(layer[id]!=null)return layer[id];const s=seen||new Set();if(s.has(id))return 0;s.add(id);const deps=(byId[id]&&byId[id].depends_on)||[];const d=deps.length?Math.max(...deps.map(x=>depth(x,new Set(s))))+1:0;layer[id]=d;return d;}
   tf.forEach(t=>depth(t.task_id));const maxL=Math.max(...tf.map(t=>layer[t.task_id]||0));
   const cols=[];for(let i=0;i<=maxL;i++)cols[i]=tf.filter(t=>(layer[t.task_id]||0)===i);
-  // 实时状态：直接用演练的当前步数(secs 每步更新的 _sx.steps)按比例标 done/running/pending
+  // 实时状态：后端有 taskflow 节点状态时精确高亮；旧会话无字段时保留步数比例兜底。
   var _cur=(window._sx&&window._sx.steps)||0;var _mx=(window._sx&&window._sx.maxSteps)||scn.recommended_max_steps||150;
-  var doneCount=Math.round(Math.min(1,_mx?_cur/_mx:0)*tf.length);
+  var _activeIds=new Set((Array.isArray(_sxo.activeTaskIds)?_sxo.activeTaskIds:(_sxo.activeTaskId?[_sxo.activeTaskId]:[])).filter(Boolean));
+  var _doneIds=new Set((Array.isArray(_sxo.doneTaskIds)?_sxo.doneTaskIds:[]).filter(Boolean));
+  var _hasPrecise=Array.isArray(_sxo.doneTaskIds)||_activeIds.size>0;
+  var doneCount=_hasPrecise?tf.filter(t=>_doneIds.has(t.task_id)).length:Math.round(Math.min(1,_mx?_cur/_mx:0)*tf.length);
+  function _taskState(t,gi){
+    if(_hasPrecise){
+      if(_doneIds.has(t.task_id))return'done';
+      if(_activeIds.has(t.task_id))return'running';
+      var deps=t.depends_on||[];
+      if(deps.length&&!deps.every(d=>_doneIds.has(d)))return'blocked';
+      return'pending';
+    }
+    return gi<doneCount?'done':(gi===doneCount?'running':'pending');
+  }
   flow.innerHTML=cols.map((col,ci)=>{
     const colHtml='<div style="display:flex;flex-direction:column;gap:8px">'+col.map(t=>{
-      const gi=tf.indexOf(t);const st=gi<doneCount?'done':(gi===doneCount?'running':'pending');
-      const c={done:'var(--green)',running:'var(--cyan)',pending:'var(--dim)'}[st];const txt={done:'✓ 完成',running:'▶ 进行中',pending:'待办'}[st];
+      const gi=tf.indexOf(t);const st=_taskState(t,gi);
+      const c={done:'var(--green)',running:'var(--cyan)',pending:'var(--dim)',blocked:'var(--amber)'}[st];const txt={done:'✓ 完成',running:'▶ 进行中',pending:'待办',blocked:'等待依赖'}[st];
       return '<div class="pipeline-step" style="min-width:150px;text-align:left;border-left:3px solid '+c+'"><div class="step-name">'+esc(t.name||t.task_id)+'</div><div class="step-desc">'+esc(t.room_id||'')+(((t.required_skills||[]).length)?(' · '+esc((t.required_skills||[]).slice(0,2).join(','))):'')+'</div><div style="font-size:10px;color:'+c+'">'+txt+'</div></div>';
     }).join('')+'</div>';
     return (ci>0?'<div class="pipeline-connector">→</div>':'')+colHtml;

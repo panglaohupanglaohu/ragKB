@@ -73,6 +73,9 @@ export function createOfficeScene(canvas, container) {
   let stageBandsKey = '';        // M2-5: 阶段映射签名，避免重复重建
   const ripples = [];            // M2-3: 广播波纹 [{mesh, t, from}]
   const broadcastSeen = new Set();
+  const agentBubbles = {};       // agentId → {sprite, canvas, ctx, tex, timer} 气泡
+  let raycaster = null;          // 点击拾取
+  let mouse = null;
 
   const furnMat = () => new THREE.MeshStandardMaterial({ color: C.furniture, roughness: 0.9 });
   function box(w, h, d, x, y, z, mat, parent) {
@@ -224,6 +227,96 @@ export function createOfficeScene(canvas, container) {
     });
     agentsGroup.remove(f.group);
   }
+
+  // ── Agent 气泡: 点击智能体弹出自我介绍 ──
+  function makeAgentBubble(agentDef) {
+    const cv = document.createElement('canvas');
+    cv.width = 384; cv.height = 128;
+    const tex = new THREE.CanvasTexture(cv);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sp.scale.set(4.0, 1.33, 1);
+    sp.position.y = 3.0;
+    sp.visible = false;
+    return { sprite: sp, canvas: cv, tex, visible: false, timer: 0 };
+  }
+
+  function showAgentBubble(agentId, def) {
+    let b = agentBubbles[agentId];
+    const f = figures[agentId];
+    if (!f) return;
+    if (!b) {
+      b = agentBubbles[agentId] = makeAgentBubble(def);
+      f.group.add(b.sprite);
+    }
+    const ctx = b.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 384, 128);
+    const name = def.name || agentId;
+    const role = def.role || '成员';
+    const team = def.team || '';
+    const skills = (def.skills || []).join('、') || '暂无';
+    const lines = [
+      `${name} · ${role}`,
+      team ? `团队: ${team}` : '',
+      `技能: ${skills.length > 20 ? skills.slice(0, 18) + '…' : skills}`,
+    ].filter(Boolean);
+    ctx.font = '20px sans-serif';
+    const h = 16 + lines.length * 28 + 10;
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.strokeStyle = '#c8cdd4'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(8, 8, 368, h, 14);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(180, h + 8); ctx.lineTo(200, h + 28); ctx.lineTo(220, h + 8);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2a2e34';
+    lines.forEach((l, i) => ctx.fillText(l.length > 24 ? l.slice(0, 22) + '…' : l, 20, 36 + i * 28));
+    b.tex.needsUpdate = true;
+    b.sprite.visible = true;
+    b.visible = true;
+    b.timer = 4.0; // 4 秒后消失
+  }
+
+  function hideAgentBubble(agentId) {
+    const b = agentBubbles[agentId];
+    if (b) { b.sprite.visible = false; b.visible = false; }
+  }
+
+  // ── 点击拾取: 点击智能体弹出气泡 ──
+  function initPicking() {
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+    let lastClickTime = 0;
+    canvas.addEventListener('pointerdown', () => { lastClickTime = Date.now(); });
+    canvas.addEventListener('pointerup', (ev) => {
+      if (Date.now() - lastClickTime > 300) return; // 拖拽不触发
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      // 检查点击是否命中任何 agent 的 head mesh
+      const agentMeshes = [];
+      for (const [aid, f] of Object.entries(figures)) {
+        f.group.traverse((o) => {
+          if (o.isMesh) { o.userData._agentId = aid; agentMeshes.push(o); }
+        });
+      }
+      const hits = raycaster.intersectObjects(agentMeshes, false);
+      if (hits.length > 0) {
+        const aid = hits[0].object.userData._agentId;
+        if (aid) {
+          const f = figures[aid];
+          if (f && f.def) {
+            showAgentBubble(aid, f.def);
+            // 点击猫特殊处理
+            if (f.def._isCat) {
+              if (window.OfficeAPI && window.OfficeAPI.onCatClick) window.OfficeAPI.onCatClick();
+            }
+          }
+        }
+      }
+    });
+  }
+  initPicking();
   function makeLabel(text) {
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
     const ctx = cv.getContext('2d');
@@ -761,6 +854,13 @@ export function createOfficeScene(canvas, container) {
       }
     }
     _stepFx(dt);
+    // Agent 气泡倒计时
+    for (const [aid, b] of Object.entries(agentBubbles)) {
+      if (b.visible) {
+        b.timer -= dt;
+        if (b.timer <= 0) hideAgentBubble(aid);
+      }
+    }
     controls.update();
     renderer.render(scene, camera);
   }
@@ -778,6 +878,33 @@ export function createOfficeScene(canvas, container) {
 
   return {
     applyState,
+    showAgentBubble,
+    showCatBubble(text) {
+      cat.drawBubble(text);
+    },
+    onRewardUpdate(reward, prevReward) {
+      // 评分波动 → 猫弹出评价（非硬编码，基于波动幅度生成）
+      if (typeof reward !== 'number' || typeof prevReward !== 'number') return;
+      const delta = reward - prevReward;
+      const absDelta = Math.abs(delta);
+      if (absDelta < 0.05) return; // 小波动不评价
+      let comment = '';
+      if (delta > 0.15) {
+        const praise = ['喵~ 这步表现不错嘛，看来大家配合得挺好！', '呼噜~ 分数涨了，干得漂亮！', '喵呜~ 这个协作效率我喜欢！'];
+        comment = praise[Math.floor(Math.random() * praise.length)];
+      } else if (delta > 0.05) {
+        comment = '喵~ 有进步，继续保持哦~';
+      } else if (delta < -0.15) {
+        const worry = ['喵...这步怎么退步了？是不是有人偷懒了？', '嘶~ 分数掉了不少，得注意一下协作质量啊！', '喵呜...这个方向不太对，要不要换个思路？'];
+        comment = worry[Math.floor(Math.random() * worry.length)];
+      } else if (delta < -0.05) {
+        comment = '喵...分数有点波动，稳一稳吧~';
+      }
+      if (comment) {
+        cat.drawBubble('🐈 ' + comment);
+        if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(comment);
+      }
+    },
     dispose() {
       disposed = true; resizeObs.disconnect(); controls.dispose();
       renderer.dispose();

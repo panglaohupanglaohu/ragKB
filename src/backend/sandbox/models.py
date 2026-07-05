@@ -253,6 +253,10 @@ class SimulationStep:
     disabled_agents: List[str] = field(default_factory=list)
     # v4 A-2.4: 本步产生的技能使用记录 ID 引用
     skill_usages: List[str] = field(default_factory=list)
+    # 场景 taskflow 节点状态（供前端编排管线精确高亮）
+    active_task_id: str = ""
+    active_task_ids: List[str] = field(default_factory=list)
+    done_task_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

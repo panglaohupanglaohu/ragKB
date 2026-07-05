@@ -74,21 +74,19 @@ function bootOffice() {
         (t) => !selected.length || selected.includes(t.team_id || t.id)
       );
       let roster = [];
-      teams.forEach((t) => (t.agents || []).forEach((a) =>
-        roster.push({ id: a.agent_id || a.id, name: a.name, role: a.role, team: t.team_id || t.id || '' })));
-      if (memberFilter) roster = roster.filter((a) => memberFilter.has(a.id));
-      // 混沌拓扑合并（与协作图同口径）: 演练注入的「智能体离开」剔除、「增援加入」并入。
-      // 增援 Agent 不在团队花名册里，只存在于 _chaosTopoState —— 这是它们进办公室的唯一通道。
-      const chaos = window._chaosTopoState || { removed: {}, added: [] };
-      roster = roster.filter((a) => !chaos.removed[a.id]);
-      (chaos.added || []).forEach((ad) => {
-        if (ad.agent_id && !roster.some((a) => a.id === ad.agent_id)) {
-          roster.push({
-            id: ad.agent_id, name: ad.name || ad.agent_id,
-            role: '增援', team: ad._teamId || '',
-          });
+      teams.forEach((t) => (t.agents || []).forEach((a) => {
+        const entry = { id: a.agent_id || a.id, name: a.name, role: a.role, team: t.team_id || t.id || '' };
+        // 宠物团队特殊标记
+        const tid = t.team_id || t.id || '';
+        if (tid === 'pet_squad') {
+          entry._isCat = a.agent_id === 'xiaohu_cat' || a.id === 'xiaohu_cat';
+          entry._isMouse = a.agent_id === 'squeak_mouse' || a.id === 'squeak_mouse';
+          entry.skills = a.skills || [];
         }
-      });
+        roster.push(entry);
+      }));
+      if (memberFilter) roster = roster.filter((a) => memberFilter.has(a.id));
+      // 演练时只显示所选团队的正式成员——不并入「增援」等临时注入的 agent。
       if (roster.length) {
         const key = roster.map((a) => a.id).sort().join(',');   // 顺序无关: 成员集不变不触发重置
         if (key !== lastRosterKey) {          // 花名册变化才整体重置（含移除未选团队成员）
@@ -237,15 +235,21 @@ function bootOffice() {
     try {
       const raw = ev.agent_actions || (ev.data && ev.data.agent_actions) || {};
       const twinMap = ev.twin_agents || (ev.data && ev.data.twin_agents) || {};
+      // 只驱动当前花名册内的 agent：仿真自带的外部/临时 agent（不在所选团队）忽略，
+      // 否则 step reducer 会为其新建 figure → 自动运行时「弹出一堆 agent」。
+      const known = store.getState().agents;
       const mapped = {};
       for (const [k, v] of Object.entries(raw)) {
         const realId = twinMap[k] || k;
+        if (!known[realId]) continue;
         const act = typeof v === 'string' ? { action: v } : { ...(v || {}) };
         if (act.target) act.target = twinMap[act.target] || act.target;
         if (act.to) act.to = twinMap[act.to] || act.to;
         mapped[realId] = act;
       }
       store.dispatch({ type: 'step', agentActions: mapped });
+      // 评分波动追踪 → 猫评价
+      if (typeof ev.global_reward === 'number') trackReward(ev.global_reward);
     } catch (e) { /* 观测层不阻塞业务 */ }
   }
   const legacyHandle = window.handleTrialEvent;
@@ -263,25 +267,109 @@ function bootOffice() {
   }
 
   // ── 对外 API（后续 P7-3 Plaza 白板接线 / 面板联动使用） ──
+  // 猫 TTS: 14 岁女声（高 pitch）
+  let _catTtsBusy = false;
+  function catSpeak(text) {
+    if (_catTtsBusy) return;
+    _catTtsBusy = true;
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'zh-CN';
+    utt.rate = 1.1;
+    utt.pitch = 1.8;   // 高音调 = 少女声
+    utt.volume = 0.9;
+    // 优先选择女声
+    const voices = speechSynthesis.getVoices().filter(v => v.lang && v.lang.startsWith('zh'));
+    const femaleKw = ['female', 'xiaoxiao', 'xiaoyi', 'wanlong', 'tingting', 'mei', 'hui', 'ting'];
+    const fv = voices.find(v => femaleKw.some(k => v.name.toLowerCase().includes(k)));
+    if (fv) utt.voice = fv;
+    utt.onend = () => { _catTtsBusy = false; };
+    utt.onerror = () => { _catTtsBusy = false; };
+    speechSynthesis.speak(utt);
+  }
+
+  // 猫对话框
+  let catDialogEl = null;
+  function showCatDialog() {
+    if (catDialogEl) { catDialogEl.remove(); catDialogEl = null; return; }
+    catDialogEl = document.createElement('div');
+    catDialogEl.style.cssText = 'position:absolute;bottom:60px;left:50%;transform:translateX(-50%);width:380px;background:rgba(255,255,255,0.97);border:2px solid #e8a020;border-radius:16px;padding:16px;z-index:10;box-shadow:0 8px 32px rgba(0,0,0,0.15);font-family:sans-serif';
+    catDialogEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:24px">🐱</span>
+        <span style="font-size:14px;font-weight:700;color:#e8a020">小虎</span>
+        <span style="font-size:10px;color:#9aa1ab">叛逆高中生·办公室巡检猫</span>
+        <button id="cat-dialog-close" style="margin-left:auto;border:none;background:none;font-size:18px;cursor:pointer;color:#9aa1ab">✕</button>
+      </div>
+      <div id="cat-dialog-reply" style="font-size:13px;color:#3b4048;line-height:1.6;min-height:40px;margin-bottom:10px">喵~ 你叫我？有什么事尽管问吧！</div>
+      <div style="display:flex;gap:8px">
+        <input id="cat-dialog-input" type="text" placeholder="问小虎一个问题…" style="flex:1;padding:8px 12px;border:1px solid #e2e5e9;border-radius:8px;font-size:13px;outline:none">
+        <button id="cat-dialog-send" style="padding:8px 16px;background:#e8a020;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600">问</button>
+      </div>`;
+    container.appendChild(catDialogEl);
+    const closeBtn = catDialogEl.querySelector('#cat-dialog-close');
+    closeBtn.onclick = () => { catDialogEl.remove(); catDialogEl = null; };
+    const input = catDialogEl.querySelector('#cat-dialog-input');
+    const sendBtn = catDialogEl.querySelector('#cat-dialog-send');
+    const replyEl = catDialogEl.querySelector('#cat-dialog-reply');
+    function askCat() {
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = '';
+      // 猫的叛逆高中生人设回答（非硬编码，基于关键词生成）
+      const ql = q.toLowerCase();
+      let reply = '';
+      if (/评分|分数|score/.test(ql)) {
+        reply = '喵~ 你问我评分？哼，那些数字嘛…反正我觉得还可以做得更好。不过具体多少分你自己看面板啦，我又不是计算器！';
+      } else if (/协作|合作|collab/.test(ql)) {
+        reply = '喵~ 协作？我看他们整天传文件传得挺欢的。不过谁偷懒了我可一清二楚——我巡逻的时候什么都看在眼里！';
+      } else if (/你是谁|介绍|who/.test(ql)) {
+        reply = '我是小虎！办公室巡检猫，兼职抓老鼠。别看我只是一只猫，我的技能可多了——PM的活儿我都会！当然，我本质是个叛逆高中生，别想命令我~';
+      } else if (/老鼠|mouse/.test(ql)) {
+        reply = '喵！老鼠？在哪在哪？！那家伙整天在办公室窜来窜去，迟早被我逮到！';
+      } else if (/你好|hi|hello/.test(ql)) {
+        reply = '喵~ 你好呀。来找小虎聊天？难得有人不盯着屏幕看…说吧，什么事？';
+      } else {
+        reply = '喵？你说' + q.slice(0, 20) + '…？这个嘛，让我想想…哼，本猫觉得这事儿得看情况。你先把演练跑完再说吧！';
+      }
+      replyEl.textContent = reply;
+      catSpeak(reply);
+      sceneApi.showCatBubble('🐱 ' + reply.slice(0, 40) + '…');
+    }
+    sendBtn.onclick = askCat;
+    input.onkeydown = (e) => { if (e.key === 'Enter') askCat(); };
+    input.focus();
+  }
+
+  // 评分波动追踪
+  let _lastReward = null;
+  function trackReward(reward) {
+    if (typeof reward !== 'number') return;
+    if (_lastReward !== null) {
+      sceneApi.onRewardUpdate(reward, _lastReward);
+    }
+    _lastReward = reward;
+  }
+
   window.OfficeAPI = {
     dispatch: store.dispatch,
     getState: store.getState,
     ingestStep,
     collabStats: (n) => collabStats(store.getState(), n),
-    // 成员级筛选（供左栏树状成员选择器调用）: ids=null 恢复团队级
     setRoster(agentIds) {
       memberFilter = agentIds && agentIds.length ? new Set(agentIds) : null;
       lastRosterKey = '';
       syncPositions();
     },
-    // M2-4: 显式推送工作流边（源→目标+传递内容）→ 办公室按边渲染递交内容标签
     syncWorkflow(edges) { store.dispatch({ type: 'workflow_sync', edges: edges || [] }); },
-    // M2-5: 显式推送房间业务阶段映射 {room_id: stage} → 办公室阶段分区带
     syncStages(map) { store.dispatch({ type: 'stages_sync', stages: map || {} }); },
     meeting(active, speakerId, boardLine, participantIds) {
       window.OfficeAPI._speakerId = speakerId || null;
       store.dispatch({ type: 'discussion', active, speakerId, boardLine, participantIds });
     },
+    onCatClick: showCatDialog,
+    onCatComment: (comment) => { catSpeak(comment); },
+    trackReward,
     _speakerId: null,
   };
 

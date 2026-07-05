@@ -198,6 +198,56 @@ class TestTwinLoop:
         assert len(result.twins) == 3
         assert len(result.steps) > 0
 
+    @pytest.mark.asyncio
+    async def test_taskflow_step_state_tracks_active_done_and_unblocks_dependencies(self):
+        from sandbox.twin_loop import TwinLoopEngine
+        from sandbox.world_state import WorldStateManager
+        from sandbox.memory_system import MemoryPool
+        from sandbox.models import SimulationMode
+
+        wsm = WorldStateManager()
+        wsm.sync_agents_from_team({
+            "agents": [
+                {"id": "dev", "role": "developer", "skills": ["coding"]},
+            ]
+        })
+        wsm.sync_tasks([
+            {
+                "id": "t1",
+                "title": "实现接口",
+                "assigned_to": None,
+                "required_roles": ["developer"],
+                "required_skills": ["coding"],
+                "base_duration_steps": 1,
+                "blocked": False,
+            },
+            {
+                "id": "t2",
+                "title": "回归验证",
+                "assigned_to": None,
+                "required_roles": ["developer"],
+                "required_skills": ["coding"],
+                "base_duration_steps": 1,
+                "depends_on": ["t1"],
+                "blocked": True,
+            },
+        ])
+
+        engine = TwinLoopEngine(wsm, MemoryPool())
+        session = engine.create_session(
+            team_id="taskflow-state",
+            mode=SimulationMode.WHAT_IF,
+            max_steps=4,
+            speed_factor=10000.0,
+        )
+
+        result = await engine.run_simulation(session.session_id)
+
+        assert [s.active_task_id for s in result.steps[:2]] == ["t1", "t1"]
+        assert "t1" in result.steps[1].done_task_ids
+        assert any(c["type"] == "task_unblocked" and c["task"] == "t2" for c in result.steps[1].state_changes)
+        assert "t2" in result.steps[-1].done_task_ids
+
 
 class TestGlobalCritic:
     """测试全局评论家."""

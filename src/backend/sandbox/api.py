@@ -359,6 +359,9 @@ async def get_session(session_id: str) -> Dict[str, Any]:
                 "global_reward": round(step.global_reward, 4),
                 "skills_used": skills_used,
                 "messages_count": len(step.messages),
+                "active_task_id": getattr(step, "active_task_id", ""),
+                "active_task_ids": list(getattr(step, "active_task_ids", []) or []),
+                "done_task_ids": list(getattr(step, "done_task_ids", []) or []),
             })
 
         evaluation_data = None
@@ -514,19 +517,40 @@ async def stream_simulation(session_id: str, request: Request) -> StreamingRespo
                 for k, v in agent_actions_dict.items() if isinstance(v, dict)
             }
 
+        def _build_agent_action_map(agent_actions_dict):
+            return {
+                k: v.get("action", "unknown")
+                for k, v in agent_actions_dict.items() if isinstance(v, dict)
+            }
+
+        def _build_task_state(step):
+            return {
+                "active_task_id": getattr(step, "active_task_id", ""),
+                "active_task_ids": list(getattr(step, "active_task_ids", []) or []),
+                "done_task_ids": list(getattr(step, "done_task_ids", []) or []),
+            }
+
+        def _build_agent_role_map(twins):
+            roles = {}
+            for t in twins or []:
+                roles[t.source_agent_id] = t.role
+                roles[t.twin_id] = t.role
+            return roles
+
         # 发送已有步骤
         for step in session.steps:
             event_data = {
                 "type": "step",
                 "step_id": step.step_id,
                 "global_reward": step.global_reward,
-                "agent_actions": {k: v.get("action", "unknown") for k, v in step.agent_actions.items()},
+                "agent_actions": _build_agent_action_map(step.agent_actions),
                 "agent_skills": _build_agent_skill_map(step.agent_actions),
                 "messages_count": len(step.messages),
                 "total_steps": session.max_steps,
-                "agent_roles": {t.source_agent_id: t.role for t in (session.twins or [])},
+                "agent_roles": _build_agent_role_map(session.twins),
                 # twin_id → 真身 agent_id 映射：前端(协作图/办公室3D)据此把孪生副本对齐回真身
                 "twin_agents": {t.twin_id: t.source_agent_id for t in (session.twins or [])},
+                **_build_task_state(step),
             }
             yield f"data: {json.dumps(event_data)}\n\n"
 
@@ -545,13 +569,14 @@ async def stream_simulation(session_id: str, request: Request) -> StreamingRespo
                         "type": "step",
                         "step_id": step.step_id,
                         "global_reward": step.global_reward,
-                        "agent_actions": {k: v.get("action", "unknown") for k, v in step.agent_actions.items()},
+                        "agent_actions": _build_agent_action_map(step.agent_actions),
                         "agent_skills": _build_agent_skill_map(step.agent_actions),
                         "messages_count": len(step.messages),
                         "total_steps": session.max_steps,
-                        "agent_roles": {t.source_agent_id: t.role for t in (session.twins or [])},
+                        "agent_roles": _build_agent_role_map(session.twins),
                         # twin_id → 真身 agent_id 映射：前端(协作图/办公室3D)据此把孪生副本对齐回真身
                         "twin_agents": {t.twin_id: t.source_agent_id for t in (session.twins or [])},
+                        **_build_task_state(step),
                     }
                     yield f"data: {json.dumps(event_data)}\n\n"
                 last_step_count = current_count
