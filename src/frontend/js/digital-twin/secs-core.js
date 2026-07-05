@@ -466,6 +466,23 @@
     window._selectedTaskId = null; window._selectedTaskGoal = null;
     var taskBtn = document.getElementById('secs-task-btn');
     if (taskBtn) { taskBtn.textContent = '📋 选择演练任务'; taskBtn.style.color = ''; }
+
+    // 切换团队时清理 S.positions 中其他团队的 agent，防止 3D 场景残留幽灵成员
+    if (window.S && window.S.positions) {
+      var team = _teamTreeData.find(function(t){return t.team_id===teamId;});
+      var teamAgentIds = new Set((team?.agents||[]).map(function(a){return a.agent_id;}));
+      Object.keys(window.S.positions).forEach(function(aid){
+        if (!teamAgentIds.has(aid)) {
+          delete window.S.positions[aid];
+        }
+      });
+      // 同步清理后的 positions 到后端 _dt_state
+      try { if (typeof syncDtState === 'function') syncDtState(); } catch(e) {}
+      // 重建 3D 房间以刷新智能体显示
+      try { if (window._dt3dBuildRoom && window._currentRoomId) window._dt3dBuildRoom(window._currentRoomId); } catch(e) {}
+      try { if (typeof renderEnvironment === 'function') renderEnvironment(); } catch(e) {}
+    }
+
     var btn = document.getElementById('secs-team-btn');
     var team = _teamTreeData.find(function(t){return t.team_id===teamId;});
     var agentCount = (team?.agents||[]).length;
@@ -561,6 +578,14 @@
     // 暴露到 window，供 director.js 创建试炼读取
     window._selectedTeamId = teamId; window._selectedTeamName = name;
     _selectedTeamName = name;
+    // 切换团队时清理 S.positions 中其他团队的 agent
+    if (window.S && window.S.positions) {
+      var teamAgentIds = new Set((t?.agents||[]).map(function(a){return a.agent_id;}));
+      Object.keys(window.S.positions).forEach(function(aid){
+        if (!teamAgentIds.has(aid)) delete window.S.positions[aid];
+      });
+      try { if (typeof syncDtState === 'function') syncDtState(); } catch(e) {}
+    }
     var btn = document.getElementById('secs-team-btn');
     if (btn) {
       btn.textContent = '👥 ' + name + (agentCount ? (' (' + agentCount + ' 智能体)') : '');
