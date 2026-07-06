@@ -2246,10 +2246,19 @@
   _bindInjectButtons();
   _setInjectEnabled(false);  // 注入按钮初始禁用，启动演练后启用
   _updateLaunchButton();     // 启动按钮初始禁用
-  // 监听仿真模式 radio 手动切换
+  // 监听仿真模式 radio 手动切换 → 联动默认参数
   document.querySelectorAll('input[name="secs-mode"]').forEach(function(r){
     r.addEventListener('change', function(){
       _selectedSceneMode = this.value;
+      // 模式 → 参数联动: 演化→200步, 并行→150步, What-if→150步
+      var defaultSteps = { evolutionary: 200, parallel: 150, what_if: 150 };
+      var steps = defaultSteps[this.value] || 150;
+      var stepsEl = document.getElementById('secs-steps');
+      var stepsVal = document.getElementById('secs-steps-val');
+      var paramSteps = document.getElementById('param-steps');
+      if (stepsEl) stepsEl.value = steps;
+      if (stepsVal) stepsVal.textContent = steps;
+      if (paramSteps) paramSteps.textContent = steps;
       _renderSimParams();
     });
   });

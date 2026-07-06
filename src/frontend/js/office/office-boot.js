@@ -14,6 +14,9 @@ function bootOffice() {
   const legacyCanvas = document.getElementById('env-3d-canvas');
   if (!container || !legacyCanvas) return;
 
+  // 立即隐藏旧场景画布，避免两个 WebGL 上下文同时渲染
+  legacyCanvas.style.display = 'none';
+
   // 自有画布，与旧场景画布互斥显示（切枯山水时还原旧画布）
   const canvas = document.createElement('canvas');
   canvas.id = 'office-3d-canvas';
@@ -65,6 +68,35 @@ function bootOffice() {
   // 尊重左栏团队选择: 只显示选中团队的成员；成员级筛选经 OfficeAPI.setRoster 覆盖。
   let memberFilter = null;   // Set<agentId> | null（null = 不做成员级过滤）
   let lastRosterKey = '';
+  let lastSkillKey = '';     // 技能名解析完成后触发一次 roster 重建
+
+  // 技能 ID → 可读名称 缓存: teamId -> {skillId: name}
+  // agent.skills 里混有 snake_case ID（如 task_decomposition）和 hex ID（如 9897f3f7），
+  // hex ID 需查团队技能目录才能得到中文名（如 "数据修复与功能修复解耦"）。
+  const _skillNames = {};
+  async function _loadSkillNames(teamId) {
+    if (_skillNames[teamId]) return;
+    _skillNames[teamId] = {};   // 先占位防止重复请求
+    try {
+      const r = await fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId));
+      const d = await r.json();
+      const m = {};
+      if (d && d.skills && typeof d.skills === 'object') {
+        Object.entries(d.skills).forEach(([sid, sd]) => {
+          m[sid] = (sd && (sd.name || sd.slug)) || sid;
+        });
+      }
+      _skillNames[teamId] = m;
+      lastSkillKey = '';   // 触发下次 syncPositions 重建 roster
+    } catch (e) { /* 非致命，用原始 ID */ }
+  }
+  function _resolveSkill(teamId, skillId) {
+    const m = _skillNames[teamId];
+    if (m && m[skillId]) return m[skillId];
+    // snake_case → 可读
+    return String(skillId).replace(/_/g, ' ');
+  }
+
   function syncPositions() {
     try {
       const S = window.S || {};
@@ -73,15 +105,26 @@ function bootOffice() {
       const teams = (S.teams || []).filter(
         (t) => !selected.length || selected.includes(t.team_id || t.id)
       );
+      // 异步加载团队技能目录（首次）
+      teams.forEach((t) => {
+        const tid = t.team_id || t.id || '';
+        if (tid && !_skillNames[tid]) _loadSkillNames(tid);
+      });
       let roster = [];
       teams.forEach((t) => (t.agents || []).forEach((a) => {
-        const entry = { id: a.agent_id || a.id, name: a.name, role: a.role, team: t.team_id || t.id || '' };
-        // 宠物团队特殊标记
         const tid = t.team_id || t.id || '';
+        // 技能来源: agent.skills（含 hex ID → 查目录解析）+ personality.expertise_areas
+        const rawSkills = a.skills || [];
+        const expertise = (a.personality && a.personality.expertise_areas) || [];
+        const skills = Array.from(new Set([
+          ...rawSkills.map(s => _resolveSkill(tid, s)),
+          ...expertise.map(e => _resolveSkill(tid, e)),
+        ]));
+        const entry = { id: a.agent_id || a.id, name: a.name, role: a.role, team: tid, skills };
+        // 宠物团队特殊标记
         if (tid === 'pet_squad') {
           entry._isCat = a.agent_id === 'xiaohu_cat' || a.id === 'xiaohu_cat';
           entry._isMouse = a.agent_id === 'squeak_mouse' || a.id === 'squeak_mouse';
-          entry.skills = a.skills || [];
         }
         roster.push(entry);
       }));
@@ -89,8 +132,11 @@ function bootOffice() {
       // 演练时只显示所选团队的正式成员——不并入「增援」等临时注入的 agent。
       if (roster.length) {
         const key = roster.map((a) => a.id).sort().join(',');   // 顺序无关: 成员集不变不触发重置
-        if (key !== lastRosterKey) {          // 花名册变化才整体重置（含移除未选团队成员）
+        // 技能名解析完成后也需重建（hex ID → 中文名）
+        const skillKey = roster.map(a => a.id + ':' + a.skills.join(',')).join('|');
+        if (key !== lastRosterKey || skillKey !== lastSkillKey) {          // 花名册变化才整体重置（含移除未选团队成员）
           lastRosterKey = key;
+          lastSkillKey = skillKey;
           store.dispatch({ type: 'team_reset', agents: roster });
         }
         const ids = new Set(roster.map((a) => a.id));
@@ -167,7 +213,7 @@ function bootOffice() {
   setInterval(() => store.dispatch({ type: 'tick', dt: 1 }), 1000);
 
   // ── 作息调度（错峰 + 排队） ──
-  // 频率: 咖啡≈1h / 马桶≈2h / 跑步机≈6h。停留与排队由 store 的设施占位模型管理
+  // 频率: 咖啡≈30min / 马桶≈1h / 跑步机≈30min。停留与排队由 store 的设施占位模型管理
   //（咖啡 1min、跑步机 5min、马桶 5min，容量 1，FIFO）。
   // 错峰算法: 团队内相位均匀分布——同队第 i 个成员(共 N 人)的首次到点
   //   due = now + mean × (i+0.5)/N × jitter(0.9~1.1)
@@ -177,7 +223,7 @@ function bootOffice() {
   const SPEED = Math.max(1, Number(new URLSearchParams(location.search).get('breakspeed')) || 1);
   setBreakTimeScale(SPEED);
   const BREAK_MEAN = {
-    coffee: 3600e3 / SPEED, toilet: 7200e3 / SPEED, treadmill: 21600e3 / SPEED,
+    coffee: 1800e3 / SPEED, toilet: 3600e3 / SPEED, treadmill: 1800e3 / SPEED,
   };
   const nextBreakAt = {};   // agentId -> {facility: dueTs}
   let staggerKey = '';
@@ -268,50 +314,63 @@ function bootOffice() {
 
   // ── 对外 API（后续 P7-3 Plaza 白板接线 / 面板联动使用） ──
   // 猫 TTS: 14 岁女声（高 pitch）
-  let _catTtsBusy = false;
+  let _catTtsTimer = null;
+  // 预加载 voices（Chrome 异步加载，首次 getVoices() 返回空）
+  if (window.speechSynthesis) {
+    speechSynthesis.getVoices();
+    speechSynthesis.onvoiceschanged = () => { speechSynthesis.getVoices(); };
+  }
   function catSpeak(text) {
-    if (_catTtsBusy) return;
-    _catTtsBusy = true;
-    if (window.speechSynthesis) speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = 'zh-CN';
-    utt.rate = 1.1;
-    utt.pitch = 1.8;   // 高音调 = 少女声
-    utt.volume = 0.9;
+    console.log('[catSpeak] called:', text ? text.slice(0, 30) : '(empty)');
+    if (!window.speechSynthesis) { console.warn('[catSpeak] speechSynthesis unavailable'); return; }
+    // 去掉标点符号（TTS 会把 . , ! ? 等念出来）
+    const cleanText = String(text || '').replace(/[.,!?;:'"()\[\]{}。，！？；：""''（）【】《》—…\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleanText) return;
+    // 取消上一个
+    speechSynthesis.cancel();
+    // Chrome 需要 resume 唤醒
+    speechSynthesis.resume();
+    const utt = new SpeechSynthesisUtterance(cleanText);
+    // 英文台词用英文 voice，中文用中文 voice
+    const isEnglish = /^[a-zA-Z\s]/.test(cleanText);
+    utt.lang = isEnglish ? 'en-US' : 'zh-CN';
+    utt.rate = isEnglish ? 0.85 : 1.1;       // 英文慢一点，更有感情
+    utt.pitch = isEnglish ? 1.15 : 1.8;      // 英文 pitch 适中，沉稳有感情
+    utt.volume = 0.95;
     // 优先选择女声
-    const voices = speechSynthesis.getVoices().filter(v => v.lang && v.lang.startsWith('zh'));
-    const femaleKw = ['female', 'xiaoxiao', 'xiaoyi', 'wanlong', 'tingting', 'mei', 'hui', 'ting'];
-    const fv = voices.find(v => femaleKw.some(k => v.name.toLowerCase().includes(k)));
-    if (fv) utt.voice = fv;
-    utt.onend = () => { _catTtsBusy = false; };
-    utt.onerror = () => { _catTtsBusy = false; };
+    const voices = speechSynthesis.getVoices();
+    if (isEnglish) {
+      // 英文: 优先选女声
+      const enVoices = voices.filter(v => v.lang && v.lang.startsWith('en'));
+      const enFv = enVoices.find(v => /female|samantha|victoria|karen|tessa|moira|fiona/i.test(v.name))
+        || enVoices[0];
+      if (enFv) utt.voice = enFv;
+    } else {
+      const zhVoices = voices.filter(v => v.lang && v.lang.startsWith('zh'));
+      const fv = zhVoices.find(v => v.name && v.name.includes('婷婷'))
+        || zhVoices.find(v => v.name && v.name.includes('Google 普通话'))
+        || zhVoices[0];
+      if (fv) utt.voice = fv;
+    }
+    utt.onstart = () => { console.log('[catSpeak] started'); };
+    utt.onend = () => { console.log('[catSpeak] ended'); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
+    utt.onerror = (e) => { console.warn('[catSpeak] error:', e.error || e); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
+    // 超时保护
+    if (_catTtsTimer) clearTimeout(_catTtsTimer);
+    _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, 15000);
     speechSynthesis.speak(utt);
   }
 
-  // 猫对话框
+  // 猫对话框 — 窄条输入框，回答只在气泡显示
   let catDialogEl = null;
   function showCatDialog() {
     if (catDialogEl) { catDialogEl.remove(); catDialogEl = null; return; }
     catDialogEl = document.createElement('div');
-    catDialogEl.style.cssText = 'position:absolute;bottom:60px;left:50%;transform:translateX(-50%);width:380px;background:rgba(255,255,255,0.97);border:2px solid #e8a020;border-radius:16px;padding:16px;z-index:10;box-shadow:0 8px 32px rgba(0,0,0,0.15);font-family:sans-serif';
-    catDialogEl.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:24px">🐱</span>
-        <span style="font-size:14px;font-weight:700;color:#e8a020">小虎</span>
-        <span style="font-size:10px;color:#9aa1ab">叛逆高中生·办公室巡检猫</span>
-        <button id="cat-dialog-close" style="margin-left:auto;border:none;background:none;font-size:18px;cursor:pointer;color:#9aa1ab">✕</button>
-      </div>
-      <div id="cat-dialog-reply" style="font-size:13px;color:#3b4048;line-height:1.6;min-height:40px;margin-bottom:10px">喵~ 你叫我？有什么事尽管问吧！</div>
-      <div style="display:flex;gap:8px">
-        <input id="cat-dialog-input" type="text" placeholder="问小虎一个问题…" style="flex:1;padding:8px 12px;border:1px solid #e2e5e9;border-radius:8px;font-size:13px;outline:none">
-        <button id="cat-dialog-send" style="padding:8px 16px;background:#e8a020;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600">问</button>
-      </div>`;
+    catDialogEl.style.cssText = 'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.95);border:1.5px solid #e8a020;border-radius:22px;padding:4px 4px 4px 12px;z-index:10;box-shadow:0 4px 20px rgba(0,0,0,0.12);font-family:sans-serif';
+    catDialogEl.innerHTML = `<span style="font-size:14px">🐱</span><input id="cat-dialog-input" type="text" placeholder="问小虎…" style="width:180px;border:none;outline:none;font-size:12px;color:#3b4048;background:transparent"><button id="cat-dialog-send" style="padding:5px 14px;background:#e8a020;color:white;border:none;border-radius:18px;font-size:11px;cursor:pointer;font-weight:600">问</button>`;
     container.appendChild(catDialogEl);
-    const closeBtn = catDialogEl.querySelector('#cat-dialog-close');
-    closeBtn.onclick = () => { catDialogEl.remove(); catDialogEl = null; };
     const input = catDialogEl.querySelector('#cat-dialog-input');
     const sendBtn = catDialogEl.querySelector('#cat-dialog-send');
-    const replyEl = catDialogEl.querySelector('#cat-dialog-reply');
     function askCat() {
       const q = input.value.trim();
       if (!q) return;
@@ -329,16 +388,35 @@ function bootOffice() {
         reply = '喵！老鼠？在哪在哪？！那家伙整天在办公室窜来窜去，迟早被我逮到！';
       } else if (/你好|hi|hello/.test(ql)) {
         reply = '喵~ 你好呀。来找小虎聊天？难得有人不盯着屏幕看…说吧，什么事？';
+      } else if (/演练|试炼|drill|task/.test(ql)) {
+        reply = '喵~ 演练啊，我看他们跑得挺热闹的。步骤对不对、配合好不好，我巡逻时都瞄着呢。具体情况你看面板数据嘛！';
+      } else if (/技能|skill/.test(ql)) {
+        reply = '喵~ 技能？我可是PM全能选手——任务分解、进度跟踪、风险把控都不在话下。其他成员的技能你点他们自己看嘛！';
+      } else if (/偷懒|摸鱼|摸鱼/.test(ql)) {
+        reply = '哼，谁偷懒我一眼就看出来。咖啡机旁站太久的、跑步机上走神的…本猫巡检日志里都有记录！';
       } else {
-        reply = '喵？你说' + q.slice(0, 20) + '…？这个嘛，让我想想…哼，本猫觉得这事儿得看情况。你先把演练跑完再说吧！';
+        const fallbacks = [
+          '喵？你说' + q.slice(0, 15) + '…？这个嘛，让我想想…哼，本猫觉得这事儿得看情况。',
+          '喵~ ' + q.slice(0, 15) + '？这种问题问我一只猫，你们人类是没救了吗？开个玩笑啦~',
+          '喵呜…' + q.slice(0, 15) + '…我不懂这个，但你相信我，我巡逻时学到了不少东西，直觉告诉我这事不简单。',
+        ];
+        reply = fallbacks[Math.floor(Math.random() * fallbacks.length)];
       }
-      replyEl.textContent = reply;
+      sceneApi.showCatBubble('🐱 ' + reply);
       catSpeak(reply);
-      sceneApi.showCatBubble('🐱 ' + reply.slice(0, 40) + '…');
     }
     sendBtn.onclick = askCat;
     input.onkeydown = (e) => { if (e.key === 'Enter') askCat(); };
-    input.focus();
+    // 点击对话框外部 → 收起
+    setTimeout(() => input.focus(), 50);
+    const _outsideHandler = (e) => {
+      if (catDialogEl && !catDialogEl.contains(e.target)) {
+        catDialogEl.remove(); catDialogEl = null;
+        document.removeEventListener('pointerdown', _outsideHandler, true);
+      }
+    };
+    // 延迟绑定，避免当前点击事件立即触发
+    setTimeout(() => document.addEventListener('pointerdown', _outsideHandler, true), 100);
   }
 
   // 评分波动追踪
@@ -385,8 +463,8 @@ function addToggleButton() {
   const btn = document.createElement('button');
   btn.textContent = FLAG_ON ? '↩ 旧版房间视图' : '▣ 办公室视图';
   btn.title = '切换数字办公室 3D（Marvis 风格）';
-  btn.style.cssText = 'position:absolute;bottom:10px;right:12px;z-index:6;padding:5px 12px;'
-    + 'border:1px solid #cfd4da;border-radius:6px;background:rgba(255,255,255,.9);'
+  btn.style.cssText = 'position:absolute;bottom:10px;right:12px;z-index:20;padding:5px 12px;'
+    + 'border:1px solid #cfd4da;border-radius:6px;background:rgba(255,255,255,.95);'
     + 'color:#3b4048;font:600 11px sans-serif;cursor:pointer';
   btn.onclick = () => {
     const url = new URL(location.href);
@@ -400,7 +478,19 @@ function addToggleButton() {
 
 function start() {
   addToggleButton();
-  if (FLAG_ON) bootOffice();
+  if (FLAG_ON) {
+    document.body.classList.add('office-mode');
+    try {
+      bootOffice();
+    } catch (e) {
+      console.error('[office-boot] bootOffice failed:', e);
+      // 显示错误提示，方便排查
+      const div = document.createElement('div');
+      div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;color:#c00;padding:20px;border-radius:8px;border:2px solid #c00;z-index:9999;font-family:monospace;font-size:13px;max-width:80vw';
+      div.textContent = '数字办公室加载失败: ' + (e && e.message || e);
+      document.body.appendChild(div);
+    }
+  }
 }
 
 if (document.readyState === 'loading') {

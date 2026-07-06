@@ -14,8 +14,8 @@ const C = {
   screenOn: 0x16171b, screenOff: 0x0a0a0c,
 };
 
-// 4 列工位，列间距加宽，中央留共享区走廊（x ∈ [-2.9, 2.9]）
-const COL_X = [-12.0, -6.2, 6.2, 12.0];
+// 6 列工位，中央留共享区走廊（x ∈ [-2.4, 2.4]）
+const COL_X = [-16.0, -10.5, -5.0, 5.0, 10.5, 16.0];
 // ROW_DZ 拉大到 6.5：同列桌子前后间隙 ~3.6（桌+椅进深约 2.9），
 // 让猫沿外侧工位列穿行时能明显看到它在桌与桌之间走动。
 const ROW_Z0 = -7, ROW_DZ = 6.5;
@@ -26,9 +26,9 @@ export function createOfficeScene(canvas, container) {
   scene.background = new THREE.Color(C.bg);
 
   // 视角: 智能体背后 + 屋顶俯视（参考图），OrbitControls 可拖拽/缩放/平移
-  const aspect = W / H, frustum = 15;
+  const aspect = W / H, frustum = 20;
   const camera = new THREE.OrthographicCamera(-frustum * aspect, frustum * aspect, frustum, -frustum, 0.1, 300);
-  camera.position.set(0, 24, 30);
+  camera.position.set(0, 28, 36);
   camera.lookAt(0, 0, -2);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -53,11 +53,11 @@ export function createOfficeScene(canvas, container) {
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.radius = 8;
   sun.shadow.bias = -0.0004;
-  const sc = sun.shadow.camera; sc.left = -30; sc.right = 30; sc.top = 30; sc.bottom = -30;
+  const sc = sun.shadow.camera; sc.left = -40; sc.right = 40; sc.top = 40; sc.bottom = -40;
   scene.add(sun);
 
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(70, 70),
+    new THREE.PlaneGeometry(90, 70),
     new THREE.MeshStandardMaterial({ color: C.floor, roughness: 0.95 })
   );
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
@@ -300,14 +300,40 @@ export function createOfficeScene(canvas, container) {
           if (o.isMesh) { o.userData._agentId = aid; agentMeshes.push(o); }
         });
       }
+      // 猫也纳入拾取（猫不在 figures 里，是独立对象）
+      if (cat && cat.group) {
+        cat.group.traverse((o) => {
+          if (o.isMesh) { o.userData._isCat = true; agentMeshes.push(o); }
+        });
+      }
+      // 老鼠也纳入拾取
+      if (squeak && squeak.group) {
+        squeak.group.traverse((o) => {
+          if (o.isMesh) { o.userData._isMouse = true; agentMeshes.push(o); }
+        });
+      }
       const hits = raycaster.intersectObjects(agentMeshes, false);
       if (hits.length > 0) {
-        const aid = hits[0].object.userData._agentId;
+        const hit = hits[0].object;
+        // 点击猫 → 弹出对话框
+        if (hit.userData._isCat) {
+          if (window.OfficeAPI && window.OfficeAPI.onCatClick) window.OfficeAPI.onCatClick();
+          return;
+        }
+        // 点击老鼠 → 弹出吱吱气泡
+        if (hit.userData._isMouse) {
+          showAgentBubble('squeak_mouse', {
+            name: '吱吱', role: '寻路研究员', team: 'pet_squad',
+            skills: ['Pathfinding', 'Data Analysis', 'Information Gathering', 'Research', 'Route Planning'],
+          });
+          return;
+        }
+        const aid = hit.userData._agentId;
         if (aid) {
           const f = figures[aid];
           if (f && f.def) {
             showAgentBubble(aid, f.def);
-            // 点击猫特殊处理
+            // 点击猫特殊处理（agent 模式: pet_squad 里的猫标记）
             if (f.def._isCat) {
               if (window.OfficeAPI && window.OfficeAPI.onCatClick) window.OfficeAPI.onCatClick();
             }
@@ -360,14 +386,14 @@ export function createOfficeScene(canvas, container) {
     stagesSet.forEach((stage, i) => {
       const z = -12 + i * 5.2;
       const band = new THREE.Mesh(
-        new THREE.PlaneGeometry(30, 4.6),
+        new THREE.PlaneGeometry(40, 4.6),
         new THREE.MeshBasicMaterial({ color: STAGE_COLORS[i % STAGE_COLORS.length], transparent: true, opacity: 0.06, side: THREE.DoubleSide })
       );
       band.rotation.x = -Math.PI / 2; band.position.set(0, 0.02, z);
       stageBandsGroup.add(band);
       const roomName = (entries.find(([, s]) => Number(s) === stage) || [])[0] || ('阶段' + stage);
       const label = makeContentLabel('阶段' + stage + ' · ' + roomName, STAGE_COLORS[i % STAGE_COLORS.length]);
-      label.position.set(-13, 0.8, z);
+      label.position.set(-17, 0.8, z);
       stageBandsGroup.add(label);
     });
   }
@@ -403,7 +429,8 @@ export function createOfficeScene(canvas, container) {
 
 
   const CAT_ROUTE = [
-    [12, 10], [12, -4], [6, -9], [0, -11], [-6, -9], [-12, -4], [-12, 10], [-4, 13], [4, 13],
+    [16, 12], [16, -2], [16, -10], [10, -12], [5, -10], [0, -12], [-5, -10], [-10, -12],
+    [-16, -10], [-16, -2], [-16, 12], [-10, 14], [-5, 12], [0, 14], [5, 12], [10, 14],
   ];
   function buildCat() {
     const g = new THREE.Group();
@@ -427,7 +454,7 @@ export function createOfficeScene(canvas, container) {
     const ears = [];
     for (const s of [-1, 1]) {
       const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 4), furMat);
-      ear.position.set(0.40, 0.69, 0.095 * s);
+      ear.position.set(0.52, 0.69, 0.095 * s);
       ear.castShadow = true;
       g.add(ear);
       ears.push(ear);
@@ -435,33 +462,33 @@ export function createOfficeScene(canvas, container) {
     // ── 尾巴（上翘，动画甩动）──
     const tail = box(0.07, 0.44, 0.07, -0.34, 0.5, 0, furMat, g);
     tail.rotation.z = 0.5;
-    // 猫气泡: 演练解说员——显示 演练任务 / 仿真参数 / 种子技能注入
+    // 猫气泡: 演练解说员——显示 演练任务 / 仿真参数 / 种子技能注入 / 对话回答
     const bubbleCv = document.createElement('canvas');
-    bubbleCv.width = 512; bubbleCv.height = 160;
+    bubbleCv.width = 512; bubbleCv.height = 320;
     const bubbleTex = new THREE.CanvasTexture(bubbleCv);
     const bubble = new THREE.Sprite(new THREE.SpriteMaterial({
       map: bubbleTex, transparent: true, depthTest: false,
     }));
-    bubble.scale.set(4.4, 1.375, 1);
-    bubble.position.y = 1.55;
+    bubble.scale.set(5.5, 3.4375, 1);
+    bubble.position.y = 2.6;
     bubble.visible = false;
     g.add(bubble);
     function drawBubble(text) {
       const ctx = bubbleCv.getContext('2d');
-      ctx.clearRect(0, 0, 512, 160);
+      ctx.clearRect(0, 0, 512, 320);
       if (!text) { bubbleTex.needsUpdate = true; bubble.visible = false; return; }
-      // 按宽度折行（最多 3 行）
-      ctx.font = '24px sans-serif';
+      // 按宽度折行（最多 6 行）
+      ctx.font = '22px sans-serif';
       const lines = [];
       let cur = '';
       for (const ch of String(text)) {
-        if (ch === '\n' || ctx.measureText(cur + ch).width > 440) {
+        if (ch === '\n' || ctx.measureText(cur + ch).width > 460) {
           lines.push(cur); cur = ch === '\n' ? '' : ch;
-          if (lines.length === 3) { cur += '…'; break; }
+          if (lines.length === 6) { cur += '…'; break; }
         } else cur += ch;
       }
-      if (cur && lines.length < 3) lines.push(cur);
-      const h = 34 + lines.length * 30;
+      if (cur && lines.length < 6) lines.push(cur);
+      const h = 28 + lines.length * 28;
       // 圆角气泡 + 小尾巴
       ctx.fillStyle = 'rgba(255,255,255,0.96)';
       ctx.strokeStyle = '#c8cdd4'; ctx.lineWidth = 3;
@@ -481,15 +508,103 @@ export function createOfficeScene(canvas, container) {
     return { group: g, tail, legs, head, ears, drawBubble, waypoint: 1, dwell: 0, speed: 1.6 };
   }
 
+  // ── 老鼠吱吱: 比猫小，灰色，贴墙根窜，看到猫就逃 ──
+  const MOUSE_ROUTE = [
+    [-18, 16], [-18, 4], [-18, -8], [-18, -14], [-12, -14], [-6, -14], [0, -14],
+    [6, -14], [12, -14], [18, -14], [18, -8], [18, 4], [18, 16],
+    [12, 16], [6, 16], [0, 16], [-6, 16], [-12, 16],
+  ];
+  function buildMouse() {
+    const g = new THREE.Group();
+    const furMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9e, roughness: 0.9 });
+    const pinkMat = new THREE.MeshStandardMaterial({ color: 0xd9a0a8, roughness: 0.6 });
+
+    // ── 4 条小短腿 ──
+    const legs = [];
+    for (const [lx, lz] of [[0.10, 0.05], [0.10, -0.05], [-0.10, 0.05], [-0.10, -0.05]]) {
+      const leg = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 6), furMat);
+      leg.position.set(lx, 0.07, lz);
+      leg.rotation.x = Math.PI;   // 尖朝下
+      leg.castShadow = true;
+      g.add(leg);
+      legs.push(leg);
+    }
+    // ── 身体（椭圆，比猫小一半）──
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), furMat);
+    body.scale.set(1.3, 0.8, 0.7);
+    body.position.set(0, 0.18, 0);
+    body.castShadow = true;
+    g.add(body);
+    // ── 头（小圆球 + 尖嘴）──
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), furMat);
+    head.position.set(0.22, 0.22, 0);
+    head.castShadow = true;
+    g.add(head);
+    // 尖嘴
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.10, 6), pinkMat);
+    nose.position.set(0.33, 0.20, 0);
+    nose.rotation.z = -Math.PI / 2;   // 尖朝 +x
+    g.add(nose);
+    // ── 圆耳朵 ──
+    const ears = [];
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), furMat);
+      ear.position.set(0.18, 0.33, 0.06 * s);
+      ear.castShadow = true;
+      g.add(ear);
+      ears.push(ear);
+    }
+    // ── 眼睛（小红点）──
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xe04040 });
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 4), eyeMat);
+      eye.position.set(0.28, 0.25, 0.04 * s);
+      g.add(eye);
+    }
+    // ── 尾巴（细长，粉色，像鞭子一样摆动）──
+    // 用 group 做枢轴: tailPivot 位于身体后边缘，尾巴 mesh 从枢轴向后延伸
+    // 这样旋转 tailPivot 时尾巴根部不会脱离身体
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(-0.18, 0.20, 0);   // 身体后边缘
+    g.add(tailPivot);
+    const tail = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.018, 0.55, 6),
+      pinkMat
+    );
+    // mesh 中心在 pivot 下方 0.275 处（尾巴长度的一半），使尾巴从 pivot 向后延伸
+    tail.position.set(-0.275, 0, 0);
+    tail.rotation.z = Math.PI / 2;   // 圆柱体默认沿 y 轴 → 旋转成沿 x 轴（向后）
+    tail.castShadow = true;
+    tailPivot.add(tail);
+    tailPivot.rotation.z = 0.5;      // 整体上翘
+    // ── 名牌 ──
+    g.add(makeLabel('吱吱'));
+
+    // ── 警告光圈（猫靠近时闪烁）──
+    const warnRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.25, 0.40, 32),
+      new THREE.MeshBasicMaterial({ color: 0xe04040, transparent: true, opacity: 0, side: THREE.DoubleSide })
+    );
+    warnRing.rotation.x = -Math.PI / 2;
+    warnRing.position.y = 0.02;
+    g.add(warnRing);
+
+    g.position.set(MOUSE_ROUTE[0][0], 0, MOUSE_ROUTE[0][1]);
+    g.scale.set(0.85, 0.85, 0.85);   // 整体比猫小
+    scene.add(g);
+    return { group: g, tail, tailPivot, legs, head, ears, warnRing, waypoint: 1, dwell: 0, speed: 2.2, fleeing: false };
+  }
+
   // ── 装配 ──
   const desks = [];
   const whiteboard = buildWhiteboard();
   const shared = buildSharedZone();
   const cat = buildCat();
+  const squeak = buildMouse();
 
   function deskFor(index) {
     while (desks.length <= index) {
-      const i = desks.length, col = i % 4, row = Math.floor(i / 4);
+      const i = desks.length, col = i % 6, row = Math.floor(i / 6);
       desks.push(buildDesk(COL_X[col], ROW_Z0 + row * ROW_DZ));
     }
     return desks[index];
@@ -780,6 +895,36 @@ export function createOfficeScene(canvas, container) {
     }
   }
 
+  // 猫 LLM 即兴发言: 调后端 /llm/cat-speak 生成带老鼠意象的古诗词
+  let _catSpeakCooldown = 0;
+  async function _catSpeakLLM(context) {
+    if (_catSpeakCooldown > Date.now()) return;   // 冷却 10s，避免频繁调 LLM
+    _catSpeakCooldown = Date.now() + 10000;
+    // 先显示占位
+    cat.drawBubble('🐱 喵…（思索中）');
+    try {
+      // 用页面已有的 _af（自动带 CSRF token + credentials）；fallback 到 _agFetch
+      const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
+      const r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context }),
+      });
+      const d = await r.json();
+      console.log('[cat-speak] response:', d, 'status:', r.status);
+      if (d && d.reply) {
+        cat.drawBubble('🐱 ' + d.reply);
+        if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(d.reply);
+      } else {
+        console.warn('[cat-speak] no reply, error:', d && d.error, 'detail:', d && d.detail);
+        cat.drawBubble('🐱 喵~ 硕鼠硕鼠，无食我黍！');
+      }
+    } catch (e) {
+      console.error('[cat-speak] fetch failed:', e);
+      cat.drawBubble('🐱 喵~ 硕鼠硕鼠，无食我黍！');
+    }
+  }
+
   function animate() {
     if (disposed) return;
     requestAnimationFrame(animate);
@@ -836,9 +981,9 @@ export function createOfficeScene(canvas, container) {
         const turn = Math.max(-3.2 * dt, Math.min(3.2 * dt, diff));
         cat.group.rotation.y += turn;
         cat.tail.rotation.z = 0.5 + Math.sin(t * 6) * 0.12;    // 走动时尾巴轻微晃动
-        if (cat.ears) cat.ears.forEach((ear) => { ear.rotation.x += (0 - ear.rotation.x) * 0.2; }); // 走动时耳朵归位
         // 只有大致对准了才迈步；转身时几乎原地（前进量随夹角衰减）
         const align = Math.max(0, 1 - Math.abs(diff) / 0.9);
+        if (cat.ears) cat.ears.forEach((ear, i) => { ear.rotation.x = Math.sin(t * 10 + i * Math.PI) * 0.3 * align; }); // 走动时耳朵晃动
         if (align > 0) {
           const heading = cat.group.rotation.y + Math.PI / 2;   // 还原为世界方向角
           cat.group.position.x += Math.sin(heading) * cat.speed * dt * align;
@@ -850,6 +995,77 @@ export function createOfficeScene(canvas, container) {
           if (cat.legs) cat.legs.forEach((leg, i) => {
             leg.rotation.z = Math.sin(t * 8 + (i % 2 ? Math.PI : 0)) * 0.5 * align;
           });
+        }
+      }
+    }
+    // 老鼠吱吱: 贴墙根窜，看到猫就逃（反向加速 + 警告光圈 + 随机改路）
+    {
+      const mx = squeak.group.position.x, mz = squeak.group.position.z;
+      const cx = cat.group.position.x, cz = cat.group.position.z;
+      const distCat = Math.hypot(mx - cx, mz - cz);
+      const wasFleeing = squeak.fleeing;
+      squeak.fleeing = distCat < 4.0;   // 猫在 4 格内 → 逃跑
+
+      // 警告光圈: 猫靠近时闪烁红圈，拉开距离后消失
+      if (squeak.warnRing) {
+        if (squeak.fleeing) {
+          const pulse = (Math.sin(t * 10) + 1) / 2;
+          squeak.warnRing.material.opacity = 0.3 + pulse * 0.5;
+          const rs = 1 + pulse * 0.3;
+          squeak.warnRing.scale.set(rs, rs, rs);
+        } else {
+          squeak.warnRing.material.opacity += (0 - squeak.warnRing.material.opacity) * 0.15;
+        }
+      }
+
+      // 刚进入逃跑 → 随机跳到一个远离猫的路点 + 猫感叹一句（LLM 生成带老鼠意象的古诗）
+      if (squeak.fleeing && !wasFleeing) {
+        _catSpeakLLM('发现老鼠吱吱，猫要抓老鼠！');
+        let best = squeak.waypoint, bestDist = -1;
+        for (let i = 0; i < MOUSE_ROUTE.length; i++) {
+          const [rx, rz] = MOUSE_ROUTE[i];
+          const d = Math.hypot(rx - cx, rz - cz);
+          if (d > bestDist) { bestDist = d; best = i; }
+        }
+        squeak.waypoint = best;
+        squeak.dwell = 0;   // 立刻跑
+      }
+
+      if (squeak.dwell > 0) {
+        squeak.dwell -= dt;
+        // 停下时尾巴在 pivot 上小幅摆动（根部不动）
+        if (squeak.tailPivot) squeak.tailPivot.rotation.z = 0.5 + Math.sin(t * 8) * 0.15;
+        squeak.group.position.y += (0 - squeak.group.position.y) * 0.2;
+        if (squeak.legs) squeak.legs.forEach((leg) => { leg.rotation.z += (0 - leg.rotation.z) * 0.2; });
+        if (squeak.ears) squeak.ears.forEach((ear, i) => { ear.scale.setScalar(1 + Math.sin(t * 10 + i) * 0.1); });
+      } else {
+        const [wx, wz] = MOUSE_ROUTE[squeak.waypoint];
+        const dx = wx - mx, dz = wz - mz;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.3) {
+          squeak.waypoint = (squeak.waypoint + 1) % MOUSE_ROUTE.length;
+          squeak.dwell = squeak.fleeing ? 0 : (0.5 + Math.random() * 2.0);   // 逃跑不停顿
+        } else {
+          const desired = Math.atan2(dx, dz) - Math.PI / 2;
+          let diff = desired - squeak.group.rotation.y;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const turn = Math.max(-4.5 * dt, Math.min(4.5 * dt, diff));
+          squeak.group.rotation.y += turn;
+          // 尾巴在 pivot 上摆动（根部锚定在身体边缘，不会脱离）
+          if (squeak.tailPivot) squeak.tailPivot.rotation.z = 0.5 + Math.sin(t * 12) * 0.2;
+          const align = Math.max(0, 1 - Math.abs(diff) / 0.9);
+          if (align > 0) {
+            const sp = squeak.fleeing ? squeak.speed * 1.8 : squeak.speed;
+            const heading = squeak.group.rotation.y + Math.PI / 2;
+            squeak.group.position.x += Math.sin(heading) * sp * dt * align;
+            squeak.group.position.z += Math.cos(heading) * sp * dt * align;
+            const hop = Math.abs(Math.sin(t * 14));
+            squeak.group.position.y = hop * 0.08 * align;
+            if (squeak.legs) squeak.legs.forEach((leg, i) => {
+              leg.rotation.z = Math.sin(t * 14 + (i % 2 ? Math.PI : 0)) * 0.6 * align;
+            });
+          }
         }
       }
     }

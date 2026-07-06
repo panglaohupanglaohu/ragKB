@@ -1215,6 +1215,24 @@ def update_model(team_id: str, model_id: str, req: UpdateModelRequest) -> Dict[s
         model.api_key = req.api_key
     if req.api_base_url:
         model.api_base_url = req.api_base_url
+    # 持久化到 teams.json
+    _tm()._persist()
+    # 如果更新的模型是全局模型，刷新 harness 的 global override
+    try:
+        import json as _json, os as _os
+        cfg_path = _os.path.join(_CONFIG_DIR, "settings.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            gm = _json.load(f).get("global_model")
+        if gm and gm.get("team_id") == team_id and gm.get("model_id") == model_id:
+            cfg = _build_provider_config_from_model(team_id, model_id)
+            if cfg:
+                from .chat_harness import get_chat_harness
+                get_chat_harness().set_global_override(cfg, {
+                    "team_id": team_id, "model_id": model_id, "name": model.name,
+                })
+                _logging.getLogger(__name__).info("🌐 全局模型已刷新: %s/%s (key updated)", team_id, model_id)
+    except Exception:
+        pass
     return model.to_dict()
 
 
@@ -7930,6 +7948,45 @@ async def test_llm_connection() -> Dict[str, Any]:
         "provider": result.provider,
         "latency_ms": result.latency_ms,
         "error": result.error,
+    }
+
+
+class CatSpeakRequest(BaseModel):
+    """猫小虎的 LLM 即兴发言请求."""
+    context: str = ""   # 场景描述，如 "发现老鼠吱吱"
+
+
+@router.post("/llm/cat-speak", summary="猫小虎 LLM 即兴发言")
+async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
+    """让 LLM 以猫小虎的口吻即兴说一句话。Prompt 从猫的技能 'cat_speak_prompt' 的 instructions 读取，可编辑。"""
+    harness = get_chat_harness()
+    # 从 pet_squad 团队的技能目录里读取 cat_speak_prompt 的 instructions
+    system = ""
+    try:
+        tm = _tm()
+        team = tm.get_team("pet_squad")
+        if team and "cat_speak_prompt" in team.skills:
+            skill = team.skills["cat_speak_prompt"]
+            system = skill.instructions or skill.description or ""
+    except Exception:
+        pass
+    # fallback
+    if not system:
+        system = (
+            "Say a classic quote from Mei Ling in Metal Gear Solid series (English only). "
+            "Output only the quote, nothing else."
+        )
+    result = await harness.chat(
+        req.context or "Say a Mei Ling quote",
+        agent_id="xiaohu_cat",
+        system_prompt=system,
+    )
+    # 去掉引号和首尾空白
+    reply = (result.response or "").strip().strip('"').strip("'").strip()[:100]
+    return {
+        "success": not bool(result.error),
+        "reply": reply,
+        "error": result.error or "",
     }
 
 

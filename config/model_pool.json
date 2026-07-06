@@ -12,19 +12,6 @@
       "api_base_url": "https://api.deepseek.com"
     }
   },
-  "d083a568": {
-    "deepseek": {
-      "model_id": "deepseek",
-      "provider": "deepseek",
-      "name": "deepseek-v4-pro",
-      "max_tokens": 4096,
-      "temperature": 0.7,
-      "is_default": true,
-      "enabled": true,
-      "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
-    }
-  },
   "energy_first_principle": {
     "deepseek": {
       "model_id": "deepseek",
@@ -41,14 +28,14 @@
   "build_system": {
     "codebuddy": {
       "model_id": "codebuddy",
-      "provider": "deepseek",
-      "name": "deepseek-v4-pro",
+      "provider": "codebuddy",
+      "name": "glm-5.1",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -86,6 +73,22 @@
       "api_base_url": "https://api.deepseek.com"
     }
   },
-  "2d80e4ee": {},
-  "8fb76839": {}
+  "pet_squad": {},
+  "d083a568": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "is_default": true,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
+    }
+  },
+  "67b437f9": {},
+  "afe26835": {},
+  "f46e1961": {},
+  "a6d231cd": {}
 }
