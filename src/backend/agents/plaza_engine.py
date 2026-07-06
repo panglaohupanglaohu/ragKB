@@ -1778,6 +1778,20 @@ class PlazaEngine:
             lines.append(f"{prefix}: {m.content[:150]}")
         return "\n".join(lines)
 
+    def _format_recent_anonymous(self, disc: Discussion, limit: int = 5) -> str:
+        """P6-3: 匿名化格式 — 剥离 agent 名字/座席层级，只保留角色标签用于共识判定."""
+        recent = disc.messages[-limit:] if disc.messages else []
+        lines = []
+        idx = 1
+        for m in recent:
+            if m.niche_role == "moderator":
+                prefix = "【议事长】"
+            else:
+                prefix = f"【发言者{idx}】"
+                idx += 1
+            lines.append(f"{prefix}: {m.content[:150]}")
+        return "\n".join(lines)
+
     def _pick_exchange_speakers(
         self,
         round_speakers: List[Participant],

@@ -13,6 +13,7 @@
     { id: 'skill-extract', label: '技能萃取/赋予', href: '/skill-extract.html' },
     { id: 'digital-twin',  label: '数字孪生',   href: '/Agent-digital-twin.html' },
     { id: 'cost',          label: '💰 演进式成本优化', href: '/cost-dashboard.html' },
+    { id: 'pet',           label: '🐾 仿生生态', href: '/pet-config.html' },
   ];
 
   var script = document.querySelector('script[data-page]');

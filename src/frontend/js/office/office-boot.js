@@ -313,52 +313,98 @@ function bootOffice() {
   }
 
   // ── 对外 API（后续 P7-3 Plaza 白板接线 / 面板联动使用） ──
-  // 猫 TTS: 14 岁女声（高 pitch）
+  // 宠物语音：从 pet_config 加载，支持 browser / edge-tts / gpt-sovits 三种引擎
   let _catTtsTimer = null;
+  let _petVoiceConfig = null;   // 缓存当前会说话宠物的 voice 配置
   // 预加载 voices（Chrome 异步加载，首次 getVoices() 返回空）
   if (window.speechSynthesis) {
     speechSynthesis.getVoices();
     speechSynthesis.onvoiceschanged = () => { speechSynthesis.getVoices(); };
   }
-  function catSpeak(text) {
-    console.log('[catSpeak] called:', text ? text.slice(0, 30) : '(empty)');
-    if (!window.speechSynthesis) { console.warn('[catSpeak] speechSynthesis unavailable'); return; }
-    // 去掉标点符号（TTS 会把 . , ! ? 等念出来）
-    const cleanText = String(text || '').replace(/[.,!?;:'"()\[\]{}。，！？；：""''（）【】《》—…\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  // 加载会说话宠物的语音配置（取第一个 speak.provider=llm 的宠物）
+  (async function loadPetVoice() {
+    try {
+      const doFetch = (typeof window._af === 'function') ? window._af : fetch;
+      const r = await doFetch('/api/v1/pet-ecosystem/config');
+      if (!r.ok) return;
+      const data = await r.json();
+      const speaker = (data.pets || []).find(p => p.speak && p.speak.provider === 'llm');
+      if (speaker && speaker.voice) _petVoiceConfig = speaker.voice;
+    } catch (e) { console.warn('[catSpeak] voice config load failed', e); }
+  })();
+
+  function catSpeak(text, voiceCfg) {
+    const vc = voiceCfg || _petVoiceConfig || {};
+    const provider = vc.provider || 'browser';
+    console.log('[catSpeak] called:', text ? text.slice(0, 30) : '(empty)', 'provider:', provider);
+    const raw = String(text || '');
+    const cleanText = (vc.strip_punctuation !== false)
+      ? raw.replace(/[.,!?;:'"()\[\]{}。，！？；：""''（）【】《》—…\-]/g, ' ').replace(/\s+/g, ' ').trim()
+      : raw.trim();
     if (!cleanText) return;
-    // 取消上一个
+
+    if (provider === 'edge-tts' || provider === 'gpt-sovits') {
+      _catSpeakBackend(cleanText, vc, provider);
+      return;
+    }
+    // 浏览器内置语音
+    if (!window.speechSynthesis) { console.warn('[catSpeak] speechSynthesis unavailable'); return; }
     speechSynthesis.cancel();
-    // Chrome 需要 resume 唤醒
     speechSynthesis.resume();
     const utt = new SpeechSynthesisUtterance(cleanText);
-    // 英文台词用英文 voice，中文用中文 voice
     const isEnglish = /^[a-zA-Z\s]/.test(cleanText);
-    utt.lang = isEnglish ? 'en-US' : 'zh-CN';
-    utt.rate = isEnglish ? 0.85 : 1.1;       // 英文慢一点，更有感情
-    utt.pitch = isEnglish ? 1.15 : 1.8;      // 英文 pitch 适中，沉稳有感情
-    utt.volume = 0.95;
-    // 优先选择女声
+    utt.lang = vc.lang || (isEnglish ? 'en-US' : 'zh-CN');
+    utt.rate = vc.rate ?? (isEnglish ? 0.85 : 1.1);
+    utt.pitch = vc.pitch ?? (isEnglish ? 1.15 : 1.8);
+    utt.volume = vc.volume ?? 0.95;
     const voices = speechSynthesis.getVoices();
-    if (isEnglish) {
-      // 英文: 优先选女声
+    if (vc.preferred_voice) {
+      const fv = voices.find(v => v.name === vc.preferred_voice);
+      if (fv) utt.voice = fv;
+    } else if (isEnglish) {
       const enVoices = voices.filter(v => v.lang && v.lang.startsWith('en'));
-      const enFv = enVoices.find(v => /female|samantha|victoria|karen|tessa|moira|fiona/i.test(v.name))
-        || enVoices[0];
+      const enFv = enVoices.find(v => /female|samantha|victoria|karen|tessa|moira|fiona/i.test(v.name)) || enVoices[0];
       if (enFv) utt.voice = enFv;
     } else {
       const zhVoices = voices.filter(v => v.lang && v.lang.startsWith('zh'));
-      const fv = zhVoices.find(v => v.name && v.name.includes('婷婷'))
-        || zhVoices.find(v => v.name && v.name.includes('Google 普通话'))
-        || zhVoices[0];
+      const fv = zhVoices.find(v => v.name && v.name.includes('婷婷')) || zhVoices.find(v => v.name && v.name.includes('Google 普通话')) || zhVoices[0];
       if (fv) utt.voice = fv;
     }
     utt.onstart = () => { console.log('[catSpeak] started'); };
     utt.onend = () => { console.log('[catSpeak] ended'); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
     utt.onerror = (e) => { console.warn('[catSpeak] error:', e.error || e); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
-    // 超时保护
     if (_catTtsTimer) clearTimeout(_catTtsTimer);
-    _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, 15000);
+    _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, (vc.timeout_sec || 15) * 1000);
     speechSynthesis.speak(utt);
+  }
+
+  // 后端 TTS（edge-tts / gpt-sovits）→ 取音频播放
+  let _catAudioEl = null;
+  async function _catSpeakBackend(text, vc, provider) {
+    try {
+      const doFetch = (typeof window._af === 'function') ? window._af : fetch;
+      const body = { text, agent_name: '小虎' };
+      if (provider === 'edge-tts') {
+        if (vc.edge_voice) body.voice = vc.edge_voice;
+        if (vc.edge_rate) body.rate = vc.edge_rate;
+        if (vc.edge_pitch) body.pitch = vc.edge_pitch;
+      }
+      if (provider === 'gpt-sovits') body.speed_factor = vc.speed_factor ?? 1.0;
+      const r = await doFetch('/api/v1/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'HTTP ' + r.status); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      if (_catAudioEl) { _catAudioEl.pause(); }
+      _catAudioEl = new Audio(url);
+      _catAudioEl.onended = () => URL.revokeObjectURL(url);
+      _catAudioEl.onerror = (e) => { console.warn('[catSpeak] audio error', e); URL.revokeObjectURL(url); };
+      await _catAudioEl.play();
+      console.log('[catSpeak] backend played, engine:', r.headers.get('X-TTS-Engine'));
+    } catch (e) {
+      console.warn('[catSpeak] backend TTS failed, fallback to browser:', e.message);
+      // 回退到浏览器语音
+      catSpeak(text, { ...vc, provider: 'browser' });
+    }
   }
 
   // 猫对话框 — 窄条输入框，回答只在气泡显示
@@ -371,36 +417,24 @@ function bootOffice() {
     container.appendChild(catDialogEl);
     const input = catDialogEl.querySelector('#cat-dialog-input');
     const sendBtn = catDialogEl.querySelector('#cat-dialog-send');
-    function askCat() {
+    async function askCat() {
       const q = input.value.trim();
       if (!q) return;
       input.value = '';
-      // 猫的叛逆高中生人设回答（非硬编码，基于关键词生成）
-      const ql = q.toLowerCase();
-      let reply = '';
-      if (/评分|分数|score/.test(ql)) {
-        reply = '喵~ 你问我评分？哼，那些数字嘛…反正我觉得还可以做得更好。不过具体多少分你自己看面板啦，我又不是计算器！';
-      } else if (/协作|合作|collab/.test(ql)) {
-        reply = '喵~ 协作？我看他们整天传文件传得挺欢的。不过谁偷懒了我可一清二楚——我巡逻的时候什么都看在眼里！';
-      } else if (/你是谁|介绍|who/.test(ql)) {
-        reply = '我是小虎！办公室巡检猫，兼职抓老鼠。别看我只是一只猫，我的技能可多了——PM的活儿我都会！当然，我本质是个叛逆高中生，别想命令我~';
-      } else if (/老鼠|mouse/.test(ql)) {
-        reply = '喵！老鼠？在哪在哪？！那家伙整天在办公室窜来窜去，迟早被我逮到！';
-      } else if (/你好|hi|hello/.test(ql)) {
-        reply = '喵~ 你好呀。来找小虎聊天？难得有人不盯着屏幕看…说吧，什么事？';
-      } else if (/演练|试炼|drill|task/.test(ql)) {
-        reply = '喵~ 演练啊，我看他们跑得挺热闹的。步骤对不对、配合好不好，我巡逻时都瞄着呢。具体情况你看面板数据嘛！';
-      } else if (/技能|skill/.test(ql)) {
-        reply = '喵~ 技能？我可是PM全能选手——任务分解、进度跟踪、风险把控都不在话下。其他成员的技能你点他们自己看嘛！';
-      } else if (/偷懒|摸鱼|摸鱼/.test(ql)) {
-        reply = '哼，谁偷懒我一眼就看出来。咖啡机旁站太久的、跑步机上走神的…本猫巡检日志里都有记录！';
-      } else {
-        const fallbacks = [
-          '喵？你说' + q.slice(0, 15) + '…？这个嘛，让我想想…哼，本猫觉得这事儿得看情况。',
-          '喵~ ' + q.slice(0, 15) + '？这种问题问我一只猫，你们人类是没救了吗？开个玩笑啦~',
-          '喵呜…' + q.slice(0, 15) + '…我不懂这个，但你相信我，我巡逻时学到了不少东西，直觉告诉我这事不简单。',
-        ];
-        reply = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+      // 走 cat speak: 调后端 /llm/cat-speak，用 LLM 以 Metal Gear 中 Mei Ling 的台词回答
+      sceneApi.showCatBubble('🐱 喵…（思索中）');
+      let reply = '喵~ 硕鼠硕鼠，无食我黍！';
+      try {
+        const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
+        const r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: q }),
+        });
+        const d = await r.json();
+        if (d && d.reply) reply = d.reply;
+      } catch (e) {
+        console.warn('[cat-dialog] cat-speak failed:', e);
       }
       sceneApi.showCatBubble('🐱 ' + reply);
       catSpeak(reply);
@@ -446,7 +480,7 @@ function bootOffice() {
       store.dispatch({ type: 'discussion', active, speakerId, boardLine, participantIds });
     },
     onCatClick: showCatDialog,
-    onCatComment: (comment) => { catSpeak(comment); },
+    onCatComment: (comment, voiceCfg) => { catSpeak(comment, voiceCfg); },
     trackReward,
     _speakerId: null,
   };

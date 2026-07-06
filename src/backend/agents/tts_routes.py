@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""TTS route — Edge-TTS (Microsoft Neural) as primary engine.
+"""TTS route — GPT-SoVITS as primary engine, Edge-TTS (Microsoft Neural) as fallback.
 
-Edge-TTS provides free, high-quality neural voices with natural emotion.
-GPT-SoVITS is kept as optional fallback for custom voice cloning.
+GPT-SoVITS provides custom voice cloning for character consistency.
+Edge-TTS provides free, high-quality neural voices when GPT-SoVITS is unavailable.
 """
 
 from __future__ import annotations
@@ -197,9 +197,9 @@ async def _gptsovits_synthesize(text: str, cfg: dict, speed: float) -> Optional[
 
 @router.post("/tts")
 async def tts_synthesize(req: TTSRequest):
-    """Synthesize speech using Edge-TTS (primary) or GPT-SoVITS (fallback)."""
+    """Synthesize speech using GPT-SoVITS (primary) or Edge-TTS (fallback)."""
     cfg = _load_tts_config()
-    engine = cfg.get("engine", "edge-tts")
+    engine = cfg.get("engine", "gpt-sovits")
 
     text = req.text.strip()
     if not text:
@@ -213,27 +213,30 @@ async def tts_synthesize(req: TTSRequest):
     rate = req.rate or _prefer_faster_rate(profile["rate"], computed_rate)
     pitch = req.pitch or profile["pitch"] or DEFAULT_PITCH
 
-    # Try Edge-TTS first
-    if engine != "gpt-sovits-only":
-        try:
-            audio_data = await _edge_tts_synthesize(spoken_text, voice, rate, pitch)
-            return Response(
-                content=audio_data,
-                media_type="audio/mpeg",
-                headers={"Cache-Control": "no-cache", "X-TTS-Engine": "edge-tts", "X-TTS-Voice": voice},
-            )
-        except Exception as e:
-            logger.warning(f"Edge-TTS failed: {e}, trying GPT-SoVITS fallback")
+    # Try GPT-SoVITS first (primary); skip only when explicitly edge-tts-only
+    if engine != "edge-tts-only":
+        if cfg.get("ref_audio_path"):
+            audio_data = await _gptsovits_synthesize(spoken_text, cfg, req.speed_factor)
+            if audio_data:
+                return Response(
+                    content=audio_data,
+                    media_type="audio/wav",
+                    headers={"Cache-Control": "no-cache", "X-TTS-Engine": "gpt-sovits"},
+                )
+            logger.warning("GPT-SoVITS returned no audio, falling back to Edge-TTS")
+        else:
+            logger.debug("GPT-SoVITS not configured (no ref_audio_path), using Edge-TTS")
 
-    # Fallback to GPT-SoVITS
-    if cfg.get("ref_audio_path"):
-        audio_data = await _gptsovits_synthesize(spoken_text, cfg, req.speed_factor)
-        if audio_data:
-            return Response(
-                content=audio_data,
-                media_type="audio/wav",
-                headers={"Cache-Control": "no-cache", "X-TTS-Engine": "gpt-sovits"},
-            )
+    # Fallback to Edge-TTS
+    try:
+        audio_data = await _edge_tts_synthesize(spoken_text, voice, rate, pitch)
+        return Response(
+            content=audio_data,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-cache", "X-TTS-Engine": "edge-tts", "X-TTS-Voice": voice},
+        )
+    except Exception as e:
+        logger.error(f"Edge-TTS fallback failed: {e}")
 
     raise HTTPException(503, "All TTS engines unavailable")
 
@@ -245,7 +248,7 @@ async def tts_get_config():
     """Return current TTS config."""
     cfg = _load_tts_config()
     return {
-        "engine": cfg.get("engine", "edge-tts"),
+        "engine": cfg.get("engine", "gpt-sovits"),
         "api_url": cfg.get("api_url", "http://127.0.0.1:9880"),
         "ref_audio_path": cfg.get("ref_audio_path", ""),
         "text_lang": cfg.get("text_lang", "zh"),
@@ -257,7 +260,7 @@ async def tts_get_config():
 
 
 class TTSConfigUpdate(BaseModel):
-    engine: str = "edge-tts"
+    engine: str = "gpt-sovits"
     api_url: str = "http://127.0.0.1:9880"
     ref_audio_path: str = ""
     prompt_text: str = ""
@@ -321,7 +324,7 @@ async def tts_status():
         pid = _tts_process.pid
 
     return {
-        "engine": cfg.get("engine", "edge-tts"),
+        "engine": cfg.get("engine", "gpt-sovits"),
         "edge_tts": {"available": edge_ok, "voice": cfg.get("edge_voice", DEFAULT_VOICE)},
         "gpt_sovits": {"online": gptsovits_ok, "api_url": api_url, "pid": pid},
     }

@@ -208,7 +208,27 @@ class UsageStore:
                 {"date": row[0], "total_tokens": int(row[1] or 0)}
                 for row in daily_rows
             ],
+            # P1-6/P6-7: 按 phase 分列（task=生产 / drill=simulation / plaza=deliberation）
+            "by_phase": self._phase_breakdown(conn, where, params) if False else self._phase_breakdown(where, params),
         }
+
+    def _phase_breakdown(self, where: str, params: List[object]) -> List[Dict[str, object]]:
+        """按 phase 分列 token 用量."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT phase, COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost_usd), 0)
+                FROM usage_log {where}
+                GROUP BY phase
+                ORDER BY phase
+                """,
+                params,
+            ).fetchall()
+        return [
+            {"phase": row[0] or "task", "count": int(row[1] or 0),
+             "total_tokens": int(row[2] or 0), "cost_usd": float(row[3] or 0.0)}
+            for row in rows
+        ]
 
     def recent_events(self, *, limit: int = 50, level: str = "") -> List[Dict[str, object]]:
         clauses = []

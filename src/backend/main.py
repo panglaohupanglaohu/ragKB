@@ -531,6 +531,14 @@ async def startup():
             f"agents: {sum(len(t.agents) for t in _team_manager.list_teams())}"
         )
 
+        # 3.5 宠物生态 API
+        try:
+            from agents.pet_routes import router as pet_router
+            app.include_router(pet_router)
+            logger.info("🐾 Pet Ecosystem API mounted (/api/v1/pet-ecosystem)")
+        except Exception as e:
+            logger.warning(f"⚠️ Pet Ecosystem API not loaded: {e}")
+
         # 4. 智能体广场 API
         try:
             from agents.plaza_routes import router as plaza_router

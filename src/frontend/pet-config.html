@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仿生生态配置 — AgentsGroup2026</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<style>
+body { background: #f5f7fa; color: #1a202c; font-family: -apple-system, sans-serif; margin: 0; padding: 20px; }
+.topbar-ws { margin-bottom: 20px; }
+h1 { font-size: 20px; margin: 20px 0; }
+.pet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+.pet-card { background: #fff; border: 1px solid #e2e5e9; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.pet-card.is-new { border-color: #f6ad55; box-shadow: 0 0 0 2px #feebc8; }
+.pet-card h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+.pet-card h2 .species { font-size: 12px; color: #718096; font-weight: normal; }
+.pet-card h2 .badge-new { font-size: 10px; background: #f6ad55; color: #fff; padding: 1px 6px; border-radius: 8px; }
+.form-section { margin-bottom: 14px; }
+.form-section h3 { font-size: 12px; text-transform: uppercase; color: #718096; margin: 0 0 6px; letter-spacing: 0.5px; }
+.form-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+.form-row label { width: 110px; font-size: 12px; color: #4a5568; flex-shrink: 0; }
+.form-row input, .form-row select, .form-row textarea { flex: 1; padding: 6px 8px; border: 1px solid #d1d9e6; border-radius: 6px; font-size: 12px; font-family: inherit; }
+.form-row input:focus, .form-row select:focus { outline: none; border-color: #4a90d9; }
+.form-row .hint { font-size: 10px; color: #a0aec0; }
+.route-editor { background: #f7f8fa; border: 1px dashed #cbd5e0; border-radius: 6px; padding: 8px; font-size: 11px; color: #4a5568; min-height: 40px; font-family: monospace; width: 100%; box-sizing: border-box; }
+.btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-primary { background: #4a90d9; color: #fff; }
+.btn-danger { background: #e04040; color: #fff; }
+.btn-success { background: #34d399; color: #fff; }
+.btn-test { background: #805ad5; color: #fff; }
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.eco-section { background: #fff; border: 1px solid #e2e5e9; border-radius: 12px; padding: 16px; margin-top: 16px; }
+.eco-matrix { display: grid; gap: 4px; margin-top: 8px; }
+.eco-cell { padding: 8px 10px; text-align: center; font-size: 11px; border: 1px solid #e2e5e9; border-radius: 4px; cursor: pointer; user-select: none; transition: background .12s; }
+.eco-cell.header { font-weight: 600; background: #f7f8fa; cursor: default; }
+.eco-cell.diag { background: #f7f8fa; cursor: default; color: #cbd5e0; }
+.eco-cell.chase { background: #fed7d7; color: #c53030; font-weight: 600; }
+.eco-cell.flee { background: #bee3f8; color: #2c5282; font-weight: 600; }
+.eco-cell.coexist { background: #c6f6d5; color: #22543d; font-weight: 600; }
+.eco-cell:hover:not(.header):not(.diag) { transform: scale(1.05); }
+.add-pet-bar { margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tts-status { font-size: 11px; padding: 4px 10px; border-radius: 12px; }
+.tts-status.ok { background: #c6f6d5; color: #22543d; }
+.tts-status.warn { background: #feebc8; color: #7b341e; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #2d3748; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; opacity: 0; transition: opacity .25s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.voice-test-result { font-size: 11px; margin-top: 4px; min-height: 16px; }
+.voice-test-result.ok { color: #22543d; }
+.voice-test-result.err { color: #c53030; }
+</style>
+</head>
+<body>
+<div class="topbar-ws">
+  <div class="topbar-ws__left">
+    <div class="logo" style="width:32px;height:32px;border-radius:6px;background:#e8a020;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">🐾</div>
+    <h1>仿生生态配置</h1>
+  </div>
+  <nav class="topbar-ws__nav">
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取/赋予</a>
+    <a href="/Agent-digital-twin.html">数字孪生</a>
+    <a href="/cost-dashboard.html">演进式成本优化</a>
+    <span class="cur">🐾 仿生生态</span>
+  </nav>
+</div>
+
+<div class="add-pet-bar">
+  <button class="btn btn-success" onclick="addNewPet()">+ 新增生物</button>
+  <button class="btn btn-primary" onclick="saveAll()">💾 保存全部</button>
+  <button class="btn" onclick="loadConfig()" style="background:#e2e5e9">🔄 重新加载</button>
+  <span id="tts-status" class="tts-status warn">TTS 引擎检测中…</span>
+</div>
+
+<div class="pet-grid" id="pet-grid"></div>
+
+<div class="eco-section">
+  <h2 style="font-size:16px;margin:0 0 8px">🔗 互动关系矩阵</h2>
+  <p style="font-size:12px;color:#718096;margin:0 0 8px">点击单元格循环切换关系：无 → <b style="color:#c53030">追</b>(行追列) → <b style="color:#2c5282">逃</b>(行逃列) → <b style="color:#22543d">共</b>(共存) → 无。切换后自动保存。</p>
+  <div id="eco-matrix" class="eco-matrix"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/js/api.js"></script>
+<script>
+let config = { pets: [], ecosystem: { chase_pairs: [], flee_pairs: [], coexistence: [] } };
+let _ttsVoices = [];        // edge-tts voices from backend
+let _browserVoices = [];    // browser speechSynthesis voices
+let _ttsStatus = null;
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+async function loadConfig() {
+  const data = await api.get('/api/v1/pet-ecosystem/config');
+  if (!data) { alert('加载失败: ' + (api._lastError ? api._lastError.message : '无响应') + '\n（若为 401 请先登录）'); return; }
+  config = {
+    pets: (data.pets || []).map(p => ({ ...p, _isNew: false })),
+    ecosystem: data.ecosystem || { chase_pairs: [], flee_pairs: [], coexistence: [] }
+  };
+  // 兼容旧配置：无 flee_pairs 字段
+  config.ecosystem.flee_pairs = config.ecosystem.flee_pairs || [];
+  config.ecosystem.coexistence = config.ecosystem.coexistence || [];
+  render();
+  toast('✅ 配置已加载（' + config.pets.length + ' 个生物）');
+}
+
+async function loadTTS() {
+  try {
+    const [st, vd] = await Promise.all([
+      api.get('/api/v1/tts/status'),
+      api.get('/api/v1/tts/voices'),
+    ]);
+    _ttsStatus = st;
+    _ttsVoices = (vd && vd.voices) || [];
+  } catch (e) { console.warn('[tts] load failed', e); }
+  // 浏览器语音
+  if (window.speechSynthesis) {
+    _browserVoices = speechSynthesis.getVoices();
+    speechSynthesis.onvoiceschanged = () => { _browserVoices = speechSynthesis.getVoices(); render(); };
+  }
+  renderTTSStatus();
+}
+
+function renderTTSStatus() {
+  const el = document.getElementById('tts-status');
+  if (!_ttsStatus) { el.className = 'tts-status warn'; el.textContent = 'TTS 引擎离线'; return; }
+  const engine = _ttsStatus.engine || 'gpt-sovits';
+  const edgeOk = _ttsStatus.edge_tts && _ttsStatus.edge_tts.available;
+  const gptOk = _ttsStatus.gpt_sovits && _ttsStatus.gpt_sovits.online;
+  const parts = [`引擎: ${engine}`];
+  if (engine === 'gpt-sovits') parts.push(gptOk ? 'GPT-SoVITS在线✓' : 'GPT-SoVITS离线→Edge兜底');
+  parts.push(edgeOk ? 'Edge-TTS可用✓' : 'Edge-TTS不可用✗');
+  el.className = 'tts-status ' + (edgeOk ? 'ok' : 'warn');
+  el.textContent = parts.join(' · ');
+}
+
+function render() { renderPets(); renderEcoMatrix(); }
+
+function renderPets() {
+  const grid = document.getElementById('pet-grid');
+  grid.innerHTML = config.pets.map((pet, i) => `
+    <div class="pet-card ${pet._isNew ? 'is-new' : ''}" data-pet-idx="${i}">
+      <h2>${esc(pet.name || '未命名')} <span class="species">${esc(pet.species || '未设定')}</span>${pet._isNew ? '<span class="badge-new">未保存</span>' : ''}</h2>
+      ${renderBaseSection(pet, i)}
+      ${renderModelSection(pet, i)}
+      ${renderBehaviorSection(pet, i)}
+      ${renderSpeakSection(pet, i)}
+      ${renderVoiceSection(pet, i)}
+      ${renderClickSection(pet, i)}
+      <div class="actions">
+        <button class="btn btn-primary" onclick="savePet(${i})">💾 保存</button>
+        <button class="btn btn-danger" onclick="deletePet(${i})">🗑 删除</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderBaseSection(pet, i) {
+  return `<div class="form-section">
+    <h3>📋 基本</h3>
+    <div class="form-row"><label>ID</label><input type="text" value="${esc(pet.id||'')}" readonly style="background:#f7f8fa;color:#a0aec0"></div>
+    <div class="form-row"><label>名称</label><input type="text" value="${esc(pet.name||'')}" onchange="updateField(${i},'name',this.value)"></div>
+    <div class="form-row"><label>物种</label><input type="text" value="${esc(pet.species||'')}" onchange="updateField(${i},'species',this.value)" placeholder="cat / mouse / bird… 自由输入"></div>
+    <div class="form-row"><label>团队ID</label><input type="text" value="${esc(pet.team_id||'pet_squad')}" onchange="updateField(${i},'team_id',this.value)"></div>
+  </div>`;
+}
+
+function renderModelSection(pet, i) {
+  const m = pet.model || {};
+  const isCustom = (m.type || '').startsWith('custom') || (m.type && m.type !== 'builtin_cat' && m.type !== 'builtin_mouse');
+  const typeVal = isCustom ? 'custom' : (m.type || 'builtin_cat');
+  return `<div class="form-section">
+    <h3>📐 模型</h3>
+    <div class="form-row"><label>类型</label><select onchange="onModelTypeChange(${i},this.value)">
+      <option value="builtin_cat" ${typeVal==='builtin_cat'?'selected':''}>builtin_cat（内置猫）</option>
+      <option value="builtin_mouse" ${typeVal==='builtin_mouse'?'selected':''}>builtin_mouse（内置鼠）</option>
+      <option value="custom" ${typeVal==='custom'?'selected':''}>custom（自定义/外部模型）</option>
+    </select></div>
+    ${isCustom ? `<div class="form-row"><label>模型规格</label><input type="text" value="${esc(m.custom_spec||m.type||'')}" onchange="updateField(${i},'model.custom_spec',this.value)" placeholder="gltf URL / 模型标识，自由输入"><span class="hint">自由输入</span></div>` : ''}
+    <div class="form-row"><label>缩放</label><input type="number" step="0.05" value="${m.scale??1.0}" onchange="updateField(${i},'model.scale',parseFloat(this.value))"></div>
+    <div class="form-row"><label>毛色(hex)</label><input type="text" value="${esc(m.fur_color||'0xf2f2f2')}" onchange="updateField(${i},'model.fur_color',this.value)"></div>
+    <div class="form-row"><label>耳X</label><input type="number" step="0.01" value="${m.ear_position_x??0.52}" onchange="updateField(${i},'model.ear_position_x',parseFloat(this.value))"></div>
+    <div class="form-row"><label>耳摆幅度</label><input type="number" step="0.01" value="${m.ear_swing_amplitude??0.3}" onchange="updateField(${i},'model.ear_swing_amplitude',parseFloat(this.value))"></div>
+    <div class="form-row"><label>尾长</label><input type="number" step="0.01" value="${m.tail_length??0.55}" onchange="updateField(${i},'model.tail_length',parseFloat(this.value))"></div>
+  </div>`;
+}
+
+function onModelTypeChange(i, val) {
+  if (val === 'custom') {
+    updateField(i, 'model.type', 'custom');
+    updateField(i, 'model.custom_spec', config.pets[i].model.custom_spec || '');
+  } else {
+    updateField(i, 'model.type', val);
+    config.pets[i].model && delete config.pets[i].model.custom_spec;
+  }
+  render();
+}
+
+function renderBehaviorSection(pet, i) {
+  const b = pet.behavior || {};
+  const others = config.pets.map((p, j) => j !== i ? p.id : null).filter(Boolean);
+  return `<div class="form-section">
+    <h3>🏃 行为</h3>
+    <div class="form-row"><label>类型</label><select onchange="updateField(${i},'behavior.type',this.value)">
+      ${['patrol','patrol_chase','patrol_flee'].map(t=>`<option value="${t}" ${b.type===t?'selected':''}>${t}</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>速度</label><input type="number" step="0.1" value="${b.speed??1.5}" onchange="updateField(${i},'behavior.speed',parseFloat(this.value))"></div>
+    <div class="form-row"><label>检测半径</label><input type="number" step="0.5" value="${b.detect_radius??b.flee_radius??4.0}" onchange="updateField(${i},'behavior.detect_radius',parseFloat(this.value))"></div>
+    <div class="form-row"><label>逃跑加速</label><input type="number" step="0.1" value="${b.flee_speed_multiplier??1.8}" onchange="updateField(${i},'behavior.flee_speed_multiplier',parseFloat(this.value))"></div>
+    <div class="form-row"><label>追逐目标</label><select multiple size="${Math.max(2,others.length)}" onchange="updateMulti(${i},'behavior.chase_targets',this)">
+      ${others.map(id=>`<option value="${id}" ${(b.chase_targets||[]).includes(id)?'selected':''}>${id}</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>逃跑来源</label><select multiple size="${Math.max(2,others.length)}" onchange="updateMulti(${i},'behavior.flee_from',this)">
+      ${others.map(id=>`<option value="${id}" ${(b.flee_from||[]).includes(id)?'selected':''}>${id}</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>巡逻路线</label><span class="hint">[[x,y],…]</span></div>
+    <textarea class="route-editor" rows="3" onblur="updateRoute(${i},this.value)">${JSON.stringify(b.route||[])}</textarea>
+  </div>`;
+}
+
+function renderSpeakSection(pet, i) {
+  const s = pet.speak || {};
+  return `<div class="form-section">
+    <h3>💬 台词</h3>
+    <div class="form-row"><label>来源</label><select onchange="updateField(${i},'speak.provider',this.value)">
+      ${['llm','none'].map(t=>`<option value="${t}" ${s.provider===t?'selected':''}>${t}</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>技能ID</label><input type="text" value="${esc(s.skill_id||'')}" onchange="updateField(${i},'speak.skill_id',this.value)"></div>
+    <div class="form-row"><label>触发</label><input type="text" value="${esc(s.trigger||'on_detect_mouse')}" onchange="updateField(${i},'speak.trigger',this.value)"></div>
+    <div class="form-row"><label>冷却(秒)</label><input type="number" value="${s.cooldown_sec??10}" onchange="updateField(${i},'speak.cooldown_sec',parseInt(this.value))"></div>
+    <div class="form-row"><label>兜底文案</label><input type="text" value="${esc(s.fallback||'')}" onchange="updateField(${i},'speak.fallback',this.value)"></div>
+  </div>`;
+}
+
+function renderVoiceSection(pet, i) {
+  const v = pet.voice || {};
+  const provider = v.provider || 'browser';
+  const enabled = v.enabled !== false;
+  let body = '';
+  if (provider === 'browser') {
+    body = `
+    <div class="form-row"><label>浏览器语音</label><select onchange="updateField(${i},'voice.preferred_voice',this.value)">
+      ${_browserVoices.map(vv=>`<option value="${esc(vv.name)}" ${(v.preferred_voice||'')===vv.name?'selected':''}>${esc(vv.name)} (${vv.lang})</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>语言</label><input type="text" value="${esc(v.lang||'zh-CN')}" onchange="updateField(${i},'voice.lang',this.value)"></div>
+    <div class="form-row"><label>语速</label><input type="number" step="0.05" value="${v.rate??1.1}" onchange="updateField(${i},'voice.rate',parseFloat(this.value))"></div>
+    <div class="form-row"><label>音调</label><input type="number" step="0.05" value="${v.pitch??1.8}" onchange="updateField(${i},'voice.pitch',parseFloat(this.value))"></div>
+    <div class="form-row"><label>音量</label><input type="number" step="0.05" value="${v.volume??0.9}" onchange="updateField(${i},'voice.volume',parseFloat(this.value))"></div>`;
+  } else if (provider === 'edge-tts') {
+    body = `
+    <div class="form-row"><label>Edge神经语音</label><select onchange="updateField(${i},'voice.edge_voice',this.value)">
+      ${_ttsVoices.map(vv=>`<option value="${vv.voice}" ${(v.edge_voice||'')===vv.voice?'selected':''}>${esc(vv.desc)} (${vv.voice})</option>`).join('')}
+    </select></div>
+    <div class="form-row"><label>语速</label><input type="text" value="${esc(v.edge_rate||'+8%')}" onchange="updateField(${i},'voice.edge_rate',this.value)" placeholder="+8%"></div>
+    <div class="form-row"><label>音调</label><input type="text" value="${esc(v.edge_pitch||'+0Hz')}" onchange="updateField(${i},'voice.edge_pitch',this.value)" placeholder="+0Hz"></div>`;
+  } else { // gpt-sovits
+    body = `
+    <div class="form-row"><label>说明</label><span class="hint">GPT-SoVITS 使用全局参考音频（见 settings.json tts.ref_audio_path），需先启动服务</span></div>
+    <div class="form-row"><label>语速因子</label><input type="number" step="0.1" value="${v.speed_factor??1.0}" onchange="updateField(${i},'voice.speed_factor',parseFloat(this.value))"></div>`;
+  }
+  return `<div class="form-section">
+    <h3>🔊 语音</h3>
+    <div class="form-row"><label>启用</label><select onchange="updateField(${i},'voice.enabled',this.value==='true')">
+      <option value="true" ${enabled?'selected':''}>是</option>
+      <option value="false" ${!enabled?'selected':''}>否</option>
+    </select></div>
+    <div class="form-row"><label>引擎</label><select onchange="onVoiceProviderChange(${i},this.value)">
+      <option value="browser" ${provider==='browser'?'selected':''}>浏览器内置（Web Speech）</option>
+      <option value="edge-tts" ${provider==='edge-tts'?'selected':''}>Edge-TTS 神经语音（后端）</option>
+      <option value="gpt-sovits" ${provider==='gpt-sovits'?'selected':''}>GPT-SoVITS 克隆（后端）</option>
+    </select></div>
+    ${body}
+    <div class="form-row"><label>去标点</label><select onchange="updateField(${i},'voice.strip_punctuation',this.value==='true')">
+      <option value="true" ${v.strip_punctuation!==false?'selected':''}>是</option>
+      <option value="false" ${v.strip_punctuation===false?'selected':''}>否</option>
+    </select></div>
+    <div class="form-row"><label>超时(秒)</label><input type="number" value="${v.timeout_sec??15}" onchange="updateField(${i},'voice.timeout_sec',parseInt(this.value))"></div>
+    <div class="actions">
+      <button class="btn btn-test" onclick="testVoice(${i})">▶ 试听语音</button>
+      <span id="voice-test-${i}" class="voice-test-result"></span>
+    </div>
+  </div>`;
+}
+
+function onVoiceProviderChange(i, val) {
+  updateField(i, 'voice.provider', val);
+  render();
+}
+
+function renderClickSection(pet, i) {
+  const c = pet.click_action || {};
+  return `<div class="form-section">
+    <h3>🖱 点击动作</h3>
+    <div class="form-row"><label>类型</label><select onchange="updateField(${i},'click_action.type',this.value)">
+      ${['dialog','bubble'].map(t=>`<option value="${t}" ${c.type===t?'selected':''}>${t}</option>`).join('')}
+    </select></div>
+    ${c.type === 'dialog' ? `<div class="form-row"><label>人格</label><input type="text" value="${esc(c.personality||'')}" onchange="updateField(${i},'click_action.personality',this.value)"></div>` : ''}
+  </div>`;
+}
+
+function renderEcoMatrix() {
+  const el = document.getElementById('eco-matrix');
+  const pets = config.pets;
+  if (pets.length === 0) { el.innerHTML = '<p style="font-size:12px;color:#718096">先添加生物</p>'; el.style.gridTemplateColumns = ''; return; }
+  el.style.gridTemplateColumns = `90px repeat(${pets.length}, 70px)`;
+  let html = '<div class="eco-cell header"></div>';
+  pets.forEach(p => { html += `<div class="eco-cell header">${esc(p.name||p.id)}</div>`; });
+  pets.forEach((rowPet, ri) => {
+    html += `<div class="eco-cell header">${esc(rowPet.name||rowPet.id)}</div>`;
+    pets.forEach((colPet, ci) => {
+      if (ri === ci) { html += '<div class="eco-cell diag">—</div>'; return; }
+      const rel = relationship(rowPet.id, colPet.id);
+      const label = rel === 'chase' ? '追' : rel === 'flee' ? '逃' : rel === 'coexist' ? '共' : '·';
+      html += `<div class="eco-cell ${rel}" data-from="${rowPet.id}" data-to="${colPet.id}">${label}</div>`;
+    });
+  });
+  el.innerHTML = html;
+}
+
+function relationship(fromId, toId) {
+  const eco = config.ecosystem;
+  if ((eco.chase_pairs||[]).some(p => p[0]===fromId && p[1]===toId)) return 'chase';
+  if ((eco.flee_pairs||[]).some(p => p[0]===fromId && p[1]===toId)) return 'flee';
+  if ((eco.coexistence||[]).some(p => (p[0]===fromId&&p[1]===toId)||(p[0]===toId&&p[1]===fromId))) return 'coexist';
+  return '';
+}
+
+// 事件委托：点击矩阵单元格
+document.addEventListener('click', (e) => {
+  const cell = e.target.closest('.eco-cell[data-from]');
+  if (!cell) return;
+  const from = cell.dataset.from, to = cell.dataset.to;
+  const eco = config.ecosystem;
+  const cur = relationship(from, to);
+  // 先清除该方向所有关系
+  eco.chase_pairs = (eco.chase_pairs||[]).filter(p => !(p[0]===from&&p[1]===to));
+  eco.flee_pairs = (eco.flee_pairs||[]).filter(p => !(p[0]===from&&p[1]===to));
+  eco.coexistence = (eco.coexistence||[]).filter(p => !((p[0]===from&&p[1]===to)||(p[0]===to&&p[1]===from)));
+  // 循环：无→追→逃→共→无
+  let next = cur === '' ? 'chase' : cur === 'chase' ? 'flee' : cur === 'flee' ? 'coexist' : '';
+  if (next === 'chase') eco.chase_pairs.push([from, to]);
+  else if (next === 'flee') eco.flee_pairs.push([from, to]);
+  else if (next === 'coexist') eco.coexistence.push([from, to]);
+  renderEcoMatrix();
+  saveEcosystem(true);
+});
+
+function updateField(petIdx, path, value) {
+  const parts = path.split('.');
+  let obj = config.pets[petIdx];
+  for (let i = 0; i < parts.length - 1; i++) { obj = obj[parts[i]] = obj[parts[i]] || {}; }
+  obj[parts[parts.length - 1]] = value;
+}
+
+function updateMulti(petIdx, path, sel) {
+  const val = Array.from(sel.selectedOptions).map(o => o.value);
+  updateField(petIdx, path, val);
+}
+
+function updateRoute(petIdx, text) {
+  try { config.pets[petIdx].behavior = config.pets[petIdx].behavior || {}; config.pets[petIdx].behavior.route = JSON.parse(text); }
+  catch(e) { alert('路线格式错误，请用 [[x,y],[x,y]...]'); }
+}
+
+async function savePet(idx) {
+  const pet = config.pets[idx];
+  if (!pet) return;
+  const payload = JSON.parse(JSON.stringify(pet));
+  delete payload._isNew;
+  const d = pet._isNew
+    ? await api.post('/api/v1/pet-ecosystem/pets', payload)
+    : await api.put('/api/v1/pet-ecosystem/pets/' + pet.id, payload);
+  if (d && (d.status || d.pet_id)) { pet._isNew = false; toast('✅ 已保存 ' + pet.name); render(); }
+  else { alert('❌ 保存失败: ' + (api._lastError ? api._lastError.message : '未知错误')); }
+}
+
+async function saveAll() {
+  for (let i = 0; i < config.pets.length; i++) {
+    if (config.pets[i]._isNew) { await savePet(i); }
+  }
+  await saveEcosystem(false);
+  toast('✅ 全部保存完成');
+}
+
+async function saveEcosystem(silent) {
+  const eco = JSON.parse(JSON.stringify(config.ecosystem));
+  const d = await api.put('/api/v1/pet-ecosystem/ecosystem', eco);
+  if (d && d.status) { if (!silent) toast('✅ 关系已保存'); }
+  else { if (!silent) alert('❌ 关系保存失败: ' + (api._lastError ? api._lastError.message : '未知错误')); }
+}
+
+async function deletePet(idx) {
+  const pet = config.pets[idx];
+  if (!pet) return;
+  if (!confirm(`确定删除 ${pet.name || pet.id}？`)) return;
+  if (!pet._isNew) {
+    try { await api.del('/api/v1/pet-ecosystem/pets/' + pet.id); }
+    catch(e) { console.warn(e); }
+  }
+  config.pets.splice(idx, 1);
+  render();
+  toast('🗑 已删除');
+}
+
+function addNewPet() {
+  const id = 'pet_' + Date.now().toString(36);
+  config.pets.push({
+    id, name: '新生物', species: '', team_id: 'pet_squad',
+    _isNew: true,
+    model: { type: 'builtin_cat', scale: 1.0, fur_color: '0xf2f2f2' },
+    behavior: { type: 'patrol', route: [[0,0],[5,0],[5,5],[0,5]], speed: 1.5, detect_radius: 4.0, chase_targets: [], flee_from: [] },
+    speak: { provider: 'none' },
+    voice: { provider: 'browser', enabled: false, lang: 'zh-CN', rate: 1.1, pitch: 1.8, volume: 0.9, strip_punctuation: true, timeout_sec: 15 },
+    click_action: { type: 'bubble' },
+  });
+  render();
+  toast('➕ 已新增「新生物」，记得点保存');
+}
+
+async function testVoice(idx) {
+  const pet = config.pets[idx];
+  const v = pet.voice || {};
+  const resEl = document.getElementById('voice-test-' + idx);
+  resEl.className = 'voice-test-result'; resEl.textContent = '合成中…';
+  const text = `你好，我是${pet.name || '新生物'}`;
+  try {
+    if ((v.provider || 'browser') === 'browser') {
+      if (!window.speechSynthesis) throw new Error('浏览器不支持语音合成');
+      speechSynthesis.cancel(); speechSynthesis.resume();
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.lang = v.lang || 'zh-CN'; utt.rate = v.rate??1.1; utt.pitch = v.pitch??1.8; utt.volume = v.volume??0.9;
+      const voices = speechSynthesis.getVoices();
+      const fv = voices.find(vv => vv.name === (v.preferred_voice||'')) || voices.find(vv => vv.lang && vv.lang.startsWith('zh')) || voices[0];
+      if (fv) utt.voice = fv;
+      speechSynthesis.speak(utt);
+      resEl.className = 'voice-test-result ok'; resEl.textContent = '▶ 浏览器播放中…';
+    } else {
+      const body = { text, agent_name: pet.name || pet.id };
+      if (v.provider === 'edge-tts' && v.edge_voice) { body.voice = v.edge_voice; if (v.edge_rate) body.rate = v.edge_rate; if (v.edge_pitch) body.pitch = v.edge_pitch; }
+      if (v.provider === 'gpt-sovits') body.speed_factor = v.speed_factor ?? 1.0;
+      const r = await window._agFetch('/api/v1/tts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'HTTP ' + r.status); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+      resEl.className = 'voice-test-result ok'; resEl.textContent = '▶ 播放中（引擎: ' + (r.headers.get('X-TTS-Engine')||'?') + '）';
+    }
+  } catch(e) {
+    resEl.className = 'voice-test-result err'; resEl.textContent = '❌ ' + e.message;
+  }
+}
+
+function esc(s) { return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// 初始化
+loadTTS();
+loadConfig();
+</script>
+</body>
+</html>

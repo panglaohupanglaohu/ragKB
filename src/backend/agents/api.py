@@ -7976,9 +7976,14 @@ async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
             "Say a classic quote from Mei Ling in Metal Gear Solid series (English only). "
             "Output only the quote, nothing else."
         )
+    # 每次用不同 session_id（避免对话历史导致重复）+ prompt 里加随机数强制变化
+    import random as _rand
+    _seed = _rand.randint(1, 999999)
+    _user_msg = f"Generate quote #{_seed}. Say ONE line with a DIFFERENT Chinese proverb/fable/idiom than any previous time. Seed={_seed}."
     result = await harness.chat(
-        req.context or "Say a Mei Ling quote",
+        _user_msg,
         agent_id="xiaohu_cat",
+        session_id=f"cat_speak_{_seed}",   # 每次新 session，无历史
         system_prompt=system,
     )
     # 去掉引号和首尾空白

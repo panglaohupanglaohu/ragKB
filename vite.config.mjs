@@ -36,6 +36,7 @@ export default defineConfig({
         sandboxTwin: page('sandbox-twin.html'),
         datacenterRatchetEvolution: page('datacenter-ratchet-evolution.html'),
         costDashboard: page('cost-dashboard.html'),
+        petConfig: page('pet-config.html'),
       },
       output: {
         manualChunks(id) {

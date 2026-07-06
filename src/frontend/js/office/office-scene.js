@@ -615,6 +615,7 @@ export function createOfficeScene(canvas, container) {
   const edgeMeshes = new Map();
   const processedEdges = new Set();
   let mirrorOn = false;
+  let _catBubbleHold = 0;   // 事件气泡(遇鼠/评分/问答)保持时间戳，期间不被 catNote 解说覆盖
 
   function targetFor(agent, idxInMeeting, meetingCount, facilities) {
     if (agent.activity === 'meeting') {
@@ -768,8 +769,8 @@ export function createOfficeScene(canvas, container) {
       }
     }
     boardTex.draw(state.meeting.boardLines);
-    // 猫气泡跟随状态
-    if (state.catNote !== applyState._lastCatNote) {
+    // 猫气泡跟随状态（事件气泡保持期内不覆盖）
+    if (state.catNote !== applyState._lastCatNote && Date.now() >= _catBubbleHold) {
       applyState._lastCatNote = state.catNote;
       cat.drawBubble(state.catNote);
     }
@@ -900,7 +901,8 @@ export function createOfficeScene(canvas, container) {
   async function _catSpeakLLM(context) {
     if (_catSpeakCooldown > Date.now()) return;   // 冷却 10s，避免频繁调 LLM
     _catSpeakCooldown = Date.now() + 10000;
-    // 先显示占位
+    // 先显示占位（保持期内不被 catNote 解说覆盖）
+    _catBubbleHold = Date.now() + 10000;
     cat.drawBubble('🐱 喵…（思索中）');
     try {
       // 用页面已有的 _af（自动带 CSRF token + credentials）；fallback 到 _agFetch
@@ -913,6 +915,7 @@ export function createOfficeScene(canvas, container) {
       const d = await r.json();
       console.log('[cat-speak] response:', d, 'status:', r.status);
       if (d && d.reply) {
+        _catBubbleHold = Date.now() + 10000;
         cat.drawBubble('🐱 ' + d.reply);
         if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(d.reply);
       } else {
@@ -1096,6 +1099,7 @@ export function createOfficeScene(canvas, container) {
     applyState,
     showAgentBubble,
     showCatBubble(text) {
+      _catBubbleHold = Date.now() + 10000;
       cat.drawBubble(text);
     },
     onRewardUpdate(reward, prevReward) {
@@ -1117,6 +1121,7 @@ export function createOfficeScene(canvas, container) {
         comment = '喵...分数有点波动，稳一稳吧~';
       }
       if (comment) {
+        _catBubbleHold = Date.now() + 8000;
         cat.drawBubble('🐈 ' + comment);
         if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(comment);
       }
