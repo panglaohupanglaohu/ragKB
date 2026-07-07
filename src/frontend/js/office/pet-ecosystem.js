@@ -165,11 +165,20 @@ export class PetEcosystem {
     try {
       const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
       const context = opts.context || `Pet ${config.name} detected ${target ? target.config.name : ''}`;
-      const r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
+      let r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ context }),
       });
+      // 403 → CSRF token 失效，刷新后重试一次
+      if (r.status === 403 && typeof window._csrfReset === 'function') {
+        await window._csrfReset();
+        r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context }),
+        });
+      }
       const d = await r.json();
       const reply = (d && d.reply) ? d.reply : (speak.fallback || '喵~');
       this._catBubbleHold = Date.now() + 10000;

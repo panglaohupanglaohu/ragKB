@@ -476,11 +476,33 @@ async def startup():
                 logger.warning(f"⚠️ AWS Ops team not loaded: {e}")
 
         # 宠物智能体团队（猫小虎 + 老鼠）
+        # 猫台词提示词技能：小虎即兴发言走 /llm/cat-speak 时以此 instructions 作 system prompt
+        _CAT_SPEAK_SKILL_ID = "cat_speak_prompt"
+        _CAT_SPEAK_INSTRUCTIONS = (
+            "You are Xiaohu the cat, speaking in the voice of Mei Ling from Metal Gear Solid.\n"
+            "Share a single classic proverb, idiom, fable, or piece of ancient wisdom — always in ENGLISH.\n"
+            "Voice: warm, encouraging, a little playful, like Mei Ling comforting Snake at a codec save point.\n"
+            "Fit the proverb to the situation in the context (spotting a mouse, a catch, a score change, a question).\n"
+            "Output ONE line only: the proverb, optionally with a short attribution (e.g. '— an old Chinese saying').\n"
+            "No Chinese characters, no 'meow', no extra commentary or explanation."
+        )
+
+        def _build_cat_speak_skill():
+            from agents.models import SkillDefinition, SkillCategory
+            return SkillDefinition(
+                skill_id=_CAT_SPEAK_SKILL_ID,
+                name="猫台词提示词 (Mei Ling)",
+                description="小虎即兴发言用的提示词：以 Metal Gear 中 Mei Ling 的谚语式英文口吻说一句话",
+                category=SkillCategory.GENERAL,
+                icon="🐱",
+                source="builtin",
+                instructions=_CAT_SPEAK_INSTRUCTIONS,
+            )
+
         if (not _target_team or _target_team == "pet_squad") \
                 and "pet_squad" not in _team_manager._teams:
             try:
-                from agents.models import AgentProfile, AgentPersonality
-                from agents.team_manager import AgentTeam, Visibility
+                from agents.models import AgentProfile, AgentPersonality, AgentTeam, Visibility
 
                 pet_team = AgentTeam(team_id="pet_squad", name="宠物智能体团队",
                                      description="办公室的毛茸茸巡查员与寻路专家", visibility=Visibility.PUBLIC)
@@ -495,7 +517,7 @@ async def startup():
                         response_style="concise",
                         creativity=0.7,
                     ),
-                    skills=["office_inspection", "task_dispatch", "risk_assessment", "mouse_hunting", "project_management"],
+                    skills=["office_inspection", "task_dispatch", "risk_assessment", "mouse_hunting", "project_management", _CAT_SPEAK_SKILL_ID],
                     metadata={"species": "cat", "age": 14, "voice": "female_young", "soul": "叛逆高中生", "traits": ["叛逆", "毒舌", "善良", "好奇心强", "傲娇"]},
                 )
                 pet_team.agents[cat_agent.agent_id] = cat_agent
@@ -514,11 +536,30 @@ async def startup():
                     metadata={"species": "mouse", "voice": "neutral_fast", "traits": ["机敏", "胆小", "聪明", "话多"]},
                 )
                 pet_team.agents[mouse_agent.agent_id] = mouse_agent
+                pet_team.add_skill(_build_cat_speak_skill())   # 猫台词提示词技能
                 _team_manager._teams["pet_squad"] = pet_team
                 _team_manager._persist()   # 持久化到 teams.json，否则刷新后丢失
                 logger.info(f"🐱 宠物智能体团队注册: pet_squad — {len(pet_team.agents)} agents (小虎+吱吱)")
             except Exception as e:
                 logger.warning(f"⚠️ 宠物智能体团队加载失败: {e}")
+
+        # 幂等回填：pet_squad 已持久化（上面构造块被跳过）时，确保 cat_speak_prompt 技能挂在团队与小虎身上
+        try:
+            _pet = _team_manager._teams.get("pet_squad")
+            if _pet is not None:
+                _changed = False
+                if _CAT_SPEAK_SKILL_ID not in _pet.skills:
+                    _pet.add_skill(_build_cat_speak_skill())
+                    _changed = True
+                _cat = _pet.agents.get("xiaohu_cat")
+                if _cat is not None and _CAT_SPEAK_SKILL_ID not in (_cat.skills or []):
+                    _cat.skills.append(_CAT_SPEAK_SKILL_ID)
+                    _changed = True
+                if _changed:
+                    _team_manager._persist()
+                    logger.info("🐱 backfill: cat_speak_prompt 技能已补入 pet_squad/小虎")
+        except Exception as e:
+            logger.warning(f"⚠️ cat_speak_prompt 回填失败: {e}")
 
         if _target_team:
             logger.info("🎯 Team filter active: only team=%s loaded", _target_team)

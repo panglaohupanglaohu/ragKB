@@ -6419,6 +6419,15 @@ async def execute_skill(
     sr = _sr()
     skill = sr.get_by_slug(skill_name)
     if skill is None:
+        # 回退到团队本地技能（挂在 team.skills、未进全局注册表的技能，如 cat_speak_prompt）
+        team = _tm().get_team(team_id)
+        if team:
+            skill = team.skills.get(skill_name) or next(
+                (s for s in team.skills.values()
+                 if skill_name in (s.name, s.skill_id, s.slug)),
+                None,
+            )
+    if skill is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_name}' not found")
 
     # Merge config
@@ -7979,7 +7988,11 @@ async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
     # 每次用不同 session_id（避免对话历史导致重复）+ prompt 里加随机数强制变化
     import random as _rand
     _seed = _rand.randint(1, 999999)
-    _user_msg = f"Generate quote #{_seed}. Say ONE line with a DIFFERENT Chinese proverb/fable/idiom than any previous time. Seed={_seed}."
+    _ctx = (req.context or "").strip()
+    if _ctx:
+        _user_msg = f"Context: {_ctx}. Share ONE line in ENGLISH — a classic proverb, idiom, or fable (Mei Ling style) that fits this moment. #{_seed}"
+    else:
+        _user_msg = f"Generate quote #{_seed}. Share ONE line in ENGLISH — a classic proverb, idiom, or fable (Mei Ling style), different from any previous one. Seed={_seed}."
     result = await harness.chat(
         _user_msg,
         agent_id="xiaohu_cat",

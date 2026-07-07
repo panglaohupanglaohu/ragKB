@@ -21,12 +21,17 @@ router = APIRouter(prefix="/api/v1/pet-ecosystem", tags=["pet-ecosystem"])
 
 class PetConfigRequest(BaseModel):
     """宠物配置更新请求（部分更新）。"""
+    model_config = {"extra": "allow"}
     id: str = ""
     name: str = ""
     species: str = ""
     team_id: str = ""
+    role: str = ""
     model: Dict[str, Any] = {}
     behavior: Dict[str, Any] = {}
+    perception: Dict[str, Any] = {}
+    mental_state: Dict[str, Any] = {}
+    intention: Dict[str, Any] = {}
     speak: Dict[str, Any] = {}
     voice: Dict[str, Any] = {}
     click_action: Dict[str, Any] = {}

@@ -6,6 +6,7 @@ PetEcosystem — 宠物团队生态仿真管理器
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -31,6 +32,102 @@ _PET_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "intention": {"beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8},
 }
 
+# 内置默认种子（小虎 predator + 吳吳 prey）—— storage/pet_config.json 被 .gitignore 忽略，
+# 跨机拉取后文件不存在时用此种子自动初始化并落盘，避免 0 个生物。
+_DEFAULT_SEED: Dict[str, Any] = {
+    "pets": [
+        {
+            "id": "xiaohu_cat",
+            "name": "小虎",
+            "species": "cat",
+            "team_id": "pet_squad",
+            "role": "predator",
+            "model": {
+                "type": "builtin_cat",
+                "scale": 1,
+                "fur_color": "#C7D9A5",
+                "ear_position_x": 0.52,
+                "ear_swing_amplitude": 0.3,
+                "tail_length": 0.55,
+            },
+            "behavior": {
+                "type": "patrol",
+                "route": [[-6, -4], [6, -4], [6, 4], [-6, 4]],
+                "speed": 1.6,
+                "flee_speed_multiplier": 1,
+                "chase_targets": ["squeak_mouse"],
+                "flee_from": [],
+            },
+            "perception": {"detect_radius": 6.0, "vision_cone_deg": 300},
+            "mental_state": {
+                "hunger_full_sec": 20,
+                "hunt_hunger_threshold": 0.3,
+                "fear_scale_D0": 6.0,
+                "f_escape": 0.55,
+                "f_calm": 0.35,
+            },
+            "intention": {"beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8},
+            "speak": {
+                "provider": "llm",
+                "skill_id": "cat_speak_prompt",
+                "trigger": "on_detect_mouse",
+                "cooldown_sec": 10,
+                "fallback": "",
+            },
+            "voice": {
+                "provider": "browser",
+                "enabled": True,
+                "lang": "zh-CN",
+                "rate": 1.05,
+                "pitch": 1.4,
+                "volume": 0.9,
+                "preferred_voice": "Google US English",
+            },
+            "click_action": {"type": "dialog", "personality": "叛逆高中生灵魂的巡检猫，毒舌但善良"},
+        },
+        {
+            "id": "squeak_mouse",
+            "name": "吳吳",
+            "species": "mouse",
+            "team_id": "pet_squad",
+            "role": "prey",
+            "model": {"type": "builtin_mouse", "scale": 0.85, "fur_color": "0x8a8a8a"},
+            "behavior": {
+                "type": "patrol",
+                "route": [[13, 2], [-13, 2], [-13, -2], [13, -2]],
+                "speed": 1.7,
+                "flee_speed_multiplier": 2.1,
+                "chase_targets": [],
+                "flee_from": ["xiaohu_cat"],
+            },
+            "perception": {"detect_radius": 6.0, "vision_cone_deg": 300},
+            "mental_state": {
+                "hunger_full_sec": 20,
+                "hunt_hunger_threshold": 0.3,
+                "fear_scale_D0": 6.0,
+                "f_escape": 0.55,
+                "f_calm": 0.35,
+            },
+            "intention": {"beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8},
+            "speak": {"provider": "none"},
+            "voice": {
+                "provider": "browser",
+                "enabled": False,
+                "lang": "zh-CN",
+                "rate": 1.3,
+                "pitch": 2,
+                "volume": 0.85,
+            },
+            "click_action": {"type": "bubble"},
+        },
+    ],
+    "ecosystem": {
+        "chase_pairs": [["xiaohu_cat", "squeak_mouse"]],
+        "flee_pairs": [["squeak_mouse", "xiaohu_cat"]],
+        "coexistence": [],
+    },
+}
+
 
 class PetEcosystem:
     """宠物生态管理器 — 加载/保存/CRUD 配置。"""
@@ -44,10 +141,14 @@ class PetEcosystem:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 self._config = json.load(f)
+            if not self._config.get("pets"):
+                raise ValueError("config has no pets")
             logger.info("🐾 PetEcosystem loaded %d pets from %s", len(self._config.get("pets", [])), self._path)
         except Exception as e:
-            logger.warning("🐾 PetEcosystem config load failed: %s, using empty config", e)
-            self._config = {"pets": [], "ecosystem": {"chase_pairs": [], "coexistence": []}}
+            # 文件缺失/损坏/无宠物 → 用内置默认种子（小虎+吳吳）并落盘，保证跨机自带
+            logger.warning("🐾 PetEcosystem config unavailable (%s); seeding built-in defaults", e)
+            self._config = copy.deepcopy(_DEFAULT_SEED)
+            self._save()
 
     def _save(self) -> None:
         try:

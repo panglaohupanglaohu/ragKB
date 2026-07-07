@@ -350,7 +350,7 @@ function bootOffice() {
     // 浏览器内置语音
     if (!window.speechSynthesis) { console.warn('[catSpeak] speechSynthesis unavailable'); return; }
     speechSynthesis.cancel();
-    speechSynthesis.resume();
+    // Chrome bug: cancel() 是异步的，立即 speak() 会导致旧语音不被取消而重复播放
     const utt = new SpeechSynthesisUtterance(cleanText);
     const isEnglish = /^[a-zA-Z\s]/.test(cleanText);
     utt.lang = vc.lang || (isEnglish ? 'en-US' : 'zh-CN');
@@ -375,7 +375,8 @@ function bootOffice() {
     utt.onerror = (e) => { console.warn('[catSpeak] error:', e.error || e); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
     if (_catTtsTimer) clearTimeout(_catTtsTimer);
     _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, (vc.timeout_sec || 15) * 1000);
-    speechSynthesis.speak(utt);
+    // 延迟 150ms 再 speak，确保 cancel() 完成后再播新语音
+    setTimeout(() => { speechSynthesis.resume(); speechSynthesis.speak(utt); }, 150);
   }
 
   // 后端 TTS（edge-tts / gpt-sovits）→ 取音频播放

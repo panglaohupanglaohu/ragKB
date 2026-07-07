@@ -1,5 +1,67 @@
 [
  {
+  "id": "bug-cat-speak-skill-execute-404",
+  "timestamp": "2026-07-07T03:40:00.000000",
+  "error_message": "agent-team-config 点击“猫台词”(cat_speak_prompt)技能执行 → 提示失败，后端 404 Skill '猫台词提示词 (Mei Ling)' not found",
+  "file": "src/backend/agents/api.py",
+  "root_cause": "execute_skill 只用 sr.get_by_slug(skill_name) 在全局技能注册表(_sr)里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
+  "fix": "execute_skill 注册表未命中时回退团队本地技能：_tm().get_team(team_id).skills.get(name) 或按 name/skill_id/slug 匹配。通用修复，任何 team-local 技能都可执行",
+  "tags": [
+   "backend",
+   "skill-execute",
+   "pet-ecosystem",
+   "team-local-skill",
+   "404",
+   "skill-registry"
+  ]
+ },
+ {
+  "id": "bug-pet-seed-not-cross-machine",
+  "timestamp": "2026-07-07T03:35:00.000000",
+  "error_message": "storage/pet_config.json 被 gitignore，拉取覆盖后其它机器缺小虎/吱吱，手补的 seed 不跨机同步",
+  "file": "src/backend/agents/pet_ecosystem.py",
+  "root_cause": "生物数据只来自 gitignored 的 storage/pet_config.json，pet_ecosystem.py 无内置种子；每台机器都要手工补文件",
+  "fix": "加内置常量 _DEFAULT_SEED(小虎 predator + 吱吱 prey，含 Phase A 全字段)；_load() 在文件缺失/损坏/无 pets 时 deepcopy 种子并 _save() 落盘——根治跨机不同步",
+  "tags": [
+   "backend",
+   "pet-ecosystem",
+   "gitignore",
+   "seed-data",
+   "cross-machine"
+  ]
+ },
+ {
+  "id": "bug-pet-config-missing-after-pull",
+  "timestamp": "2026-07-07T02:45:00.000000",
+  "error_message": "pet-config.html 与 office3d 数字孪生里小虎(猫)、吱吱(鼠)完全不加载；页面底部提示『✅ 配置已加载（0 个生物）』",
+  "file": "storage/pet_config.json",
+  "root_cause": "生物数据全部来自 storage/pet_config.json，pet_ecosystem.py 无内置种子；该文件被 .gitignore 忽略且未纳入 git 跟踪。从 GitHub 拉取覆盖本地时不会带过来，开发机上的该文件是本地生成的，故两机差异表现为一台有小虎/吱吱、另一台 0 生物",
+  "fix": "按 docs/宠物团队生态仿真plan.md 的 Phase A schema 重建 storage/pet_config.json，seed 小虎(role=predator, builtin_cat, xiaohu_cat)与吱吱(role=prey, builtin_mouse, squeak_mouse)，含 perception/mental_state/intention 块；PetEcosystem 为启动单例，需重启后端重新加载",
+  "tags": [
+   "pet-ecosystem",
+   "gitignore",
+   "seed-data",
+   "digital-twin",
+   "storage",
+   "singleton-reload"
+  ]
+ },
+ {
+  "id": "bug-pet-team-visibility-import",
+  "timestamp": "2026-07-07T02:20:00.000000",
+  "error_message": "启动告警：宠物智能体团队加载失败：cannot import name 'Visibility' from 'agents.team_manager'",
+  "file": "src/backend/main.py",
+  "root_cause": "main.py 里宠物团队引导用 `from agents.team_manager import AgentTeam, Visibility`，但 team_manager 只从 .models re-export AgentProfile/AgentTeam/ModelConfig，未导出 Visibility；Visibility 实际定义在 agents.models",
+  "fix": "改为 `from agents.models import AgentProfile, AgentPersonality, AgentTeam, Visibility`（合并单行导入）。修复后团队数 5→6、agents 34→36，pet_squad 正常加载",
+  "tags": [
+   "backend",
+   "import-error",
+   "pet-ecosystem",
+   "team_manager",
+   "Visibility"
+  ]
+ },
+ {
   "id": "bug-plaza-modal-hidden",
   "timestamp": "2026-06-16T13:30:00.000000",
   "error_message": "议事广场删除按钮只弹出蒙版看不到确认框；新建广场按钮点击也只显示蒙版无内容",

@@ -8,11 +8,12 @@
 
   const API = '/api/v1/sandbox';
 
-  // CSRF helper for state-changing requests
+  // CSRF helper for state-changing requests (auto-refresh on 403)
   var _csrfTk='',_csrfPr=null;
   function _csrf(){if(_csrfTk)return Promise.resolve(_csrfTk);if(_csrfPr)return _csrfPr;_csrfPr=fetch('/api/v1/auth/csrf-token').then(function(r){return r.json()}).then(function(d){_csrfTk=d.csrf_token||'';return _csrfTk}).catch(function(){_csrfPr=null;return''});return _csrfPr}
+  function _csrfReset(){_csrfTk='';_csrfPr=null;return _csrf()}
   _csrf();
-  async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}return (window._agFetch||fetch)(url,opts)}
+  async function _af(url,opts){var m=(opts&&opts.method||'GET').toUpperCase();if(m==='POST'||m==='PUT'||m==='DELETE'||m==='PATCH'){await _csrf();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}}var r=await (window._agFetch||fetch)(url,opts);if(r.status===403&&m!=='GET'){await _csrfReset();if(_csrfTk){opts=opts||{};opts.headers=opts.headers||{};opts.headers['x-csrf-token']=_csrfTk}r=await (window._agFetch||fetch)(url,opts)}return r}
 
   let currentSessionId = null;
   let rewardHistory = [];

@@ -444,7 +444,7 @@ async function savePet(idx) {
 
 async function saveAll() {
   for (let i = 0; i < config.pets.length; i++) {
-    if (config.pets[i]._isNew) { await savePet(i); }
+    await savePet(i);
   }
   await saveEcosystem(false);
   toast('✅ 全部保存完成');

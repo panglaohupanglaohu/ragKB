@@ -273,3 +273,44 @@ PP-1~3（Schema）→ PP-4~6（意图生成器内核）→ PP-7~9（捕猎闭环
 - PP-11：未改 office-boot.js。改为在 office-scene.js 内保留 `cat`/`squeak` 作为 **PetEcosystem 句柄**（`petEco.pets['xiaohu_cat'/'squeak_mouse']`），使既有的拾取(pick)、猫解说气泡(catNote)、猫诱导(catLure)、评分评价(onRewardUpdate) 全部零改动继续工作。office-boot 只用 `sceneApi` 方法，无需变更——等效满足 PP-11 且回归面更小。
 - 实时 TTS：捕食者 `onDetect`(发现猎物) 与 `onCatch`(捕获) 均经 `OfficeAPI.onCatComment(text, voice)` → `catSpeak` → 浏览器 `SpeechSynthesis`（婷婷，实时无文件；后端 edge-tts/gpt-sovits 为可选）。LLM 失败也走 fallback 文案发声，保证"可用"。`onCatch` 用 `force` 跳过冷却，确保得意台词必发声。
 - 捕获闭环：`d < catch_radius(0.8)` → 吱吱瞬移最远路点、F/H 归零；`_caught` 去重，拉开 2×半径后复位。
+
+---
+
+## 修复记录（2026-07-07，从 GitHub 拉取覆盖本地后的落地修复）
+
+> 背景：用 GitHub `ragKB` 最新 `main` 全量覆盖本地代码后，宠物生态出现三处"数据/装配"缺口。均为环境落地问题，非行为模型逻辑缺陷。
+
+- [x] **FIX-1 缺失 `storage/pet_config.json` → 小虎/吱吱不加载（0 个生物）**
+  根因：所有生物数据来自 [storage/pet_config.json](../storage/pet_config.json)，`pet_ecosystem.py` 无内置种子；该文件被 `.gitignore` 忽略、不进仓库，故拉取覆盖时不会带过来（开发机上是本地生成的）。
+  修复：按 Phase A schema 重建 seed，含小虎（`xiaohu_cat`, role=predator, builtin_cat）+ 吱吱（`squeak_mouse`, role=prey, builtin_mouse），带 `perception`/`mental_state`/`intention`。`PetEcosystem` 为启动单例，需重启后端重载。
+  验收：`GET /api/v1/pet-ecosystem/config` 返回 2 pets；pet-config.html 渲染两张卡片；日志 `🐾 PetEcosystem loaded 2 pets`。
+  ⚠️ 遗留：seed 仍被 gitignore，跨机不同步——根治需二选一：纳入版本控制 **或** 在 `pet_ecosystem.py` 加内置默认种子（推荐后者）。
+
+- [x] **FIX-2 `Visibility` 导入错误 → 宠物团队启动加载失败**
+  文件：[src/backend/main.py](../src/backend/main.py)
+  根因：`from agents.team_manager import AgentTeam, Visibility`，但 `team_manager` 未 re-export `Visibility`（定义在 `agents.models`）。
+  修复：改为 `from agents.models import AgentProfile, AgentPersonality, AgentTeam, Visibility`。修复后团队 5→6、agents 34→36，`pet_squad` 正常加载。
+
+- [x] **FIX-3 `cat_speak_prompt` 技能缺失 → 小虎配置看不到"cat speak"、后端每次走 fallback**
+  文件：[src/backend/main.py](../src/backend/main.py)、[src/backend/agents/api.py](../src/backend/agents/api.py)
+  根因：`main.py` 构造 `pet_squad` 时既没把 `cat_speak_prompt` 加进 `team.skills`，也没加进 `xiaohu_cat.skills`；且 `pet_squad` 已 `_persist()` 到 `storage/teams/teams.json`，重启时构造块被 `"pet_squad" not in _teams` 跳过，改构造代码不足以修复已持久化的团队。
+  修复：
+  1. 构造块内 `pet_team.add_skill(_build_cat_speak_skill())` + 小虎 `skills` 追加 `cat_speak_prompt`（覆盖全新安装）。
+  2. 新增**幂等回填块**（每次启动都跑、不受 `not in _teams` 守卫限制）：`team.skills` / `xiaohu_cat.skills` 缺 `cat_speak_prompt` 则补入并 `_persist()`（修复已持久化团队）。
+  3. `cat_speak_prompt` 的 `instructions` = **Metal Gear 中 Mei Ling 谚语式英文口吻**（英文单行、可带简短出处、无中文/无"喵"）。
+  4. 修正 [api.py](../src/backend/agents/api.py) `cat_speak` 里自相矛盾的 user_msg（原要 "Chinese proverb"，与 system 的 Mei Ling 英文冲突）→ 改为 "ONE line in ENGLISH … Mei Ling style"。
+  验收：`storage/teams/teams.json` 中 `pet_squad.skills` 含 `cat_speak_prompt`（`has_instructions:true`）且 `xiaohu_cat.skills` 含该 id；`POST /api/v1/agent-config/llm/cat-speak` 读技能 instructions 作 system prompt（非 fallback），返回英文谚语。
+  说明：小虎/吱吱在 agent-team-config 页需切换团队选择器到"宠物智能体团队"才显示（默认选中 Build System，非 bug）；从仿生生态跳转不会自动选中 pet_squad。
+  ⚠️ 后端重启后已打开页面的 CSRF token 失效，`cat-speak` 会短暂 403，**刷新页面**即恢复。
+
+- [x] **FIX-4 宠物 seed 内置化（根治跨机不同步）**
+  文件：[src/backend/agents/pet_ecosystem.py](../src/backend/agents/pet_ecosystem.py)
+  背景：FIX-1 只补了本机 `storage/pet_config.json`（gitignore，不跨机）。根治：把小虎/吱吱完整配置作为内置常量 `_DEFAULT_SEED`。
+  落点：`_load()` 在「文件缺失/损坏/无 pets」时 `copy.deepcopy(_DEFAULT_SEED)` 并 `_save()` 落盘；`_DEFAULT_SEED` 含 Phase A 全字段（role/perception/mental_state/intention）。此后任何机器缺文件都会自动自带小虎+吱吱。
+  验收：临时指向不存在路径实例化 `PetEcosystem` → seed 出 `[xiaohu_cat(predator), squeak_mouse(prey)]` 且写盘 True（已通过）。
+
+- [x] **FIX-5 点击"猫台词"技能执行失败（404 Skill not found）**
+  文件：[src/backend/agents/api.py](../src/backend/agents/api.py) — `execute_skill`
+  根因：`POST /teams/{t}/agents/{a}/skills/{skill_name}/execute` 只用 `sr.get_by_slug()` 在**全局技能注册表**里找；`cat_speak_prompt` 只挂在 `team.skills`（team-local），注册表没有 → 404 → 前端 toast 失败。
+  修复：注册表未命中时**回退团队本地技能**——`team.skills.get(name)` 或按 `name/skill_id/slug` 匹配。通用修复，任何 team-local 技能都可执行。
+  验收：模拟解析——前端传名 "猫台词提示词 (Mei Ling)" 与 id `cat_speak_prompt` 均解析成功（已通过）；执行走 generic 分支返回 `status:ready`+instructions，不再 404。

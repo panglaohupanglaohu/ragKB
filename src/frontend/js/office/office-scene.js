@@ -800,28 +800,28 @@ export function createOfficeScene(canvas, container) {
       if (cat) cat.drawBubble(text);
     },
     onRewardUpdate(reward, prevReward) {
-      // 评分波动 → 猫弹出评价（非硬编码，基于波动幅度生成）
-      if (typeof reward !== 'number' || typeof prevReward !== 'number') return;
-      const delta = reward - prevReward;
-      const absDelta = Math.abs(delta);
-      if (absDelta < 0.05) return; // 小波动不评价
-      let comment = '';
-      if (delta > 0.15) {
-        const praise = ['喵~ 这步表现不错嘛，看来大家配合得挺好！', '呼噜~ 分数涨了，干得漂亮！', '喵呜~ 这个协作效率我喜欢！'];
-        comment = praise[Math.floor(Math.random() * praise.length)];
-      } else if (delta > 0.05) {
-        comment = '喵~ 有进步，继续保持哦~';
-      } else if (delta < -0.15) {
-        const worry = ['喵...这步怎么退步了？是不是有人偷懒了？', '嘶~ 分数掉了不少，得注意一下协作质量啊！', '喵呜...这个方向不太对，要不要换个思路？'];
-        comment = worry[Math.floor(Math.random() * worry.length)];
-      } else if (delta < -0.05) {
-        comment = '喵...分数有点波动，稳一稳吧~';
-      }
-      if (comment) {
-        _catBubbleHold = Date.now() + 8000;
-        if (cat) cat.drawBubble('🐈 ' + comment);
-        if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(comment);
-      }
+      // 评分波动评价已注释掉 — 避免与 LLM 台词 TTS 冲突
+      // if (typeof reward !== 'number' || typeof prevReward !== 'number') return;
+      // const delta = reward - prevReward;
+      // const absDelta = Math.abs(delta);
+      // if (absDelta < 0.05) return;
+      // let comment = '';
+      // if (delta > 0.15) {
+      //   const praise = ['喵~ 这步表现不错嘛，看来大家配合得挺好！', '呼噜~ 分数涨了，干得漂亮！', '喵呜~ 这个协作效率我喜欢！'];
+      //   comment = praise[Math.floor(Math.random() * praise.length)];
+      // } else if (delta > 0.05) {
+      //   comment = '喵~ 有进步，继续保持哦~';
+      // } else if (delta < -0.15) {
+      //   const worry = ['喵...这步怎么退步了？是不是有人偷懒了？', '嘶~ 分数掉了不少，得注意一下协作质量啊！', '喵呜...这个方向不太对，要不要换个思路？'];
+      //   comment = worry[Math.floor(Math.random() * worry.length)];
+      // } else if (delta < -0.05) {
+      //   comment = '喵...分数有点波动，稳一稳吧~';
+      // }
+      // if (comment) {
+      //   _catBubbleHold = Date.now() + 8000;
+      //   if (cat) cat.drawBubble('🐈 ' + comment);
+      //   if (window.OfficeAPI && window.OfficeAPI.onCatComment) window.OfficeAPI.onCatComment(comment);
+      // }
     },
     dispose() {
       disposed = true; resizeObs.disconnect(); controls.dispose();
