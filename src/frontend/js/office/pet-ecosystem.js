@@ -43,6 +43,12 @@ export class PetEcosystem {
 
     // 构建所有宠物
     for (const petConfig of (this.config.pets || [])) {
+      // 归一 role：后端未回填 / 配置缺失时按 chase_targets 推断。
+      // 必须在此写回 config.role，否则跨宠物查找(nearestByRole/selectPrey 读 p.config.role)失效
+      if (!petConfig.role) {
+        const hasChase = ((petConfig.behavior && petConfig.behavior.chase_targets) || []).length > 0;
+        petConfig.role = hasChase ? 'predator' : 'prey';
+      }
       const pet = buildPet(petConfig, this.makeLabel);
       const route = (petConfig.behavior && petConfig.behavior.route) || [[0, 0]];
       pet.group.position.set(route[0][0], 0, route[0][1]);
