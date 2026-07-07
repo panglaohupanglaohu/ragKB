@@ -17,6 +17,20 @@ _DEFAULT_CONFIG_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "storage", "pet_config.json"
 )
 
+# Predator/Prey 行为模型默认字段（论文 Artificial Fishes 心理状态/感知/意图参数）。
+# get_config() 用其为缺字段的旧配置补全，用户显式值始终覆盖默认。
+_PET_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "perception": {"detect_radius": 6.0, "vision_cone_deg": 300},
+    "mental_state": {
+        "hunger_full_sec": 20,
+        "hunt_hunger_threshold": 0.3,
+        "fear_scale_D0": 6.0,
+        "f_escape": 0.55,
+        "f_calm": 0.35,
+    },
+    "intention": {"beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8},
+}
+
 
 class PetEcosystem:
     """宠物生态管理器 — 加载/保存/CRUD 配置。"""
@@ -45,7 +59,15 @@ class PetEcosystem:
     # ── CRUD ──
 
     def get_config(self) -> Dict[str, Any]:
-        """获取全量配置。"""
+        """获取全量配置（内存补全 Predator/Prey 默认字段，向后兼容旧配置）。"""
+        for pet in self._config.get("pets", []):
+            # role 缺省：有 chase_targets 视为 predator，否则 prey
+            if "role" not in pet:
+                has_chase = bool(pet.get("behavior", {}).get("chase_targets"))
+                pet["role"] = "predator" if has_chase else "prey"
+            for key, defaults in _PET_DEFAULTS.items():
+                # 用户值覆盖默认（默认在前，用户在后）
+                pet[key] = {**defaults, **pet.get(key, {})}
         return self._config
 
     def get_pet(self, pet_id: str) -> Optional[Dict[str, Any]]:

@@ -54,14 +54,47 @@ export class PetEcosystem {
       this.pets[petConfig.id] = pet;
     }
 
-    // 设置 onDetect 回调（猫发现老鼠时念台词）
+    // 捕食者：发现猎物念台词(onDetect) + 捕获猎物得意(onCatch) + 猎物 respawn
     for (const pet of Object.values(this.pets)) {
-      const chaseTargets = (pet.config.behavior && pet.config.behavior.chase_targets) || [];
-      if (chaseTargets.length > 0 && pet.config.speak && pet.config.speak.provider === 'llm') {
-        pet.behavior.onDetect = (detectingPet, target) => {
-          this._onPetDetect(detectingPet, target);
+      const beh = pet.config.behavior || {};
+      const isPredator = pet.config.role === 'predator'
+        || ((beh.chase_targets || []).length > 0);
+      if (!isPredator) continue;
+      const canSpeak = pet.config.speak && pet.config.speak.provider === 'llm';
+      if (canSpeak) {
+        pet.behavior.onDetect = (predator, prey) => {
+          if (!prey) return;
+          this._onPetDetect(predator, prey, { context: `发现了${prey.config.name}，准备抓捕！` });
         };
       }
+      pet.behavior.onCatch = (predator, prey) => {
+        this._onCatch(predator, prey);
+      };
+    }
+  }
+
+  // 捕获：猎物瞬移远角 + 恐惧/追捕状态清零 + 捕食者得意台词/TTS
+  _onCatch(predator, prey) {
+    const route = (prey.config.behavior && prey.config.behavior.route) || [];
+    if (route.length) {
+      let best = 0, bd = -1;
+      for (let i = 0; i < route.length; i++) {
+        const d = Math.hypot(
+          route[i][0] - predator.group.position.x,
+          route[i][1] - predator.group.position.z,
+        );
+        if (d > bd) { bd = d; best = i; }
+      }
+      prey.group.position.set(route[best][0], 0, route[best][1]);
+      if (prey.behavior && prey.behavior.state) {
+        prey.behavior.state.waypoint = best;
+        prey.behavior.state.fear = 0;
+        prey.behavior.state.intention = 'wander';
+        prey.behavior.state.dwell = 1.0;
+      }
+    }
+    if (predator.config.speak && predator.config.speak.provider === 'llm') {
+      this._onPetDetect(predator, prey, { context: `抓到了${prey.config.name}，得意洋洋`, force: true });
     }
   }
 
@@ -103,39 +136,44 @@ export class PetEcosystem {
     return { petId, pet: this.pets[petId], config: this.pets[petId].config };
   }
 
-  async _onPetDetect(detectingPet, target) {
+  async _onPetDetect(detectingPet, target, opts = {}) {
     const config = detectingPet.config;
     const speak = config.speak || {};
-    
+
     if (speak.provider !== 'llm') return;
-    if (this._catSpeakCooldown > Date.now()) return;
+    // 捕获得意(force)跳过冷却；其余受冷却限制
+    if (!opts.force && this._catSpeakCooldown > Date.now()) return;
     this._catSpeakCooldown = Date.now() + (speak.cooldown_sec || 10) * 1000;
-    
+
     // 占位
     this._catBubbleHold = Date.now() + 10000;
     detectingPet.drawBubble('🐱 喵…（思索中）');
-    
+
+    const speakAloud = (text) => {
+      // 实时 TTS：路由到 OfficeAPI.onCatComment → catSpeak（浏览器 SpeechSynthesis / 后端 TTS）
+      if (window.OfficeAPI && window.OfficeAPI.onCatComment) {
+        window.OfficeAPI.onCatComment(text, config.voice);
+      }
+    };
+
     try {
       const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
+      const context = opts.context || `Pet ${config.name} detected ${target ? target.config.name : ''}`;
       const r = await doFetch('/api/v1/agent-config/llm/cat-speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context: `Pet ${config.name} detected ${target.config.name}` }),
+        body: JSON.stringify({ context }),
       });
       const d = await r.json();
-      if (d && d.reply) {
-        this._catBubbleHold = Date.now() + 10000;
-        detectingPet.drawBubble('🐱 ' + d.reply);
-        // TTS
-        if (window.OfficeAPI && window.OfficeAPI.onCatComment) {
-          window.OfficeAPI.onCatComment(d.reply, config.voice);
-        }
-      } else {
-        detectingPet.drawBubble('🐱 ' + (speak.fallback || '喵~'));
-      }
+      const reply = (d && d.reply) ? d.reply : (speak.fallback || '喵~');
+      this._catBubbleHold = Date.now() + 10000;
+      detectingPet.drawBubble('🐱 ' + reply);
+      speakAloud(reply);
     } catch (e) {
       console.error('[PetEcosystem] speak failed:', e);
-      detectingPet.drawBubble('🐱 ' + (speak.fallback || '喵~'));
+      const fb = speak.fallback || '喵~';
+      detectingPet.drawBubble('🐱 ' + fb);
+      speakAloud(fb);
     }
   }
 
