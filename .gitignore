@@ -20,7 +20,8 @@ config/users.json
 config/tokens.json
 
 # Runtime-generated state. Keep curated fixtures explicitly if needed.
-storage/
+storage/*
+!storage/pet_config.json
 src/storage/
 src/docs/workflow_artifacts/
 src/docs/agent_handoffs/
