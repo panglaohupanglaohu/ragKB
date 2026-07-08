@@ -8,18 +8,11 @@ Agent Team API Routes - 双团队管理 REST API
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
 router = APIRouter(prefix="/api/v1/agent-teams", tags=["Agent Teams"])
-
-try:
-    from config import DEFAULT_PAGE_SIZE as _DEFAULT_PAGE_SIZE
-    from config import MAX_PAGE_SIZE as _MAX_PAGE_SIZE
-except Exception:
-    _DEFAULT_PAGE_SIZE = 50
-    _MAX_PAGE_SIZE = 200
 
 
 # ---------------------------------------------------------------------------
@@ -29,27 +22,6 @@ _build_team = None
 _execution_team = None
 _scheduler = None
 _evolution_engine = None
-
-
-def _paginate_optional(items: List[Dict[str, Any]], *, limit: int, offset: int) -> Any:
-    """Preserve old array responses by default while enabling optional pagination."""
-    limit = getattr(limit, "default", limit)
-    offset = getattr(offset, "default", offset)
-    limit = int(limit or 0)
-    offset = max(int(offset or 0), 0)
-    if limit <= 0 and offset <= 0:
-        return items
-    if limit <= 0:
-        limit = _DEFAULT_PAGE_SIZE
-    limit = min(limit, _MAX_PAGE_SIZE)
-    total = len(items)
-    return {
-        "items": items[offset:offset + limit],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
 
 
 def set_teams(build_team, execution_team, scheduler, evolution_engine=None):
@@ -69,102 +41,15 @@ class TaskAssignment(BaseModel):
     agent_id: str
     task: str
 
-
-class EvolutionCloseRequest(BaseModel):
-    reason: str = Field(default="", description="关闭理由")
-    verify_conclusion: str = Field(default="", description="验证结论")
-
-
-class EvolutionCompleteRequest(BaseModel):
-    code_changes: List[str] = Field(default_factory=list, description="构建阶段产生的代码或配置变更")
-    artifact_dir: str = Field(default="", description="构建阶段产物目录")
-
-
 class FeedbackSubmission(BaseModel):
     category: str = "optimization"
     severity: str = "medium"
     title: str
     detail: str
 
-# ── 演化优化请求模型 ──────────────────────────────────────────
-
-class OptimizeRequest(BaseModel):
-    target_type: str = "skill"
-    target_id: str = ""
-    team_id: str = "build_system"
-    iterations: int = Field(default=5, ge=1, le=10)
-    content: str = ""
-
-class AutoTriageRequest(BaseModel):
-    team_id: str = "build_system"
-    top_n: int = Field(default=5, ge=1, le=10)
-
-class DatasetGenerateRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    count: int = Field(default=15, ge=1, le=30)
-
-class ExampleItem(BaseModel):
-    task_input: str
-    rubric: str
-
-class DatasetManualRequest(BaseModel):
-    dataset_id: str = ""
-    skill_id: str = ""
-    examples: List[ExampleItem] = Field(default_factory=list)
-    skill_name: str = ""
-
-class DatasetImportKBRequest(BaseModel):
-    skill_id: str = ""
-    skill_name: str = ""
-    dataset_id: str = ""
-    max_examples: int = Field(default=20, ge=1, le=50)
-
-class UpdateExamplesRequest(BaseModel):
-    action: str = "replace_all"
-    examples: List[ExampleItem] = Field(default_factory=list)
-    indices: List[int] = Field(default_factory=list)
-    index: int = -1
-    example: Optional[ExampleItem] = None
-
-class StepBaselineRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    dataset_id: str = ""
-
-class FailureItem(BaseModel):
-    task_input: str = ""
-    rubric: str = ""
-    composite: float = 0.0
-    reasoning: str = ""
-
-class StepReflectRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    failures: List[FailureItem] = Field(default_factory=list)
-    user_hints: str = ""
-
-class StepMutateRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    reflection: Dict[str, Any] = Field(default_factory=dict)
-
-class StepEvaluateCandidateRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    dataset_id: str = ""
-    instructions: str = ""
-
-class StepApplyRequest(BaseModel):
-    skill_id: str = ""
-    team_id: str = "build_system"
-    instructions: str = ""
-    baseline_score: float = 0.0
-    new_score: float = 0.0
-
 
 # ---------------------------------------------------------------------------
-# Minimal AgentScheduler — provides basic scheduling status & tick
+# Scheduler
 # ---------------------------------------------------------------------------
 
 import time as _time
@@ -210,10 +95,6 @@ class AgentScheduler:
                         f"累计 {self._tick_count} 次 tick"),
         }
 
-
-# ---------------------------------------------------------------------------
-# Scheduler API
-# ---------------------------------------------------------------------------
 
 @router.get("/scheduler/status")
 async def scheduler_status():
@@ -276,28 +157,18 @@ async def build_assign_task(body: TaskAssignment):
 
 
 @router.get("/build/reports")
-async def build_reports(
-    limit: int = Query(default=10, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-):
+async def build_reports(limit: int = 10):
     if not _build_team:
         raise HTTPException(503, "Build team not initialized")
-    items = [r.to_dict() for r in _build_team.hourly_reports]
-    if limit > 0 and offset == 0:
-        items = items[-limit:]
-        return items
-    return _paginate_optional(items, limit=limit, offset=offset)
+    reports = _build_team.hourly_reports[-limit:]
+    return [r.to_dict() for r in reports]
 
 
 @router.get("/build/issues")
-async def build_issues(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-):
+async def build_issues():
     if not _build_team:
         raise HTTPException(503, "Build team not initialized")
-    items = list(_build_team.issue_backlog)
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return _build_team.issue_backlog
 
 
 # ---------------------------------------------------------------------------
@@ -322,28 +193,18 @@ async def execution_agent_detail(agent_id: str):
 
 
 @router.get("/execution/reports")
-async def execution_reports(
-    limit: int = Query(default=10, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-):
+async def execution_reports(limit: int = 10):
     if not _execution_team:
         raise HTTPException(503, "Execution team not initialized")
-    items = [r.to_dict() for r in _execution_team.execution_reports]
-    if limit > 0 and offset == 0:
-        items = items[-limit:]
-        return items
-    return _paginate_optional(items, limit=limit, offset=offset)
+    reports = _execution_team.execution_reports[-limit:]
+    return [r.to_dict() for r in reports]
 
 
 @router.get("/execution/feedback")
-async def execution_feedback(
-    limit: int = Query(default=0, ge=0, le=_MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-):
+async def execution_feedback():
     if not _execution_team:
         raise HTTPException(503, "Execution team not initialized")
-    items = [item.to_dict() for item in _execution_team.feedback_queue]
-    return _paginate_optional(items, limit=limit, offset=offset)
+    return [item.to_dict() for item in _execution_team.feedback_queue]
 
 
 @router.post("/execution/feedback")
@@ -437,37 +298,19 @@ async def evolution_summary():
 
 
 @router.get("/evolution/items")
-async def evolution_items(status: Optional[str] = None, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    """获取演进项列表，可按状态过滤、分页。"""
+async def evolution_items(status: Optional[str] = None):
+    """获取演进项列表，可按状态过滤。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    items = _evolution_engine.get_evolution_items(status=status)
-    total = len(items)
-    sliced = items[offset:offset + limit]
-    return {
-        "items": sliced,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
+    return _evolution_engine.get_evolution_items(status=status)
 
 
 @router.get("/evolution/rules")
-async def evolution_rules(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    """获取审查规则列表（分页）。"""
+async def evolution_rules():
+    """获取审查规则列表。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    items = [r.to_dict() for r in _evolution_engine.audit_rules]
-    total = len(items)
-    sliced = items[offset:offset + limit]
-    return {
-        "items": sliced,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
+    return [r.to_dict() for r in _evolution_engine.audit_rules]
 
 
 @router.post("/evolution/audit")
@@ -510,54 +353,7 @@ async def evolution_item_detail(item_id: str):
     item = _evolution_engine.evolution_items.get(item_id)
     if not item:
         raise HTTPException(404, f"Item '{item_id}' not found")
-    detail = item.to_dict()
-    try:
-        from agents.evidence_store import get_evidence_store
-        store = get_evidence_store()
-        evidence_runs = await store.query_for_object("evolution", item_id, limit=50)
-        related_runs = list(evidence_runs)
-        if item.build_task_id:
-            related_runs.extend(await store.query_for_object("task", item.build_task_id, limit=20))
-        seen = set()
-        deduped = []
-        for run in related_runs:
-            if run.evidence_id in seen:
-                continue
-            seen.add(run.evidence_id)
-            deduped.append(run)
-        detail["evidence_runs"] = [run.to_dict() for run in deduped]
-    except Exception:
-        detail["evidence_runs"] = []
-    return detail
-
-
-@router.post("/evolution/items/{item_id}/verify")
-async def evolution_verify_item(item_id: str):
-    """验证单个待验证演进项。"""
-    if not _evolution_engine:
-        raise HTTPException(404, "Evolution engine not registered")
-    item = _evolution_engine.evolution_items.get(item_id)
-    if not item:
-        raise HTTPException(404, f"Item '{item_id}' not found")
-    return _evolution_engine.verify_pending_items(item_ids=[item_id])
-
-
-@router.post("/evolution/items/{item_id}/close")
-async def evolution_close_item(item_id: str, req: EvolutionCloseRequest):
-    """关闭单个已验证演进项，要求记录关闭理由和验证结论。"""
-    if not _evolution_engine:
-        raise HTTPException(404, "Evolution engine not registered")
-    item = _evolution_engine.evolution_items.get(item_id)
-    if not item:
-        raise HTTPException(404, f"Item '{item_id}' not found")
-    if item.status != "verified":
-        raise HTTPException(400, "Only verified evolution items can be closed")
-    closed = _evolution_engine.close_verified_items(
-        item_ids=[item_id],
-        close_reason=req.reason,
-        verify_conclusion=req.verify_conclusion,
-    )
-    return {"closed": closed, "count": len(closed), "item_id": item_id}
+    return item.to_dict()
 
 
 @router.post("/evolution/items/{item_id}/progress")
@@ -572,21 +368,13 @@ async def evolution_mark_progress(item_id: str):
 
 
 @router.post("/evolution/items/{item_id}/complete")
-async def evolution_mark_complete(item_id: str, req: Optional[EvolutionCompleteRequest] = None):
+async def evolution_mark_complete(item_id: str):
     """标记演进项构建完成，进入待验证。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    item = _evolution_engine.evolution_items.get(item_id)
-    if not item:
-        raise HTTPException(404, f"Item '{item_id}' not found")
-    req = req or EvolutionCompleteRequest()
-    ok = _evolution_engine.mark_build_complete(
-        item_id,
-        code_changes=req.code_changes,
-        artifact_dir=req.artifact_dir,
-    )
+    ok = _evolution_engine.mark_build_complete(item_id)
     if not ok:
-        raise HTTPException(400, "Build completion requires code_changes or artifact_dir")
+        raise HTTPException(404, f"Item '{item_id}' not found")
     return {"status": "ok", "item_id": item_id, "new_status": "verify_pending"}
 
 
@@ -609,8 +397,8 @@ async def evolution_close():
 
 
 @router.get("/evolution/history")
-async def evolution_audit_history(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    """获取审查历史记录（分页）。"""
+async def evolution_audit_history():
+    """获取审查历史记录。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
     raw = _evolution_engine.get_audit_history()
@@ -621,15 +409,7 @@ async def evolution_audit_history(limit: int = Query(default=50, ge=1, le=200), 
         entry.setdefault("timestamp", entry.pop("time", None))
         entry.setdefault("total", (entry.get("passed") or 0) + (entry.get("failed") or 0) + (entry.get("skipped") or 0))
         result.append(entry)
-    total = len(result)
-    sliced = result[offset:offset + limit]
-    return {
-        "items": sliced,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
+    return result
 
 
 @router.get("/evolution/analytics")
@@ -748,76 +528,11 @@ async def evolution_monitoring():
 
 
 @router.get("/evolution/audit-trail")
-async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    """获取审计轨迹日志（分页）。"""
+async def evolution_audit_trail(event_type: Optional[str] = None, limit: int = 50):
+    """获取审计轨迹日志。"""
     if not _evolution_engine:
         raise HTTPException(404, "Evolution engine not registered")
-    items = _evolution_engine.get_audit_trail(event_type=event_type)
-    total = len(items)
-    sliced = items[offset:offset + limit]
-    return {
-        "items": sliced,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < total,
-    }
-
-
-@router.get("/evolution/stream")
-async def evolution_stream():
-    """SSE 实时事件流。
-
-    周期性推送演进汇总(stats_update)与审计轨迹增量(trail_update),
-    供前端 system-evolution.js 的 _startSSE() 消费;断线时前端降级为 30 秒轮询。
-    不修改演进引擎,仅做只读快照轮询 + 变化检测,单次快照异常不打断长连接。
-    """
-    if not _evolution_engine:
-        raise HTTPException(404, "Evolution engine not registered")
-
-    import asyncio
-    import json
-    from starlette.responses import StreamingResponse
-
-    engine = _evolution_engine
-
-    async def _event_gen():
-        # 命名事件,前端 onmessage 不处理,仅用于确认连接建立。
-        yield "event: ready\ndata: {}\n\n"
-        last_summary_sig = None
-        last_trail_len = -1
-        while True:
-            try:
-                summary = engine.get_evolution_summary()
-                sig = json.dumps(summary, sort_keys=True, default=str)
-                if sig != last_summary_sig:
-                    last_summary_sig = sig
-                    yield "data: " + json.dumps(
-                        {"type": "stats_update", "summary": summary}, default=str
-                    ) + "\n\n"
-                try:
-                    trail_len = len(engine.get_audit_trail())
-                except Exception:
-                    trail_len = last_trail_len
-                if last_trail_len != -1 and trail_len != last_trail_len:
-                    yield "data: " + json.dumps({"type": "trail_update"}) + "\n\n"
-                last_trail_len = trail_len
-            except Exception:
-                # 单次快照失败不应中断 SSE 长连接。
-                pass
-            # 心跳注释行,避免反向代理因空闲超时切断连接。
-            yield ": ping\n\n"
-            await asyncio.sleep(10)
-
-    return StreamingResponse(
-        _event_gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+    return _evolution_engine.get_audit_trail(event_type=event_type, limit=limit)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -825,7 +540,7 @@ async def evolution_stream():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/evolution/optimize")
-async def evolution_optimize(body: OptimizeRequest):
+async def evolution_optimize(body: Dict[str, Any]):
     """启动技能/规则/提示词优化 (Phase 1-3).
 
     Body: {target_type: "skill"|"rule"|"prompt", target_id, team_id, iterations?}
@@ -833,10 +548,10 @@ async def evolution_optimize(body: OptimizeRequest):
     from agents.evolution.optimizer import optimize_skill, optimize_rule_description, optimize_prompt_section
     from agents.skill_library import get_skill_library
 
-    target_type = body.target_type
-    target_id = body.target_id
-    team_id = body.team_id
-    iterations = body.iterations
+    target_type = body.get("target_type", "skill")
+    target_id = body.get("target_id", "")
+    team_id = body.get("team_id", "build_system")
+    iterations = min(body.get("iterations", 5), 10)  # Cap at 10
 
     if not target_id:
         raise HTTPException(400, "target_id required")
@@ -877,7 +592,7 @@ async def evolution_optimize(body: OptimizeRequest):
         return run.to_dict()
 
     elif target_type == "prompt":
-        content = body.content
+        content = body.get("content", "")
         if not content:
             raise HTTPException(400, "content required for prompt optimization")
         run = await optimize_prompt_section(
@@ -892,18 +607,10 @@ async def evolution_optimize(body: OptimizeRequest):
 
 
 @router.get("/evolution/optimize/runs")
-async def evolution_optimize_runs(target_type: Optional[str] = None, limit: int = Query(default=20, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    """列出优化运行记录（分页）。"""
+async def evolution_optimize_runs(target_type: Optional[str] = None, limit: int = 20):
+    """列出优化运行记录."""
     from agents.evolution.optimizer import list_runs
-    items = list_runs(target_type=target_type, limit=limit + offset)
-    sliced = items[offset:offset + limit]
-    return {
-        "items": sliced,
-        "total": len(items),
-        "limit": limit,
-        "offset": offset,
-        "has_more": offset + limit < len(items),
-    }
+    return list_runs(target_type=target_type, limit=limit)
 
 
 @router.get("/evolution/optimize/{run_id}")
@@ -1002,22 +709,24 @@ async def evolution_skill_fitness(skill_id: str, team_id: str = "build_system"):
 
 
 @router.post("/evolution/auto-triage")
-async def evolution_auto_triage(body: Optional[AutoTriageRequest] = None):
+async def evolution_auto_triage(body: Dict[str, Any] = None):
     """自动诊断 — 识别最需要优化的技能 (Phase 5)."""
     from agents.evolution.auto_triage import run_auto_triage
-    body = body or AutoTriageRequest()
-    return await run_auto_triage(team_id=body.team_id, top_n=body.top_n)
+    body = body or {}
+    team_id = body.get("team_id", "build_system")
+    top_n = min(body.get("top_n", 5), 10)
+    return await run_auto_triage(team_id=team_id, top_n=top_n)
 
 
 @router.post("/evolution/dataset/generate")
-async def evolution_generate_dataset(body: DatasetGenerateRequest):
+async def evolution_generate_dataset(body: Dict[str, Any]):
     """为指定技能生成评估数据集."""
     from agents.evolution.dataset_builder import build_full_dataset
     from agents.skill_library import get_skill_library
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    count = body.count
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    count = min(body.get("count", 15), 30)
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -1063,13 +772,13 @@ def _load_dataset(dataset_id: str):
     return EvalDataset.load(str(found[0]))
 
 @router.post("/evolution/dataset/manual")
-async def evolution_dataset_manual(body: DatasetManualRequest):
+async def evolution_dataset_manual(body: Dict[str, Any]):
     """手动添加评估用例到数据集."""
     from agents.evolution.dataset_builder import EvalDataset
 
-    dataset_id = body.dataset_id
-    skill_id = body.skill_id
-    examples = body.examples
+    dataset_id = body.get("dataset_id", "")
+    skill_id = body.get("skill_id", "")
+    examples = body.get("examples", [])  # [{task_input, rubric}]
 
     if not examples:
         raise HTTPException(400, "examples required")
@@ -1080,11 +789,12 @@ async def evolution_dataset_manual(body: DatasetManualRequest):
     else:
         if not skill_id:
             raise HTTPException(400, "skill_id required when creating new dataset")
-        ds = EvalDataset(skill_id=skill_id, skill_name=body.skill_name)
+        ds = EvalDataset(skill_id=skill_id, skill_name=body.get("skill_name", skill_id))
 
     # Add examples
     for ex in examples:
-        ds.examples.append({"task_input": ex.task_input, "rubric": ex.rubric})
+        if isinstance(ex, dict) and ex.get("task_input") and ex.get("rubric"):
+            ds.examples.append({"task_input": str(ex["task_input"]), "rubric": str(ex["rubric"])})
 
     ds.split()
     ds.save("skills")
@@ -1092,14 +802,14 @@ async def evolution_dataset_manual(body: DatasetManualRequest):
 
 
 @router.post("/evolution/dataset/import-kb")
-async def evolution_dataset_import_kb(body: DatasetImportKBRequest):
+async def evolution_dataset_import_kb(body: Dict[str, Any]):
     """从知识库抽取评估用例."""
     from agents.evolution.dataset_builder import EvalDataset, mine_knowledge_base
 
-    skill_id = body.skill_id
-    skill_name = body.skill_name or skill_id
-    dataset_id = body.dataset_id
-    max_examples = body.max_examples
+    skill_id = body.get("skill_id", "")
+    skill_name = body.get("skill_name", skill_id)
+    dataset_id = body.get("dataset_id", "")
+    max_examples = min(body.get("max_examples", 20), 50)
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -1130,25 +840,25 @@ async def evolution_get_dataset(dataset_id: str):
 
 
 @router.put("/evolution/dataset/{dataset_id}/examples")
-async def evolution_update_dataset_examples(dataset_id: str, body: UpdateExamplesRequest):
+async def evolution_update_dataset_examples(dataset_id: str, body: Dict[str, Any]):
     """编辑数据集中的用例."""
     from agents.evolution.dataset_builder import EvalDataset
 
     ds = _load_dataset(dataset_id)
-    action = body.action
+    action = body.get("action", "replace_all")  # replace_all, delete, update
 
     if action == "replace_all":
-        ds.examples = [{"task_input": ex.task_input, "rubric": ex.rubric} for ex in body.examples]
+        ds.examples = [ex for ex in body.get("examples", []) if ex.get("task_input") and ex.get("rubric")]
     elif action == "delete":
-        indices = sorted(body.indices, reverse=True)
+        indices = sorted(body.get("indices", []), reverse=True)
         for idx in indices:
             if 0 <= idx < len(ds.examples):
                 ds.examples.pop(idx)
     elif action == "update":
-        idx = body.index
-        example = body.example
-        if 0 <= idx < len(ds.examples) and example and example.task_input and example.rubric:
-            ds.examples[idx] = {"task_input": example.task_input, "rubric": example.rubric}
+        idx = body.get("index", -1)
+        example = body.get("example", {})
+        if 0 <= idx < len(ds.examples) and example.get("task_input") and example.get("rubric"):
+            ds.examples[idx] = {"task_input": example["task_input"], "rubric": example["rubric"]}
 
     ds.split()
     ds.save("skills")
@@ -1156,14 +866,14 @@ async def evolution_update_dataset_examples(dataset_id: str, body: UpdateExample
 
 
 @router.post("/evolution/step/baseline")
-async def evolution_step_baseline(body: StepBaselineRequest):
+async def evolution_step_baseline(body: Dict[str, Any]):
     """步骤2: 在已有数据集上评估 baseline."""
     from agents.evolution.fitness import evaluate_skill
     from agents.skill_library import get_skill_library
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    dataset_id = body.dataset_id
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    dataset_id = body.get("dataset_id", "")
 
     if not skill_id or not dataset_id:
         raise HTTPException(400, "skill_id and dataset_id required")
@@ -1191,15 +901,15 @@ async def evolution_step_baseline(body: StepBaselineRequest):
 
 
 @router.post("/evolution/step/reflect")
-async def evolution_step_reflect(body: StepReflectRequest):
+async def evolution_step_reflect(body: Dict[str, Any]):
     """步骤3: 反思分析 — 可传入用户补充的 hints."""
     from agents.evolution.mutator import reflect_on_failures
     from agents.skill_library import get_skill_library
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    failures = [{"task_input": f.task_input, "rubric": f.rubric, "composite": f.composite, "reasoning": f.reasoning} for f in body.failures]
-    user_hints = body.user_hints
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    failures = body.get("failures", [])  # [{task_input, rubric, composite, reasoning}]
+    user_hints = body.get("user_hints", "")  # 用户补充的分析方向
 
     if not skill_id:
         raise HTTPException(400, "skill_id required")
@@ -1234,14 +944,14 @@ async def evolution_step_reflect(body: StepReflectRequest):
 
 
 @router.post("/evolution/step/mutate")
-async def evolution_step_mutate(body: StepMutateRequest):
+async def evolution_step_mutate(body: Dict[str, Any]):
     """步骤4: 生成变异候选."""
     from agents.evolution.mutator import ReflectionResult, generate_candidates
     from agents.skill_library import get_skill_library
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    reflection_data = body.reflection
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    reflection_data = body.get("reflection", {})  # {root_causes, specific_defects, improvement_directions}
 
     if not skill_id or not reflection_data:
         raise HTTPException(400, "skill_id and reflection required")
@@ -1269,16 +979,16 @@ async def evolution_step_mutate(body: StepMutateRequest):
 
 
 @router.post("/evolution/step/evaluate-candidate")
-async def evolution_step_evaluate_candidate(body: StepEvaluateCandidateRequest):
+async def evolution_step_evaluate_candidate(body: Dict[str, Any]):
     """步骤4b: 评估单个候选."""
     from agents.evolution.constraints import validate_all
     from agents.evolution.fitness import apply_length_penalty, evaluate_skill
     from agents.skill_library import get_skill_library
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    dataset_id = body.dataset_id
-    candidate_instructions = body.instructions
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    dataset_id = body.get("dataset_id", "")
+    candidate_instructions = body.get("instructions", "")
 
     if not skill_id or not candidate_instructions:
         raise HTTPException(400, "skill_id and instructions required")
@@ -1331,15 +1041,15 @@ async def evolution_step_evaluate_candidate(body: StepEvaluateCandidateRequest):
 
 
 @router.post("/evolution/step/apply")
-async def evolution_step_apply(body: StepApplyRequest):
+async def evolution_step_apply(body: Dict[str, Any]):
     """步骤5: 应用选中的变异到技能 (棘轮锁定)."""
     from agents.skill_evolver import get_skill_evolver
 
-    skill_id = body.skill_id
-    team_id = body.team_id
-    new_instructions = body.instructions
-    baseline_score = body.baseline_score
-    new_score = body.new_score
+    skill_id = body.get("skill_id", "")
+    team_id = body.get("team_id", "build_system")
+    new_instructions = body.get("instructions", "")
+    baseline_score = body.get("baseline_score", 0)
+    new_score = body.get("new_score", 0)
 
     if not skill_id or not new_instructions:
         raise HTTPException(400, "skill_id and instructions required")

@@ -38,8 +38,20 @@ def _load_tts_config() -> dict:
         return {}
 
 
-# ── Edge-TTS voice pool (male-only fallback voices) ─────────────────────────
+# ── Edge-TTS voice pool (Chinese neural voices: female + male) ───────────────
 VOICE_POOL = [
+    # 女声
+    {"voice": "zh-CN-XiaoxiaoNeural", "style": "warm", "desc": "晓晓·温暖女声"},
+    {"voice": "zh-CN-XiaoyiNeural", "style": "lively", "desc": "晓伊·活泼女声"},
+    {"voice": "zh-CN-XiaochenNeural", "style": "warm", "desc": "晓辰·亲切女声"},
+    {"voice": "zh-CN-XiaohanNeural", "style": "warm", "desc": "晓涵·温柔女声"},
+    {"voice": "zh-CN-XiaomoNeural", "style": "calm", "desc": "晓墨·沉稳女声"},
+    {"voice": "zh-CN-XiaoqiuNeural", "style": "mature", "desc": "晓秋·成熟女声"},
+    {"voice": "zh-CN-XiaoxuanNeural", "style": "lively", "desc": "晓萱·俏皮女声"},
+    {"voice": "zh-CN-XiaoyanNeural", "style": "mature", "desc": "晓颜·知性女声"},
+    {"voice": "zh-CN-XiaoshuangNeural", "style": "child", "desc": "晓双·童声女声"},
+    {"voice": "zh-CN-YunxiaNeural", "style": "child", "desc": "云夏·童声女声"},
+    # 男声
     {"voice": "zh-CN-YunxiNeural", "style": "lively", "desc": "活泼阳光男声"},
     {"voice": "zh-CN-YunjianNeural", "style": "passionate", "desc": "热情成熟男声"},
     {"voice": "zh-CN-YunyangNeural", "style": "professional", "desc": "专业新闻男声"},
@@ -213,8 +225,11 @@ async def tts_synthesize(req: TTSRequest):
     rate = req.rate or _prefer_faster_rate(profile["rate"], computed_rate)
     pitch = req.pitch or profile["pitch"] or DEFAULT_PITCH
 
-    # Try GPT-SoVITS first (primary); skip only when explicitly edge-tts-only
-    if engine != "edge-tts-only":
+    # Try GPT-SoVITS first (primary); skip when explicitly edge-tts-only,
+    # or when the caller explicitly requested a specific Edge-TTS voice
+    # (pet config voice.provider=edge-tts 时前端会带 req.voice)。
+    # 否则用户在配置页选的 Edge 男声会被 GPT-SoVITS 固定女声参考音频顶掉。
+    if engine != "edge-tts-only" and not req.voice:
         if cfg.get("ref_audio_path"):
             audio_data = await _gptsovits_synthesize(spoken_text, cfg, req.speed_factor)
             if audio_data:

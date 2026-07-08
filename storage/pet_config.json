@@ -97,9 +97,22 @@
         ],
         "flee_from": []
       },
-      "perception": { "detect_radius": 6.0, "vision_cone_deg": 300 },
-      "mental_state": { "hunger_full_sec": 20, "hunt_hunger_threshold": 0.3, "fear_scale_D0": 6.0, "f_escape": 0.55, "f_calm": 0.35 },
-      "intention": { "beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8 },
+      "perception": {
+        "detect_radius": 6,
+        "vision_cone_deg": 300
+      },
+      "mental_state": {
+        "hunger_full_sec": 20,
+        "hunt_hunger_threshold": 0.3,
+        "fear_scale_D0": 6,
+        "f_escape": 0.55,
+        "f_calm": 0.35
+      },
+      "intention": {
+        "beta_turn_cost": 0.2,
+        "persistence_threshold": 1.5,
+        "catch_radius": 0.8
+      },
       "speak": {
         "provider": "llm",
         "skill_id": "cat_speak_prompt",
@@ -113,13 +126,311 @@
         "rate": 1.1,
         "pitch": 1.8,
         "volume": 0.9,
-        "preferred_voice": "婷婷",
+        "preferred_voice": "Junior",
         "strip_punctuation": true,
-        "timeout_sec": 15
+        "timeout_sec": 15,
+        "provider": "edge-tts",
+        "edge_voice": "zh-CN-YunjianNeural"
       },
       "click_action": {
         "type": "dialog",
         "personality": "叛逆高中生"
+      },
+      "pets": [
+        {
+          "id": "xiaohu_cat",
+          "name": "小虎",
+          "species": "cat",
+          "team_id": "pet_squad",
+          "role": "predator",
+          "model": {
+            "type": "builtin_cat",
+            "scale": 1,
+            "fur_color": "0xf2f2f2",
+            "ear_position_x": 0.52,
+            "ear_position_y": 0.69,
+            "ear_swing_amplitude": 0.3,
+            "ear_swing_freq": 10,
+            "tail_length": 0.55,
+            "tail_radius_top": 0.008,
+            "tail_radius_bottom": 0.018
+          },
+          "behavior": {
+            "type": "patrol_chase",
+            "route": [
+              [
+                16,
+                12
+              ],
+              [
+                16,
+                -2
+              ],
+              [
+                16,
+                -10
+              ],
+              [
+                10,
+                -12
+              ],
+              [
+                5,
+                -10
+              ],
+              [
+                0,
+                -12
+              ],
+              [
+                -5,
+                -10
+              ],
+              [
+                -10,
+                -12
+              ],
+              [
+                -16,
+                -10
+              ],
+              [
+                -16,
+                -2
+              ],
+              [
+                -16,
+                12
+              ],
+              [
+                -10,
+                14
+              ],
+              [
+                -5,
+                12
+              ],
+              [
+                0,
+                14
+              ],
+              [
+                5,
+                12
+              ],
+              [
+                10,
+                14
+              ]
+            ],
+            "speed": 1.6,
+            "dwell_range": [
+              1.5,
+              5
+            ],
+            "detect_radius": 4,
+            "chase_targets": [
+              "squeak_mouse"
+            ],
+            "flee_from": []
+          },
+          "perception": {
+            "detect_radius": 6,
+            "vision_cone_deg": 300
+          },
+          "mental_state": {
+            "hunger_full_sec": 20,
+            "hunt_hunger_threshold": 0.3,
+            "fear_scale_D0": 6,
+            "f_escape": 0.55,
+            "f_calm": 0.35
+          },
+          "intention": {
+            "beta_turn_cost": 0.2,
+            "persistence_threshold": 1.5,
+            "catch_radius": 0.8
+          },
+          "speak": {
+            "provider": "llm",
+            "skill_id": "cat_speak_prompt",
+            "trigger": "on_detect_mouse",
+            "cooldown_sec": 10,
+            "fallback": "硕鼠硕鼠，无食我黍！"
+          },
+          "voice": {
+            "enabled": true,
+            "lang": "zh-CN",
+            "rate": 1.1,
+            "pitch": 1.8,
+            "volume": 0.9,
+            "preferred_voice": "Junior",
+            "strip_punctuation": true,
+            "timeout_sec": 15,
+            "provider": "edge-tts",
+            "edge_voice": "zh-CN-XiaoxuanNeural"
+          },
+          "click_action": {
+            "type": "dialog",
+            "personality": "叛逆高中生"
+          }
+        },
+        {
+          "id": "squeak_mouse",
+          "name": "吱吱",
+          "species": "mouse",
+          "team_id": "pet_squad",
+          "role": "prey",
+          "model": {
+            "type": "builtin_mouse",
+            "scale": 0.85,
+            "fur_color": "0x9a9a9e",
+            "pink_color": "0xd9a0a8",
+            "tail_length": 0.55,
+            "tail_radius_top": 0.008,
+            "tail_radius_bottom": 0.018
+          },
+          "behavior": {
+            "type": "patrol_flee",
+            "route": [
+              [
+                -18,
+                16
+              ],
+              [
+                -18,
+                4
+              ],
+              [
+                -18,
+                -8
+              ],
+              [
+                -18,
+                -14
+              ],
+              [
+                -12,
+                -14
+              ],
+              [
+                -6,
+                -14
+              ],
+              [
+                0,
+                -14
+              ],
+              [
+                6,
+                -14
+              ],
+              [
+                12,
+                -14
+              ],
+              [
+                18,
+                -14
+              ],
+              [
+                18,
+                -8
+              ],
+              [
+                18,
+                4
+              ],
+              [
+                18,
+                16
+              ],
+              [
+                12,
+                16
+              ],
+              [
+                6,
+                16
+              ],
+              [
+                0,
+                16
+              ],
+              [
+                -6,
+                16
+              ],
+              [
+                -12,
+                16
+              ]
+            ],
+            "speed": 2.7,
+            "dwell_range": [
+              0.5,
+              2.5
+            ],
+            "flee_radius": 4,
+            "flee_speed_multiplier": 2.5,
+            "flee_from": [
+              "xiaohu_cat"
+            ],
+            "warn_ring": true,
+            "warn_ring_color": "0xe04040"
+          },
+          "perception": {
+            "detect_radius": 7,
+            "vision_cone_deg": 300
+          },
+          "mental_state": {
+            "hunger_full_sec": 20,
+            "hunt_hunger_threshold": 0.3,
+            "fear_scale_D0": 6,
+            "f_escape": 0.35,
+            "f_calm": 0.2
+          },
+          "intention": {
+            "beta_turn_cost": 0.2,
+            "persistence_threshold": 1.5,
+            "catch_radius": 0.8
+          },
+          "speak": {
+            "provider": "none"
+          },
+          "voice": {
+            "enabled": false,
+            "provider": "gpt-sovits"
+          },
+          "click_action": {
+            "type": "bubble",
+            "bubble_text": {
+              "name": "吱吱",
+              "role": "寻路研究员",
+              "team": "pet_squad",
+              "skills": [
+                "Pathfinding",
+                "Data Analysis",
+                "Information Gathering",
+                "Research",
+                "Route Planning"
+              ]
+            }
+          }
+        }
+      ],
+      "ecosystem": {
+        "chase_pairs": [],
+        "flee_pairs": [
+          [
+            "squeak_mouse",
+            "xiaohu_cat"
+          ],
+          [
+            "xiaohu_cat",
+            "squeak_mouse"
+          ]
+        ],
+        "coexistence": []
       }
     },
     {
@@ -213,27 +524,41 @@
             16
           ]
         ],
-        "speed": 2.2,
+        "speed": 2.7,
         "dwell_range": [
           0.5,
           2.5
         ],
-        "flee_radius": 4.0,
-        "flee_speed_multiplier": 1.8,
+        "flee_radius": 4,
+        "flee_speed_multiplier": 2.5,
         "flee_from": [
           "xiaohu_cat"
         ],
         "warn_ring": true,
         "warn_ring_color": "0xe04040"
       },
-      "perception": { "detect_radius": 6.0, "vision_cone_deg": 300 },
-      "mental_state": { "hunger_full_sec": 20, "hunt_hunger_threshold": 0.3, "fear_scale_D0": 6.0, "f_escape": 0.55, "f_calm": 0.35 },
-      "intention": { "beta_turn_cost": 0.2, "persistence_threshold": 1.5, "catch_radius": 0.8 },
+      "perception": {
+        "detect_radius": 7,
+        "vision_cone_deg": 300
+      },
+      "mental_state": {
+        "hunger_full_sec": 20,
+        "hunt_hunger_threshold": 0.3,
+        "fear_scale_D0": 6,
+        "f_escape": 0.35,
+        "f_calm": 0.2
+      },
+      "intention": {
+        "beta_turn_cost": 0.2,
+        "persistence_threshold": 1.5,
+        "catch_radius": 0.8
+      },
       "speak": {
         "provider": "none"
       },
       "voice": {
-        "enabled": false
+        "enabled": false,
+        "provider": "gpt-sovits"
       },
       "click_action": {
         "type": "bubble",

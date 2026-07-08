@@ -1,4 +1,30 @@
 {
+  "ai_coding": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "deepseek",
+      "name": "deepseek-v4-flash",
+      "max_tokens": 8096,
+      "temperature": 0.7,
+      "is_default": false,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
+    }
+  },
+  "energy_first_principle": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "deepseek",
+      "name": "deepseek-v4-flash",
+      "max_tokens": 8096,
+      "temperature": 0.7,
+      "is_default": false,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
+    }
+  },
   "build_system": {
     "codebuddy": {
       "model_id": "codebuddy",
@@ -34,45 +60,6 @@
       "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     }
   },
-  "ai_coding": {
-    "deepseek": {
-      "model_id": "deepseek",
-      "provider": "deepseek",
-      "name": "deepseek-v4-flash",
-      "max_tokens": 8096,
-      "temperature": 0.7,
-      "is_default": false,
-      "enabled": true,
-      "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
-    }
-  },
-  "energy_first_principle": {
-    "deepseek": {
-      "model_id": "deepseek",
-      "provider": "deepseek",
-      "name": "deepseek-v4-flash",
-      "max_tokens": 8096,
-      "temperature": 0.7,
-      "is_default": false,
-      "enabled": true,
-      "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
-    }
-  },
-  "d083a568": {
-    "deepseek": {
-      "model_id": "deepseek",
-      "provider": "deepseek",
-      "name": "deepseek-v4-pro",
-      "max_tokens": 4096,
-      "temperature": 0.7,
-      "is_default": true,
-      "enabled": true,
-      "api_key": "",
-      "api_base_url": "https://api.deepseek.com"
-    }
-  },
   "aws-ops": {
     "deepseek": {
       "model_id": "deepseek",
@@ -86,5 +73,28 @@
       "api_base_url": "https://api.deepseek.com"
     }
   },
-  "pet_squad": {}
+  "pet_squad": {},
+  "d083a568": {
+    "deepseek": {
+      "model_id": "deepseek",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "is_default": true,
+      "enabled": true,
+      "api_key": "",
+      "api_base_url": "https://api.deepseek.com"
+    }
+  },
+  "67b437f9": {},
+  "afe26835": {},
+  "f46e1961": {},
+  "a6d231cd": {},
+  "87ddd907": {},
+  "af48ade6": {},
+  "a8431fa8": {},
+  "f7a112ad": {},
+  "cee0421e": {},
+  "0a41de69": {}
 }

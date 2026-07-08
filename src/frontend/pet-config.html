@@ -138,6 +138,8 @@ async function loadTTS() {
     speechSynthesis.onvoiceschanged = () => { _browserVoices = speechSynthesis.getVoices(); render(); };
   }
   renderTTSStatus();
+  // 关键：女声列表就绪后必须重渲染，否则 Edge-TTS 下拉为空，选不中声道
+  render();
 }
 
 function renderTTSStatus() {
@@ -295,6 +297,8 @@ function renderVoiceSection(pet, i) {
     <div class="form-row"><label>音调</label><input type="number" step="0.05" value="${v.pitch??1.8}" onchange="updateField(${i},'voice.pitch',parseFloat(this.value))"></div>
     <div class="form-row"><label>音量</label><input type="number" step="0.05" value="${v.volume??0.9}" onchange="updateField(${i},'voice.volume',parseFloat(this.value))"></div>`;
   } else if (provider === 'edge-tts') {
+    // 切到 Edge-TTS 时若未选声道，默认取第一个（女声晓晓），保证保存即生效
+    if (!v.edge_voice && _ttsVoices.length) { v.edge_voice = _ttsVoices[0].voice; }
     body = `
     <div class="form-row"><label>Edge神经语音</label><select onchange="updateField(${i},'voice.edge_voice',this.value)">
       ${_ttsVoices.map(vv=>`<option value="${vv.voice}" ${(v.edge_voice||'')===vv.voice?'selected':''}>${esc(vv.desc)} (${vv.voice})</option>`).join('')}

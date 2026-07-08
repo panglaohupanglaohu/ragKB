@@ -324,7 +324,7 @@ function bootOffice() {
   // 加载会说话宠物的语音配置（取第一个 speak.provider=llm 的宠物）
   (async function loadPetVoice() {
     try {
-      const doFetch = (typeof window._af === 'function') ? window._af : fetch;
+      const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
       const r = await doFetch('/api/v1/pet-ecosystem/config');
       if (!r.ok) return;
       const data = await r.json();
@@ -383,7 +383,7 @@ function bootOffice() {
   let _catAudioEl = null;
   async function _catSpeakBackend(text, vc, provider) {
     try {
-      const doFetch = (typeof window._af === 'function') ? window._af : fetch;
+      const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
       const body = { text, agent_name: '小虎' };
       if (provider === 'edge-tts') {
         if (vc.edge_voice) body.voice = vc.edge_voice;
