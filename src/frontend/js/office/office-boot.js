@@ -6,6 +6,7 @@
  */
 import { createStore, collabStats, setBreakTimeScale } from './office-state.js';
 import { createOfficeScene } from './office-scene.js';
+import { validateVoiceConfig } from './voice-config-validator.js';
 
 const FLAG_ON = new URLSearchParams(location.search).get('office3d') === '1';
 
@@ -334,8 +335,10 @@ function bootOffice() {
   })();
 
   function catSpeak(text, voiceCfg) {
-    const vc = voiceCfg || _petVoiceConfig || {};
-    const provider = vc.provider || 'browser';
+    const vc = voiceCfg || _petVoiceConfig;
+    const v = validateVoiceConfig(vc);
+    if (!v.ok) { console.error('[catSpeak]', v.error); return; }
+    const provider = vc.provider;
     console.log('[catSpeak] called:', text ? text.slice(0, 30) : '(empty)', 'provider:', provider);
     const raw = String(text || '');
     const cleanText = (vc.strip_punctuation !== false)
@@ -347,34 +350,27 @@ function bootOffice() {
       _catSpeakBackend(cleanText, vc, provider);
       return;
     }
-    // 浏览器内置语音
+    // 浏览器内置语音 — validateVoiceConfig 已保证字段齐全
     if (!window.speechSynthesis) { console.warn('[catSpeak] speechSynthesis unavailable'); return; }
     speechSynthesis.cancel();
     // Chrome bug: cancel() 是异步的，立即 speak() 会导致旧语音不被取消而重复播放
     const utt = new SpeechSynthesisUtterance(cleanText);
-    const isEnglish = /^[a-zA-Z\s]/.test(cleanText);
-    utt.lang = vc.lang || (isEnglish ? 'en-US' : 'zh-CN');
-    utt.rate = vc.rate ?? (isEnglish ? 0.85 : 1.1);
-    utt.pitch = vc.pitch ?? (isEnglish ? 1.15 : 1.8);
-    utt.volume = vc.volume ?? 0.95;
+    utt.lang = vc.lang;
+    utt.rate = vc.rate;
+    utt.pitch = vc.pitch;
+    utt.volume = vc.volume;
     const voices = speechSynthesis.getVoices();
-    if (vc.preferred_voice) {
-      const fv = voices.find(v => v.name === vc.preferred_voice);
-      if (fv) utt.voice = fv;
-    } else if (isEnglish) {
-      const enVoices = voices.filter(v => v.lang && v.lang.startsWith('en'));
-      const enFv = enVoices.find(v => /female|samantha|victoria|karen|tessa|moira|fiona/i.test(v.name)) || enVoices[0];
-      if (enFv) utt.voice = enFv;
-    } else {
-      const zhVoices = voices.filter(v => v.lang && v.lang.startsWith('zh'));
-      const fv = zhVoices.find(v => v.name && v.name.includes('婷婷')) || zhVoices.find(v => v.name && v.name.includes('Google 普通话')) || zhVoices[0];
-      if (fv) utt.voice = fv;
+    const fv = voices.find(v => v.name === vc.preferred_voice);
+    if (!fv) {
+      console.error(`[catSpeak] preferred_voice "${vc.preferred_voice}" not found in browser voices — 请在 /pet-config.html 页面重新选择`);
+      return;
     }
+    utt.voice = fv;
     utt.onstart = () => { console.log('[catSpeak] started'); };
     utt.onend = () => { console.log('[catSpeak] ended'); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
     utt.onerror = (e) => { console.warn('[catSpeak] error:', e.error || e); if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; } };
     if (_catTtsTimer) clearTimeout(_catTtsTimer);
-    _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, (vc.timeout_sec || 15) * 1000);
+    _catTtsTimer = setTimeout(() => { console.warn('[catSpeak] timeout, force resume'); _catTtsTimer = null; }, vc.timeout_sec * 1000);
     // 延迟 150ms 再 speak，确保 cancel() 完成后再播新语音
     setTimeout(() => { speechSynthesis.resume(); speechSynthesis.speak(utt); }, 150);
   }
@@ -383,14 +379,18 @@ function bootOffice() {
   let _catAudioEl = null;
   async function _catSpeakBackend(text, vc, provider) {
     try {
+      if (provider === 'edge-tts' && !vc.edge_voice) {
+        console.error('[catSpeak] voice.edge_voice missing for edge-tts — 请在 /pet-config.html 页面选择 Edge 神经语音');
+        return;
+      }
       const doFetch = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
       const body = { text, agent_name: '小虎' };
       if (provider === 'edge-tts') {
-        if (vc.edge_voice) body.voice = vc.edge_voice;
+        body.voice = vc.edge_voice;
         if (vc.edge_rate) body.rate = vc.edge_rate;
         if (vc.edge_pitch) body.pitch = vc.edge_pitch;
       }
-      if (provider === 'gpt-sovits') body.speed_factor = vc.speed_factor ?? 1.0;
+      if (provider === 'gpt-sovits' && vc.speed_factor !== undefined) body.speed_factor = vc.speed_factor;
       const r = await doFetch('/api/v1/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'HTTP ' + r.status); }
       const blob = await r.blob();

@@ -18,6 +18,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -30,6 +31,20 @@ from .plaza_store import PlazaStore
 from .token_context import token_scope
 
 logger = logging.getLogger(__name__)
+
+
+class RitualSignal(str, Enum):
+    """信号仪式化 — 发言前的结构化非语言信号（Agent仿生生态运行时 P5-1）.
+
+    对应 docs/Agent仿生生态运行时plan.md §6：仪式化信号的关键特征是"形式固定，
+    语义靠上下文推断，不是自由表达"。这是有限枚举，不是自由文本意图。
+    """
+
+    SUPPLEMENT = "supplement"   # 补充论据（默认/兜底信号）
+    CHALLENGE = "challenge"     # 质疑
+    AGREE = "agree"             # 赞同
+    COURT = "court"             # 求偶信号 —— libido 高时倾向发出，表达"想与协作对象建立更紧密协作模式"
+    DIGRESS = "digress"         # 跑题（主持人可强制拉回）
 
 _ROUND_SPEAKER_LIMIT = 5
 _EXCHANGES_PER_ROUND = 2  # 每轮内交锋次数
@@ -1810,6 +1825,39 @@ class PlazaEngine:
 
     def _role_priority(self, participant: Participant) -> int:
         return _CORE_ROLE_PRIORITY.get((participant.role or "").lower(), 99)
+
+    # ── 信号仪式化（Agent仿生生态运行时 P5-1） ──────────────────────
+    # 对应 plan §6：发言前先产出结构化信号，供主持人排序/仲裁使用。
+    # 本阶段用轻量关键词规则判定，不调用 LLM（避免额外成本），
+    # 只求结构化信号管道能跑通，不追求语义精确。
+
+    _CHALLENGE_MARKERS = ("?", "？", "疑问", "质疑", "不认同", "有问题", "为什么", "真的吗")
+    _AGREE_MARKERS = ("同意", "赞同", "没错", "认同", "+1", "支持")
+    _DIGRESS_MARKERS = ("跑题", "扯远了", "回到主题", "偏离")
+
+    def declare_signal(
+        self,
+        participant: Participant,
+        perception_text: str,
+    ) -> RitualSignal:
+        """从最近发言/感知文本粗判一个结构化仪式化信号.
+
+        优先级：digress > challenge > agree > court(仅 libido 高时可能触发，
+        本方法不感知 libido，court 的触发留给上层调用方在拿到 IntentionAgent
+        的 mental_state 后自行判断并覆盖返回值——这里只提供文本粗判的基线信号）。
+        """
+        text = (perception_text or "").strip()
+        if not text:
+            return RitualSignal.SUPPLEMENT
+
+        lowered = text.lower()
+        if any(marker in text for marker in self._DIGRESS_MARKERS):
+            return RitualSignal.DIGRESS
+        if any(marker in text for marker in self._CHALLENGE_MARKERS):
+            return RitualSignal.CHALLENGE
+        if any(marker in text for marker in self._AGREE_MARKERS):
+            return RitualSignal.AGREE
+        return RitualSignal.SUPPLEMENT
 
     def _get_discussion_lock(self, discussion_id: str) -> asyncio.Lock:
         if discussion_id not in self._discussion_locks:

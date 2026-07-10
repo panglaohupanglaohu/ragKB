@@ -16,3 +16,10 @@
 - Vite dev: `vite.config.mjs` root=`src/frontend`, port=5173, proxy `/api`→`http://localhost:8080`、`/ws`→ws://8080。
 - pet-config.html `loadTTS()` 拉取女声列表后必须 `render()`，否则 Edge-TTS 下拉为空、选不中声道。
 - `PUT /api/v1/pet-ecosystem/pets/{id}` 用**单个 pet 对象**作请求体（不是整包 ecosystem）；可正常持久化 `voice.edge_voice`。
+
+## Agent 仿生生态运行时（2026-07-09 规划）
+- 规划文档：`docs/Agent仿生生态运行时plan.md` + `todos.md`（Eco-1~Eco-6, EC-1~EC-17）。
+- 统一了现有两条线：宠物 Phase I（感知-意图-行为泛化，PI-1~6 全未开工）+ 孪生 EvolutionRun（skill 进化闭环，设计态），补上两者都缺的"物竞天择"维度（选择压力→繁殖/淘汰）。
+- 核心新增：EC-7/8/9（skill 繁殖 dominant 扩散 + 淘汰 deprecated/retired + Agent 预算按 fitness 调节）、EC-14（协作基因组进化）、EC-16/17（生态可观测）。
+- 执行顺序：Eco-1（eco_loop 基座）→ Eco-2（适应度度量）→ [Eco-3 选择淘汰 ∥ Eco-4 变异验证] → Eco-5 协作进化 → Eco-6 可观测。
+- 关键现状缺口：`eco_loop.py`/`evolution_bridge.py` 均未建；chat_harness reflect 是假总结；skill_router 纯词法匹配无 intention。

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .models import AgentProfile, AgentTeam, ModelConfig
+from .models import AgentProfile, AgentState, AgentTeam, ModelConfig
 from .team_store import TeamStore
 
 
@@ -188,6 +188,133 @@ class TeamManager:
         new_agent.__post_init__()
         new_agent.name = original.name + " (副本)"
         team.add_agent(new_agent)
+        self._persist()
+        return new_agent
+
+    # ── Health Ledger 事件映射（Agent仿生生态运行时 P2-2） ──────────────
+    # 对应 docs/Agent仿生生态运行时plan.md §3、§8：Health 代谢是唯一选择压力，
+    # dormant 事件复用已有 AgentState.STOPPED，不新增枚举值；可逆，不删除。
+
+    def apply_health_event(
+        self,
+        team_id: str,
+        agent_id: str,
+        event: str,
+    ) -> Optional[AgentProfile]:
+        """把 HealthLedger 产出的代谢事件映射为 Agent 生命周期状态.
+
+        event: "dormant" | "revived"（其他值忽略并原样返回当前 Agent，不报错）。
+        """
+        team = self._teams.get(team_id)
+        if team is None:
+            return None
+        agent = team.get_agent(agent_id)
+        if agent is None:
+            return None
+
+        if event == "dormant":
+            agent.state = AgentState.STOPPED
+        elif event == "revived":
+            agent.state = AgentState.IDLE
+        # 未知 event：不修改状态，只返回当前 agent（调用方可自行判断）
+
+        self._persist()
+        return agent
+
+    def revive_agent(
+        self,
+        team_id: str,
+        agent_id: str,
+        health_ledger: Any = None,
+        revive_ratio: float = 0.5,
+    ) -> Optional[AgentProfile]:
+        """复活一个 dormant Agent：state 改回 idle + (可选)联动 HealthLedger 恢复部分 Health.
+
+        health_ledger 为可选依赖注入（`runtime.health_ledger.HealthLedger` 实例），
+        不在本方法内部硬编码 import，方便测试用 mock 或跳过联动。
+        """
+        agent = self.apply_health_event(team_id, agent_id, "revived")
+        if agent is None:
+            return None
+        if health_ledger is not None:
+            try:
+                health_ledger.revive(agent_id, revive_ratio=revive_ratio)
+            except Exception:
+                pass  # Health 联动失败不应阻断状态复活本身
+        return agent
+
+    # ── 交配门禁（Agent仿生生态运行时 P4-1） ────────────────────────────
+    # 对应 docs/Agent仿生生态运行时plan.md §1、§8：交配不是随意复制，
+    # 只有跨过"饱暖"门槛的个体才能繁殖，复用已有 duplicate_agent，只加门禁条件。
+
+    def can_mate(
+        self,
+        health_state: Any,
+        saturation_threshold: float = 0.7,
+    ) -> "tuple[bool, str]":
+        """判定一个 Agent 是否满足交配门禁（Health 占比达标）.
+
+        health_state 预期为 `runtime.health_ledger.HealthState` 实例（或结构相同的
+        对象/dict，鸭子类型即可），依赖注入而非硬编码 import，便于测试 mock。
+        """
+        if health_state is None:
+            return False, "no_health_state"
+
+        # 支持 dataclass 属性访问或 dict 访问（鸭子类型）
+        def _get(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        status = _get(health_state, "status", "active")
+        if status == "dormant":
+            return False, "dormant_cannot_mate"
+
+        health = float(_get(health_state, "health", 0.0))
+        health_max = float(_get(health_state, "health_max", 1.0))
+        if health_max <= 0:
+            return False, "invalid_health_max"
+
+        ratio = health / health_max
+        if ratio < saturation_threshold:
+            return False, f"insufficient_saturation: {ratio:.2f} < {saturation_threshold:.2f}"
+
+        return True, "ok"
+
+    def mate(
+        self,
+        team_id: str,
+        agent_id: str,
+        health_state: Any = None,
+        saturation_threshold: float = 0.7,
+    ) -> Optional[AgentProfile]:
+        """交配：门禁通过后调用现有 duplicate_agent，记录血统（lineage）到 metadata.
+
+        血统信息写入 `metadata["lineage"]`，不新增 AgentProfile dataclass 字段
+        （复用已有的通用 metadata 字段，保持向后兼容）。
+        """
+        allowed, reason = self.can_mate(health_state, saturation_threshold)
+        if not allowed:
+            return None
+
+        team = self._teams.get(team_id)
+        if team is None:
+            return None
+        original = team.get_agent(agent_id)
+        if original is None:
+            return None
+
+        parent_generation = int((original.metadata or {}).get("lineage", {}).get("generation", 0))
+
+        new_agent = self.duplicate_agent(team_id, agent_id)
+        if new_agent is None:
+            return None
+
+        new_agent.metadata = dict(new_agent.metadata or {})
+        new_agent.metadata["lineage"] = {
+            "parent_agent_id": agent_id,
+            "generation": parent_generation + 1,
+        }
         self._persist()
         return new_agent
 

@@ -53,6 +53,45 @@ PROF_LEARN_STEP = 0.02         # session 内每次成功临时熟练度增量
 PROF_LEARN_CAP = 0.98
 PROF_DEGRADE_DELTA = 0.3       # skill_degraded 混沌事件的临时熟练度降幅
 
+# ── Agent仿生生态运行时 P3-1: 盲目学习探索期衰减 ──
+# 对应 docs/Agent仿生生态运行时plan.md §4：新 Agent（存活时间短）默认更"盲目"，
+# 倾向随机探索非最优匹配的 skill/任务组合；随存活时长增长，逐渐倾向已验证有效
+# 的行为（这正是现有 strategy_params.exploration_rate 的语义，本函数只新增
+# "如何随时间衰减"这一段，不改动 _default_decision 的调用方式，向后兼容）。
+EXPLORATION_DEFAULT_BASE_RATE = 0.7    # 新 Agent 的默认探索率（盲目学习期）
+EXPLORATION_DEFAULT_HALF_LIFE = 50     # 半衰期 tick 数
+
+
+def compute_exploration_rate(
+    survival_ticks: int,
+    base_rate: float = EXPLORATION_DEFAULT_BASE_RATE,
+    half_life: float = EXPLORATION_DEFAULT_HALF_LIFE,
+) -> float:
+    """探索率随存活时长指数衰减：rate = base_rate * 0.5 ** (survival_ticks / half_life).
+
+    survival_ticks<=0 → 返回 base_rate（刚出生，最盲目）。
+    half_life<=0 → 视为不衰减，恒返回 base_rate（防御性兜底，避免除零）。
+    单调递减，不会衰减到负数（指数函数天然 > 0，但极长存活时间下可能趋近 0）。
+    """
+    if survival_ticks <= 0 or half_life <= 0:
+        return max(0.0, min(1.0, base_rate))
+    rate = base_rate * (0.5 ** (survival_ticks / half_life))
+    return max(0.0, min(1.0, rate))
+
+
+def compute_exploration_rate_from_config(survival_ticks: int) -> float:
+    """用 EcoRuntimeConfig 的 learning 段参数计算探索率，配置不可用时回退内置默认。"""
+    try:
+        from agents.runtime.eco_runtime_config import get_eco_runtime_config
+        s = get_eco_runtime_config().get_section("learning")
+        return compute_exploration_rate(
+            survival_ticks,
+            base_rate=float(s.get("exploration_base_rate", EXPLORATION_DEFAULT_BASE_RATE)),
+            half_life=float(s.get("exploration_half_life", EXPLORATION_DEFAULT_HALF_LIFE)),
+        )
+    except Exception:
+        return compute_exploration_rate(survival_ticks)
+
 
 class TwinLoopEngine:
     """TwinLoop 仿真引擎 — 策略试错实验的核心运行中枢.

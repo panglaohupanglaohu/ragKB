@@ -410,6 +410,83 @@ class SkillLibrary:
         logger.info("Skill %s solidified, pushed to %d teams", skill_id, len(pushed))
         return {"status": "solidified", "pushed_to": pushed}
 
+    # ── 物竞天择选择状态（Agent仿生生态运行时 P4-2） ────────────────────
+    # 对应 docs/Agent仿生生态运行时plan.md §3、§8：不新增打分公式，
+    # 由 Health 净收益（复用 Phase 3 的 net_gain_by_skill）驱动选择状态建议。
+    # dominant 复用 SOLIDIFIED（已表达"固化/推广"语义）；deprecated 复用
+    # DEGRADED（已表达"效果不佳"语义），不新增枚举值。
+
+    def evaluate_selection_state(
+        self,
+        skill_id: str,
+        team_id: str,
+        net_gain_history: List[float],
+        min_streak: Optional[int] = None,
+        dominant_usage_threshold: Optional[int] = None,
+    ) -> str:
+        """基于连续净收益历史，给出选择状态建议："dominant" | "deprecated" | "neutral".
+
+        net_gain_history 由调用方传入（依赖注入，不硬编码 import Phase 3 的
+        HealthLedger.net_gain_by_skill——调用方应先算好逐代/逐窗口净收益序列
+        再传入本方法），本方法只做"连续性"判断，防止单次波动导致状态跳变
+        （plan §8 淘汰误杀缓解：连续 N 次低位才淘汰，不因一次失败判定）。
+
+        规则：
+        - 最近 min_streak 次净收益连续为正 且 总次数达标 → "dominant"
+        - 最近 min_streak 次净收益连续为负 → "deprecated"
+        - 否则 → "neutral"（不建议变更状态）
+
+        min_streak/dominant_usage_threshold 留 None 时从 EcoRuntimeConfig 的 selection
+        段读取当前生效值（配置不可用则回退内置默认 3 / 10）。
+        """
+        if min_streak is None or dominant_usage_threshold is None:
+            _ms, _dut = 3, 10
+            try:
+                from .runtime.eco_runtime_config import get_eco_runtime_config
+                s = get_eco_runtime_config().get_section("selection")
+                _ms = int(s.get("dominant_min_streak", 3))
+                _dut = int(s.get("dominant_usage_threshold", 10))
+            except Exception:
+                pass
+            if min_streak is None:
+                min_streak = _ms
+            if dominant_usage_threshold is None:
+                dominant_usage_threshold = _dut
+
+        if len(net_gain_history) < min_streak:
+            return "neutral"
+
+        recent = net_gain_history[-min_streak:]
+        if all(g > 0 for g in recent) and len(net_gain_history) >= dominant_usage_threshold:
+            return "dominant"
+        if all(g < 0 for g in recent):
+            return "deprecated"
+        return "neutral"
+
+    def apply_selection_state(
+        self,
+        team_id: str,
+        skill_id: str,
+        selection_state: str,
+    ) -> Dict[str, Any]:
+        """把 `evaluate_selection_state` 的建议真正落到 `lifecycle_stage`.
+
+        "dominant"   → SkillLifecycleStage.SOLIDIFIED（复用 solidify 的推广语义）
+        "deprecated" → SkillLifecycleStage.DEGRADED（复用既有降级语义，软淘汰，可恢复）
+        "neutral"    → 不做任何变更
+        """
+        if selection_state == "dominant":
+            return self.solidify(team_id, skill_id)
+        if selection_state == "deprecated":
+            skill = self._find_skill(team_id, skill_id)
+            if not skill:
+                return {"error": "skill_not_found"}
+            skill.lifecycle_stage = SkillLifecycleStage.DEGRADED
+            self._persist_skill(skill, team_id)
+            logger.info("Skill %s marked deprecated (degraded) by selection pressure", skill_id)
+            return {"status": "deprecated", "skill_id": skill_id}
+        return {"status": "neutral", "skill_id": skill_id}
+
     # ── Helpers ──────────────────────────────────────────────────
 
     def _find_skill(self, team_id: str, skill_id: str) -> Optional[SkillDefinition]:

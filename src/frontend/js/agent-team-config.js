@@ -167,7 +167,7 @@ async function loadOverview(){
     const taskSummary=curTm?.tasks||{};
     const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
     const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
-    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
+    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer;position:relative" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><input type="checkbox" class="ov-team-cb" value="${escapeHtml(t.team_id)}" onclick="event.stopPropagation()" style="position:absolute;top:6px;right:6px;width:auto;margin:0;cursor:pointer" title="勾选后可批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
     sc.innerHTML=`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
     const curTmMeta=allTeams.find(t=>t&&t.team_id===tid);
     const teamTitle=(curTm&&curTm.name)||(curTmMeta&&curTmMeta.name)||tid;
@@ -398,13 +398,55 @@ async function openEditModel(mid){
   el('em-name').value=m.name||'';
   el('em-tok').value=m.max_tokens||8192;
   el('em-temp').value=m.temperature??0.7;
-  el('em-key').value='';
+  // 密钥回填优先级: env: 引用(后端存的) > 浏览器记住的明文 key
+  const remembered=_rememberedKey(tid,mid);
+  if(m.api_key && String(m.api_key).startsWith('env:')){
+    el('em-key').value=m.api_key;
+    if(el('em-remember'))el('em-remember').checked=false;
+  }else if(remembered){
+    el('em-key').value=remembered;
+    if(el('em-remember'))el('em-remember').checked=true;
+  }else{
+    el('em-key').value='';
+    if(el('em-remember'))el('em-remember').checked=false;
+  }
   el('em-url').value=m.api_base_url||'';
   el('em-def').value=m.is_default?'true':'false';
   el('em-title').textContent=`✏️ 编辑模型 — ${mid}`;
   el('em-test-result').classList.add('hidden');
   updateEmUrlHint();
   openModal('modal-edit-model');
+}
+
+// ── 「记住密钥」浏览器持久化（localStorage 按 team+model 存取）──
+// bug-034/038 修复的真正落地：勾选框把明文 key 存到本浏览器，重启后端后
+// openEditModel 自动回填并勾选；test/save 用 _effectiveKey 取「输入框→记住的key」。
+function _rememberKeyStorageKey(teamId,modelId){return `ag_model_key:${teamId}:${modelId}`}
+function _rememberedKey(teamId,modelId){
+  try{return localStorage.getItem(_rememberKeyStorageKey(teamId,modelId))||''}catch(e){return ''}
+}
+function _setRememberedKey(teamId,modelId,key){
+  try{
+    if(key)localStorage.setItem(_rememberKeyStorageKey(teamId,modelId),key);
+    else localStorage.removeItem(_rememberKeyStorageKey(teamId,modelId));
+  }catch(e){/* 隐私模式/禁用 localStorage 时静默降级 */}
+}
+// 有效密钥: 输入框非空则用输入框; 否则回退到记住的 key(即使字段留空也能测/存)
+function _effectiveKey(teamId,modelId){
+  const typed=(el('em-key')&&el('em-key').value||'').trim();
+  if(typed)return typed;
+  return _rememberedKey(teamId,modelId);
+}
+// 按当前勾选框状态同步 localStorage: 勾选写入, 取消清除
+function _syncRememberKey(teamId,modelId){
+  const remember=el('em-remember')&&el('em-remember').checked;
+  const typed=(el('em-key')&&el('em-key').value||'').trim();
+  // 只记明文 key; env: 引用无需记(后端已存), 留空且已记过则保留原记忆
+  if(remember && typed && !typed.startsWith('env:')){
+    _setRememberedKey(teamId,modelId,typed);
+  }else if(!remember){
+    _setRememberedKey(teamId,modelId,'');
+  }
 }
 const _providerDefaultUrls={deepseek:'https://api.deepseek.com',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',github:'https://models.inference.ai.azure.com',qwen:'https://dashscope.aliyuncs.com/compatible-mode/v1',openrouter:'https://openrouter.ai/api/v1',local:'http://127.0.0.1:11434/v1'};
 function updateEmUrlHint(){
@@ -420,7 +462,9 @@ function updateEmUrlHint(){
 }
 async function submitEditModel(){
   if(!_editModelId)return;
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:el('em-key').value,api_base_url:el('em-url').value};
+  // 先按勾选框同步浏览器记忆，再用有效密钥(输入框→记住的key)提交
+  _syncRememberKey(tid,_editModelId);
+  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:_effectiveKey(tid,_editModelId),api_base_url:el('em-url').value};
   if(!body.name){toast('模型名称不能为空');return}
   const r=await api(`${A}/teams/${tid}/models/${_editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r){toast('模型已更新');closeModal('modal-edit-model');loadModels();if(body.is_default){loadSbAgents();if(aid)loadAgent()}}else toast('更新失败')
@@ -430,14 +474,16 @@ async function testModelInEdit(){
   rb.style.background='rgba(232,240,250,0.7)';rb.style.color='var(--muted)';
   rb.innerHTML='⏳ 正在测试连接...';
   const btn=el('em-test-btn');btn.disabled=true;
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:el('em-key').value,api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7};
+  // 测试前先按勾选框同步记忆，并用有效密钥(输入框→记住的key)发请求，留空也能用已记密钥测
+  _syncRememberKey(tid,_editModelId);
+  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:_effectiveKey(tid,_editModelId),api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,team_id:tid,model_id:_editModelId};
   const r=await api(`${A}/llm/test-model`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   btn.disabled=false;
   if(!r){rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';rb.innerHTML='❌ 请求失败，请检查后端是否运行';return}
   if(r.success){
     rb.style.background='rgba(38,162,105,0.08)';rb.style.color='var(--lime)';
     rb.innerHTML=`✅ 连接成功 — 模型: ${escapeHtml(r.model)} · 延迟: ${r.latency_ms.toFixed(0)}ms<div style="margin-top:8px;padding:10px;background:rgba(232,240,250,0.6);border-radius:6px;color:var(--text);font-size:12px">${escapeHtml(r.response)}</div>`;
-    // Auto-save after successful test
+    // Auto-save after successful test（body.api_key 已是 _effectiveKey 结果）
     if(_editModelId){
       const sb={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:body.api_key,api_base_url:el('em-url').value};
       const sr=await api(`${A}/teams/${tid}/models/${_editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
@@ -2009,3 +2055,4 @@ async function startTTSService(){
     else{res.innerHTML='<span style="color:var(--pink)">❌ 启动失败: '+(r?.error||'未知错误')+'</span>'}
   }catch(e){res.innerHTML='<span style="color:var(--pink)">❌ 启动请求失败: '+escapeHtml(e.message)+'</span>'}
 }
+

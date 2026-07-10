@@ -12,6 +12,13 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from .runtime.eco_loop import (
+    IntentionAgent,
+    IntentionThresholds,
+    MentalState,
+    WorldView,
+)
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = os.path.join(
@@ -254,6 +261,77 @@ def _deep_merge(base: Dict, updates: Dict) -> Dict:
         else:
             result[k] = v
     return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# PetIntentionAgent — eco_loop 抽象在宠物场景下的验证子类
+# ═══════════════════════════════════════════════════════════════
+#
+# 对应 docs/Agent仿生生态运行时todos.md P1-2。
+# 目的：验证 IntentionAgent 基类的感知/生理状态/意图仲裁抽象，能否等价表达
+# 前端 pet-behavior.js 已有的 Predator/Prey 心理状态公式：
+#   computeHunger(elapsedSec, fullSec) = min(1, elapsed/full)         (饥饿 H)
+#   computeFear(dist, D0)              = min(1, D0/dist)              (恐惧 F)
+# 本类只做后端侧的公式等价性验证，不接管前端渲染，前端 pet-behavior.js 保持不变。
+
+
+def compute_pet_hunger(elapsed_sec: float, full_sec: float) -> float:
+    """等价于 pet-behavior.js::computeHunger — H = min(1, elapsed/full)."""
+    if full_sec <= 0:
+        return 1.0
+    return round(min(1.0, max(0.0, elapsed_sec / full_sec)), 6)
+
+
+def compute_pet_fear(dist: float, d0: float) -> float:
+    """等价于 pet-behavior.js::computeFear — F = min(1, D0/dist)."""
+    if dist <= 0:
+        return 1.0
+    return round(min(1.0, d0 / dist), 6)
+
+
+class PetIntentionAgent(IntentionAgent):
+    """用 IntentionAgent 基类复刻猫鼠 Predator/Prey 心理状态。
+
+    与基类 `compute_hunger`/`compute_fear`（Health/失败率驱动）不同，
+    宠物场景沿用 pet-behavior.js 原有的"时间驱动饥饿 + 距离驱动恐惧"公式，
+    以验证 eco_loop 的感知→生理状态→意图仲裁骨架足够通用，能承载不同的
+    具体驱动公式而不需要改动基类结构。
+    """
+
+    def __init__(self, agent_id: str, pet_config: Dict[str, Any]):
+        ms_cfg = pet_config.get("mental_state", {})
+        thresholds = IntentionThresholds(
+            fear_escape=ms_cfg.get("f_escape", 0.55),
+            fear_calm=ms_cfg.get("f_calm", 0.35),
+            hunger_threshold=ms_cfg.get("hunt_hunger_threshold", 0.3),
+        )
+        super().__init__(agent_id, thresholds=thresholds)
+        self.pet_config = pet_config
+        self._elapsed_sec = 0.0
+        self._nearest_dist = float("inf")
+
+    def perceive(self, ctx: Any) -> WorldView:
+        """ctx 预期为 {"elapsed_sec": float, "nearest_threat_dist": float}."""
+        ctx = ctx or {}
+        self._elapsed_sec = float(ctx.get("elapsed_sec", self._elapsed_sec))
+        self._nearest_dist = float(ctx.get("nearest_threat_dist", self._nearest_dist))
+        return WorldView(agent_id=self.agent_id)
+
+    def compute_pet_mental_state(self) -> MentalState:
+        """用 pet-behavior.js 等价公式覆盖基类的 update_mental_state 驱动来源。"""
+        ms_cfg = self.pet_config.get("mental_state", {})
+        full_sec = ms_cfg.get("hunger_full_sec", 20)
+        d0 = ms_cfg.get("fear_scale_D0", 6.0)
+        hunger = compute_pet_hunger(self._elapsed_sec, full_sec)
+        fear = compute_pet_fear(self._nearest_dist, d0)
+        self.mental_state = MentalState(hunger=hunger, fear=fear, libido=0.0)
+        return self.mental_state
+
+    def pet_tick(self, elapsed_sec: float, nearest_threat_dist: float):
+        """宠物场景专用 tick：时间驱动饥饿 + 距离驱动恐惧，跳过基类的 Health 驱动路径。"""
+        view = self.perceive({"elapsed_sec": elapsed_sec, "nearest_threat_dist": nearest_threat_dist})
+        self.compute_pet_mental_state()
+        return self.generate_intention(view)
 
 
 # 单例

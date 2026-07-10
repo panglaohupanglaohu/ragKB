@@ -82,6 +82,42 @@ npm run test:frontend   # vitest
 
 `docs/` 下 plan/todos 文件需签名头，规则见 [docs/SIGNING_RULE.md](docs/SIGNING_RULE.md)，校验：`node scripts/check-docs-signoff.cjs --strict`。
 
+## 生态仿真范式（Perception → Intention → Behavior）
+
+**本平台的根本设计哲学**：把「感知-意图-行为」闭环作为**所有 Agent 的通用运行时范式**，而不是某个 demo 模块。猫小虎 + 鼠吱吱的 Predator/Prey 演示只是这个范式的**第一个具体实例**，用来验证可行性——真正的目标是让 Plaza 议事、孪生演练、skill 调用、任务协作全都从生态仿真视角来看。
+
+### 范式定义
+
+每个 Agent 在每个 tick 走统一闭环：
+
+```
+感知 (Perception)   →  从环境/上下文/他者提取信号（视野、消息、状态、token 预算…）
+意图生成 (Intention) →  基于内部心理状态 + 感知信号，按优先级生成当前意图（avoid > hunt/escape > wander 的泛化）
+行为 (Behavior)     →  执行意图对应的例程（工具调用、发言、移动、技能触发…），产出可观测动作
+```
+
+心理状态（Hunger/Fear 的泛化：紧迫度、信心、预算压力…）让 Agent 有**内部驱动**而非纯反应式；单项短期记忆 + 持久化阈值防抖动，让意图稳定不横跳。
+
+### 与现有子系统的对齐路线
+
+| 子系统 | 现状 | 生态仿真范式下的目标 |
+| --- | --- | --- |
+| **Agent 运行时** | `chat_harness` + `tool_loop` 走 plan→act→observe→reflect | 改造为 perception→intention→behavior 闭环，plan/act 是"行为例程"的展开 |
+| **skill 体系** | SkillRouter 用 BM25/TF-IDF 检索关键词注入 prompt | skill = "可复用行为例程库"，按**意图**路由而非关键词匹配 |
+| **Plaza 协作** | 主持人 + 座席层级 + 结构化发言 | 多 Agent **意图协调**：感知他人意图 → 调整自己意图 → 协调行为 |
+| **孪生沙箱** | twin_loop spawn 副本做 What-if 推演 | What-if = "多 Agent 意图-行为"仿真，混沌注入 = 扰动感知/心理状态 |
+
+### 第一个实例：3D 办公室 Predator/Prey
+
+[`Agent-digital-twin.html?office3d=1`](src/frontend/Agent-digital-twin.html) 的猫鼠场景是这个范式的参考实现：小虎（predator）饥饿到阈值进入 hunt，吱吱（prey）恐惧超阈值进入 escape，碰撞敏感区临时 avoid 并单项记忆防抖，捕获后吱吱瞬移远角、小虎念得意台词 + TTS 播报。所有参数（role/perception/mental_state/intention/voice）由 [`storage/pet_config.json`](storage/pet_config.json) 配置驱动，[`pet-config.html`](src/frontend/pet-config.html) 页面编辑，[`PetEcosystem`](src/backend/agents/pet_ecosystem.py) 单例管理，文件缺失自动落盘 `_DEFAULT_SEED`。
+
+### 工程支撑
+
+- **TTS 语音**：edge-tts / gpt-sovits / browser 三 provider，全由页面配置驱动，前端无兜底默认值，缺字段由 [`validateVoiceConfig`](src/frontend/js/office/voice-config-validator.js) 抛错暴露；CSP 已放行 `media-src 'self' data: blob:`。
+- **模型凭据**：`api_key` 支持 `env:VAR_NAME` 前缀引用环境变量（落盘原样保留，真实 key 脱敏不入库），[`setup_keys.sh`](scripts/setup_keys.sh) / [`setup_keys.ps1`](scripts/setup_keys.ps1) 提供交互式创建，[`env_loader.py`](src/backend/agents/env_loader.py) 启动时加载 `.env`。
+
+详细设计与路线图见 [docs/宠物团队生态仿真plan.md](docs/宠物团队生态仿真plan.md)（§10 Phase I 是泛化路线），任务追踪见 [docs/宠物团队生态仿真todos.md](docs/宠物团队生态仿真todos.md)。
+
 ## 核心概念速查
 
 - **TwinLoop**（`sandbox/twin_loop.py`）：snapshot_world → spawn_twins → run_simulation → evaluate_outcomes → inject_best_strategy 的仿真在环闭环；支持混沌注入与熟练度结算。

@@ -210,6 +210,9 @@ class TeamStore:
 
     @staticmethod
     def _deserialize_model(data: dict) -> ModelConfig:
+        # env: 引用原样恢复；脱敏值（****）不恢复
+        raw_key = data.get("api_key", "")
+        api_key = raw_key if raw_key.startswith("env:") else ""
         return ModelConfig(
             model_id=data.get("model_id", ""),
             provider=data.get("provider", "anthropic"),
@@ -218,7 +221,7 @@ class TeamStore:
             temperature=data.get("temperature", 0.7),
             is_default=data.get("is_default", False),
             enabled=data.get("enabled", True),
-            api_key="",  # never restore masked keys
+            api_key=api_key,
             api_base_url=data.get("api_base_url", ""),
         )
 

@@ -190,6 +190,10 @@ def resolve_api_key(
     default_secret: str = "",
     plaintext_fallback: str = "",
 ) -> str:
+    # env:VAR_NAME 引用 → 从环境变量解析（页面配置存 env: 引用，不存明文 key）
+    if explicit.startswith("env:"):
+        var_name = explicit[4:]
+        return os.environ.get(var_name, "")
     if explicit:
         return explicit
     for env_name in provider_api_key_envs(provider):

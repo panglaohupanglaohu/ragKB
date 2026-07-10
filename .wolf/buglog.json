@@ -16,6 +16,22 @@
   ]
  },
  {
+  "id": "bug-cat-speak-skill-instructions-404",
+  "timestamp": "2026-07-08T00:00:00.000000",
+  "error_message": "agent-team-config 点击“猫发言提示词”技能“获取图标” → 显示“获取失败”，后端 404 /api/v1/agent-config/skills/cat_speak_prompt/instructions Skill not found",
+  "file": "src/backend/agents/api.py",
+  "root_cause": "get_skill_instructions 只用 _sr().get(skill_id) 在全局技能注册表里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
+  "fix": "get_skill_instructions 注册表未命中时回退遍历所有团队本地技能：for team in _tm().list_teams(): skill = team.skills.get(skill_id)。与 execute_skill 的团队本地回退模式一致",
+  "tags": [
+   "backend",
+   "skill-instructions",
+   "pet-ecosystem",
+   "team-local-skill",
+   "404",
+   "skill-registry"
+  ]
+ },
+ {
   "id": "bug-pet-seed-not-cross-machine",
   "timestamp": "2026-07-07T03:35:00.000000",
   "error_message": "storage/pet_config.json 被 gitignore，拉取覆盖后其它机器缺小虎/吱吱，手补的 seed 不跨机同步",

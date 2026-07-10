@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="Copilot" kind="llm" doc="todos" ts="2026-07-06T21:22:22Z" -->
+<!-- docs-signoff: author="Copilot" kind="llm" doc="todos" ts="2026-07-08T05:00:00Z" -->
 # 宠物团队生态仿真 Todos — Predator / Prey 行为模型
 
 > 配套 [宠物团队生态仿真plan.md](宠物团队生态仿真plan.md)。
@@ -233,6 +233,110 @@
   文件：[src/frontend/pet-config.html](../src/frontend/pet-config.html)
   落点：在行为卡片后新增两张卡片，字段与 PP-1/2 Schema 对齐；`role` 用下拉（predator/prey）。保存时并入 PUT `/api/v1/pet-ecosystem/pets/{id}` 的 body。
   验收：页面编辑 `catch_radius`/`f_escape` 等 → PUT 持久化到 `pet_config.json` → 刷新 office3d 生效。
+
+---
+
+## Phase G: 页面配置唯一真相源（voice 兜底移除）
+
+> 配套 plan §9。目标：TTS 完全由 `/pet-config.html` 页面配置驱动，移除前端 voice 配置兜底默认值，缺字段抛异常暴露问题。
+
+- [x] **PP-13** 清理 `pet_config.json` 嵌套副本 + 移除 catSpeak voice 兜底 ⟦Copilot⟧
+  改动：
+  1. [storage/pet_config.json](../storage/pet_config.json) — 删除 `pets[0]`（小虎）内部错误嵌套的 `pets` 数组和 `ecosystem` 对象（历史垃圾副本）。
+  2. [src/frontend/js/office/voice-config-validator.js](../src/frontend/js/office/voice-config-validator.js)（新增）— 纯函数 `validateVoiceConfig(vc)` 返回 `{ok, error}`，覆盖 edge-tts/gpt-sovits/browser/unknown 四种 provider 校验。
+  3. [src/frontend/js/office/office-boot.js](../src/frontend/js/office/office-boot.js) — `catSpeak` 调用 `validateVoiceConfig`，不 ok 则 `console.error(v.error)` 并 return；移除 `?? 1.8`/`?? 1.1`/`?? 0.95`/`|| 15` 等兜底；移除硬编码「婷婷」→「Google 普通话」音色回退链。`_catSpeakBackend` 的 edge-tts 缺 `edge_voice` 报错；`speed_factor` 不再 `?? 1.0`。保留引擎失败回退 browser（容错非兜底）。
+  验收：`node --check office-boot.js`；`npm run build`；缺 voice 配置时 console 报具体缺什么字段。
+
+- [x] **PP-14** voice 配置校验 + pet_config 数据完整性测试 ⟦Copilot⟧
+  新增测试：
+  1. [tests/test_pet_ecosystem.py](../tests/test_pet_ecosystem.py) — 9 个用例：配置文件存在性、顶层结构、无嵌套副本、小虎 edge-tts 字段齐全、临时文件加载、_DEFAULT_SEED 落盘、get_config 默认值补全、_DEFAULT_SEED 结构。
+  2. [src/frontend/js/office/__checks__/voice-config-validator.check.mjs](../src/frontend/js/office/__checks__/voice-config-validator.check.mjs) — 10 个 assert：缺 vc/缺 provider/edge-tts 缺 edge_voice/browser 缺字段/字段空字符串/未知 provider/三种 provider 正常配置/REQUIRED_BROWSER_FIELDS 完整性。
+  验收：`pytest tests/test_pet_ecosystem.py -q` → 9 passed；`node voice-config-validator.check.mjs` → ALL PASS。
+
+---
+
+## Phase H: 生态仿真端到端可用性修复（2026-07-08）
+
+> 三处缺口都直接阻塞生态仿真跑通：模型凭据丢失 → 小虎 `cat-speak` LLM 401；CSP 阻断 blob: → TTS 无声；团队批量删除按钮失效 → `pet_squad` 无法清理/管理。均与行为模型逻辑无关，属"装配/持久化/UI 链路"修复。
+
+- [x] **PP-15** 模型 API key 改用环境变量引用方案（根除重启后 key 丢失）⟦Copilot⟧
+  根因：[`ModelConfig.to_dict()`](../src/backend/agents/models.py) 把 `api_key` 脱敏成 `****1234` 供 API 返回，但 [`team_store._serialize_team()`](../src/backend/agents/team_store.py) 复用 `to_dict()` 落盘，重启后 `_deserialize_model()` 把脱敏值当真实 key 读回（或强制清空），导致小虎 `cat-speak` 的 LLM 调用 401/无效 key。
+  改动：
+  1. [src/backend/agents/models.py](../src/backend/agents/models.py) — `to_dict()` 对 `env:VAR_NAME` 前缀原样保留落盘；真实 key 仍脱敏返回 API。新增 `get_resolved_api_key()` 运行时解析 `env:` 前缀。
+  2. [src/backend/agents/team_store.py](../src/backend/agents/team_store.py) — `_deserialize_model()` 恢复 `env:` 引用，脱敏值不恢复。
+  3. [src/backend/agents/secret_store.py](../src/backend/agents/secret_store.py) — `resolve_api_key()` 支持 `env:` 前缀解析。
+  4. [src/backend/agents/api.py](../src/backend/agents/api.py) + [src/backend/channels/evolution_executor.py](../src/backend/channels/evolution_executor.py) — 所有 LLM 调用点改用 `model.get_resolved_api_key()` / `resolve_api_key()`。
+  5. [src/backend/agents/env_loader.py](../src/backend/agents/env_loader.py)（新增）— 无第三方依赖的 `.env` 加载器；[src/backend/main.py](../src/backend/main.py) 启动时调用。
+  6. [scripts/setup_keys.sh](../scripts/setup_keys.sh)（新增）— macOS/Linux 交互式创建环境变量脚本。
+  7. [scripts/setup_keys.ps1](../scripts/setup_keys.ps1)（新增）— Windows PowerShell 等价脚本。
+  8. [src/frontend/agent-team-config.html](../src/frontend/agent-team-config.html) — 编辑模型弹窗 key 字段加 `env:VAR_NAME` 用法提示。
+  测试：[tests/test_model_env_key.py](../tests/test_model_env_key.py) — 17 个用例覆盖序列化/解析/往返/.env 加载，全过。
+
+- [x] **PP-16** CSP 允许 blob: 音频播放（修复 TTS 语音失效）⟦Copilot⟧
+  根因：[src/frontend/Agent-digital-twin.html](../src/frontend/Agent-digital-twin.html) 的 Content-Security-Policy 缺 `media-src blob:`，导致 edge-tts/gpt-sovits 后端返回的音频经 `URL.createObjectURL()` 生成 `blob:http://localhost:5173/...` 后被浏览器 CSP 阻断，小虎念台词无声音。
+  修复：CSP 加 `media-src 'self' data: blob:;`。
+  验收：office3d=1 模式下小虎 onDetect/onCatch 触发 TTS，控制台无 CSP 违规报错，音频正常播放。
+
+- [x] **PP-17** 团队批量删除按钮修复 + 多选 checkbox 回填 ⟦Copilot⟧
+  根因：[src/frontend/js/tasks-view.js](../src/frontend/js/tasks-view.js) 的 `window.deleteTeam` 依赖 `deleteSelectedTeams` 函数和 `.ov-team-cb` checkbox，但这两者在前端重构中已被删除，导致「删除选中团队」按钮点击无反应。
+  修复：
+  1. [src/frontend/js/agent-team-config.js](../src/frontend/js/agent-team-config.js) — 团队卡片渲染处（`teamCards`）加回 `<input type="checkbox" class="ov-team-cb" value="${team_id}">`，`onclick="event.stopPropagation()"` 防止点 checkbox 触发卡片切换团队。
+  2. [src/frontend/js/tasks-view.js](../src/frontend/js/tasks-view.js) — 补回 `window.deleteSelectedTeams`：收集 `.ov-team-cb:checked` → `showConfirm` 确认 → 循环 `DELETE ${A}/teams/${id}` → 统计 ok/fail → `loadTeams()` 刷新。原 `window.deleteTeam` 保留，有勾选时优先走批量，无勾选兜底删下拉选中团队。
+  测试（API 层模拟 `deleteSelectedTeams` 的 DELETE 序列）：用 panglaohu token 对 10 个历史残留团队（5 个 "Updated Team" + 5 个 "Test Team Alpha"）执行批量 DELETE，全部返回 `200 {"deleted":"<id>"}`，删除后团队总数 16→6，同名残留 0。前端 `deleteSelectedTeams` 的请求序列与该 API 测试完全一致。
+
+---
+
+## Phase I: 生态仿真范式泛化（Perception → Intention → Behavior 作为 Agent 通用运行时）
+
+> 配套 plan §10。目标：把「感知-意图-行为」从宠物 demo 提升为**所有 Agent 的统一执行模型**，让 skill 体系、Plaza 协作、孪生沙箱都从生态仿真视角来看。新旧运行时并存，按 Agent 配置选用，不一次性推翻现有代码。
+
+- [ ] **PI-1** 抽象 `IntentionAgent` 基类（Python 侧） ⟦待认领⟧
+  文件：[src/backend/agents/runtime/eco_loop.py](../src/backend/agents/runtime/eco_loop.py)（新增）
+  落点：把 `pet-behavior.js` 的 `state.intention` + `generateIntention` + `memory` 抽象成 Python 基类：
+  ```python
+  class IntentionAgent:
+      mental_state: dict       # 泛化的 Hunger/Fear：urgency/confidence/budget_pressure…
+      perception: dict         # 感知信号：visible_agents/messages/token_budget…
+      intention: dict | None   # {type, target, priority, memory}
+      def perceive(self, ctx) -> dict: ...        # 子类重写：从上下文提取信号
+      def generate_intention(self, perception) -> dict: ...  # 子类重写：优先级判定 + 单项记忆
+      def execute_behavior(self, intention, ctx) -> Any: ... # 子类重写：执行意图对应的例程
+      def tick(self, ctx):
+          p = self.perceive(ctx)
+          i = self.generate_intention(p)
+          return self.execute_behavior(i, ctx)
+  ```
+  设计原则：心理状态/感知/意图生成器全可重写；意图对象 `{type, target, priority, memory}` 是头等公民，可被日志/统计/仿真复用。
+  验收：`pytest` 覆盖基类 + 一个 `PetAgent(IntentionAgent)` 子类复刻猫鼠行为（Hunger/Fear 公式、avoid 单项记忆防抖、持久化阈值），行为与 `pet-behavior.check.mjs` 等价。
+
+- [ ] **PI-2** PetEcosystem 后端切到 eco_loop ⟦待认领⟧
+  文件：[src/backend/agents/pet_ecosystem.py](../src/backend/agents/pet_ecosystem.py)
+  落点：`PetEcosystem` 的每 tick 调用改为 `agent.tick(ctx)`，前端 `pet-behavior.js` 保持不变（前后端行为等价，只是后端有了 Python 侧意图模型）。目的：让 eco_loop 在真实场景跑通，为接入 chat_harness 做准备。
+  验收：猫鼠场景行为零回归（`pet-behavior.check.mjs` 全过）；后端日志可观测每个 pet 的 `intention` 序列。
+
+- [ ] **PI-3** Agent 运行时接入 eco_loop ⟦待认领⟧
+  文件：[src/backend/agents/chat_harness.py](../src/backend/agents/chat_harness.py)、[src/backend/agents/runtime/tool_loop.py](../src/backend/agents/runtime/tool_loop.py)
+  落点：`chat_harness` 在 plan→act 前加 perception→intention 步骤；`tool_loop` 的"下一步动作"改为"执行当前意图的例程"。Agent 配置加 `runtime: "eco_loop" | "legacy"` 字段，默认 legacy，按需切换。
+  保留旧路径作 fallback，不破坏现有 Agent。
+  验收：一个非宠物 Agent（如 `pet_squad` 里的小虎作为 LLM Agent）能用 eco_loop 跑通"感知任务上下文 → 生成回应意图 → 执行发言/工具"闭环；旧 Agent 切回 legacy 行为不变。
+
+- [ ] **PI-4** skill schema 加 `intention` 字段 ⟦待认领⟧
+  文件：[src/backend/agents/skill_library.py](../src/backend/agents/skill_library.py)、[src/backend/agents/skill_router.py](../src/backend/agents/skill_router.py)
+  落点：skill 定义加 `intention: str`（如 "answer_question" / "use_tool" / "delegate" / "verify"）；SkillRouter 增加"按意图过滤"前置阶段——先按当前 Agent 意图筛 skill 子集，再在子集内做 BM25/TF-IDF 文本相似度重排。新技能入库必须标 intention。
+  验收：skill 按 intent 路由的命中率 ≥ 关键词路由基线（用现有 skill 库做 A/B 对比）；旧无 intention 字段的 skill 视为 "generic" 兜底，不破坏现有检索。
+
+- [ ] **PI-5** Plaza 发言前声明意图 ⟦待认领⟧
+  文件：[src/backend/agents/plaza_engine.py](../src/backend/agents/plaza_engine.py)
+  落点：每轮发言前，每个 Agent 先调 `declare_intention(perception)` 产出意图声明（如 "补充论据" / "质疑" / "赞同" / "跑题"）；主持人收集全局意图分布做仲裁（谁先说、谁让步、谁补充、谁被拉回），再进入结构化发言。
+  主持人对"跑题"意图有强制拉回权（对应 Phase F PE-16 P6-1 跑题守卫）。
+  验收：Plaza 一轮议事产出的"意图分布"可被观测/统计（日志或 SSE 事件）；跑题意图被主持人识别并拉回的比例可度量。
+
+- [ ] **PI-6** 孪生沙箱混沌注入扩展到感知/心理状态 ⟦待认领⟧
+  文件：[src/backend/sandbox/twin_loop.py](../src/backend/sandbox/twin_loop.py)
+  落点：现有混沌注入（断网/成员离场/技能退化）扩展两类：
+  1. **感知扰动**：遮挡（部分 Agent 不可见）、延迟（消息延迟到达）、噪声（感知信号加噪声）。
+  2. **心理状态扰动**：强行调高 urgency/confidence/budget_pressure，观察意图-行为链路鲁棒性。
+  验收：孪生沙箱能注入"感知扰动"并观测到意图-行为变化（对比有/无扰动的 intention 序列与执行结果）。
 
 ---
 

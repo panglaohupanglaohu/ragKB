@@ -48,10 +48,11 @@ def _load_api_config() -> Dict[str, str]:
         # 从内存中的 ChatHarness 获取（已通过页面配置）
         try:
             from ..agents.chat_harness import get_chat_harness
+            from ..agents.secret_store import resolve_api_key
             harness = get_chat_harness()
             cfg = harness.get_provider_config()
             if cfg and cfg.api_key:
-                api_key = cfg.api_key
+                api_key = resolve_api_key(cfg.provider.value if hasattr(cfg.provider, 'value') else str(cfg.provider), explicit=cfg.api_key)
                 api_base = cfg.api_base_url or api_base
                 model = cfg.model or model
         except Exception:
@@ -64,8 +65,9 @@ def _load_api_config() -> Dict[str, str]:
             if _team_manager:
                 for team in _team_manager.list_teams():
                     for cfg in team.models.values():
-                        if cfg.api_key:
-                            api_key = cfg.api_key
+                        resolved = cfg.get_resolved_api_key()
+                        if resolved:
+                            api_key = resolved
                             api_base = cfg.api_base_url or api_base
                             model = cfg.name or model
                             break

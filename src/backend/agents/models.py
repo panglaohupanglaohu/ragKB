@@ -137,6 +137,11 @@ class ModelConfig:
             self.model_id = str(uuid.uuid4())[:8]
 
     def to_dict(self) -> Dict[str, Any]:
+        """序列化。env: 引用原样保留；真实 key 脱敏（不落盘明文）。"""
+        if self.api_key.startswith("env:"):
+            api_key_val = self.api_key  # 环境变量引用，原样存（非敏感）
+        else:
+            api_key_val = ("****" + self.api_key[-4:]) if len(self.api_key) >= 4 else ("****" if self.api_key else "")
         return {
             "model_id": self.model_id,
             "provider": self.provider,
@@ -145,10 +150,18 @@ class ModelConfig:
             "temperature": self.temperature,
             "is_default": self.is_default,
             "enabled": self.enabled,
-            "api_key": ("****" + self.api_key[-4:]) if len(self.api_key) >= 4 else ("****" if self.api_key else ""),
+            "api_key": api_key_val,
             "api_base_url": self.api_base_url,
             "has_api_key": bool(self.api_key),
         }
+
+    def get_resolved_api_key(self) -> str:
+        """运行时解析 api_key：env:VAR_NAME → 从环境变量读取；否则原样返回。"""
+        if self.api_key.startswith("env:"):
+            var_name = self.api_key[4:]
+            import os
+            return os.environ.get(var_name, "")
+        return self.api_key
 
 
 @dataclass

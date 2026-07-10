@@ -1243,8 +1243,8 @@ def test_model(team_id: str, model_id: str) -> Dict[str, Any]:
     model = team.get_model(model_id)
     if model is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Model not found")
-    if not model.api_key:
-        return {"status": "no_key", "model_id": model_id, "provider": model.provider, "name": model.name, "latency_ms": 0, "message": "未配置 API Key，请先设置"}
+    if not model.get_resolved_api_key():
+        return {"status": "no_key", "model_id": model_id, "provider": model.provider, "name": model.name, "latency_ms": 0, "message": "未配置 API Key，请先设置（支持 env:VAR_NAME 引用环境变量）"}
     latency_ranges = {"anthropic": (80, 150), "openai": (50, 120), "google": (60, 130), "local": (5, 20)}
     lo, hi = latency_ranges.get(model.provider, (100, 200))
     latency = random.randint(lo, hi)
@@ -1633,6 +1633,12 @@ def get_skill_tools(skill_id: str) -> Dict[str, Any]:
 @router.get("/skills/{skill_id}/instructions", summary="Get skill instructions")
 def get_skill_instructions(skill_id: str) -> Dict[str, Any]:
     skill = _sr().get(skill_id)
+    if skill is None:
+        # 回退到团队本地技能（挂在 team.skills、未进全局注册表的技能，如 cat_speak_prompt）
+        for team in _tm().list_teams():
+            skill = team.skills.get(skill_id)
+            if skill:
+                break
     if skill is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found")
     return {
@@ -5622,9 +5628,9 @@ def _get_deepseek_credentials(agent=None, team_id: str = "") -> tuple:
                     (m for m in team.models.values() if getattr(m, "is_default", False)),
                     None,
                 )
-        if model is not None and getattr(model, "api_key", ""):
+        if model is not None and model.get_resolved_api_key():
             base_url = (getattr(model, "api_base_url", "") or "").strip().rstrip("/")
-            return model.api_key, base_url, model.name
+            return model.get_resolved_api_key(), base_url, model.name
     api_key, base_url, model_name, _provider = _harness_provider_credentials()
     return api_key, base_url, model_name
 
@@ -7916,7 +7922,7 @@ def agent_model_status(agent_id: str) -> Dict[str, Any]:
     if model:
         model_name = model.name
         provider = model.provider
-        has_key = bool(model.api_key)
+        has_key = bool(model.get_resolved_api_key())
     else:
         model_name = model_id or "default"
         provider = "unknown"
@@ -8039,7 +8045,7 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
         stored = _team_manager.get_team(req.team_id)
         stored_model = stored.get_model(req.model_id) if stored else None
         if stored_model is not None:
-            api_key = stored_model.api_key or api_key
+            api_key = stored_model.get_resolved_api_key() or api_key
             provider_name = provider_name or stored_model.provider
             name = name or stored_model.name
             api_base_url = api_base_url or stored_model.api_base_url

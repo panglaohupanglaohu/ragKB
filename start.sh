@@ -28,6 +28,23 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# 加载 .env 到当前 shell（API key 环境变量引用方案）。
+# 后端 main.py 也会通过 env_loader 再加载一次，这里在 shell 层先导出，
+# 让前端/子进程/其它脚本也能读到；缺失时提示用户运行 setup_keys.sh。
+if [ -f ".env" ]; then
+    set -a  # 自动导出后续 source 的变量
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+    echo "🔑 已加载 .env 环境变量（API key 引用 env:VAR_NAME 生效）"
+    echo ""
+else
+    echo "🔑 未发现 .env — 若模型 API Key 用 env:VAR_NAME 引用，请先运行:"
+    echo "     bash scripts/setup_keys.sh"
+    echo "   （填入真实密钥后重启本脚本即可；否则请在页面直接填明文 key）"
+    echo ""
+fi
+
 # 启动前清理 8080/5173 上的旧进程，防止端口被占用
 cleanup_port() {
     local port=$1 pids

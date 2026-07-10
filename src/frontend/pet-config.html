@@ -79,19 +79,36 @@ h1 { font-size: 20px; margin: 20px 0; }
   </nav>
 </div>
 
-<div class="add-pet-bar">
-  <button class="btn btn-success" onclick="addNewPet()">+ 新增生物</button>
-  <button class="btn btn-primary" onclick="saveAll()">💾 保存全部</button>
-  <button class="btn" onclick="loadConfig()" style="background:#e2e5e9">🔄 重新加载</button>
-  <span id="tts-status" class="tts-status warn">TTS 引擎检测中…</span>
+<div class="tab-bar" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid #e2e5e9">
+  <button class="tab-btn active" id="tab-btn-creatures" onclick="switchTab('creatures')" style="padding:10px 18px;border:none;background:none;font-size:14px;font-weight:600;color:#4a90d9;border-bottom:2px solid #4a90d9;margin-bottom:-2px;cursor:pointer">🐾 生物个体</button>
+  <button class="tab-btn" id="tab-btn-runtime" onclick="switchTab('runtime')" style="padding:10px 18px;border:none;background:none;font-size:14px;font-weight:600;color:#718096;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer">🧬 仿生生态运行时参数</button>
 </div>
 
-<div class="pet-grid" id="pet-grid"></div>
+<div id="tab-creatures">
+  <div class="add-pet-bar">
+    <button class="btn btn-success" onclick="addNewPet()">+ 新增生物</button>
+    <button class="btn btn-primary" onclick="saveAll()">💾 保存全部</button>
+    <button class="btn" onclick="loadConfig()" style="background:#e2e5e9">🔄 重新加载</button>
+    <span id="tts-status" class="tts-status warn">TTS 引擎检测中…</span>
+  </div>
 
-<div class="eco-section">
-  <h2 style="font-size:16px;margin:0 0 8px">🔗 互动关系矩阵</h2>
-  <p style="font-size:12px;color:#718096;margin:0 0 8px">每个生物有专属颜色（名牌圆点）。上三角每格 = 一对生物的关系，沿对角线<b>分裂为两个色块</b>：<b>左上半</b>=行首生物（用它的颜色）遇到列生物时的行为；<b>右下半</b>=列生物（用它的颜色）遇到行首生物时的行为。点击任一色块循环：无<b>·</b> → <b style="color:#e04040">追</b> → <b style="color:#2b6cb0">逃</b> → <b style="color:#2f855a">共</b>。切换后自动保存。</p>
-  <div id="eco-matrix" class="eco-matrix"></div>
+  <div class="pet-grid" id="pet-grid"></div>
+
+  <div class="eco-section">
+    <h2 style="font-size:16px;margin:0 0 8px">🔗 互动关系矩阵</h2>
+    <p style="font-size:12px;color:#718096;margin:0 0 8px">每个生物有专属颜色（名牌圆点）。上三角每格 = 一对生物的关系，沿对角线<b>分裂为两个色块</b>：<b>左上半</b>=行首生物（用它的颜色）遇到列生物时的行为；<b>右下半</b>=列生物（用它的颜色）遇到行首生物时的行为。点击任一色块循环：无<b>·</b> → <b style="color:#e04040">追</b> → <b style="color:#2b6cb0">逃</b> → <b style="color:#2f855a">共</b>。切换后自动保存。</p>
+    <div id="eco-matrix" class="eco-matrix"></div>
+  </div>
+</div>
+
+<div id="tab-runtime" style="display:none">
+  <div class="add-pet-bar">
+    <button class="btn btn-primary" onclick="saveRuntime()">💾 保存参数</button>
+    <button class="btn" onclick="loadRuntime()" style="background:#e2e5e9">🔄 重新加载</button>
+    <button class="btn btn-danger" onclick="resetRuntime()">↺ 恢复默认</button>
+    <span style="font-size:12px;color:#718096">这些参数来自「物竞天择驱动的非人演化生态」plan/todos，驱动 H/F/L 意图仲裁 · Health 代谢 · 盲目学习 · 选择淘汰 · 交配门禁</span>
+  </div>
+  <div id="runtime-sections"></div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -525,6 +542,102 @@ async function testVoice(idx) {
 }
 
 function esc(s) { return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ══════════ Tab 切换 ══════════
+function switchTab(tab) {
+  const isCreatures = tab === 'creatures';
+  document.getElementById('tab-creatures').style.display = isCreatures ? '' : 'none';
+  document.getElementById('tab-runtime').style.display = isCreatures ? 'none' : '';
+  const bc = document.getElementById('tab-btn-creatures'), br = document.getElementById('tab-btn-runtime');
+  bc.style.color = isCreatures ? '#4a90d9' : '#718096'; bc.style.borderBottomColor = isCreatures ? '#4a90d9' : 'transparent';
+  br.style.color = isCreatures ? '#718096' : '#4a90d9'; br.style.borderBottomColor = isCreatures ? 'transparent' : '#4a90d9';
+  if (!isCreatures && !_runtimeLoaded) loadRuntime();
+}
+
+// ══════════ 仿生生态运行时参数 Tab ══════════
+let _runtimeConfig = {};
+let _runtimeLoaded = false;
+
+// section/字段的中文标签 + 说明（来自 plan/todos）
+const RUNTIME_META = {
+  mental_state: { title: '🧠 H/F/L 意图仲裁阈值', desc: '感知→意图仲裁：avoid > forage > mate > rest（plan §2）', fields: {
+    fear_escape: '恐惧逃逸阈值（F 超此值→avoid）',
+    fear_calm: '恐惧平静阈值（滞回：降到此值以下才离开 avoid）',
+    hunger_threshold: '饥饿觅食阈值（H 超此值→forage 认领/执行任务）',
+    libido_threshold: '繁殖意图阈值（L 超此值→mate）',
+  }},
+  metabolism: { title: '🩸 Health 代谢账本', desc: '唯一选择压力来源：代谢红线 + 生存时长隐式适应度（plan §3）', fields: {
+    health_max: '满血值 health_max',
+    metabolic_rate: '每 tick 基础代谢消耗',
+    revive_ratio: '复活恢复到满血的比例（0~1）',
+    saturation_threshold: '「饱暖」判定阈值（Health 占比）',
+  }},
+  learning: { title: '🎲 盲目学习 + 特征抽象', desc: '探索期衰减 + 净收益驱动技能提炼（plan §4）', fields: {
+    exploration_base_rate: '新 Agent 初始探索率（0~1，越高越盲目）',
+    exploration_half_life: '探索率半衰期 tick 数',
+    solidify_min_uses: '触发特征抽象的最小使用次数',
+    solidify_min_gain: '触发特征抽象的最小净收益',
+  }},
+  selection: { title: '⚖️ 物竞天择选择状态机', desc: 'skill dominant/deprecated 判定（防单次波动误杀）', fields: {
+    dominant_min_streak: '连续正/负净收益判定长度（越大越稳）',
+    dominant_usage_threshold: '晋升 dominant 的最小总使用次数',
+  }},
+  mating: { title: '🧬 交配门禁', desc: '只有跨过「饱暖」门槛的个体才能繁殖', fields: {
+    saturation_threshold: '允许交配的 Health 占比门槛（0~1）',
+  }},
+};
+
+async function loadRuntime() {
+  const data = await api.get('/api/v1/eco-runtime/config');
+  if (!data) { toast('❌ 加载失败: ' + (api._lastError ? api._lastError.message : '无响应')); return; }
+  _runtimeConfig = data;
+  _runtimeLoaded = true;
+  renderRuntime();
+  toast('✅ 运行时参数已加载');
+}
+
+function renderRuntime() {
+  const box = document.getElementById('runtime-sections');
+  box.innerHTML = Object.keys(RUNTIME_META).map(section => {
+    const meta = RUNTIME_META[section];
+    const vals = _runtimeConfig[section] || {};
+    const rows = Object.keys(meta.fields).map(key => `
+      <div class="form-row">
+        <label style="width:220px" title="${esc(meta.fields[key])}">${esc(key)}</label>
+        <input type="number" step="any" value="${vals[key]??''}" data-section="${section}" data-key="${key}" style="max-width:160px">
+        <span class="hint">${esc(meta.fields[key])}</span>
+      </div>`).join('');
+    return `<div class="eco-section"><h2 style="font-size:15px;margin:0 0 4px">${meta.title}</h2>
+      <p style="font-size:11px;color:#a0aec0;margin:0 0 10px">${esc(meta.desc)}</p>${rows}</div>`;
+  }).join('');
+}
+
+function _collectRuntime() {
+  const out = {};
+  document.querySelectorAll('#runtime-sections input[data-section]').forEach(inp => {
+    const s = inp.dataset.section, k = inp.dataset.key;
+    if (inp.value === '') return;
+    const num = parseFloat(inp.value);
+    if (isNaN(num)) return;
+    out[s] = out[s] || {};
+    out[s][k] = num;
+  });
+  return out;
+}
+
+async function saveRuntime() {
+  const payload = _collectRuntime();
+  const d = await api.put('/api/v1/eco-runtime/config', payload);
+  if (d) { _runtimeConfig = d; renderRuntime(); toast('✅ 运行时参数已保存'); }
+  else { toast('❌ 保存失败: ' + (api._lastError ? api._lastError.message : '未知错误')); }
+}
+
+async function resetRuntime() {
+  if (!confirm('恢复全部运行时参数为内置默认？当前自定义值会被清除。')) return;
+  const d = await api.post('/api/v1/eco-runtime/reset', {});
+  if (d) { _runtimeConfig = d; renderRuntime(); toast('↺ 已恢复默认'); }
+  else { toast('❌ 恢复失败'); }
+}
 
 // 初始化
 loadTTS();

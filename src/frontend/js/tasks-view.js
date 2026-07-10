@@ -395,6 +395,21 @@ window.deleteTeam=async function(){
     if(r){toast('✅ 团队「' + name + '」已删除');tid='';_teamsListCache=null;loadTeams()}else{toast('❌ 删除失败，请检查后端日志')}
   });
 };
+// ── 批量删除选中团队 ──
+window.deleteSelectedTeams=async function(){
+  const cbs=document.querySelectorAll('.ov-team-cb:checked');
+  if(!cbs.length){toast('请先在团队卡片上勾选复选框');return}
+  const ids=Array.from(cbs).map(c=>c.value);
+  showConfirm(`⚠️ 确定要删除选中的 ${ids.length} 个团队吗？此操作不可撤销，团队下的所有模型、智能体、任务都会被删除。`, async () => {
+    let ok=0,fail=0;
+    for(const id of ids){
+      const r=await api(`${A}/teams/${id}`,{method:'DELETE'});
+      if(r)ok++;else fail++;
+    }
+    toast(`✅ 已删除 ${ok} 个团队${fail?`，${fail} 个失败`:''}`);
+    tid='';_teamsListCache=null;loadTeams();
+  });
+};
 // ── Add model ──
 el('btn-am').onclick=async()=>{const n=el('am-name').value.trim();if(!n){toast('请输入模型名');return}const r=await api(`${A}/teams/${tid}/models`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:el('am-prov').value,name:n,max_tokens:+el('am-tok').value,temperature:+el('am-temp').value,api_key:el('am-key').value,api_base_url:el('am-url').value,is_default:el('am-def').value==='true'})});if(r){toast('添加成功');closeModal('modal-add-model');el('am-name').value='';el('am-key').value='';el('am-url').value='';loadModels()}else toast('失败')};
 // ── Submit task ──

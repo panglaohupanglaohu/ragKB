@@ -25,6 +25,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# 启动时加载 .env（API key 等环境变量引用方案，无第三方依赖）
+try:
+    from agents.env_loader import load_env as _load_env
+    _load_env()
+except Exception:
+    pass
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -579,6 +586,14 @@ async def startup():
             logger.info("🐾 Pet Ecosystem API mounted (/api/v1/pet-ecosystem)")
         except Exception as e:
             logger.warning(f"⚠️ Pet Ecosystem API not loaded: {e}")
+
+        # 3.6 仿生生态运行时可配置参数 API
+        try:
+            from agents.eco_runtime_routes import router as eco_runtime_router
+            app.include_router(eco_runtime_router)
+            logger.info("🧬 Eco Runtime Config API mounted (/api/v1/eco-runtime)")
+        except Exception as e:
+            logger.warning(f"⚠️ Eco Runtime Config API not loaded: {e}")
 
         # 4. 智能体广场 API
         try:
