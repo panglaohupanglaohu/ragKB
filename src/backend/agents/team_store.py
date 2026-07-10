@@ -117,6 +117,8 @@ class TeamStore:
             visibility=Visibility(data.get("visibility", "private")),
             created_at=data.get("created_at", ""),
             metadata=data.get("metadata", {}),
+            # ND-1.1: runtime 字段向后兼容（旧数据缺字段默认 "legacy"）
+            runtime=data.get("runtime", "legacy") or "legacy",
         )
         # Agents
         for aid, adata in data.get("agents", {}).items():
@@ -205,6 +207,8 @@ class TeamStore:
             autonomy_level=int(data.get("autonomy_level", 2) or 2),
             token_budget=int(data.get("token_budget", 0) or 0),
             fallback_model_id=data.get("fallback_model_id", "") or "",
+            # ND-1.1: runtime 字段向后兼容（旧数据缺字段默认 "legacy"）
+            runtime=data.get("runtime", "legacy") or "legacy",
         )
         return agent
 

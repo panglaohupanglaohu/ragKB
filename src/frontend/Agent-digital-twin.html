@@ -942,6 +942,18 @@ body.office-mode #env-3d-container * {
       <div id="layer-detail-L4" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim)"><span style="color:var(--purple)">L4 MADCG</span> — 多智能体自适应协作图：动态构建协作拓扑并生成执行计划。<span id="ld-L4-extra"></span></div>
     </div>
 
+    <!-- ═══ 物竞天择 ND-5: 生境控制台（仅 eco 模式团队显示，legacy 隐藏，零回归）═══ -->
+    <div class="rp-section" id="eco-habitat-console" style="display:none;padding:8px 12px;border:1px solid var(--green);border-radius:6px;margin:6px 8px">
+      <div class="rp-title" style="margin-bottom:6px;color:var(--green)">🧬 自然选择生境（物竞天择）</div>
+      <div style="font-size:10px;color:var(--dim);margin-bottom:8px">该团队为仿生（eco）模式：演练按<b>代谢红线 + 生存博弈 + 随机繁衍</b>运行，生存时长是唯一适应度。</div>
+      <div id="eco-habitat-params" style="font-size:10px;color:var(--text2)">加载生境参数…</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn" onclick="ecoRunEpoch()" style="font-size:10px;padding:4px 8px;color:var(--green)">▶ 跑一个世代</button>
+        <a href="/pet-config.html" class="btn" style="font-size:10px;padding:4px 8px;text-decoration:none">⚙ 调生境参数</a>
+      </div>
+      <div id="eco-habitat-ranking" style="margin-top:8px;font-size:10px;color:var(--dim)"></div>
+    </div>
+
     <!-- ═══ Session 条 ═══ -->
     <div class="rp-section" style="padding:6px 12px;display:flex;gap:6px;font-size:9px;align-items:center;flex-wrap:wrap">
       <span style="color:var(--dim)">会话</span><code id="secs-session-id" style="font-family:var(--font-mono);color:var(--cyan);font-size:9px">—</code>
@@ -1143,7 +1155,75 @@ body.office-mode #env-3d-container * {
   </div>
 </div>
 
-<!-- 团队选择 Modal -->
+<!-- ═══ 物竞天择 ND-5.1: Eco 模式生境控制台（team.runtime === "eco" 时显示） ═══ -->
+<div class="right-panel" id="rp-eco" style="width:580px;overflow-y:auto;display:none">
+  <!-- 标题栏 -->
+  <div class="rp-section" style="padding:10px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="font-size:15px">🧬 自然选择生境控制台</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:2px">物竞天择 · 适者生存 · 生存时长=唯一适应度</div>
+  </div>
+
+  <!-- 代谢参数 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="margin-bottom:6px">⚙️ 代谢参数 <span id="eco-config-status" style="font-size:10px;color:var(--text-dim)"></span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
+      <div>满血值: <span id="eco-param-health-max" style="color:var(--accent)">100</span></div>
+      <div>代谢率: <span id="eco-param-metabolic-rate" style="color:var(--accent)">1.0</span></div>
+      <div>复活比例: <span id="eco-param-revive-ratio" style="color:var(--accent)">0.5</span></div>
+      <div>饱暖阈值: <span id="eco-param-saturation" style="color:var(--accent)">0.7</span></div>
+    </div>
+  </div>
+
+  <!-- 演练配置 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="margin-bottom:6px">🎯 演练配置</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <label style="font-size:12px;min-width:70px">最大步数</label>
+      <input type="number" id="eco-max-steps" value="150" min="10" max="500" style="width:60px;padding:2px 4px;font-size:12px">
+      <label style="font-size:12px;min-width:70px;margin-left:8px">世代数</label>
+      <input type="number" id="eco-max-gens" value="3" min="1" max="10" style="width:60px;padding:2px 4px;font-size:12px">
+    </div>
+    <button class="btn btn-primary" onclick="ecoRunDrill()" id="eco-btn-launch"
+      style="width:100%;padding:10px 0;font-size:14px;font-weight:600">🧬 运行生境演练</button>
+  </div>
+
+  <!-- 种群面板 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="margin-bottom:6px">📊 种群状态 <span id="eco-pop-status" style="font-size:10px;color:var(--text-dim)"></span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px;margin-bottom:6px">
+      <div>存活: <span id="eco-pop-alive" style="color:#4caf50;font-weight:600">0</span></div>
+      <div>死亡: <span id="eco-pop-dead" style="color:#f44336;font-weight:600">0</span></div>
+      <div>世代: <span id="eco-pop-gen" style="color:var(--accent);font-weight:600">0</span></div>
+    </div>
+    <div id="eco-population-list" style="max-height:200px;overflow-y:auto;font-size:11px">
+      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+    </div>
+  </div>
+
+  <!-- 世代记录 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="margin-bottom:6px">🧬 世代演化</div>
+    <div id="eco-generations-list" style="max-height:180px;overflow-y:auto;font-size:11px">
+      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+    </div>
+  </div>
+
+  <!-- 基因池 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="margin-bottom:6px">🧬 基因池</div>
+    <div id="eco-gene-pool" style="font-size:11px">
+      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+    </div>
+  </div>
+
+  <!-- 棘轮状态 -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:none">
+    <div class="rp-title" style="margin-bottom:6px">🔒 棘轮锁定 <span id="eco-ratchet-status" style="font-size:10px;color:var(--text-dim)"></span></div>
+    <div style="font-size:12px">
+      最佳生存时长: <span id="eco-ratchet-best" style="color:var(--accent);font-weight:600">—</span> ticks
+    </div>
+  </div>
+</div>
 <div class="overlay" id="o-team" style="display:none" onclick="if(event.target===this){this.style.display='none';_teamModalOpen=false}"><div class="modal-select"><div class="modal-select__header"><h3>👥 选择演练团队</h3><button class="modal-select__close" onclick="document.getElementById('o-team').style.display='none';_teamModalOpen=false">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-team-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
 <!-- 场景选择 Modal -->
 <div class="overlay" id="o-scene" style="display:none" onclick="if(event.target===this)this.style.display='none'"><div class="modal-select"><div class="modal-select__header"><h3>🏟️ 选择演练场景</h3><button class="modal-select__close" onclick="document.getElementById('o-scene').style.display='none'">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-scene-list"></div></div></div></div>
@@ -1220,6 +1300,83 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="/js/digital-twin/v4-scenario-evolution.js"></script>
 <script src="/js/digital-twin/v4-scenarios.js"></script>
 <script src="/js/digital-twin/v4-evolution.js"></script>
+
+<!-- ═══ 物竞天择 ND-5: 生境模式双形态切换（自包含，legacy 零回归）═══ -->
+<script>
+(function () {
+  'use strict';
+  function _get(url) {
+    if (window.api && window.api.get) return window.api.get(url);
+    return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  }
+
+  // 按团队 runtime 切换右侧面板：eco → 显示生境控制台；legacy → 隐藏（默认 SECS 面板）。
+  window.applyEcoDrillMode = function (runtime) {
+    var eco = (runtime === 'eco');
+    var panel = document.getElementById('eco-habitat-console');
+    if (panel) panel.style.display = eco ? '' : 'none';
+    // eco 模式下淡化 SECS Pipeline（不移除，保证可逆/零回归）
+    var pipeTitle = Array.prototype.find
+      ? Array.prototype.find.call(document.querySelectorAll('.rp-title'), function (t) { return /SECS 演练 Pipeline/.test(t.textContent); })
+      : null;
+    if (pipeTitle && pipeTitle.parentElement) pipeTitle.parentElement.style.opacity = eco ? '0.45' : '';
+    if (eco) _loadHabitatParams();
+  };
+
+  function _loadHabitatParams() {
+    var box = document.getElementById('eco-habitat-params');
+    if (!box) return;
+    _get('/api/v1/eco-runtime/config').then(function (cfg) {
+      if (!cfg) { box.textContent = '（生境参数加载失败）'; return; }
+      var rows = [];
+      var labels = {
+        mental_state: 'H/F/L 意图阈值', metabolism: '代谢/生存',
+        learning: '盲目学习', selection: '选择淘汰', mating: '交配门禁'
+      };
+      Object.keys(labels).forEach(function (sec) {
+        if (!cfg[sec]) return;
+        var kv = Object.keys(cfg[sec]).map(function (k) { return k + '=' + cfg[sec][k]; }).join(', ');
+        rows.push('<div style="margin-bottom:3px"><b style="color:var(--green)">' + labels[sec] + '</b>: ' + kv + '</div>');
+      });
+      box.innerHTML = rows.join('') || '（无参数）';
+    });
+  }
+
+  window.ecoRunEpoch = function () {
+    var box = document.getElementById('eco-habitat-ranking');
+    if (box) box.innerHTML = '生境已就绪。世代演化需在 eco 演练会话中运行（后端 sandbox/eco_drill.py 已实现；会话级接线见 ND-6）。';
+  };
+
+  // 自动检测：监听"选择演练团队"按钮文案变化 → 查团队 runtime → 切换模式。
+  function _resolveRuntimeByTeamName(name) {
+    if (!name) return;
+    _get('/api/v1/agent-config/teams').then(function (teams) {
+      if (!teams) return;
+      var list = Array.isArray(teams) ? teams : (teams.teams || []);
+      var hit = list.find ? list.find(function (t) { return (t.name || '') === name || (t.team_id || '') === name; }) : null;
+      if (hit) window.applyEcoDrillMode(hit.runtime || 'legacy');
+    });
+  }
+
+  function _watchTeamButton() {
+    var btn = document.getElementById('secs-team-btn');
+    if (!btn || typeof MutationObserver === 'undefined') return;
+    var last = '';
+    var obs = new MutationObserver(function () {
+      var txt = (btn.textContent || '').replace(/^[^\u4e00-\u9fa5A-Za-z0-9]+/, '').trim();
+      // 默认文案含"选择演练团队"时视为未选
+      if (txt && txt !== last && txt.indexOf('选择演练团队') === -1) {
+        last = txt;
+        _resolveRuntimeByTeamName(txt);
+      }
+    });
+    obs.observe(btn, { childList: true, characterData: true, subtree: true });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _watchTeamButton);
+  else _watchTeamButton();
+})();
+</script>
 
 </body>
 </html>

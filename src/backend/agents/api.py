@@ -534,6 +534,7 @@ def teams_tree() -> List[Dict[str, Any]]:
         result.append({
             "team_id": t.team_id,
             "name": t.name,
+            "runtime": getattr(t, "runtime", "legacy"),
             "agents": [
                 {
                     "agent_id": a.agent_id,

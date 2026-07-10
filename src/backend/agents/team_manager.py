@@ -287,11 +287,15 @@ class TeamManager:
         agent_id: str,
         health_state: Any = None,
         saturation_threshold: float = 0.7,
+        partner_agent_id: str = "",
     ) -> Optional[AgentProfile]:
         """交配：门禁通过后调用现有 duplicate_agent，记录血统（lineage）到 metadata.
 
         血统信息写入 `metadata["lineage"]`，不新增 AgentProfile dataclass 字段
         （复用已有的通用 metadata 字段，保持向后兼容）。
+
+        ND-3: 当 partner_agent_id 非空时，进行双亲 skill 交叉遗传（复合型 Skill），
+        后代 skills = 双亲 skill 的随机交叉子集，而非单亲复制。
         """
         allowed, reason = self.can_mate(health_state, saturation_threshold)
         if not allowed:
@@ -310,11 +314,36 @@ class TeamManager:
         if new_agent is None:
             return None
 
+        # ── ND-3: 双亲 skill 交叉遗传 ──
+        partner_skills: list = []
+        if partner_agent_id:
+            partner = team.get_agent(partner_agent_id)
+            if partner is not None:
+                partner_skills = list(partner.skills)
+                # 交叉：从双亲各取约 50%，去重
+                import random as _rnd
+                parent_a_skills = list(original.skills)
+                take_a = max(1, len(parent_a_skills) // 2) if parent_a_skills else 0
+                take_b = max(1, len(partner_skills) // 2) if partner_skills else 0
+                crossed = set()
+                if parent_a_skills:
+                    crossed.update(_rnd.sample(parent_a_skills, min(take_a, len(parent_a_skills))))
+                if partner_skills:
+                    crossed.update(_rnd.sample(partner_skills, min(take_b, len(partner_skills))))
+                # 确保至少有一个 skill（兜底用 parent A 全量）
+                if not crossed and parent_a_skills:
+                    crossed = set(parent_a_skills)
+                new_agent.skills = list(crossed)
+
         new_agent.metadata = dict(new_agent.metadata or {})
-        new_agent.metadata["lineage"] = {
+        lineage: dict = {
             "parent_agent_id": agent_id,
             "generation": parent_generation + 1,
         }
+        if partner_agent_id:
+            lineage["partner_agent_id"] = partner_agent_id
+            lineage["crossover"] = True
+        new_agent.metadata["lineage"] = lineage
         self._persist()
         return new_agent
 

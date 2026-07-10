@@ -23,3 +23,14 @@
 - 核心新增：EC-7/8/9（skill 繁殖 dominant 扩散 + 淘汰 deprecated/retired + Agent 预算按 fitness 调节）、EC-14（协作基因组进化）、EC-16/17（生态可观测）。
 - 执行顺序：Eco-1（eco_loop 基座）→ Eco-2（适应度度量）→ [Eco-3 选择淘汰 ∥ Eco-4 变异验证] → Eco-5 协作进化 → Eco-6 可观测。
 - 关键现状缺口：`eco_loop.py`/`evolution_bridge.py` 均未建；chat_harness reflect 是假总结；skill_router 纯词法匹配无 intention。
+
+## 物竞天择数字孪生演练（2026-07-10 CodeBuddy 实现）
+- 规划文档：`docs/物竞天择数字孪生演练plan.md` + `todos.md`（ND-1~ND-6）。
+- **ND-1**: `AgentProfile`/`AgentTeam` 加 `runtime: "eco"|"legacy"` 字段（默认 legacy，`__post_init__` 校验）；`Trial` 加 `drill_kind: "secs"|"natural_selection"`；`trial_api.create_trial` 按 team.runtime 路由，`branch_run` eco 模式走 `eco_drill`。
+- **ND-2**: `sandbox/eco_drill.py`（Claude 建核心 `EcoDrill`/`Creature`，CodeBuddy 加 `run_drill_via_trial`/`get_eco_drill`/`ratchet_lock`/`inject_predator_pressure`/`gene_pool_snapshot`）。核心：每 step 感知→H/F/L 意图→觅食/避险→HealthLedger.tick 代谢→死亡淘汰；epoch 按 survival_ticks 排序→top 交叉→变异→棘轮。
+- **ND-3**: `team_manager.mate` 加 `partner_agent_id` 参数，双亲 skill 各取 50% 交叉（复合型 Skill），`lineage` 记双亲 + `crossover: true`。
+- **ND-4**: survival_ticks 唯一选择键（`survival_ranking` 降序排）；死亡个体 `alive=False`，不参与 `run_epoch` 繁衍（基因抹除）。
+- **ND-5**: 前端 `Agent-digital-twin.html` 加 `#rp-eco` 面板（代谢参数/演练配置/种群面板/世代记录/基因池/棘轮）；`secs-core.js` 的 `sexySelectTeam` 按 `team.runtime` 切 `#rp-secs`↔`#rp-eco`。
+- **ND-6**: `eco_drill.ratchet_lock` 接 `ratchet_ledger.advance(metric_key="eco_survival:{team_id}")`；1319 pass / 11 pre-existing fail / 2 flaky ordering（eco_drill_engine 单跑通过）。
+- `teams-tree` API 已加 `runtime` 字段返回。
+- 测试：`test_eco_drill.py`（17 项）、`test_eco_drill_engine.py`（Claude 10 项）、`test_eco_drill_routing.py`（9 项）、`test_mating.py`（+5 项 crossover）。

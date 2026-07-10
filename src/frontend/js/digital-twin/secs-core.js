@@ -503,6 +503,16 @@
     loadSkillInjectOptions(teamId);
     _updateLaunchButton();
 
+    // ── 物竞天择 ND-5.1: 根据 team.runtime 切换右侧面板 ──
+    var isEco = team && team.runtime === 'eco';
+    var rpSecs = document.getElementById('rp-secs');
+    var rpEco = document.getElementById('rp-eco');
+    if (rpSecs) rpSecs.style.display = isEco ? 'none' : 'block';
+    if (rpEco) rpEco.style.display = isEco ? 'block' : 'none';
+    if (isEco) {
+      try { ecoLoadConfig(); } catch(e) { console.warn('ecoLoadConfig failed:', e); }
+    }
+
     // ── 联动左侧面板：高亮团队按钮 + 刷新拓扑 ──
     if (window.S && window.S.selectedTeams) {
       var alreadyOnly = window.S.selectedTeams.length === 1 && window.S.selectedTeams[0] === teamId;
@@ -2725,5 +2735,142 @@
 
   // 暴露实时控制台写入函数，让 director.js（创建试炼/评分/反哺等）能联动写入同一控制台
   if (typeof window !== 'undefined') window._logConsole = _logConsole;
+
+  // ═══ 物竞天择 ND-5: Eco 模式生境控制台函数 ═══
+
+  // ND-5.1: 加载代谢参数
+  window.ecoLoadConfig = function() {
+    var fetchFn = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
+    fetchFn('/api/v1/eco-runtime/config').then(function(r){return r.json();}).then(function(cfg){
+      var meta = (cfg && cfg.metabolism) || {};
+      var setText = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
+      setText('eco-param-health-max', meta.health_max || 100);
+      setText('eco-param-metabolic-rate', meta.metabolic_rate || 1.0);
+      setText('eco-param-revive-ratio', meta.revive_ratio || 0.5);
+      setText('eco-param-saturation', meta.saturation_threshold || 0.7);
+      setText('eco-config-status', '✓ 已加载');
+    }).catch(function(){
+      var el = document.getElementById('eco-config-status');
+      if (el) el.textContent = '（使用默认值）';
+    });
+  };
+
+  // ND-5.1: 运行生境演练
+  window.ecoRunDrill = function() {
+    if (!window._selectedTeamId) {
+      alert('请先选择一个团队');
+      return;
+    }
+    var maxSteps = parseInt(document.getElementById('eco-max-steps')?.value || '150');
+    var maxGens = parseInt(document.getElementById('eco-max-gens')?.value || '3');
+    var btn = document.getElementById('eco-btn-launch');
+    if (btn) { btn.disabled = true; btn.textContent = '🧬 演练中...'; }
+
+    var fetchFn = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
+
+    // 1. 创建 trial
+    fetchFn('/api/v1/twin-trials', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        team_id: window._selectedTeamId,
+        mode: 'evolutionary',
+        max_steps: maxSteps,
+        task_goal: {name: '生境演练-' + Date.now().toString(36)},
+      }),
+    }).then(function(r){return r.json();}).then(function(trial){
+      if (!trial || !trial.id) throw new Error('创建试炼失败');
+      var branchId = trial.branches && trial.branches[0];
+      if (!branchId) throw new Error('无分支');
+
+      // 2. 运行 branch（eco 模式自动走 eco_drill）
+      return fetchFn('/api/v1/twin-trials/' + trial.id + '/branches/' + branchId + '/run', {
+        method: 'POST',
+      }).then(function(r){return r.json();}).then(function(result){
+        ecoRenderResult(result);
+        if (btn) { btn.disabled = false; btn.textContent = '🧬 运行生境演练'; }
+      });
+    }).catch(function(err){
+      console.error('eco drill failed:', err);
+      if (btn) { btn.disabled = false; btn.textContent = '🧬 运行生境演练'; }
+      alert('生境演练失败: ' + (err.message || err));
+    });
+  };
+
+  // ND-5.1: 渲染演练结果
+  function ecoRenderResult(result) {
+    if (!result) return;
+
+    // 种群状态
+    var finalPop = result.final_population || result.final_ranking || [];
+    var deceased = result.deceased || [];
+    var aliveCount = finalPop.filter(function(c){return c.alive !== false;}).length;
+    var deadCount = deceased.length || finalPop.filter(function(c){return c.alive === false;}).length;
+    var totalGens = result.total_generations || 0;
+
+    var setText = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
+    setText('eco-pop-alive', aliveCount);
+    setText('eco-pop-dead', deadCount);
+    setText('eco-pop-gen', totalGens);
+    setText('eco-ratchet-best', result.best_survival_ticks || 0);
+
+    // 种群列表
+    var popList = document.getElementById('eco-population-list');
+    if (popList) {
+      var allCreatures = finalPop.concat(deceased);
+      if (allCreatures.length === 0) {
+        popList.innerHTML = '<div style="color:var(--text-dim);padding:8px 0;text-align:center">无种群数据</div>';
+      } else {
+        allCreatures.sort(function(a,b){return (b.survival_ticks||0)-(a.survival_ticks||0);});
+        popList.innerHTML = allCreatures.map(function(c){
+          var alive = c.alive !== false;
+          var color = alive ? '#4caf50' : '#f44336';
+          var skills = (c.skill_genome || c.skills || []).join(', ') || '—';
+          return '<div style="padding:4px 0;border-bottom:1px solid var(--border)">' +
+            '<span style="color:'+color+'">' + (alive?'💚':'💀') + '</span> ' +
+            '<span style="font-weight:600">' + (c.role || c.agent_id || '').slice(0,12) + '</span> ' +
+            '<span style="color:var(--text-dim)">ticks:' + (c.survival_ticks||0) + '</span> ' +
+            '<span style="color:var(--text-dim);font-size:10px">' + skills + '</span>' +
+            '</div>';
+        }).join('');
+      }
+    }
+
+    // 世代记录
+    var genList = document.getElementById('eco-generations-list');
+    if (genList) {
+      var gens = result.generations || [];
+      if (gens.length === 0) {
+        genList.innerHTML = '<div style="color:var(--text-dim);padding:8px 0;text-align:center">无世代数据</div>';
+      } else {
+        genList.innerHTML = gens.map(function(g){
+          var ratchetIcon = g.ratchet_advanced ? '🔒↑' : '🔒=';
+          return '<div style="padding:4px 0;border-bottom:1px solid var(--border)">' +
+            '<span style="font-weight:600">Gen ' + g.generation + '</span> ' +
+            '<span style="color:#4caf50">存活:' + (g.living || g.population_survived || 0) + '</span> ' +
+            '<span style="color:var(--accent)">best:' + (g.best_survival_ticks||0) + '</span> ' +
+            '<span style="color:var(--text-dim)">avg:' + (g.avg_survival_ticks||0) + '</span> ' +
+            '<span style="color:var(--text-dim)">births:' + (g.births||0) + '</span> ' +
+            '<span>' + ratchetIcon + '</span>' +
+            '</div>';
+        }).join('');
+      }
+    }
+
+    // 基因池
+    var genePool = document.getElementById('eco-gene-pool');
+    if (genePool) {
+      var pool = result.gene_pool || {};
+      var dominant = pool.dominant || [];
+      var deprecated = pool.deprecated || [];
+      var neutral = pool.neutral || [];
+      genePool.innerHTML =
+        '<div style="margin-bottom:4px"><span style="color:#4caf50">● 存活基因</span> ' + neutral.length + ' 个</div>' +
+        '<div><span style="color:#f44336">● 淘汰基因</span> ' + deprecated.length + ' 个</div>';
+    }
+  }
+
+  // 暴露渲染函数
+  if (typeof window !== 'undefined') window.ecoRenderResult = ecoRenderResult;
 
 })();

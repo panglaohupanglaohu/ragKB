@@ -421,6 +421,17 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
 
     import datetime as _dt
 
+    # ── 物竞天择 ND-1.2: 读取团队 runtime，决定演练引擎路由 ──
+    drill_kind = "secs"  # 默认走现有 SECS 演练
+    try:
+        from agents.api import _team_manager as _tm_ref
+        if _tm_ref is not None:
+            _team_obj = _tm_ref.get_team(req.team_id)
+            if _team_obj is not None and getattr(_team_obj, "runtime", "legacy") == "eco":
+                drill_kind = "natural_selection"
+    except Exception:
+        pass  # 团队管理未就绪时不阻断，默认 secs
+
     # v4 B-2.1: 场景实例化（有 scenario_id 时编译场景世界）
     scenario_spec = None
     compiled = None
@@ -450,6 +461,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         acceleration=req.acceleration,
         parallel_branches=req.parallel_branches,
         status=TrialStatus.CREATING,
+        drill_kind=drill_kind,
     )
 
     # 创建 baseline Branch
@@ -588,6 +600,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         "generation": trial.generation,
         "routing_strategy": req.routing_strategy or "",
         "rooms": compiled["rooms"] if compiled else [],
+        "drill_kind": trial.drill_kind,
     }
 
 
@@ -799,11 +812,30 @@ async def branch_step(trial_id: str, branch_id: str) -> Dict[str, Any]:
 @router.post("/{trial_id}/branches/{branch_id}/run")
 async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
     """启动自动推演."""
-    _get_trial(trial_id)
+    trial = _get_trial(trial_id)
     branch = _get_branch(branch_id)
 
     if not branch.current_session_id:
         raise HTTPException(status_code=400, detail="Branch has no active session")
+
+    # ── 物竞天择 ND-1.2: eco 模式走自然选择生境引擎 ──
+    if getattr(trial, "drill_kind", "secs") == "natural_selection":
+        try:
+            from .eco_drill import get_eco_drill
+            drill = get_eco_drill()
+            result = await drill.run_drill(
+                trial_id=trial_id,
+                branch_id=branch_id,
+                session_id=branch.current_session_id,
+                team_id=trial.team_id,
+                max_steps=trial.max_steps,
+                max_generations=getattr(trial, "max_generations", 3) or 3,
+            )
+            branch.status = BranchStatus.COMPLETED
+            trial.status = TrialStatus.COMPLETED  # type: ignore
+            return result
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"eco_drill failed: {e}")
 
     try:
         orch = get_orchestrator()

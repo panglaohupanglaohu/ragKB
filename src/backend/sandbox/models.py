@@ -468,6 +468,8 @@ class Trial:
     total_sessions: int = 0
     total_steps: int = 0
     best_score: Optional[float] = None
+    # ── 物竞天择 ND-1.2: 演练引擎路由 ("secs"=现有SECS / "natural_selection"=自然选择生境) ──
+    drill_kind: str = "secs"
 
 
 @dataclass

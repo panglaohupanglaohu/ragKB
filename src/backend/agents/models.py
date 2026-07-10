@@ -446,6 +446,8 @@ class AgentProfile:
     autonomy_level: int = 2          # L1 只读建议 / L2 低危执行 / L3 高危需审批 / L4 全自主
     token_budget: int = 0            # 日 token 限额，0 = 不限
     fallback_model_id: str = ""      # 主模型失败时的降级模型
+    # ── 物竞天择 ND-1.1: 运行时模式 ("legacy"=现有SECS演练 / "eco"=自然选择生境) ──
+    runtime: str = "legacy"
 
     def __post_init__(self) -> None:
         if not self.agent_id:
@@ -454,6 +456,8 @@ class AgentProfile:
             self.state = AgentState(self.state)
         if isinstance(self.template_type, str):
             self.template_type = AgentTemplateType(self.template_type)
+        if self.runtime not in ("eco", "legacy"):
+            self.runtime = "legacy"
 
     @property
     def is_hermes_agent(self) -> bool:
@@ -481,6 +485,8 @@ class AgentProfile:
             "autonomy_level": self.autonomy_level,
             "token_budget": self.token_budget,
             "fallback_model_id": self.fallback_model_id,
+            # ND-1.1: 运行时模式
+            "runtime": self.runtime,
         }
         if self.hermes_config is not None:
             d["hermes_config"] = self.hermes_config.to_dict()
@@ -501,12 +507,16 @@ class AgentTeam:
     skills: Dict[str, SkillDefinition] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # ── 物竞天择 ND-1.1: 团队级运行时模式 ("legacy"=现有SECS演练 / "eco"=自然选择生境) ──
+    runtime: str = "legacy"
 
     def __post_init__(self) -> None:
         if not self.team_id:
             self.team_id = str(uuid.uuid4())[:8]
         if not isinstance(self.agents, AgentCollection):
             self.agents = AgentCollection(self.agents)
+        if self.runtime not in ("eco", "legacy"):
+            self.runtime = "legacy"
 
     def add_agent(self, agent: AgentProfile) -> None:
         self.agents[agent.agent_id] = agent
@@ -550,4 +560,6 @@ class AgentTeam:
             "skills": {k: v.to_dict() for k, v in self.skills.items()},
             "metadata": self.metadata,
             "created_at": self.created_at,
+            # ND-1.1: 运行时模式
+            "runtime": self.runtime,
         }

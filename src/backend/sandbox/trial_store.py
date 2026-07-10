@@ -221,6 +221,8 @@ class TrialStore:
             "feedback_actions": trial.feedback_actions or [],
             "created_at": trial.created_at,
             "updated_at": trial.updated_at,
+            # ND-1.2: 演练引擎路由标记
+            "drill_kind": getattr(trial, "drill_kind", "secs") or "secs",
         }
 
     def _serialize_branch(self, branch) -> Dict[str, Any]:

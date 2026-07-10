@@ -28,14 +28,14 @@
   "build_system": {
     "codebuddy": {
       "model_id": "codebuddy",
-      "provider": "codebuddy",
-      "name": "glm-5.1",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
+      "api_base_url": "https://api.deepseek.com"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -90,5 +90,9 @@
   "9b55cf61": {},
   "f2b3c983": {},
   "6d494346": {},
-  "02058bc4": {}
+  "02058bc4": {},
+  "13232412": {},
+  "7778d410": {},
+  "a9cd4f03": {},
+  "694ce315": {}
 }
