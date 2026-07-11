@@ -713,6 +713,38 @@ body.office-mode #env-3d-container * {
   --muted: #8b9ab5;
   --dim: #576375;
 }
+
+/* ═══ 物竞天择 v2 XT-4: 生境控制台样式 ═══ */
+#rp-eco .rp-section { border-bottom: 1px solid var(--border); }
+.eco2-head { background: linear-gradient(135deg, rgba(34,197,94,.08), rgba(245,158,11,.05)); }
+.eco2-kpi { flex:1; text-align:center; background:var(--panel2); border-radius:6px; padding:8px 4px; }
+.eco2-kpi-label { font-size:8px; color:var(--dim); }
+.eco2-kpi-val { font-size:16px; font-weight:700; }
+.eco2-slider-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; font-size:10px; }
+.eco2-slider-label { min-width:82px; color:var(--text2); }
+.eco2-slider-val { min-width:34px; text-align:right; color:var(--amber); font-weight:600; }
+.eco2-empty { color:var(--dim); font-size:10px; padding:8px 2px; line-height:1.6; }
+.eco2-chip { display:inline-block; padding:2px 7px; border-radius:9px; font-size:9px;
+  background:rgba(34,197,94,.12); color:var(--green); border:1px solid rgba(34,197,94,.3); }
+.eco2-chip.dead { background:rgba(244,63,94,.10); color:#f87171; border-color:rgba(244,63,94,.3);
+  text-decoration:line-through; }
+.eco2-chip.dominant { background:rgba(245,158,11,.14); color:var(--amber); border-color:rgba(245,158,11,.4); font-weight:700; }
+.eco2-pop-row { display:flex; align-items:center; gap:6px; padding:5px 4px; border-bottom:1px dashed var(--border); font-size:10px; }
+.eco2-pop-row.dead { opacity:.45; }
+.eco2-pop-row.dead .eco2-pop-name { text-decoration:line-through; }
+.eco2-pop-name { min-width:86px; max-width:86px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; color:var(--text); }
+.eco2-hpbar { width:64px; height:7px; background:rgba(127,127,127,.22); border-radius:4px; overflow:hidden; flex-shrink:0; }
+.eco2-hpbar > i { display:block; height:100%; border-radius:4px; background:var(--green); }
+.eco2-collab-mini { display:flex; gap:2px; flex-shrink:0; }
+.eco2-collab-mini i { display:block; width:5px; background:var(--cyan); border-radius:1px; align-self:flex-end; }
+.eco2-genbar { flex:1; min-width:14px; background:linear-gradient(180deg,var(--green),rgba(34,197,94,.35));
+  border-radius:3px 3px 0 0; position:relative; }
+.eco2-genbar .lbl { position:absolute; top:-13px; left:50%; transform:translateX(-50%); font-size:8px; color:var(--dim); white-space:nowrap; }
+/* 浅色 office-mode 适配 */
+body.office-mode #rp-eco { background: rgba(255,255,255,0.95); }
+body.office-mode #rp-eco .eco2-kpi { background: rgba(0,0,0,0.03); }
+body.office-mode #rp-eco #eco2-replay-bar { background: rgba(0,0,0,0.04); }
+body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94,.10), rgba(245,158,11,.06)); }
 </style>
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/theme.css">
@@ -942,17 +974,7 @@ body.office-mode #env-3d-container * {
       <div id="layer-detail-L4" style="display:none;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px;font-size:10px;color:var(--dim)"><span style="color:var(--purple)">L4 MADCG</span> — 多智能体自适应协作图：动态构建协作拓扑并生成执行计划。<span id="ld-L4-extra"></span></div>
     </div>
 
-    <!-- ═══ 物竞天择 ND-5: 生境控制台（仅 eco 模式团队显示，legacy 隐藏，零回归）═══ -->
-    <div class="rp-section" id="eco-habitat-console" style="display:none;padding:8px 12px;border:1px solid var(--green);border-radius:6px;margin:6px 8px">
-      <div class="rp-title" style="margin-bottom:6px;color:var(--green)">🧬 自然选择生境（物竞天择）</div>
-      <div style="font-size:10px;color:var(--dim);margin-bottom:8px">该团队为仿生（eco）模式：演练按<b>代谢红线 + 生存博弈 + 随机繁衍</b>运行，生存时长是唯一适应度。</div>
-      <div id="eco-habitat-params" style="font-size:10px;color:var(--text2)">加载生境参数…</div>
-      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-        <button class="btn" onclick="ecoRunEpoch()" style="font-size:10px;padding:4px 8px;color:var(--green)">▶ 跑一个世代</button>
-        <a href="/pet-config.html" class="btn" style="font-size:10px;padding:4px 8px;text-decoration:none">⚙ 调生境参数</a>
-      </div>
-      <div id="eco-habitat-ranking" style="margin-top:8px;font-size:10px;color:var(--dim)"></div>
-    </div>
+    <!-- 物竞天择 v2 XT-3.2: 原内嵌 eco-habitat-console 已移除（G8）——生境功能统一在 rp-eco 控制台 -->
 
     <!-- ═══ Session 条 ═══ -->
     <div class="rp-section" style="padding:6px 12px;display:flex;gap:6px;font-size:9px;align-items:center;flex-wrap:wrap">
@@ -1153,76 +1175,152 @@ body.office-mode #env-3d-container * {
       <svg id="secs-collab-svg" viewBox="0 0 400 140" preserveAspectRatio="xMidYMid meet" style="width:100%;background:var(--panel2);border-radius:4px"><g id="secs-collab-nodes"></g></svg>
     </div>
   </div>
-</div>
 
-<!-- ═══ 物竞天择 ND-5.1: Eco 模式生境控制台（team.runtime === "eco" 时显示） ═══ -->
+<!-- ═══ 物竞天择 v2 XT-4: 生境控制台（办公室视图=试验田时整体替换 SECS 演练菜单）
+     注意：必须与 rp-secs 同级、位于布局容器内（v1 曾误放顶层导致 3D 区被挤没，bug-028） ═══ -->
 <div class="right-panel" id="rp-eco" style="width:580px;overflow-y:auto;display:none">
+
   <!-- 标题栏 -->
-  <div class="rp-section" style="padding:10px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="font-size:15px">🧬 自然选择生境控制台</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-top:2px">物竞天择 · 适者生存 · 生存时长=唯一适应度</div>
-  </div>
-
-  <!-- 代谢参数 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="margin-bottom:6px">⚙️ 代谢参数 <span id="eco-config-status" style="font-size:10px;color:var(--text-dim)"></span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
-      <div>满血值: <span id="eco-param-health-max" style="color:var(--accent)">100</span></div>
-      <div>代谢率: <span id="eco-param-metabolic-rate" style="color:var(--accent)">1.0</span></div>
-      <div>复活比例: <span id="eco-param-revive-ratio" style="color:var(--accent)">0.5</span></div>
-      <div>饱暖阈值: <span id="eco-param-saturation" style="color:var(--accent)">0.7</span></div>
+  <div class="rp-section eco2-head" style="padding:12px 14px;border-bottom:1px solid var(--border)">
+    <div class="rp-title" style="font-size:16px;letter-spacing:.5px">🧬 物竞天择 · 自然选择生境</div>
+    <div style="font-size:10px;color:var(--dim);margin-top:3px">
+      感知 → 意图 → 行为 · Skill 与协作被环境选择 · <b style="color:var(--green)">生存时长 = 唯一适应度</b>
     </div>
   </div>
 
-  <!-- 演练配置 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="margin-bottom:6px">🎯 演练配置</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <label style="font-size:12px;min-width:70px">最大步数</label>
-      <input type="number" id="eco-max-steps" value="150" min="10" max="500" style="width:60px;padding:2px 4px;font-size:12px">
-      <label style="font-size:12px;min-width:70px;margin-left:8px">世代数</label>
-      <input type="number" id="eco-max-gens" value="3" min="1" max="10" style="width:60px;padding:2px 4px;font-size:12px">
-    </div>
-    <button class="btn btn-primary" onclick="ecoRunDrill()" id="eco-btn-launch"
-      style="width:100%;padding:10px 0;font-size:14px;font-weight:600">🧬 运行生境演练</button>
+  <!-- ① 生境总览 KPI -->
+  <div class="rp-section" style="padding:10px 12px;display:flex;gap:8px">
+    <div class="eco2-kpi"><div class="eco2-kpi-label">世代</div><div class="eco2-kpi-val" id="eco2-kpi-gen" style="color:var(--purple)">0</div></div>
+    <div class="eco2-kpi"><div class="eco2-kpi-label">存活 / 总数</div><div class="eco2-kpi-val" id="eco2-kpi-alive" style="color:var(--green)">—</div></div>
+    <div class="eco2-kpi"><div class="eco2-kpi-label">最长生存</div><div class="eco2-kpi-val" id="eco2-kpi-best" style="color:var(--amber)">—</div></div>
+    <div class="eco2-kpi"><div class="eco2-kpi-label">基因多样性</div><div class="eco2-kpi-val" id="eco2-kpi-diversity" style="color:var(--cyan)">—</div></div>
   </div>
 
-  <!-- 种群面板 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="margin-bottom:6px">📊 种群状态 <span id="eco-pop-status" style="font-size:10px;color:var(--text-dim)"></span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px;margin-bottom:6px">
-      <div>存活: <span id="eco-pop-alive" style="color:#4caf50;font-weight:600">0</span></div>
-      <div>死亡: <span id="eco-pop-dead" style="color:#f44336;font-weight:600">0</span></div>
-      <div>世代: <span id="eco-pop-gen" style="color:var(--accent);font-weight:600">0</span></div>
+  <!-- ② 环境压力台 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">🌡 环境压力台
+      <span id="eco2-env-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
     </div>
-    <div id="eco-population-list" style="max-height:200px;overflow-y:auto;font-size:11px">
-      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">生态位（环境当前需求的 Skill——匹配者得食，错配者耗竭）</div>
+    <div id="eco2-env-niches" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+      <span style="color:var(--dim);font-size:10px">选择团队后加载生态位…</span>
+    </div>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">🦅 捕食压力</span>
+      <input type="range" id="eco2-env-predator" min="0" max="50" value="8" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-predator-val">0.08</span></div>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">🌾 丰饶度</span>
+      <input type="range" id="eco2-env-abundance" min="30" max="200" value="100" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-abundance-val">1.0</span></div>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">⚡ 生态位漂移</span>
+      <input type="range" id="eco2-env-drift" min="0" max="100" value="30" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-drift-val">0.30</span></div>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">🥊 竞争名额</span>
+      <input type="range" id="eco2-env-capacity" min="0" max="6" value="3" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-capacity-val">3</span></div>
+    <div style="font-size:9px;color:var(--dim);margin:2px 0 6px">竞争名额 = 每 tick 生态位可供成功觅食的份数（0=不限）。名额越少「物竞」越烈：有能力者也要抢，抢不到白耗代谢。</div>
+    <!-- 环境剧本：一键组合选择压力（物竞×天择的预设强度） -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--dim);align-self:center">环境剧本:</span>
+      <button class="btn" onclick="eco2ApplyScenario('mild')" style="font-size:9px;padding:3px 8px" title="丰饶1.5 捕食0.02 漂移0.1 名额∞——协作是负担，独行者胜">🌿 温和</button>
+      <button class="btn" onclick="eco2ApplyScenario('harsh')" style="font-size:9px;padding:3px 8px" title="丰饶0.7 捕食0.15 漂移0.3 名额2——利他与信号开始救命">🏜 严酷</button>
+      <button class="btn" onclick="eco2ApplyScenario('upheaval')" style="font-size:9px;padding:3px 8px" title="丰饶1.0 捕食0.10 漂移0.8 名额3——生态位剧变，盲目学习者才有明天">🌋 剧变</button>
+      <button class="btn" onclick="eco2ApplyScenario('armsrace')" style="font-size:9px;padding:3px 8px" title="丰饶0.9 捕食0.25 漂移0.5 名额1——极限军备竞赛">⚔️ 军备竞赛</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="btn" onclick="eco2SaveEnv()" style="font-size:10px;padding:4px 10px;color:var(--green)">💾 写回生境配置</button>
+      <a href="/pet-config.html" class="btn" style="font-size:10px;padding:4px 10px;text-decoration:none">⚙ 全部参数（代谢/学习/经济学）</a>
     </div>
   </div>
 
-  <!-- 世代记录 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="margin-bottom:6px">🧬 世代演化</div>
-    <div id="eco-generations-list" style="max-height:180px;overflow-y:auto;font-size:11px">
-      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+  <!-- ③ 物竞天择控制 + 回放 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">▶ 演练控制</div>
+    <button class="btn" id="eco2-run-team" onclick="sexyPickTeam()"
+      style="width:100%;padding:8px 0;font-size:12px;margin-bottom:4px">👥 选择投放种群（团队）</button>
+    <!-- v2.3 多种群多队竞争：不同团队=不同种群 -->
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+      <button class="btn" onclick="eco2AddRivalTeam()" style="font-size:10px;padding:3px 8px">＋ 添加对比种群</button>
+      <span id="eco2-rival-chips" style="display:flex;gap:4px;flex-wrap:wrap"></span>
+    </div>
+    <!-- v2.4 赛制：分场锦标赛（各队独立演练同一环境→各出黄金适者→冠军团队裁决）/ 同场混战 -->
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;font-size:10px">
+      <span style="color:var(--dim)">赛制:</span>
+      <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="tournament" checked
+        onchange="eco2SetRaceMode(this.value)"> 🏟 分场锦标赛</label>
+      <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="melee"
+        onchange="eco2SetRaceMode(this.value)"> ⚔️ 同场混战</label>
+      <span id="eco2-race-hint" style="color:var(--dim);font-size:9px">各队独立进同一环境演练，各出黄金适者，最后裁决冠军团队</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:11px">
+      <label>每代步数</label>
+      <input type="number" id="eco2-run-steps" value="150" min="10" max="500" style="width:58px;padding:2px 4px;font-size:11px">
+      <label style="margin-left:6px">世代数</label>
+      <input type="number" id="eco2-run-gens" value="3" min="1" max="10" style="width:48px;padding:2px 4px;font-size:11px">
+    </div>
+    <button class="btn btn-primary" onclick="eco2RunDrill()" id="eco2-run-launch"
+      style="width:100%;padding:10px 0;font-size:14px;font-weight:700;letter-spacing:1px">🧬 开始物竞天择</button>
+    <div id="eco2-run-status" style="font-size:10px;color:var(--dim);margin-top:6px;text-align:center">
+      环境不会告诉 Agent 该怎么做——它只负责选择。
+    </div>
+    <!-- 剧场回放条 -->
+    <div id="eco2-replay-bar" style="display:none;margin-top:8px;padding:6px 8px;background:var(--panel2);border-radius:6px">
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn" id="eco2-replay-play" onclick="eco2ReplayToggle()" style="font-size:11px;padding:3px 10px">▶</button>
+        <input type="range" id="eco2-replay-seek" min="0" max="0" value="0" style="flex:1"
+          oninput="eco2ReplaySeek(this.value)">
+        <button class="btn" id="eco2-replay-speed" onclick="eco2ReplaySpeed()" style="font-size:10px;padding:3px 8px">1x</button>
+        <button class="btn" onclick="eco2ShowReport()" style="font-size:10px;padding:3px 8px;color:var(--amber)" title="生境报告">📜</button>
+      </div>
+      <div id="eco2-replay-label" style="font-size:9px;color:var(--dim);margin-top:3px;text-align:center">回放就绪</div>
     </div>
   </div>
 
-  <!-- 基因池 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-    <div class="rp-title" style="margin-bottom:6px">🧬 基因池</div>
-    <div id="eco-gene-pool" style="font-size:11px">
-      <div style="color:var(--text-dim);padding:8px 0;text-align:center">未开始演练</div>
+  <!-- ④ 种群面板 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">🫀 种群
+      <span id="eco2-pop-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
+    </div>
+    <div id="eco2-pop-list" style="max-height:230px;overflow-y:auto">
+      <div class="eco2-empty">投放种群后，这里将显示每个生物的血量、意图与双基因（技能 + 协作倾向）。</div>
     </div>
   </div>
 
-  <!-- 棘轮状态 -->
+  <!-- ⑤ 世代曲线 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">📈 世代演化曲线</div>
+    <div id="eco2-gen-chart" style="display:flex;align-items:flex-end;gap:6px;height:72px;padding:4px 2px"></div>
+    <div id="eco2-gen-list" style="max-height:120px;overflow-y:auto;font-size:10px;margin-top:4px">
+      <div class="eco2-empty">每代的平均/最长生存时长、出生与死亡将在此累积。</div>
+    </div>
+  </div>
+
+  <!-- ⑥ 基因池 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">🧬 基因池（环境选择的结果）</div>
+    <div id="eco2-gene-skills" style="font-size:10px;margin-bottom:8px">
+      <div class="eco2-empty">dominant（存活者高频携带）与 deprecated（随死者消亡）的 Skill 将在此浮现。</div>
+    </div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:3px">协作基因画像（种群均值——协作协议被选择的方向）</div>
+    <div id="eco2-gene-collab"></div>
+  </div>
+
+  <!-- ⑦ 繁衍谱系 -->
+  <div class="rp-section" style="padding:8px 12px">
+    <div class="rp-title" style="margin-bottom:6px">🌳 繁衍谱系</div>
+    <div id="eco2-lineage" style="max-height:140px;overflow-y:auto;font-size:10px">
+      <div class="eco2-empty">高存活个体求偶配对后，后代的双亲与继承基因将在此追溯。</div>
+    </div>
+  </div>
+
+  <!-- ⑧ 棘轮 -->
   <div class="rp-section" style="padding:8px 12px;border-bottom:none">
-    <div class="rp-title" style="margin-bottom:6px">🔒 棘轮锁定 <span id="eco-ratchet-status" style="font-size:10px;color:var(--text-dim)"></span></div>
-    <div style="font-size:12px">
-      最佳生存时长: <span id="eco-ratchet-best" style="color:var(--accent);font-weight:600">—</span> ticks
+    <div class="rp-title" style="margin-bottom:6px">🔒 棘轮（只进不退）</div>
+    <div style="font-size:11px">历代最优生存时长：
+      <span id="eco2-ratchet-best" style="color:var(--amber);font-weight:700">—</span> ticks
+      <span id="eco2-ratchet-note" style="font-size:9px;color:var(--dim);margin-left:6px"></span>
     </div>
   </div>
+</div>
 </div>
 <div class="overlay" id="o-team" style="display:none" onclick="if(event.target===this){this.style.display='none';_teamModalOpen=false}"><div class="modal-select"><div class="modal-select__header"><h3>👥 选择演练团队</h3><button class="modal-select__close" onclick="document.getElementById('o-team').style.display='none';_teamModalOpen=false">✕</button></div><div class="modal-select__body"><div class="modal-select__list" id="sexy-team-list"><div class="modal-select__loading">加载中...</div></div></div></div></div>
 <!-- 场景选择 Modal -->
@@ -1301,6 +1399,10 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="/js/digital-twin/v4-scenarios.js"></script>
 <script src="/js/digital-twin/v4-evolution.js"></script>
 
+<!-- ═══ 物竞天择 v2: 剧场回放引擎 + 生境控制台（办公室视图=试验田） ═══ -->
+<script src="/js/office/eco-replay.js"></script>
+<script src="/js/digital-twin/eco-console.js"></script>
+
 <!-- ═══ 物竞天择 ND-5: 生境模式双形态切换（自包含，legacy 零回归）═══ -->
 <script>
 (function () {
@@ -1310,41 +1412,15 @@ window.addEventListener('unhandledrejection', function(e) {
     return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   }
 
-  // 按团队 runtime 切换右侧面板：eco → 显示生境控制台；legacy → 隐藏（默认 SECS 面板）。
+  // v2 XT-3.2: 原内嵌 eco-habitat-console 已删除。保留 applyEcoDrillMode 函数名防外部引用报错，
+  // 语义收敛为「按 runtime 切 rp-secs/rp-eco」；办公室视图(__ECO_FIELD__)下强制 eco，不受 runtime 影响。
   window.applyEcoDrillMode = function (runtime) {
-    var eco = (runtime === 'eco');
-    var panel = document.getElementById('eco-habitat-console');
-    if (panel) panel.style.display = eco ? '' : 'none';
-    // eco 模式下淡化 SECS Pipeline（不移除，保证可逆/零回归）
-    var pipeTitle = Array.prototype.find
-      ? Array.prototype.find.call(document.querySelectorAll('.rp-title'), function (t) { return /SECS 演练 Pipeline/.test(t.textContent); })
-      : null;
-    if (pipeTitle && pipeTitle.parentElement) pipeTitle.parentElement.style.opacity = eco ? '0.45' : '';
-    if (eco) _loadHabitatParams();
-  };
-
-  function _loadHabitatParams() {
-    var box = document.getElementById('eco-habitat-params');
-    if (!box) return;
-    _get('/api/v1/eco-runtime/config').then(function (cfg) {
-      if (!cfg) { box.textContent = '（生境参数加载失败）'; return; }
-      var rows = [];
-      var labels = {
-        mental_state: 'H/F/L 意图阈值', metabolism: '代谢/生存',
-        learning: '盲目学习', selection: '选择淘汰', mating: '交配门禁'
-      };
-      Object.keys(labels).forEach(function (sec) {
-        if (!cfg[sec]) return;
-        var kv = Object.keys(cfg[sec]).map(function (k) { return k + '=' + cfg[sec][k]; }).join(', ');
-        rows.push('<div style="margin-bottom:3px"><b style="color:var(--green)">' + labels[sec] + '</b>: ' + kv + '</div>');
-      });
-      box.innerHTML = rows.join('') || '（无参数）';
-    });
-  }
-
-  window.ecoRunEpoch = function () {
-    var box = document.getElementById('eco-habitat-ranking');
-    if (box) box.innerHTML = '生境已就绪。世代演化需在 eco 演练会话中运行（后端 sandbox/eco_drill.py 已实现；会话级接线见 ND-6）。';
+    var eco = window.__ECO_FIELD__ || (runtime === 'eco');
+    var rpSecs = document.getElementById('rp-secs');
+    var rpEco = document.getElementById('rp-eco');
+    if (rpSecs) rpSecs.style.display = eco ? 'none' : '';
+    if (rpEco) rpEco.style.display = eco ? 'block' : 'none';
+    if (eco && window.eco2Init) window.eco2Init();
   };
 
   // 自动检测：监听"选择演练团队"按钮文案变化 → 查团队 runtime → 切换模式。

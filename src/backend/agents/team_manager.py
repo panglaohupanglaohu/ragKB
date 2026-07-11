@@ -7,10 +7,13 @@ teams, agents, and models.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from .models import AgentProfile, AgentState, AgentTeam, ModelConfig
 from .team_store import TeamStore
+
+logger = logging.getLogger(__name__)
 
 
 class TeamManager:
@@ -346,6 +349,62 @@ class TeamManager:
         new_agent.metadata["lineage"] = lineage
         self._persist()
         return new_agent
+
+    # ── ND-3.2: 交叉后调 skill_evolver 提炼复合 Skill（草稿，需人工确认） ──
+
+    async def evolve_offspring_skills(
+        self,
+        team_id: str,
+        agent_id: str,
+        skill_evolver: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """对交叉后代的 skill 调 skill_evolver 产出改进草稿.
+
+        只对 lineage.crossover=True 的后代生效。
+        产出为草稿（status=draft），经门禁+人工确认才入库（可逆原则）。
+        LLM 不可用时降级跳过，不阻断流程。
+        """
+        team = self._teams.get(team_id)
+        if team is None:
+            return []
+        agent = team.get_agent(agent_id)
+        if agent is None:
+            return []
+        lineage = (agent.metadata or {}).get("lineage", {})
+        if not lineage.get("crossover"):
+            return []  # 非交叉后代，跳过
+
+        if skill_evolver is None:
+            try:
+                from .skill_evolver import SkillEvolver
+                from .api import _skill_library, _chat_harness
+                if _skill_library is None:
+                    return []
+                skill_evolver = SkillEvolver(_skill_library, _chat_harness)
+            except Exception:
+                return []
+
+        drafts: list = []
+        for skill_id in (agent.skills or []):
+            try:
+                result = await skill_evolver.evolve_skill(
+                    team_id=team_id,
+                    skill_id=skill_id,
+                    user_feedback=(
+                        f"交叉遗传后代(skill_genome={agent.skills})，"
+                        f"双亲: {lineage.get('parent_agent_id','?')} × {lineage.get('partner_agent_id','?')}"
+                    ),
+                )
+                if result and not result.get("error"):
+                    drafts.append({
+                        "skill_id": skill_id,
+                        "agent_id": agent_id,
+                        "version": result.get("new_version"),
+                        "status": "draft",
+                    })
+            except Exception as e:
+                logger.warning("skill_evolver evolve failed for %s: %s", skill_id, e)
+        return drafts
 
     # ── Serialization ──────────────────────────────────────────────────
 

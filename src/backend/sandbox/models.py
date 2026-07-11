@@ -422,6 +422,10 @@ class TrialEventType(str, Enum):
     EVOLUTION_APPLIED = "evolution_applied"  # 进化结果已写回
     EVOLUTION_REJECTED = "evolution_rejected"# 进化结果被拒绝
     EVOLUTION_SUGGESTED = "evolution_suggested"  # 建议进化（评分低于 rubric）
+    # XB-2.1: eco 生境事件
+    ECO_STEP = "eco_step"                # 生境单步（health/survival/intention）
+    ECO_EPOCH = "eco_epoch"              # 世代结算（births/deaths/ratchet）
+    ECO_PREDATOR = "eco_predator"        # 捕食压力
 
 
 class TrialMode(str, Enum):

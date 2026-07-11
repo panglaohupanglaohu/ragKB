@@ -1926,7 +1926,8 @@ function renderLivePlan(plan) {
 window.assignPlan = async function() {
   if (!curPlaza || !curDisc) return;
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team_id: $('assign-team').value }) });
-  if (r) toast(`计划已派发: ${r.status}`); else toast('派发失败');
+  if (r) { toast(`计划已派发: ${r.status}`); }
+  else { const detail = window.api?._lastError?.message || ''; toast('派发失败' + (detail ? '：' + detail : '')); }
 };
 
 window.dispatchTasks = async function() {
@@ -1942,8 +1943,11 @@ window.dispatchTasks = async function() {
     toast(`已拆解 ${r.task_count} 个任务并派发到团队`);
     renderDispatchedTasks(r.tasks);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
+  } else if (r) {
+    toast('未拆解出任务：执行计划中没有可识别的任务条目');
   } else {
-    toast('拆解失败');
+    const detail = window.api?._lastError?.message || '';
+    toast('拆解失败' + (detail ? '：' + detail : ''));
   }
 };
 
@@ -1960,8 +1964,11 @@ window.dispatchAndExecute = async function() {
     toast(`已拆解 ${r.task_count} 个任务，正在执行中`);
     renderDispatchedTasks(r.tasks);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
+  } else if (r) {
+    toast('未拆解出任务：执行计划中没有可识别的任务条目');
   } else {
-    toast('拆解执行失败');
+    const detail = window.api?._lastError?.message || '';
+    toast('拆解执行失败' + (detail ? '：' + detail : ''));
   }
 };
 

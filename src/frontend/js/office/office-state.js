@@ -74,6 +74,10 @@ function ensureAgent(state, id, extra) {
       lastAction: '',        // 最近一次 twin 动作（claim_task/execute_skill/delegate/...）
       skillUsed: '',         // execute_skill 的 skill_used
       task: '',              // 当前认领/执行的任务
+      // ND-5.2: eco 模式生境字段
+      health: 100,           // 血量（0~health_max）
+      survivalTicks: 0,      // 生存时长
+      ecoAlive: true,        // 是否存活
     };
   }
   if (extra) Object.assign(state.agents[id], extra);
@@ -374,6 +378,77 @@ export function reduce(prev, event) {
         winnerId: event.winnerId || event.winner_id || null,
         ranking: event.ranking || [],
       };
+      break;
+    }
+    case 'eco_health': {
+      // ND-5.2: eco 演练健康数据 → 更新 agent 血量/生存时长/存活状态
+      const updates = event.updates || {};
+      for (const [id, data] of Object.entries(updates)) {
+        const agent = ensureAgent(state, id);
+        if (data.health != null) agent.health = data.health;
+        if (data.survivalTicks != null) agent.survivalTicks = data.survivalTicks;
+        if (data.alive != null) agent.ecoAlive = data.alive;
+      }
+      break;
+    }
+    case 'eco_intent': {
+      // 物竞天择 v2 XT-5.2: 回放帧的意图 → 头顶意图符号（🍖觅食/🛡避险/💕求偶/💤静息）
+      const updates = event.updates || {};
+      for (const [id, intent] of Object.entries(updates)) {
+        ensureAgent(state, id).ecoIntent = String(intent || '');
+      }
+      break;
+    }
+    case 'eco_signal': {
+      // 物竞天择 v2 XT-5.2: 信号协议可视化 — FOOD(淡金弧线)/HELP(红色脉冲)/COURT(粉色)
+      // 复用 edges 渲染管线，kind = signal_food | signal_help | signal_court
+      const kind = 'signal_' + (event.signal || 'food');
+      const from = event.from;
+      const to = event.to || '*';
+      if (from) {
+        state.edges.push({ from, to, kind, ttl: event.ttl != null ? event.ttl : 2 });
+        if (state.edges.length > EDGE_MAX) state.edges.splice(0, state.edges.length - EDGE_MAX);
+      }
+      break;
+    }
+    case 'eco_mate': {
+      // 物竞天择 v2 XT-5.2: 求偶配对成功 → 双亲间粉色光弧 + 新生个体落位
+      const { p1, p2, childId, childName } = event;
+      if (p1 && p2) {
+        state.edges.push({ from: p1, to: p2, kind: 'mate', ttl: 4 });
+        if (state.edges.length > EDGE_MAX) state.edges.splice(0, state.edges.length - EDGE_MAX);
+      }
+      if (childId) {
+        ensureAgent(state, childId, {
+          name: childName || childId,
+          role: 'offspring',
+          ecoNewborn: true,
+          health: 100,
+          survivalTicks: 0,
+          ecoAlive: true,
+        });
+      }
+      break;
+    }
+    case 'eco_reset': {
+      // 物竞天择 v2: 回放重播前重置生境字段（血量/意图/存活），移除演练期新生个体
+      for (const k of Object.keys(state.agents)) {
+        const a = state.agents[k];
+        if (a.ecoNewborn) { delete state.agents[k]; continue; }
+        a.health = 100; a.survivalTicks = 0; a.ecoAlive = true; a.ecoIntent = '';
+      }
+      state.edges = state.edges.filter((e) => state.agents[e.from] && (e.to === '*' || state.agents[e.to]));
+      break;
+    }
+    case 'eco_predator': {
+      // ND-5.2: 捕食压力 → 在目标 agent 上方显示红色警告（3D 连线/光环）
+      // 存到 edges 里，kind='predator'，复用现有 edge 渲染管线
+      const target = event.target;
+      const source = event.source || '__predator__';
+      if (target) {
+        state.edges.push({ from: source, to: target, kind: 'predator', ttl: 3 });
+        if (state.edges.length > EDGE_MAX) state.edges.splice(0, state.edges.length - EDGE_MAX);
+      }
       break;
     }
     default:

@@ -104,6 +104,9 @@ class CreateTrialRequest(BaseModel):
     routing_strategy: str = ""
     # P7: 是否启用 LLM 决策模式（默认 True — 演练应走 LLM 产生 token 归因）
     use_llm: bool = True
+    # 物竞天择 v2 XT-2.2: 显式演练引擎覆盖（"" | natural_selection）
+    # 办公室视图（试验田）内任意团队演练都传 natural_selection；不传则维持 runtime 判定（零回归）
+    drill_kind: str = ""
 
 
 class ForkBranchRequest(BaseModel):
@@ -421,8 +424,11 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
 
     import datetime as _dt
 
-    # ── 物竞天择 ND-1.2: 读取团队 runtime，决定演练引擎路由 ──
+    # ── 物竞天择 ND-1.2 / v2 XT-2.2: 演练引擎路由 ──
+    # 优先级：请求显式 drill_kind（办公室视图试验田） > 团队 runtime 判定 > 默认 secs
     drill_kind = "secs"  # 默认走现有 SECS 演练
+    if getattr(req, "drill_kind", "") == "natural_selection":
+        drill_kind = "natural_selection"
     try:
         from agents.api import _team_manager as _tm_ref
         if _tm_ref is not None:
@@ -822,6 +828,29 @@ async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
     if getattr(trial, "drill_kind", "secs") == "natural_selection":
         try:
             from .eco_drill import get_eco_drill
+            import uuid as _uuid
+
+            # XB-2.1: SSE 事件推送回调
+            def _on_step(step_data):
+                evt = TrialEvent(
+                    event_type=TrialEventType.ECO_STEP,
+                    trial_id=trial_id,
+                    branch_id=branch_id,
+                    session_id=branch.current_session_id,
+                    data=step_data,
+                )
+                _trial_events.setdefault(trial_id, []).append(evt)
+
+            def _on_epoch(epoch_data):
+                evt = TrialEvent(
+                    event_type=TrialEventType.ECO_EPOCH,
+                    trial_id=trial_id,
+                    branch_id=branch_id,
+                    session_id=branch.current_session_id,
+                    data=epoch_data,
+                )
+                _trial_events.setdefault(trial_id, []).append(evt)
+
             drill = get_eco_drill()
             result = await drill.run_drill(
                 trial_id=trial_id,
@@ -830,9 +859,23 @@ async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
                 team_id=trial.team_id,
                 max_steps=trial.max_steps,
                 max_generations=getattr(trial, "max_generations", 3) or 3,
+                on_step=_on_step,
+                on_epoch=_on_epoch,
+                # v2.3 多种群同场竞争：对比种群经 task_goal 透传（前端「＋添加对比种群」）
+                extra_team_ids=list((trial.task_goal or {}).get("extra_team_ids") or []),
             )
             branch.status = BranchStatus.COMPLETED
             trial.status = TrialStatus.COMPLETED  # type: ignore
+
+            # 推送完成事件
+            done_evt = TrialEvent(
+                event_type=TrialEventType.TRIAL_COMPLETE,
+                trial_id=trial_id,
+                branch_id=branch_id,
+                data={"drill_kind": "natural_selection", "result": result},
+            )
+            _trial_events.setdefault(trial_id, []).append(done_evt)
+
             return result
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"eco_drill failed: {e}")

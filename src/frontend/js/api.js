@@ -243,7 +243,20 @@
       }
       if (!r.ok) {
         var msg = '';
-        try { var d = await r.json(); msg = d.detail || d.message || ''; } catch (e) { /* ignore parse errors */ }
+        try {
+          var d = await r.json();
+          var det = d.detail;
+          if (det && typeof det === 'object') {
+            // FastAPI HTTPException(detail={"error":..., "issues":[...]}) → readable string
+            msg = det.error || det.message || '';
+            if (det.issues && det.issues.length) {
+              msg = (msg ? msg + '：' : '') + (Array.isArray(det.issues) ? det.issues.join('；') : det.issues);
+            }
+            if (!msg) msg = JSON.stringify(det);
+          } else {
+            msg = det || d.message || '';
+          }
+        } catch (e) { /* ignore parse errors */ }
         console.warn('API ' + r.status + ': ' + url, msg);
         api._lastError = { status: r.status, message: msg, url: url, request_id: api._lastRequestId || outgoingRequestId };
         if (api._onError) api._onError(msg || 'HTTP ' + r.status);

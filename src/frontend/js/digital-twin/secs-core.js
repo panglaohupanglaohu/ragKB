@@ -504,14 +504,7 @@
     _updateLaunchButton();
 
     // ── 物竞天择 ND-5.1: 根据 team.runtime 切换右侧面板 ──
-    var isEco = team && team.runtime === 'eco';
-    var rpSecs = document.getElementById('rp-secs');
-    var rpEco = document.getElementById('rp-eco');
-    if (rpSecs) rpSecs.style.display = isEco ? 'none' : 'block';
-    if (rpEco) rpEco.style.display = isEco ? 'block' : 'none';
-    if (isEco) {
-      try { ecoLoadConfig(); } catch(e) { console.warn('ecoLoadConfig failed:', e); }
-    }
+    _syncEcoPanel();
 
     // ── 联动左侧面板：高亮团队按钮 + 刷新拓扑 ──
     if (window.S && window.S.selectedTeams) {
@@ -2344,12 +2337,32 @@
   var _origSwitchView = window.switchView || null;
   // switchView 已在 digital-twin-cli.js 中定义，我们通过 monkey-patch 增强
   var _switchViewEnhanced = false;
+
+  // ── 物竞天择 ND-5.1: 根据当前团队的 runtime 切换右侧面板 ──
+  // switchView 原始逻辑会强制 rp-secs display=''，所以每次切视图后都要修正
+  function _syncEcoPanel() {
+    // 物竞天择 v2 XT-3.1: 办公室视图（__ECO_FIELD__）= 试验田，无条件走生境控制台，
+    // 优先级高于 team.runtime；旧房间视图维持 runtime 判定（零回归）。
+    var team = _teamTreeData.find(function(t){return t.team_id === _selectedTeamId;});
+    var isEco = !!window.__ECO_FIELD__ || (team && team.runtime === 'eco');
+    var rpSecs = document.getElementById('rp-secs');
+    var rpEco = document.getElementById('rp-eco');
+    if (rpSecs) rpSecs.style.display = isEco ? 'none' : '';
+    if (rpEco) rpEco.style.display = isEco ? 'block' : 'none';
+    if (isEco) {
+      try { if (window.eco2Init) window.eco2Init(); } catch(e) {}
+      try { if (window.ecoLoadConfig) window.ecoLoadConfig(); } catch(e) {}
+    }
+  }
+
   function enhanceSwitchView() {
     if (_switchViewEnhanced) return;
     _switchViewEnhanced = true;
     var orig = window.switchView;
     window.switchView = function(el) {
       orig(el);
+      // ND-5.1: 原始 switchView 强制 rp-secs 可见，此处按 team.runtime 修正
+      _syncEcoPanel();
       // 切换到环境空间时显示收益浮动卡（如果有数据）
       if (el && el.dataset.view === 'environment' && _sx.rewardPoints.length > 0) {
         showRewardFloat(true);
@@ -2800,6 +2813,28 @@
   // ND-5.1: 渲染演练结果
   function ecoRenderResult(result) {
     if (!result) return;
+
+    // ND-5.2: 把健康数据喂给 3D 办公室场景
+    if (window.OfficeAPI && window.OfficeAPI.dispatch) {
+      var updates = {};
+      var allCreatures = (result.final_ranking || result.final_population || []).concat(result.deceased || []);
+      for (var i = 0; i < allCreatures.length; i++) {
+        var c = allCreatures[i];
+        updates[c.agent_id] = {
+          health: c.health || 0,
+          survivalTicks: c.survival_ticks || 0,
+          alive: c.alive !== false,
+        };
+      }
+      try { window.OfficeAPI.dispatch({ type: 'eco_health', updates: updates }); } catch(e) {}
+      // ND-5.2: 死亡个体 → 捕食连线视觉（红色从天而降）
+      for (var j = 0; j < allCreatures.length; j++) {
+        var dc = allCreatures[j];
+        if (dc.alive === false) {
+          try { window.OfficeAPI.dispatch({ type: 'eco_predator', target: dc.agent_id }); } catch(e2) {}
+        }
+      }
+    }
 
     // 种群状态
     var finalPop = result.final_population || result.final_ranking || [];

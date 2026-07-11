@@ -712,7 +712,11 @@ def _set_team_default_model(team, model_id: str) -> None:
 
 
 def _sync_default_model_to_harness(team) -> None:
-    """Push the team's default model config into the ChatHarness."""
+    """Push the team's default model config into the ChatHarness.
+
+    XB-8.2: 用 get_resolved_api_key() 解析 env:VAR_NAME 引用，
+    确保 harness 拿到的是真实密钥而非引用字符串。
+    """
     harness = get_chat_harness()
     default_model = None
     for m in team.models.values():
@@ -721,9 +725,10 @@ def _sync_default_model_to_harness(team) -> None:
             break
     if default_model is None:
         return
+    resolved_key = default_model.get_resolved_api_key()
     harness.update_default_provider(
         provider=default_model.provider,
-        api_key=default_model.api_key,
+        api_key=resolved_key,
         api_base_url=default_model.api_base_url,
         model=default_model.name,
     )
@@ -741,6 +746,12 @@ def remove_model(team_id: str, model_id: str) -> Dict[str, str]:
     if removed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Model not found")
     _save_model_pool()
+    # bug-043: 密钥库改为合并式写入后，删除模型需显式清除其已存密钥
+    try:
+        from .secret_store import delete_model_api_key
+        delete_model_api_key(team_id, model_id)
+    except Exception:
+        pass
     return {"deleted": model_id}
 
 
@@ -2924,7 +2935,10 @@ async def set_workflow_step_status(
     summary="Start Claude Code for the current active step",
 )
 async def run_claude_for_task(team_id: str, task_id: str) -> Dict[str, Any]:
-    """Manually start a Claude Code session for the current active step."""
+    """Manually start a Claude Code session for the current active step.
+
+    XC-1.2: 旧路由保留转发，实际已去 CLI 化——走配置模型 provider。
+    """
     _get_team_or_404(team_id)
     task = _te().get_task(task_id)
     if task is None or task.team_id != team_id:
@@ -2950,6 +2964,71 @@ async def run_claude_for_task(team_id: str, task_id: str) -> Dict[str, Any]:
     # Ensure harness monitor is running
     _persist_workflow_and_monitor(task, team_id, wf)
     return {"session_id": sid, "status": "started"}
+
+
+# XC-1.2: 新别名路由——语义更准确，旧路由保留转发
+@router.post(
+    "/teams/{team_id}/tasks/{task_id}/workflow/run-step",
+    summary="Run the current active step via configured model",
+)
+async def run_step_for_task(team_id: str, task_id: str) -> Dict[str, Any]:
+    """XC-1.2: run-claude 的去_cli 化别名——走配置模型 provider."""
+    return await run_claude_for_task(team_id, task_id)
+
+
+# XC-4.1: 工作区浏览 API（只读，路径限定工作区内）
+@router.get(
+    "/teams/{team_id}/tasks/{task_id}/workspace",
+    summary="Browse task pipeline workspace files",
+)
+async def browse_task_workspace(team_id: str, task_id: str,
+                                subpath: str = "") -> Dict[str, Any]:
+    """XC-4.1: 列出/预览任务工作区文件（只读）."""
+    _get_team_or_404(team_id)
+    task = _te().get_task(task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    pdir = _pipeline_dir(task_id)
+    # 安全：只允许在工作区内浏览
+    target = pdir
+    if subpath:
+        target = _os.path.normpath(_os.path.join(pdir, subpath))
+        # 防止路径逃逸
+        if not target.startswith(pdir):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="path outside workspace")
+
+    if _os.path.isfile(target):
+        # 预览文本文件
+        try:
+            size = _os.path.getsize(target)
+            if size > 256 * 1024:
+                return {"type": "file", "path": subpath, "size": size,
+                        "content": "(file too large, >256KB)", "truncated": True}
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            return {"type": "file", "path": subpath, "size": size,
+                    "content": content, "truncated": False}
+        except Exception as e:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    if not _os.path.isdir(target):
+        return {"type": "empty", "path": subpath, "entries": []}
+
+    # 列目录
+    entries = []
+    try:
+        for name in sorted(_os.listdir(target)):
+            full = _os.path.join(target, name)
+            rel = _os.path.relpath(full, pdir) if subpath else name
+            if _os.path.isdir(full):
+                entries.append({"name": name, "type": "dir", "path": rel})
+            else:
+                entries.append({"name": name, "type": "file", "path": rel,
+                                "size": _os.path.getsize(full)})
+    except Exception:
+        pass
+    return {"type": "dir", "path": subpath, "entries": entries}
 
 
 @router.post(
@@ -4480,9 +4559,43 @@ def _get_prior_steps_from_pipeline(task_id: str, current_step_key: str) -> str:
     - For N-2 and earlier: use compressed summaries from _summary.json
     - This ensures the immediately relevant context is rich while older context
       is compact, keeping total token usage manageable.
+
+    XC-2.2: 优先注入 MANIFEST 摘要 + 文件路径清单，Agent 通过 read_file 按需读取。
+    MANIFEST 缺失时回退到现行全文/摘要交接（灰度可逆）。
     """
     pdir = _pipeline_dir(task_id)
     current_idx = _STEP_INDEX.get(current_step_key, "99")
+
+    # XC-2.2: MANIFEST 摘要注入（优先）
+    manifest_path = _os.path.join(pdir, "MANIFEST.json")
+    if _os.path.isfile(manifest_path):
+        try:
+            import json as _json_m
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = _json_m.load(f)
+            if isinstance(manifest, list) and manifest:
+                parts_mf = [
+                    "## 📁 工作区产物清单（MANIFEST）\n",
+                    "上游步骤产物已落盘到工作区，请用 `read_file` / `list_files` 按需读取：\n\n",
+                ]
+                for entry in manifest:
+                    step = entry.get("step", "?")
+                    summary = entry.get("summary", "")
+                    files = entry.get("files", [])
+                    parts_mf.append(f"### {step} — {summary}\n")
+                    for finfo in files:
+                        fpath = finfo.get("path", "")
+                        fsummary = finfo.get("summary", "")
+                        # 显示相对工作区的路径
+                        rel = _os.path.relpath(fpath, pdir) if _os.path.isabs(fpath) else fpath
+                        parts_mf.append(f"- `{rel}` ({fsummary})\n")
+                    parts_mf.append("\n")
+                parts_mf.append(
+                    "提示：直接读取上述文件获取完整内容，避免上下文过载。\n\n"
+                )
+                return "".join(parts_mf)
+        except Exception:
+            pass  # MANIFEST 读取失败，回退到全文交接
 
     parts = []
     _MAX_FULL_STEP = 40_000    # Budget for the immediately prior step (full text)
@@ -4869,6 +4982,8 @@ def _write_handoff(task_id: str, step_key: str, payload: Dict[str, Any],
     Each pipeline step writes a handoff file when it completes, which the next
     agent reads as context.  The file is stored in docs/agent_handoffs/.
 
+    XC-2.1: 同时写入工作区 handoffs/ 目录（兼容旧位置读）。
+
     Returns the path of the written file.
     """
     import json as _json
@@ -4907,6 +5022,13 @@ def _write_handoff(task_id: str, step_key: str, payload: Dict[str, Any],
     with open(fpath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     _harness_log.info(f"[Handoff] Written: {fpath} ({from_agent} → {to_agent})")
+    # XC-2.1: 同步写入工作区 handoffs/（兼容旧位置读）
+    try:
+        ws_handoff = _os.path.join(_pipeline_handoffs_dir(task_id), fname)
+        with open(ws_handoff, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
     return fpath
 
 
@@ -4947,6 +5069,71 @@ def _artifact_path(task_id: str, step_key: str) -> str:
     return _os.path.join(_ARTIFACT_DIR, f"{safe_tid}_{step_key}.md")
 
 
+# XC-2.1: 工作区产物目录 + MANIFEST
+def _pipeline_steps_dir(task_id: str, step_key: str = "") -> str:
+    """Return (and create) the per-step workspace directory."""
+    d = _os.path.join(_pipeline_dir(task_id), "steps")
+    if step_key:
+        d = _os.path.join(d, step_key)
+    _os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _pipeline_handoffs_dir(task_id: str) -> str:
+    """Return (and create) the handoffs/ directory."""
+    d = _os.path.join(_pipeline_dir(task_id), "handoffs")
+    _os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _update_workspace_manifest(task_id: str, step_key: str, files: list,
+                                summary: str = "") -> None:
+    """Append-update MANIFEST.json with step artifacts.
+
+    files: [{path, size, sha1, summary}]
+    """
+    import hashlib as _hashlib
+    import json as _json
+    manifest_path = _os.path.join(_pipeline_dir(task_id), "MANIFEST.json")
+    manifest: list = []
+    try:
+        if _os.path.isfile(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = _json.load(f)
+            if not isinstance(manifest, list):
+                manifest = []
+    except Exception:
+        manifest = []
+
+    # Compute sha1 for each file if not provided
+    for entry in files:
+        fpath = entry.get("path", "")
+        if not entry.get("sha1") and _os.path.isfile(fpath):
+            try:
+                with open(fpath, "rb") as bf:
+                    entry["sha1"] = _hashlib.sha1(bf.read()).hexdigest()[:12]
+            except Exception:
+                entry["sha1"] = ""
+        if not entry.get("size") and _os.path.isfile(fpath):
+            try:
+                entry["size"] = _os.path.getsize(fpath)
+            except Exception:
+                entry["size"] = 0
+
+    from datetime import datetime, timezone
+    manifest.append({
+        "step": step_key,
+        "files": files,
+        "summary": summary,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    try:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            _json.dump(manifest, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        _harness_log.warning("[Workspace] MANIFEST update failed: %s", e)
+
+
 def _collect_step_artifact(task, completed_step: Dict) -> None:
     """Extract output from a completed step's Claude session and save as .md artifact.
     Works for both CLI mode and Ollama direct mode."""
@@ -4956,12 +5143,11 @@ def _collect_step_artifact(task, completed_step: Dict) -> None:
     session = _claude_sessions[sid]
     lines = list(session.get("lines", []))
     # Skip header lines (the prompt echo), find actual model output
-    # Support multiple header markers:
-    #   CLI mode:   "正在启动 Claude Code CLI..."
-    #   Ollama:     "使用 Ollama 直连模式" / "Ollama 直连"
-    #   Separator:  "─" repeated
-    _HEADER_MARKERS = ("正在启动 Claude Code CLI", "使用 Ollama 直连模式",
-                       "Ollama 直连", "─" * 10)
+    # XC-1.2: 去_cli 化文案标记——用于分离 header 和实际 LLM 输出
+    _HEADER_MARKERS = ("正在调用配置模型", "正在启动 Claude Code CLI",
+                       "使用 Ollama 直连模式", "Ollama 直连",
+                       "使用 DeepSeek V4 工具循环", "使用 DeepSeek V4 直连",
+                       "─" * 10)
     output_lines = []
     past_header = False
     for line in lines:
@@ -4991,6 +5177,37 @@ def _collect_step_artifact(task, completed_step: Dict) -> None:
     # Store the artifact path in step metadata
     completed_step["artifact"] = art_path
     _harness_log.info(f"[Harness] Artifact saved: {art_path} ({len(content)} chars)")
+
+    # XC-2.1: 同步产物到工作区 steps/{step_key}/ 并更新 MANIFEST
+    try:
+        step_dir = _pipeline_steps_dir(task.task_id, completed_step["key"])
+        ws_artifact = _os.path.join(step_dir, "output.md")
+        with open(ws_artifact, "w", encoding="utf-8") as f:
+            f.write(header + content + "\n")
+        # self_report.json: 步骤元信息摘要
+        import json as _json
+        report_path = _os.path.join(step_dir, "self_report.json")
+        report = {
+            "step": completed_step["key"],
+            "agent_id": completed_step.get("agent_id", ""),
+            "agent_role": completed_step.get("agent_role", ""),
+            "output_chars": len(content),
+            "session_id": sid,
+            "status": "completed",
+        }
+        with open(report_path, "w", encoding="utf-8") as f:
+            _json.dump(report, f, ensure_ascii=False, indent=2)
+        # 更新 MANIFEST
+        _update_workspace_manifest(
+            task.task_id, completed_step["key"],
+            files=[
+                {"path": ws_artifact, "summary": "LLM 输出主文档"},
+                {"path": report_path, "summary": "步骤自报告"},
+            ],
+            summary=completed_step.get("label", completed_step["key"]),
+        )
+    except Exception as e:
+        _harness_log.warning("[Workspace] step artifact sync failed: %s", e)
 
 
 # ── Code Deliverable Extraction ──────────────────────────────────
@@ -5542,7 +5759,11 @@ def _build_step_prompt(task, step: Dict, workflow: list) -> str:
 
 
 def _resolve_claude_path(configured: str) -> str:
-    """Resolve Claude CLI path, checking common locations."""
+    """Resolve Claude CLI path, checking common locations.
+
+    XC-6.3②: escape 舱专用——仅在 AG_ENABLE_LOCAL_CLI=1 时被 _run_claude_cli_direct 调用。
+    正常执行路径不经过此函数。
+    """
     import shutil
     if configured and configured != "claude":
         return configured
@@ -5579,30 +5800,18 @@ def _is_ollama_backend() -> bool:
 
 
 def _harness_provider_credentials() -> tuple:
-    """Global provider credentials from ~/.claude/settings.json.
+    """Global provider credentials from ChatHarness (authoritative source).
 
+    XC-1.1: 不再读 ~/.claude/settings.json，改用 get_chat_harness().get_provider_config()。
     Returns (api_key, base_url, model, provider); (None, None, None, provider)
     when unavailable.
     """
-    import json as _json
     try:
-        settings_path = _os.path.expanduser("~/.claude/settings.json")
-        if _os.path.isfile(settings_path):
-            with open(settings_path, "r", encoding="utf-8") as f:
-                settings = _json.load(f)
-            env = settings.get("env", {})
-            api_key = env.get("ANTHROPIC_AUTH_TOKEN", "")
-            model = env.get("ANTHROPIC_MODEL", "") or settings.get("defaultModel", "deepseek-chat")
-            # Map Anthropic model names to DeepSeek model names
-            _MODEL_MAP = {
-                "claude-sonnet-4-20250514": "deepseek-chat",
-                "claude-3-5-sonnet-20241022": "deepseek-chat",
-                "claude-3-5-haiku-20241022": "deepseek-chat",
-            }
-            model = _MODEL_MAP.get(model, model)
-            if api_key:
-                # Use OpenAI-compatible endpoint for direct API calls
-                return api_key, "https://api.deepseek.com/v1", model, "deepseek"
+        from agents.chat_harness import get_chat_harness
+        harness = get_chat_harness()
+        pc = harness.get_provider_config()
+        if pc and pc.api_key:
+            return pc.api_key, pc.resolve_base_url(), pc.model, pc.provider.value
     except Exception:
         pass
     return None, None, None, "deepseek"
@@ -5741,27 +5950,12 @@ _TEXT_ONLY_ROLES = frozenset({
 })
 
 def _should_use_direct_api(role: str) -> bool:
-    """Decide whether to use direct DeepSeek API vs Claude CLI.
+    """XC-1.1: 决策不再依赖 ~/.claude/settings.json。
 
-    When backend is DeepSeek (not anthropic.com), CLI has no tool access
-    so direct API is always better — 10x faster with streaming.
+    文本角色走直连 API；其余角色走 tool_loop（含 devops/deployer）。
+    CLI 逃生舱由 AG_ENABLE_LOCAL_CLI=1 控制，不由此函数决定。
     """
-    # If role is text-only, always use direct API
-    if role in _TEXT_ONLY_ROLES:
-        return True
-    # Check if backend is DeepSeek (non-Anthropic) → CLI has no tools
-    try:
-        import json as _json
-        settings_path = _os.path.expanduser("~/.claude/settings.json")
-        if _os.path.isfile(settings_path):
-            with open(settings_path, "r", encoding="utf-8") as f:
-                settings = _json.load(f)
-            base_url = settings.get("env", {}).get("ANTHROPIC_BASE_URL", "")
-            if base_url and "anthropic.com" not in base_url:
-                return True  # Non-Anthropic backend → no tool use → direct API
-    except Exception:
-        pass
-    return False
+    return role in _TEXT_ONLY_ROLES
 
 
 def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_id: str) -> None:
@@ -5807,7 +6001,9 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
     _claude_sessions[session_id] = session
 
     # Echo the prompt to the terminal buffer so users can see what was sent
-    method_label = "DeepSeek API (直连)" if use_direct_api else "Claude Code CLI"
+    # XC-1.2: 文案去 CLI 化——显示真实 provider/model
+    _api_key, _api_base, _model_name, _provider_name = _harness_provider_credentials()
+    method_label = "配置模型 ({} / {})".format(_provider_name or "?", _model_name or "?")
     session["lines"].append(f"{'─'*60}\n")
     session["lines"].append(f"📋 任务: {task_id}\n")
     session["lines"].append(f"🤖 Agent: {agent.name} ({agent.role})\n")
@@ -5822,30 +6018,19 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
     def _run():
         try:
-            # Roles that benefit from real tool access (read/write/exec the codebase)
-            _TOOL_ROLES = ("developer", "code_writer", "qa_engineer", "qa", "tester",
-                           "build_developer", "build_tester", "deployer", "build_deployer")
-            if agent.role in _TOOL_ROLES:
-                api_key, api_base_url, model = _get_deepseek_credentials()
-                if api_key:
-                    session["lines"].append(
-                        f"🛠 使用 DeepSeek V4 工具循环模式 (read/grep/write/exec)...\n\n"
-                    )
-                    _run_tool_loop(
-                        session, full_prompt, agent.role,
-                        api_key=api_key, api_base_url=api_base_url, model=model,
-                        max_tokens=int(cfg.get("max_tokens", 65536)),
-                        temperature=float(cfg.get("temperature", 0.2)),
-                        max_iterations=int(cfg.get("max_iterations", 25)),
-                    )
-                    return  # tool-loop handles its own status
+            # XC-1.1: CLI 逃生舱——仅 AG_ENABLE_LOCAL_CLI=1 时可达
+            _cli_escape = _os.getenv("AG_ENABLE_LOCAL_CLI") == "1"
+            if _cli_escape and not use_direct_api:
+                session["lines"].append(f"⚠️ CLI 逃生舱已启用 (AG_ENABLE_LOCAL_CLI=1)...\n\n")
+                _run_claude_cli_direct(session, full_prompt, working_dir, timeout_sec, cfg)
+                return
 
+            # XC-1.1: 统一执行引擎——文本角色走直连 API，其余全部走 tool_loop
             if use_direct_api:
-                # Text-only roles → fast streaming via DeepSeek OpenAI-compatible API
+                # 文本角色 → 直连 API（harness provider）
                 api_key, api_base_url, model = _get_deepseek_credentials()
                 if api_key:
-                    session["lines"].append(f"⚡ 使用 DeepSeek V4 直连 (64K 输出, 流式)...\n\n")
-                    # Pull per-task overrides if any (model_pool defaults to 65536/0.2)
+                    session["lines"].append(f"⚡ 正在调用配置模型 ({model})...\n\n")
                     _max_tok = int(cfg.get("max_tokens", 65536))
                     _temp = float(cfg.get("temperature", 0.2))
                     _run_openai_compatible(
@@ -5854,12 +6039,36 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
                         max_tokens=_max_tok, temperature=_temp,
                     )
                 else:
-                    session["lines"].append(f"⚠️ DeepSeek 凭据未找到，回退到 Claude CLI...\n\n")
-                    _run_claude_cli_direct(session, full_prompt, working_dir, timeout_sec, cfg)
+                    session["lines"].append(f"⚠️ 未找到配置模型凭据，请检查「模型与连接」页配置。\n\n")
+                    _complete_session_with_llm_degraded_output(session, task_id, "No LLM credentials configured")
+                return
+
+            # 其余全部角色（含 devops/deployer）→ 工具循环（harness provider）
+            api_key, api_base_url, model = _get_deepseek_credentials()
+            if api_key:
+                session["lines"].append(
+                    f"🛠 正在调用配置模型 ({model}) — 工具循环模式 (read/grep/write/exec)...\n\n"
+                )
+                # XC-3.2: 注入 task 环境变量供 deploy_exec 读取
+                _os.environ["AG_TASK_ID"] = task_id
+                try:
+                    import json as _json_env
+                    _os.environ["AG_TASK_METADATA"] = _json_env.dumps(
+                        cfg.get("task_metadata", {}), ensure_ascii=False
+                    )
+                except Exception:
+                    _os.environ["AG_TASK_METADATA"] = "{}"
+                _run_tool_loop(
+                    session, full_prompt, agent.role,
+                    api_key=api_key, api_base_url=api_base_url, model=model,
+                    max_tokens=int(cfg.get("max_tokens", 65536)),
+                    temperature=float(cfg.get("temperature", 0.2)),
+                    max_iterations=int(cfg.get("max_iterations", 25)),
+                )
+                return  # tool-loop handles its own status
             else:
-                # Code-editing roles → Claude Code CLI (tool access)
-                session["lines"].append(f"⏳ 正在启动 Claude Code CLI...\n\n")
-                _run_claude_cli_direct(session, full_prompt, working_dir, timeout_sec, cfg)
+                session["lines"].append(f"⚠️ 未找到配置模型凭据，请检查「模型与连接」页配置。\n\n")
+                _complete_session_with_llm_degraded_output(session, task_id, "No LLM credentials configured")
         except Exception as run_err:
             import traceback as _tb
             err_text = f"{run_err.__class__.__name__}: {run_err}"
@@ -5935,8 +6144,8 @@ def _run_claude_cli_direct(session: Dict[str, Any], prompt: str, working_dir: st
 
     model = cli_env.get("ANTHROPIC_MODEL", "deepseek-chat")
     base_url = cli_env.get("ANTHROPIC_BASE_URL", "")
-    session["lines"].append(f"🔗 Claude Code → {base_url or 'default'} | 模型: {model}\n")
-    session["lines"].append(f"⏳ DeepSeek 正在思考中...\n\n")
+    session["lines"].append(f"⚠️ CLI 逃生舱 → {base_url or 'default'} | 模型: {model}\n")
+    session["lines"].append(f"⏳ 等待响应...\n\n")
 
     try:
         proc = subprocess.Popen(
@@ -6019,12 +6228,6 @@ def _run_claude_cli_direct(session: Dict[str, Any], prompt: str, working_dir: st
         session["status"] = "failed"
         session["exit_code"] = 1
         session["error"] = str(e)[:200]
-
-
-def _run_claude_cli(session: Dict[str, Any], prompt: str, working_dir: str,
-                     timeout_sec: int, cfg: Dict) -> None:
-    """Run via Claude Code CLI (delegates to _run_claude_cli_direct)."""
-    _run_claude_cli_direct(session, prompt, working_dir, timeout_sec, cfg)
 
 
 def _run_tool_loop(
@@ -7974,15 +8177,19 @@ class CatSpeakRequest(BaseModel):
 
 @router.post("/llm/cat-speak", summary="猫小虎 LLM 即兴发言")
 async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
-    """让 LLM 以猫小虎的口吻即兴说一句话。Prompt 从猫的技能 'cat_speak_prompt' 的 instructions 读取，可编辑。"""
+    """让 LLM 以猫小虎的口吻即兴说一句话。Prompt 从猫的技能 'cat_speak_prompt' 的 instructions 读取，可编辑。
+
+    XB-8.1: 凭据三级回退——pet_squad 团队默认模型 → 全局默认 provider → provider env。
+    """
     harness = get_chat_harness()
     # 从 pet_squad 团队的技能目录里读取 cat_speak_prompt 的 instructions
     system = ""
+    pet_squad_team = None
     try:
         tm = _tm()
-        team = tm.get_team("pet_squad")
-        if team and "cat_speak_prompt" in team.skills:
-            skill = team.skills["cat_speak_prompt"]
+        pet_squad_team = tm.get_team("pet_squad")
+        if pet_squad_team and "cat_speak_prompt" in pet_squad_team.skills:
+            skill = pet_squad_team.skills["cat_speak_prompt"]
             system = skill.instructions or skill.description or ""
     except Exception:
         pass
@@ -8000,14 +8207,78 @@ async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
         _user_msg = f"Context: {_ctx}. Share ONE line in ENGLISH — a classic proverb, idiom, or fable (Mei Ling style) that fits this moment. #{_seed}"
     else:
         _user_msg = f"Generate quote #{_seed}. Share ONE line in ENGLISH — a classic proverb, idiom, or fable (Mei Ling style), different from any previous one. Seed={_seed}."
+
+    # XB-8.1: 凭据三级回退——构造 config_override
+    config_override = None
+    # ① pet_squad 团队默认模型的 resolved key
+    if pet_squad_team is not None:
+        try:
+            _default_model = next(
+                (m for m in pet_squad_team.models.values() if m.is_default), None
+            )
+            if _default_model is not None:
+                _resolved_key = _default_model.get_resolved_api_key()
+                if _resolved_key:
+                    from .chat_harness import ProviderConfig, LLMProvider
+                    try:
+                        _provider = LLMProvider(_default_model.provider)
+                    except ValueError:
+                        _provider = LLMProvider.DEEPSEEK
+                    config_override = ProviderConfig(
+                        provider=_provider,
+                        api_key=_resolved_key,
+                        api_base_url=_default_model.api_base_url or "",
+                        model=_default_model.name,
+                        max_tokens=_default_model.max_tokens,
+                        temperature=_default_model.temperature,
+                    )
+        except Exception:
+            pass
+    # ② 全局默认 provider（harness 默认配置）——如果已有 key 则不覆盖
+    if config_override is None:
+        _default_cfg = harness.get_provider_config()
+        if not _default_cfg.api_key:
+            # ③ provider env 兜底
+            try:
+                # XB-8.1 fix(Fable 5 复查): ProviderConfig 必须在本分支显式 import——
+                # 分支①未执行时（pet_squad 缺失/无默认模型）其局部 import 不存在，
+                # 否则此处 NameError 被 except 吞掉，env 兜底静默失效（bug-049）。
+                from .chat_harness import resolve_api_key, LLMProvider, ProviderConfig
+                _env_key = resolve_api_key(_default_cfg.provider.value)
+                if _env_key:
+                    config_override = ProviderConfig(
+                        provider=_default_cfg.provider,
+                        api_key=_env_key,
+                        api_base_url=_default_cfg.api_base_url,
+                        model=_default_cfg.model,
+                        max_tokens=_default_cfg.max_tokens,
+                        temperature=_default_cfg.temperature,
+                    )
+            except Exception:
+                pass
+
     result = await harness.chat(
         _user_msg,
         agent_id="xiaohu_cat",
         session_id=f"cat_speak_{_seed}",   # 每次新 session，无历史
         system_prompt=system,
+        config_override=config_override,
     )
     # 去掉引号和首尾空白
     reply = (result.response or "").strip().strip('"').strip("'").strip()[:100]
+    # bug-045: LLM 未连接时 harness 返回大段中文降级文案（"我是 AgentsGroup2026 智能体…LLM 未连接"），
+    # 会原样泄进猫气泡且完全不是 Mei Ling 台词。检测降级特征 → 换本地 Mei Ling 风格兜底一句。
+    if result.error or "LLM 未连接" in (result.response or "") or "收到您的消息" in (result.response or ""):
+        _fallbacks = [
+            "A journey of a thousand miles begins with a single step.",
+            "Even the smallest light can pierce the darkness.",
+            "The wise adapt themselves to circumstances, as water molds itself to the pitcher.",
+            "A bird does not sing because it has an answer. It sings because it has a song.",
+            "Fall seven times, stand up eight.",
+        ]
+        reply = _rand.choice(_fallbacks)
+        return {"success": False, "reply": reply,
+                "error": result.error or "llm_unavailable_fallback"}
     return {
         "success": not bool(result.error),
         "reply": reply,
@@ -8375,9 +8646,28 @@ async def agent_health_check() -> Dict[str, Any]:
     skill_reg = SkillRegistry()
     skill_reg.load_defaults()
 
+    # XC-6.1: 加 git rev 到 health 响应——一眼可判后端代码代龄
+    _git_rev = ""
+    _git_branch = ""
+    try:
+        import subprocess as _sp
+        _repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        _git_rev = _sp.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_repo_root, stderr=_sp.DEVNULL, timeout=3,
+        ).decode().strip()
+        _git_branch = _sp.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=_repo_root, stderr=_sp.DEVNULL, timeout=3,
+        ).decode().strip()
+    except Exception:
+        pass
+
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "git_rev": _git_rev,
+        "git_branch": _git_branch,
         "llm": {
             "provider": harness_status["provider"],
             "model": harness_status["model"],

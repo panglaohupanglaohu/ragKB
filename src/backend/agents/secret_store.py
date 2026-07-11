@@ -146,16 +146,40 @@ def load_model_api_keys() -> Dict[str, Dict[str, str]]:
 
 
 def save_model_api_keys(secrets: Dict[str, Dict[str, str]]) -> None:
+    """合并式写入（bug-043 修复）：只新增/更新传入的 key，绝不隐式删除已存 key.
+
+    背景：teams.json 反序列化按设计丢弃明文 key（只保留 env: 引用），
+    团队重载后内存密钥为空；旧实现按内存整体重写密钥库，任何一次这种时机的
+    _save_model_pool 都会把其他团队/其他模型的已存 key 连同 __default__ 一起抹掉，
+    表现为“每次重启密钥都要重输”。删除请走 delete_model_api_key（显式语义）。
+    """
     raw = load_secret_store()
-    default_section = raw.get(_DEFAULT_SECTION, {})
-    payload: Dict[str, Any] = {
-        team_id: dict(team_keys)
-        for team_id, team_keys in secrets.items()
-        if team_keys
-    }
-    if default_section:
-        payload[_DEFAULT_SECTION] = default_section
-    save_secret_store(payload)
+    for team_id, team_keys in (secrets or {}).items():
+        if not isinstance(team_keys, dict):
+            continue
+        section = raw.get(team_id)
+        section = dict(section) if isinstance(section, dict) else {}
+        for model_id, key in team_keys.items():
+            if key:  # 空值不覆盖已存 key（与“留空不修改”语义一致）
+                section[model_id] = key
+        if section:
+            raw[team_id] = section
+    if raw:
+        save_secret_store(raw)
+
+
+def delete_model_api_key(team_id: str, model_id: str) -> None:
+    """显式删除某团队某模型的已存密钥（删模型/清密钥时调用）。"""
+    raw = load_secret_store()
+    section = raw.get(team_id)
+    if not isinstance(section, dict) or model_id not in section:
+        return
+    section.pop(model_id, None)
+    if section:
+        raw[team_id] = section
+    else:
+        raw.pop(team_id, None)
+    save_secret_store(raw)
 
 
 def load_default_llm_api_key() -> str:

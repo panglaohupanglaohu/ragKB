@@ -572,11 +572,27 @@ const RUNTIME_META = {
     revive_ratio: '复活恢复到满血的比例（0~1）',
     saturation_threshold: '「饱暖」判定阈值（Health 占比）',
   }},
-  learning: { title: '🎲 盲目学习 + 特征抽象', desc: '探索期衰减 + 净收益驱动技能提炼（plan §4）', fields: {
+  learning: { title: '🎲 盲目学习 + 特征抽象', desc: '探索期衰减 + 净收益驱动技能提炼（plan §4）；学习是盲目的，选择是客观的（物竞天择 v2 §3.2）', fields: {
     exploration_base_rate: '新 Agent 初始探索率（0~1，越高越盲目）',
     exploration_half_life: '探索率半衰期 tick 数',
     solidify_min_uses: '触发特征抽象的最小使用次数',
     solidify_min_gain: '触发特征抽象的最小净收益',
+    blind_learning_rate: '生境演练：REST 时随机习得 skill 的概率（0~1）',
+    genome_carry_cost: '生境演练：每携带 1 个 skill 的每 tick 额外代谢（惩罚技能囤积）',
+  }},
+  habitat: { title: '🌍 生境环境（物竞天择 v2）', desc: '环境必须流动：生态位漂移 + 捕食压力 + 丰饶度（plan v2 §3.3）——静态环境不产生持续选择', fields: {
+    drift_prob: '每世代生态位漂移概率（随机替换 1 个需求 skill，0~1）',
+    predator_pressure: '每 tick 捕食事件概率（0=关闭，建议 0.05~0.2）',
+    abundance: '丰饶度：觅食收益倍率（0.5 艰难 ~ 2.0 富足）',
+  }},
+  drill_economics: { title: '🍖 觅食/协作经济学（物竞天择 v2）', desc: '生境演练的能量经济——协作有代价才可能被选择或淘汰（plan v2 §3.1）', fields: {
+    forage_gain: '觅食命中获得的能量（×丰饶度）',
+    forage_miss_penalty: '觅食未命中的额外代谢惩罚',
+    avoid_cost: '避险动作代谢',
+    signal_cost: '发一次信号（FOOD/HELP/COURT）的代谢成本',
+    share_fraction: '分享时让渡给求助者的收益比例（0~1）',
+    follow_bonus: '跟随 FOOD 信号的觅食成功率加成',
+    help_hunger: '饥饿超过此值才发 HELP 信号（0~1）',
   }},
   selection: { title: '⚖️ 物竞天择选择状态机', desc: 'skill dominant/deprecated 判定（防单次波动误杀）', fields: {
     dominant_min_streak: '连续正/负净收益判定长度（越大越稳）',

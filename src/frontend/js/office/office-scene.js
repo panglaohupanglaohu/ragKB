@@ -217,8 +217,11 @@ export function createOfficeScene(canvas, container) {
       new THREE.MeshStandardMaterial({ color: 0xfefefe, roughness: 0.6 }));
     file.position.set(0.5, 1.05, 0.28); file.visible = false; g.add(file);
     g.add(makeLabel(def.name));
+    // ND-5.2: 血条（默认隐藏，eco 模式通过 applyState 激活）
+    const hb = makeHealthBar();
+    g.add(hb.sprite);
     agentsGroup.add(g);
-    return { group: g, file, head, glowRing };
+    return { group: g, file, head, glowRing, healthBar: hb };
   }
   function disposeFigure(f) {
     f.group.traverse((node) => {
@@ -344,6 +347,55 @@ export function createOfficeScene(canvas, container) {
     });
   }
   initPicking();
+  // ── ND-5.2: eco 模式血条 Sprite ──
+  function makeHealthBar() {
+    const cv = document.createElement('canvas');
+    cv.width = 128; cv.height = 20;
+    const tex = new THREE.CanvasTexture(cv);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthTest: false,
+    }));
+    sp.scale.set(1.8, 0.28, 1);
+    sp.position.y = 2.85; // 名牌(2.6)之上，气泡(3.0)之下
+    sp.visible = false;   // 默认隐藏，eco 模式才显示
+    return { sprite: sp, canvas: cv, tex };
+  }
+  // 物竞天择 v2 XT-5.3: 意图 → 头顶符号（🍖觅食/🛡避险/💕求偶/💤静息）
+  const INTENT_EMOJI = { forage: '🍖', avoid: '🛡', mate: '💕', rest_explore: '💤' };
+  function updateHealthBar(hb, health, maxHealth, survivalTicks, alive, intent) {
+    const ctx = hb.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 128, 20);
+    // 背景
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, 128, 20);
+    if (alive) {
+      // 血条
+      const ratio = Math.max(0, Math.min(1, health / (maxHealth || 100)));
+      const color = ratio > 0.6 ? '#4caf50' : ratio > 0.3 ? '#ff9800' : '#f44336';
+      ctx.fillStyle = color;
+      ctx.fillRect(16, 2, (128 - 18) * ratio, 10);
+      // 意图符号（左侧）
+      const emoji = INTENT_EMOJI[intent] || '';
+      if (emoji) {
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(emoji, 1, 12);
+      }
+      // 文字: 血量 + 生存时长
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(Math.round(health) + ' / ' + survivalTicks + 't', 70, 18);
+    } else {
+      // 死亡标记
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f44336';
+      ctx.fillText('DEAD ' + survivalTicks + 't', 64, 14);
+    }
+    hb.tex.needsUpdate = true;
+  }
+
   function makeLabel(text) {
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
     const ctx = cv.getContext('2d');
@@ -501,6 +553,20 @@ export function createOfficeScene(canvas, container) {
         f.group.position.copy(t.pos); f.baseY = t.y;
       }
       f.def = agent;
+      // 物竞天择 v2: 回放中出生的后代 → 小号 figure 落位（长大动画：随生存时长恢复原尺寸）
+      if (agent.ecoNewborn && !f._ecoGrown) {
+        const grow = Math.min(1, 0.72 + (agent.survivalTicks || 0) / 120);
+        f.group.scale.setScalar(grow);
+        if (grow >= 1) f._ecoGrown = true;
+      }
+      // ND-5.2: eco 模式 — 血条显示与更新
+      if (agent.health != null && agent.health < 100 || agent.survivalTicks > 0) {
+        if (f.healthBar) {
+          f.healthBar.sprite.visible = true;
+          updateHealthBar(f.healthBar, agent.health, 100, agent.survivalTicks || 0,
+            agent.ecoAlive !== false, agent.ecoIntent || '');
+        }
+      }
       const t = targetFor(agent, Math.max(meetingIds.indexOf(agent.id), 0), meetingIds.length, state.facilities);
       f.target.copy(t.pos); f.baseY = t.y;
       // M2-2: execute_skill → 工位上方技能脉冲（skillUsed 变化时触发）
@@ -568,6 +634,35 @@ export function createOfficeScene(canvas, container) {
     for (const e of state.edges) {
       const key = e.from + '|' + e.to + '|' + e.kind;
       seen.add(key);
+      // ND-5.2: 捕食连线 — from=__predator__ 时画从天而降的红色竖线
+      if (e.kind === 'predator') {
+        const fb = figures[e.to];
+        if (!fb) continue;
+        let mesh = edgeMeshes.get(key);
+        const target = fb.group.position.clone();
+        const p0 = target.clone().setY(5.0);  // 从天上
+        const p2 = target.clone().setY(2.0);  // 到头顶
+        if (!mesh) {
+          const geom = new THREE.BufferGeometry().setFromPoints([p0, p2]);
+          mesh = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xff3030, transparent: true, opacity: 0.9, linewidth: 3 }));
+          // 红色警告环
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.3, 0.5, 16),
+            new THREE.MeshBasicMaterial({ color: 0xff3030, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+          );
+          ring.rotation.x = -Math.PI / 2; ring.position.copy(target).setY(0.02);
+          ring.name = 'predatorRing';
+          mesh.add(ring);
+          edgesGroup.add(mesh); edgeMeshes.set(key, mesh);
+        } else {
+          mesh.geometry.dispose();
+          mesh.geometry = new THREE.BufferGeometry().setFromPoints([p0, p2]);
+          const ring = mesh.getObjectByName('predatorRing');
+          if (ring) ring.position.copy(target).setY(0.02);
+        }
+        mesh.material.opacity = Math.max(e.ttl / 3, 0.1) * 0.9;
+        continue;
+      }
       const fa = figures[e.from], fb = figures[e.to];
       if (!fa || !fb) continue;
       let mesh = edgeMeshes.get(key);
@@ -575,7 +670,13 @@ export function createOfficeScene(canvas, container) {
       const p2 = fb.group.position.clone().setY(1.8);
       const mid = p0.clone().add(p2).multiplyScalar(0.5).setY(3.6);
       const curve = new THREE.QuadraticBezierCurve3(p0, mid, p2);
-      const edgeColor = e.kind === 'help' ? 0x2bb8a8 : e.kind === 'delegate' ? 0xf59e0b : 0x4d9de0;
+      // 物竞天择 v2 XT-5.3: 信号协议/求偶配色 — FOOD 淡金 / HELP 红 / COURT·mate 粉
+      const edgeColor = e.kind === 'help' ? 0x2bb8a8
+        : e.kind === 'delegate' ? 0xf59e0b
+        : e.kind === 'signal_food' ? 0xd4af37
+        : e.kind === 'signal_help' ? 0xef4444
+        : (e.kind === 'signal_court' || e.kind === 'mate') ? 0xec4899
+        : 0x4d9de0;
       if (!mesh) {
         mesh = new THREE.Mesh(
           new THREE.TubeGeometry(curve, 20, 0.045, 6, false),
@@ -765,6 +866,37 @@ export function createOfficeScene(canvas, container) {
       } else if (f.glowRing) {
         f.glowRing.material.opacity = 0.22;
         f.glowRing.scale.set(1, 1, 1);
+      }
+      // ND-5.2: 死亡淡出 — ecoAlive=false 时逐渐降低不透明度（血条 Sprite 除外）
+      if (f.def.ecoAlive === false && !f._ecoDeadFaded) {
+        f.group.traverse(function(node) {
+          if (node.material && node !== (f.healthBar && f.healthBar.sprite)) {
+            var mats = Array.isArray(node.material) ? node.material : [node.material];
+            mats.forEach(function(m) {
+              if (!m._ecoOrigOpacity) m._ecoOrigOpacity = m.opacity;
+              m.transparent = true;
+              m.opacity = Math.max(0.12, m.opacity * 0.96);
+            });
+          }
+        });
+        f._ecoWasDead = true;
+        if (f.group.children[0] && f.group.children[0].material && f.group.children[0].material.opacity < 0.15) {
+          f._ecoDeadFaded = true;
+        }
+      }
+      // v2.3: 复活/重跑恢复 — eco_reset 把 ecoAlive 置回 true 后，恢复原始不透明度
+      // （否则重跑物竞天择时上一场死者仍是幽灵，看起来"3D 没有 Agent 动画了"）
+      if (f.def.ecoAlive !== false && (f._ecoDeadFaded || f._ecoWasDead)) {
+        f.group.traverse(function(node) {
+          if (node.material) {
+            var mats = Array.isArray(node.material) ? node.material : [node.material];
+            mats.forEach(function(m) {
+              if (m._ecoOrigOpacity != null) m.opacity = m._ecoOrigOpacity;
+            });
+          }
+        });
+        f._ecoDeadFaded = false;
+        f._ecoWasDead = false;
       }
     }
     // Predator/Prey 生态：小虎(捕食者) + 吱吱(猎物) 的模型/行为/台词全部由 PetEcosystem 驱动

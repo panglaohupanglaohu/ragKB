@@ -86,7 +86,7 @@
             14
           ]
         ],
-        "speed": 1.6,
+        "speed": 2.7,
         "dwell_range": [
           1.5,
           5
@@ -95,15 +95,16 @@
         "chase_targets": [
           "squeak_mouse"
         ],
-        "flee_from": []
+        "flee_from": [],
+        "flee_speed_multiplier": 2.3
       },
       "perception": {
-        "detect_radius": 6,
+        "detect_radius": 8,
         "vision_cone_deg": 300
       },
       "mental_state": {
         "hunger_full_sec": 20,
-        "hunt_hunger_threshold": 0.3,
+        "hunt_hunger_threshold": 0.4,
         "fear_scale_D0": 6,
         "f_escape": 0.55,
         "f_calm": 0.35
@@ -249,7 +250,7 @@
         "hunger_full_sec": 20,
         "hunt_hunger_threshold": 0.3,
         "fear_scale_D0": 6,
-        "f_escape": 0.4,
+        "f_escape": 0.5,
         "f_calm": 0.4
       },
       "intention": {

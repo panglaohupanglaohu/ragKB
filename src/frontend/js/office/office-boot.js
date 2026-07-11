@@ -100,6 +100,9 @@ function bootOffice() {
 
   function syncPositions() {
     try {
+      // 物竞天择 v2: 生境回放期间种群由 eco-console/eco-replay 全权驱动（含回放中出生的后代），
+      // 暂停团队轮询，避免 team_reset 把后代/死亡状态冲掉。
+      if (window.__ECO_REPLAY_ACTIVE__) return;
       const S = window.S || {};
       const positions = S.positions || {};
       const selected = Array.isArray(S.selectedTeams) ? S.selectedTeams.filter(Boolean) : [];
@@ -253,6 +256,10 @@ function bootOffice() {
   setInterval(() => store.dispatch({ type: 'break_tick', now: Date.now() }),
     Math.max(1000, 5e3 / SPEED));
   setInterval(() => {
+    // 物竞天择 v2.3: 生境演练/回放期间冻结作息调度，并重置错峰计时——
+    // 否则演练结束的一瞬间，攒了一整场的咖啡/马桶/跑步机"欠账"会同时放行，
+    // 全员涌向设施，看起来像"Agent 纷纷退场"（用户 2026-07-11 反馈）。
+    if (window.__ECO_REPLAY_ACTIVE__) { staggerKey = ''; return; }
     const state = store.getState();
     const rosterKey = Object.keys(state.agents).sort().join(',');
     if (rosterKey !== staggerKey) { staggerKey = rosterKey; initStagger(state); }
@@ -437,6 +444,11 @@ function bootOffice() {
       } catch (e) {
         console.warn('[cat-dialog] cat-speak failed:', e);
       }
+      // bug-050: 降级文案净化（与 PetEcosystem.sanitizeCatReply 同规则）
+      try {
+        const { PetEcosystem } = await import('./pet-ecosystem.js');
+        reply = PetEcosystem.sanitizeCatReply(reply, '');
+      } catch (e) { /* 净化失败时保持原文 */ }
       sceneApi.showCatBubble('🐱 ' + reply);
       catSpeak(reply);
     }
@@ -513,6 +525,9 @@ function addToggleButton() {
 
 function start() {
   addToggleButton();
+  // 物竞天择 v2 XT-3.1: 办公室视图 = 自然选择试验田。
+  // 该旗标使右侧演练菜单整体切换为生境控制台（rp-eco），优先级高于 team.runtime。
+  window.__ECO_FIELD__ = FLAG_ON;
   if (FLAG_ON) {
     document.body.classList.add('office-mode');
     try {

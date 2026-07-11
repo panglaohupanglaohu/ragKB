@@ -183,12 +183,31 @@ function connectTaskTerminal(termId){
   // First fetch existing output
   fetch(`${A}/claude-sessions/${sid}`).then(r=>{if(!r.ok)throw new Error('gone');return r.json()}).then(d=>{
     if(d.output&&d.output.length){
+      // XC-6.2: 检测旧 CLI 引擎会话头并标注
+      const _OLD_CLI_MARKERS=['正在启动 Claude Code CLI','Claude Code →','DeepSeek 凭据未找到，回退到 Claude CLI','⏳ 正在启动 Claude Code CLI'];
+      let oldEngineDetected=false;
       d.output.forEach(line=>{
         const div=document.createElement('div');
         div.className='tl';
-        div.textContent=line.replace(/\n$/,'');
+        const trimmed=line.replace(/\n$/,'');
+        // 检测旧引擎标记
+        if(_OLD_CLI_MARKERS.some(m=>trimmed.includes(m))){
+          oldEngineDetected=true;
+          div.style.color='oklch(0.56 0.05 70)';
+          div.style.fontStyle='italic';
+          div.textContent=trimmed+'  ⚠ (历史会话·旧引擎)';
+        }else{
+          div.textContent=trimmed;
+        }
         body.appendChild(div);
       });
+      if(oldEngineDetected){
+        const warn=document.createElement('div');
+        warn.className='tl';
+        warn.style.cssText='color:oklch(0.56 0.05 70);font-size:10px;padding:4px 0;border-top:1px dashed';
+        warn.textContent='⚠ 以上日志来自旧 CLI 引擎——重启后端后新任务将走配置模型 provider';
+        body.appendChild(warn);
+      }
       body.scrollTop=body.scrollHeight;
     }
     if(dotEl)dotEl.className='tt-dot '+(d.status==='running'?'running':d.status==='completed'?'done':'err');
@@ -227,10 +246,10 @@ function connectAllTaskTerminals(){
 }
 
 async function startClaudeForTask(taskId){
-  toast('正在启动 Claude Code...');
-  const r=await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/run-claude`,{method:'POST'});
+  toast('正在调用配置模型...');
+  const r=await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/run-step`,{method:'POST'});
   if(r&&r.session_id){
-    toast('Claude Code 已启动');
+    toast('步骤已启动');
     loadTasks();
     setTimeout(()=>connectAllTaskTerminals(),500);
   }else{toast(r?r.status||'失败':'启动失败')}
@@ -298,7 +317,9 @@ async function loadTasks(){hideViewLoading("view-tasks");
     // T5.5: Collaboration info
     const collabInfo=t.metadata&&t.metadata.collaboration?`<span class="chip" style="font-size:9px;background:rgba(152,245,167,0.1);color:var(--lime);margin-left:4px">🤝 协作${t.metadata.collaboration.message_count?' · '+t.metadata.collaboration.message_count+'条':''}</span>`:'';
     const stuckRow=t.stuck?' style="background:rgba(224,27,36,0.04)"':'';
-    return `<tr${stuckRow}><td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${escapeHtml(t.task_id)}</td><td style="min-width:280px"><b>${escapeHtml(t.title)}</b>${src}${stuckBadge}${collabInfo}${wfProgress}${runtimeInfo}${t.description?`<br><span style="color:var(--dim);font-size:11px">${escapeHtml(t.description?.slice(0,80)||'')}</span>`:''}${wfHtml}</td><td>${t.agent_id||'<span style="color:var(--dim)">自动</span>'}</td><td>${PRIO_LBL[t.priority]||t.priority}</td><td>${t.dependencies&&t.dependencies.length?t.dependencies.map(d=>'<span class="chip" style="font-size:10px">'+d+'</span>').join(''):'—'}</td><td><span class="st ${TST_CLS[t.status]||''}">${TST_LBL[t.status]||t.status}</span></td><td style="white-space:nowrap">${actions}</td></tr>`;
+    // XC-4.1: 工作区按钮
+    const wsBtn=hasWf?` <button class="btn btn-sm" style="padding:2px 8px;font-size:10px;background:rgba(168,85,247,0.08);color:var(--purple)" onclick="openWorkspace('${t.task_id}')" title="查看工作区产物">📁 工作区</button>`:'';
+    return `<tr${stuckRow}><td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${escapeHtml(t.task_id)}</td><td style="min-width:280px"><b>${escapeHtml(t.title)}</b>${src}${stuckBadge}${collabInfo}${wfProgress}${runtimeInfo}${t.description?`<br><span style="color:var(--dim);font-size:11px">${escapeHtml(t.description?.slice(0,80)||'')}</span>`:''}${wfHtml}</td><td>${t.agent_id||'<span style="color:var(--dim)">自动</span>'}</td><td>${PRIO_LBL[t.priority]||t.priority}</td><td>${t.dependencies&&t.dependencies.length?t.dependencies.map(d=>'<span class="chip" style="font-size:10px">'+d+'</span>').join(''):'—'}</td><td><span class="st ${TST_CLS[t.status]||''}">${TST_LBL[t.status]||t.status}</span></td><td style="white-space:nowrap">${actions}${wsBtn}</td></tr>`;
   }).join('');
   // populate agent select in modal
   const tm=await api(`${A}/teams/${tid}`);const sel=el('tk-agent');if(tm&&tm.agents){const aa=Array.isArray(tm.agents)?tm.agents:Object.values(tm.agents);sel.innerHTML='<option value="">自动分配</option>'+aa.map(a=>`<option value="${a.agent_id}">${a.name||a.agent_id}</option>`).join('')}
@@ -485,12 +506,67 @@ window.advanceWorkflow = advanceWorkflow;
 // T3.2: Step-level retry / skip
 window.retryStep = async function(taskId, idx){
   await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/${idx}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'active'})});
-  await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/run-claude`,{method:'POST'});
+  await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/run-step`,{method:'POST'});
   toast('🔄 已重试');loadTasks();
 };
 window.skipStep = async function(taskId, idx){
   if(!confirm('确定跳过当前步骤？')) return;
   await api(`${A}/teams/${tid}/tasks/${taskId}/workflow/${idx}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'skipped'})});
   toast('⏭ 已跳过');loadTasks();
+};
+
+// XC-4.1: 工作区浏览器
+window.openWorkspace = async function(taskId){
+  let overlay=document.getElementById('ws-overlay');
+  if(!overlay){
+    overlay=document.createElement('div');
+    overlay.id='ws-overlay';
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML=`<div style="background:var(--bg,#1a1a2e);border-radius:12px;width:80%;max-width:900px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border,#333)">
+        <span style="font-weight:600;color:var(--purple,#a855f7)">📁 任务工作区 — <span id="ws-task-id"></span></span>
+        <button onclick="document.getElementById('ws-overlay').remove()" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px">✕</button>
+      </div>
+      <div id="ws-breadcrumb" style="padding:6px 16px;font-size:11px;color:var(--dim);border-bottom:1px solid var(--border,#333)"></div>
+      <div id="ws-content" style="flex:1;overflow:auto;padding:12px 16px;font-size:12px;font-family:'IBM Plex Mono',monospace"></div>
+    </div>`;
+    document.body.appendChild(overlay);
+  }
+  document.getElementById('ws-task-id').textContent=taskId;
+  await browseWorkspace(taskId,'');
+};
+
+window.browseWorkspace = async function(taskId, subpath){
+  const content=document.getElementById('ws-content');
+  const crumb=document.getElementById('ws-breadcrumb');
+  if(!content) return;
+  content.innerHTML='<span style="color:var(--dim)">加载中...</span>';
+  try{
+    const r=await api(`${A}/teams/${tid}/tasks/${taskId}/workspace?subpath=${encodeURIComponent(subpath)}`);
+    // 面包屑
+    const parts=subpath?subpath.split('/').filter(Boolean):[];
+    let bc='<span style="cursor:pointer;color:var(--cyan)" onclick="browseWorkspace(\''+taskId+'\',\'\')">📁 根</span>';
+    let cur='';
+    parts.forEach(p=>{cur=cur?cur+'/'+p:p;bc+=' / <span style="cursor:pointer;color:var(--cyan)" onclick="browseWorkspace(\''+taskId+'\',\''+cur+'\')">'+escapeHtml(p)+'</span>';});
+    crumb.innerHTML=bc;
+
+    if(r.type==='file'){
+      content.innerHTML='<pre style="white-space:pre-wrap;word-break:break-all;color:var(--text,#e0e0e0)">'+escapeHtml(r.content||'(empty)')+'</pre>';
+    }else if(r.type==='dir'){
+      const entries=r.entries||[];
+      if(!entries.length){content.innerHTML='<span style="color:var(--dim)">（空目录）</span>';return}
+      content.innerHTML=entries.map(e=>{
+        if(e.type==='dir'){
+          return '<div style="padding:3px 6px;cursor:pointer;color:var(--cyan)" onclick="browseWorkspace(\''+taskId+'\',\''+e.path+'\')">📁 '+escapeHtml(e.name)+'/</div>';
+        }
+        const sizeStr=e.size>1024?(e.size/1024).toFixed(1)+'KB':e.size+'B';
+        return '<div style="padding:3px 6px;cursor:pointer" onclick="browseWorkspace(\''+taskId+'\',\''+e.path+'\')">📄 '+escapeHtml(e.name)+' <span style="color:var(--dim);font-size:10px">'+sizeStr+'</span></div>';
+      }).join('');
+    }else{
+      content.innerHTML='<span style="color:var(--dim)">（工作区尚未创建——任务执行后会自动生成）</span>';
+    }
+  }catch(e){
+    content.innerHTML='<span style="color:var(--red)">加载失败: '+escapeHtml(String(e))+'</span>';
+  }
 };
 })();

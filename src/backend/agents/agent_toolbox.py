@@ -196,6 +196,30 @@ TOOL_SCHEMA: List[Dict[str, Any]] = [
             },
         },
     },
+    # XC-3.2: deploy_exec——受控部署执行工具（仅 devops/deployer 角色可用）
+    {
+        "type": "function",
+        "function": {
+            "name": "deploy_exec",
+            "description": (
+                "执行受控部署命令。仅 devops/deployer 角色可用。"
+                "命令必须在白名单中（config/deploy_allowlist.json）。"
+                "默认 dry_run=True 只预演不执行；真实执行需要任务 approve_deploy=true 且 twin_drill_passed=true。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "要执行的部署命令"},
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "True=只预演不执行（默认）；False=真实执行（需门禁通过）",
+                        "default": True,
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
 
 
@@ -213,7 +237,15 @@ def _safe_path(rel: str) -> Path:
 
 def _is_allowed_write(rel: str) -> bool:
     rel = rel.replace("\\", "/")
+    # Block absolute paths and parent traversal
+    if rel.startswith("/") or ".." in rel.split("/"):
+        return False
     return any(rel.startswith(p) for p in ALLOWED_WRITE_PREFIXES)
+
+
+def _audit_write_denial(path: str, reason: str) -> None:
+    """XC-2.3: 审计被拒绝的写操作（不阻断，仅记录日志）."""
+    logger.warning("[Audit] write_file denied: path=%s reason=%s", path, reason)
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -308,6 +340,7 @@ def tool_list_files(path: str, max_depth: int = 3) -> Dict[str, Any]:
 def tool_write_file(path: str, content: str, create_only: bool = False) -> Dict[str, Any]:
     try:
         if not _is_allowed_write(path):
+            _audit_write_denial(path, "outside allowed prefixes")
             return {"ok": False, "error": f"write denied (outside allowed dirs): {path}"}
         p = _safe_path(path)
         if p.exists() and create_only:
@@ -374,6 +407,30 @@ def tool_run_pytest(target: str = "", timeout: int = 120) -> Dict[str, Any]:
     return get_sandbox().run_pytest(target=target, cwd=PROJECT_ROOT, timeout=timeout).to_dict()
 
 
+# XC-3.2: deploy_exec 工具实现
+def tool_deploy_exec(command: str, dry_run: bool = True) -> Dict[str, Any]:
+    """受控部署执行——白名单 + dry-run + 演练门禁 + 审计."""
+    try:
+        from agents.deploy_executor import deploy_exec as _deploy_exec
+        # 从环境变量获取 task_id 和 metadata（由 _run_tool_loop 注入）
+        task_id = os.environ.get("AG_TASK_ID", "")
+        task_metadata: Dict[str, Any] = {}
+        meta_json = os.environ.get("AG_TASK_METADATA", "")
+        if meta_json:
+            try:
+                task_metadata = json.loads(meta_json)
+            except Exception:
+                pass
+        return _deploy_exec(
+            command=command,
+            dry_run=dry_run,
+            task_id=task_id,
+            task_metadata=task_metadata,
+        )
+    except Exception as e:
+        return {"ok": False, "error": f"deploy_exec failed: {e}"}
+
+
 # ═════════════════════════════════════════════════════════════════
 # Dispatcher
 # ═════════════════════════════════════════════════════════════════
@@ -386,6 +443,7 @@ _DISPATCH = {
     "patch_file": lambda **kw: tool_patch_file(**kw),
     "run_python": lambda **kw: tool_run_python(**kw),
     "run_pytest": lambda **kw: tool_run_pytest(**kw),
+    "deploy_exec": lambda **kw: tool_deploy_exec(**kw),
 }
 
 
@@ -431,16 +489,30 @@ def dispatch_tool_call(name: str, args_json: str) -> Dict[str, Any]:
 
 
 def get_tools_for_role(role: str) -> List[Dict[str, Any]]:
-    """Return tool subset appropriate for a given agent role."""
+    """XC-3.1: 三层工具集——文本层 / 代码层 / 部署层.
+
+    文本层 (PM/researcher/docs): read_file / list_files / grep
+    评估层 (architect): 文本层 + run_python（只读+eval，不写代码）
+    代码层 (developer/tester/qa): 文本层 + write_file + patch_file + run_python + run_pytest
+    部署层 (devops/deployer): 文本层 + deploy_exec（无 write_file、无 run_python）
+    """
     role = (role or "").lower()
+    # 文本层基础工具
     base = ["read_file", "grep", "list_files", "finish"]
-    if role in ("developer", "build_developer", "code_writer", "deploy", "devops",
-                "build_deployer"):
-        base += ["write_file", "patch_file", "run_python"]
-    if role in ("qa", "test", "qa_engineer", "build_tester"):
-        base += ["run_python", "run_pytest"]
+
+    # 评估层：architect（read + eval，不写代码）
     if role in ("architect", "system_architect", "build_architect"):
-        # Architect can read but not write code; still gets python eval for spec checks
         base += ["run_python"]
+
+    # 代码层：developer / tester / qa
+    if role in ("developer", "build_developer", "code_writer",
+                "qa", "test", "qa_engineer", "build_tester"):
+        base += ["write_file", "patch_file", "run_python"]
+        if role in ("qa", "test", "qa_engineer", "build_tester"):
+            base += ["run_pytest"]
+
+    # 部署层：devops / deployer（只读 + deploy_exec，不写代码）
+    if role in ("devops", "deployer", "deploy", "build_deployer"):
+        base += ["deploy_exec"]
 
     return [t for t in TOOL_SCHEMA if t["function"]["name"] in base]

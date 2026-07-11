@@ -10,8 +10,13 @@
 - [2026-07-04] 数字孪生统一办公室里的 Agent 造型必须复用 plaza 的 agent 模型骨架/视觉语言；不要做成黑色圆柱、棋子或“站桩胶囊”。参考 Marvis 办公室时保持极简白空间，但 Agent 本体用 plaza 风格。
 - [2026-07-05] 统一办公室里的猫不是静态摆件；需要有 Agent↔猫互动过程。基础规则：离猫最近的 Agent 会转身面向猫，并通过闪烁/放大的脚下光圈吸引猫。
 - [2026-07-05] 猫「按有效技能数跳到 Agent 桌上」的逻辑用户明确不要，已撤销；不要再加回。猫互动只保留最近 Agent 转身+光圈吸引。
+- [2026-07-11] 用户世界观（物竞天择，最高设计约束）：Agent 不是人类模仿，应有自己的生态/沟通/繁衍/成长方式；以「感知-意图-行为」存在；skill 与协作过程都是被环境选择的可遗传单元（不是 skill 选路径、不是主动换协作方式）；主动学习是盲目的、选择是客观的；生存时长是唯一适应度，禁止人工评分。办公室视图(?office3d=1)=物竞天择试验田：右侧演练菜单整体换成生境控制台，3D 窗口必须始终保留且有内容。
+- [2026-07-11] 演练类页面右侧菜单重构时用户要求「完全与以前不一样」，不接受在旧 SECS 菜单上叠加小块——要整面板替换。
 
 ## Key Learnings
+
+- [2026-07-11] 密钥有两类槽位：全局默认 provider 槽（PUT /llm/provider → secret store __default__，cat-speak/广场/萃取等默认调用读它）与团队模型槽（编辑模型保存 → teams 段）。用户在编辑模型里存 key 不会自动喂饱默认 provider（除非 _sync_default_model_to_harness 同步 api_key——XB-8.2 待验证）。排查"LLM 未连接"先分清调用方读哪个槽。
+- [2026-07-11] 判断线上行为是否为旧代码：先比对后端进程启动时间与相关文件 git 提交时间（XC-6.1 建议在 /health 暴露 git rev）。旧任务的会话 lines 缓存会回放旧引擎日志头，易被误判为"改了没生效"。
 
 - **Project:** agentsgroup2026
 - **Description:** Standalone Agent Management, Evolution & Chat Platform — extracted from PoseidonX
@@ -21,6 +26,13 @@
 - 任务执行三条路径：tool 角色→`_run_tool_loop`；文本角色(_TEXT_ONLY_ROLES)→`_run_openai_compatible`；其余→`_should_use_direct_api` 决定直连 vs 本地 CLI。`_run_openai_compatible` 用 urlparse(base_url) 拼 `{path}/chat/completions`，deepseek/codebuddy 的 base（有无 /v1 均可）兼容。
 
 ## Do-Not-Repeat
+
+- [2026-07-11] 拆分前端模块时（如 tasks-view.js 从 agent-team-config.js 抽出），新文件引用的每个助手函数（hideViewLoading 等）必须确认在 utils.js/全局已定义；且同名函数导出 window 会覆盖旧文件的可用实现——列表『完全空白连占位行都没有』九成是 load 函数首行 ReferenceError（bug-044）。排查先看 console 而不是后端数据。
+
+- [2026-07-11] 加密密钥库(.api_keys.json)必须合并式写入：teams.json 反序列化按设计丢明文 key，任何“按内存全集整体重写”的持久化都会在内存缺 key 的时机把磁盘 key 连锅端（bug-043，症状=重启后密钥全丢要求重输）。删除 key 只能走显式 delete_model_api_key。
+
+- [2026-07-11] 页面新增 right-panel 类面板必须放进布局容器内与既有面板同级（rp-secs depth1）；放在容器闭合标签之后（depth0）时隐藏期无症状、显示后会把 3D 主视图挤出布局（bug-028）。交付前用 div 深度扫描校验。
+- [2026-07-11] CodeBuddy 与 Fable 5 会并行改同一工作树：整文件 Write 重写前先 grep 最新内容确认无并行新增（本次覆盖了 CodeBuddy 的 on_step/cat_commentary/write_lineage，靠 todos 契约才复原）。优先 Edit 局部替换而非 Write 整写。
 
 <!-- Mistakes made and corrected. Each entry prevents the same mistake recurring. -->
 <!-- Format: [YYYY-MM-DD] Description of what went wrong and what to do instead. -->

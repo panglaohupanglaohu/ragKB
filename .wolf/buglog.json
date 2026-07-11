@@ -1,1926 +1,2110 @@
 [
- {
-  "id": "bug-cat-speak-skill-execute-404",
-  "timestamp": "2026-07-07T03:40:00.000000",
-  "error_message": "agent-team-config 点击“猫台词”(cat_speak_prompt)技能执行 → 提示失败，后端 404 Skill '猫台词提示词 (Mei Ling)' not found",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "execute_skill 只用 sr.get_by_slug(skill_name) 在全局技能注册表(_sr)里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
-  "fix": "execute_skill 注册表未命中时回退团队本地技能：_tm().get_team(team_id).skills.get(name) 或按 name/skill_id/slug 匹配。通用修复，任何 team-local 技能都可执行",
-  "tags": [
-   "backend",
-   "skill-execute",
-   "pet-ecosystem",
-   "team-local-skill",
-   "404",
-   "skill-registry"
-  ]
- },
- {
-  "id": "bug-cat-speak-skill-instructions-404",
-  "timestamp": "2026-07-08T00:00:00.000000",
-  "error_message": "agent-team-config 点击“猫发言提示词”技能“获取图标” → 显示“获取失败”，后端 404 /api/v1/agent-config/skills/cat_speak_prompt/instructions Skill not found",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "get_skill_instructions 只用 _sr().get(skill_id) 在全局技能注册表里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
-  "fix": "get_skill_instructions 注册表未命中时回退遍历所有团队本地技能：for team in _tm().list_teams(): skill = team.skills.get(skill_id)。与 execute_skill 的团队本地回退模式一致",
-  "tags": [
-   "backend",
-   "skill-instructions",
-   "pet-ecosystem",
-   "team-local-skill",
-   "404",
-   "skill-registry"
-  ]
- },
- {
-  "id": "bug-pet-seed-not-cross-machine",
-  "timestamp": "2026-07-07T03:35:00.000000",
-  "error_message": "storage/pet_config.json 被 gitignore，拉取覆盖后其它机器缺小虎/吱吱，手补的 seed 不跨机同步",
-  "file": "src/backend/agents/pet_ecosystem.py",
-  "root_cause": "生物数据只来自 gitignored 的 storage/pet_config.json，pet_ecosystem.py 无内置种子；每台机器都要手工补文件",
-  "fix": "加内置常量 _DEFAULT_SEED(小虎 predator + 吱吱 prey，含 Phase A 全字段)；_load() 在文件缺失/损坏/无 pets 时 deepcopy 种子并 _save() 落盘——根治跨机不同步",
-  "tags": [
-   "backend",
-   "pet-ecosystem",
-   "gitignore",
-   "seed-data",
-   "cross-machine"
-  ]
- },
- {
-  "id": "bug-pet-config-missing-after-pull",
-  "timestamp": "2026-07-07T02:45:00.000000",
-  "error_message": "pet-config.html 与 office3d 数字孪生里小虎(猫)、吱吱(鼠)完全不加载；页面底部提示『✅ 配置已加载（0 个生物）』",
-  "file": "storage/pet_config.json",
-  "root_cause": "生物数据全部来自 storage/pet_config.json，pet_ecosystem.py 无内置种子；该文件被 .gitignore 忽略且未纳入 git 跟踪。从 GitHub 拉取覆盖本地时不会带过来，开发机上的该文件是本地生成的，故两机差异表现为一台有小虎/吱吱、另一台 0 生物",
-  "fix": "按 docs/宠物团队生态仿真plan.md 的 Phase A schema 重建 storage/pet_config.json，seed 小虎(role=predator, builtin_cat, xiaohu_cat)与吱吱(role=prey, builtin_mouse, squeak_mouse)，含 perception/mental_state/intention 块；PetEcosystem 为启动单例，需重启后端重新加载",
-  "tags": [
-   "pet-ecosystem",
-   "gitignore",
-   "seed-data",
-   "digital-twin",
-   "storage",
-   "singleton-reload"
-  ]
- },
- {
-  "id": "bug-pet-team-visibility-import",
-  "timestamp": "2026-07-07T02:20:00.000000",
-  "error_message": "启动告警：宠物智能体团队加载失败：cannot import name 'Visibility' from 'agents.team_manager'",
-  "file": "src/backend/main.py",
-  "root_cause": "main.py 里宠物团队引导用 `from agents.team_manager import AgentTeam, Visibility`，但 team_manager 只从 .models re-export AgentProfile/AgentTeam/ModelConfig，未导出 Visibility；Visibility 实际定义在 agents.models",
-  "fix": "改为 `from agents.models import AgentProfile, AgentPersonality, AgentTeam, Visibility`（合并单行导入）。修复后团队数 5→6、agents 34→36，pet_squad 正常加载",
-  "tags": [
-   "backend",
-   "import-error",
-   "pet-ecosystem",
-   "team_manager",
-   "Visibility"
-  ]
- },
- {
-  "id": "bug-plaza-modal-hidden",
-  "timestamp": "2026-06-16T13:30:00.000000",
-  "error_message": "议事广场删除按钮只弹出蒙版看不到确认框；新建广场按钮点击也只显示蒙版无内容",
-  "file": "src/frontend/plaza.html",
-  "root_cause": "commit 8a420c7 给 plaza.html 链入全局 css/components.css，其中 .modal{display:none} 与本页将 .modal 用作弹窗内容面板的写法冲突；本页局部 .modal 规则未设 display，全局 display:none 胜出，导致所有弹窗(删除确认/新建广场/编辑/新建讨论)内容面板被隐藏，仅遮罩 .modal-overlay 可见",
-  "fix": "在 plaza.html 局部 .modal 规则加 display:block 覆盖全局 display:none（单处改动）",
-  "tags": [
-   "frontend",
-   "plaza",
-   "css",
-   "modal",
-   "specificity",
-   "components.css"
-  ]
- },
- {
-  "id": "bug-001",
-  "timestamp": "2026-06-13T05:18:00.922814",
-  "error_message": "E-5 test_full_flow.py 跑出 401 '认证已失效，请重新登录' (Backend not healthy)",
-  "file": "tests/test_full_flow.py",
-  "root_cause": "老 E2E 脚本(5月)裸用 urllib 不带认证；后端现强制 cookie+token，连 /health 都拦，POST 还需 CSRF",
-  "fix": "加 bootstrap_auth(): 注册一次性用户→ag-token cookie 入 jar(GET 凭 cookie)；取 /auth/csrf-token，写操作带 X-CSRF-Token。Bearer/CSRF 中间件确认 cookie+CSRF 组合可通",
-  "tags": [
-   "auth",
-   "csrf",
-   "e2e",
-   "E-5",
-   "401",
-   "test_full_flow"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-13T05:18:00.922814"
- },
- {
-  "id": "bug-002",
-  "timestamp": "2026-06-13T05:40:00.000000",
-  "error_message": "system-evolution 实时更新完全不生效:概览 KPI 永不自动刷新,只能手动刷新",
-  "file": "src/frontend/js/system-evolution.js + src/backend/agent_team_api.py",
-  "root_cause": "两处叠加:1) 后端从未注册 GET /api/v1/agent-teams/evolution/stream,前端 _startSSE 连它必然 404→onerror;2) onerror 的轮询降级条件 if(!_ssePollTimer && _ssePollActive) 中 _ssePollActive 初始 false,只有 _fallbackPoll() 会置 true,而 _fallbackPoll 仅在 EventSource 构造抛异常的 catch 调用,404 走 onerror 不抛异常→降级永不触发",
-  "fix": "前端:onerror 改为 _closeSSE(); _fallbackPoll();(_fallbackPoll 自带 !_ssePollTimer 去重)。后端:新增 GET /evolution/stream,StreamingResponse(text/event-stream),每10s只读 get_evolution_summary() 变化检测推 stats_update,审计轨迹长度变化推 trail_update,带 ping 心跳,不改引擎。node --check + py_compile + vitest(3 passed)通过;真实 SSE 长连接需本机 rtk 验证",
-  "tags": [
-   "sse",
-   "realtime",
-   "system-evolution",
-   "frontend",
-   "fallback-polling",
-   "missing-endpoint"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-13T05:40:00.000000"
- },
- {
-  "id": "bug-003",
-  "timestamp": "2026-06-15T03:45:12.234880",
-  "error_message": "并发任务长期'执行中'不收敛(217总/5running卡死)；任务执行 LLM 写死本地 claude，本地不可达时会话无限挂起",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "_get_deepseek_credentials/_should_use_direct_api/_run_claude_cli_direct 全读 ~/.claude/settings.json + 本地 claude CLI，忽略系统'模型与连接页'配置的 ChatHarness provider(model_pool)",
-  "fix": "新增 _harness_provider_credentials() 读 get_chat_harness().get_provider_config()；_get_deepseek_credentials 改为优先 harness 配置再回退本地；_should_use_direct_api 在配置 provider 非 anthropic 时直连绕开本地 CLI",
-  "tags": [
-   "task-execution",
-   "llm-config",
-   "stuck",
-   "claude-cli",
-   "chat_harness",
-   "model_pool",
-   "T4"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-15T03:45:12.234880"
- },
- {
-  "id": "bug-009",
-  "timestamp": "2026-06-15T15:58:00.000000",
-  "error_message": "skill-extract 批准入库点击无反应：选了特质/公有/储备、保存了编辑，仍不能入库",
-  "file": "src/frontend/js/skill-extract.js",
-  "root_cause": "登录会话过期，approve 接口返回 401（控制台 'API 401 ... 认证已失效，请重新登录'）。approveAs 的 `if (!r) return;` 在 api() 失败时静默返回，用户看不到原因，表现为按钮点了没反应、入库不了",
-  "fix": "approveAs 在 r 为空时不再静默：弹红色 toast '批准入库失败，请重新登录后再试' + addMessage 给出完整出路（登出重登→回到技能点击批准）。浏览器验证：重登后用有效会话+CSRF 调 approve，HTTP200，item 'IaC管理下的Auto Scaling组配置' 从 ready_for_review→approved",
-  "tags": [
-   "auth",
-   "401",
-   "csrf",
-   "skill-extract",
-   "approve",
-   "silent-failure",
-   "ux"
-  ],
-  "related_bugs": [
-   "bug-001"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-15T15:58:00.000000"
- },
- {
-  "id": "bug-010",
-  "timestamp": "2026-06-16T06:28:00.000000",
-  "error_message": "技能演化/验证/效果改进建议偶发报错: 当前 LLM 未连接 (Authentication Fails, api key: ****TAzS is invalid)",
-  "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py, src/backend/agents/skill_evolver.py, src/backend/agents/skill_verifier.py",
-  "root_cause": "skill-library/evolve 与 verify 走全局 ChatHarness 默认模型，启动时可能指向其他团队默认模型(ai_coding/qwen3)，未按当前 team_id 使用团队默认 CodeBuddy 模型；同时 api_base_url 允许带前导空格，增加配置不一致风险。",
-  "fix": "新增 _resolve_team_provider_config(team_id) 并将 ProviderConfig 注入 skill_evolver/skill_verifier 的 chat 调用(config_override)，确保按团队默认模型路由；在 add/update/load/resolve_base_url 统一 strip api_base_url 前导空格。",
-  "tags": [
-   "llm-routing",
-   "team-default-model",
-   "skill-evolve",
-   "skill-verify",
-   "codebuddy",
-   "api-base-url"
-  ],
-  "related_bugs": [
-   "bug-003"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T06:28:00.000000"
- },
- {
-  "id": "bug-011",
-  "timestamp": "2026-06-16T06:28:00.000000",
-  "error_message": "版本页点击创建新版本经常失败（依赖 LLM 状态）",
-  "file": "src/frontend/js/skill-extract.js",
-  "root_cause": "confirmNewVersion 误将“创建版本快照”实现为先调用 /skill-library/evolve 再 apply-evolution，导致创建版本与 LLM 可用性耦合。",
-  "fix": "confirmNewVersion 改为直接调用 /skill-library/version/snapshot，不再依赖 LLM；同时保留刷新版本时间线与技能列表。",
-  "tags": [
-   "skill-version",
-   "snapshot",
-   "frontend",
-   "llm-coupling"
-  ],
-  "related_bugs": [
-   "bug-010"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T06:28:00.000000"
- },
- {
-  "id": "bug-012",
-  "timestamp": "2026-06-16T16:32:00.000000",
-  "error_message": "plaza 页面控制台报 CSP 拦截 sourcemap + Three.js 废弃警告(Clock/PCFSoftShadowMap)",
-  "file": "src/frontend/plaza.html, src/frontend/js/plaza.js",
-  "root_cause": "plaza.html 的 connect-src 未允许 ga.jspm.io，DevTools 拉取 es-module-shims.js.map 被 CSP 拦截；plaza.js 仍使用 THREE.Clock 与 THREE.PCFSoftShadowMap，升级到 three@0.174 后触发 deprecation 警告。",
-  "fix": "CSP connect-src 增加 https://ga.jspm.io；渲染循环改为 performance.now() 计时替代 THREE.Clock；shadowMap.type 改用 THREE.PCFShadowMap。vitest(plaza) 2 文件 10 用例通过，node --check 通过。",
-  "tags": [
-   "plaza",
-   "csp",
-   "sourcemap",
-   "threejs",
-   "deprecation",
-   "frontend"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T16:32:00.000000"
- },
- {
-  "id": "bug-013",
-  "timestamp": "2026-06-16T17:18:00.000000",
-  "error_message": "点击议事广场删除叉后出现灰屏，控制台报 data:audio/wav 被 CSP 拦截",
-  "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
-  "root_cause": "删除点击时触发首个用户手势，执行 unlockAudio 中 new Audio(data:audio/wav...) 解锁逻辑；页面 CSP 未声明 media-src，默认落到 default-src 'self' 导致报错。同时确认弹层依赖动态创建，遮罩关闭守卫对 overlay 关闭目标处理不稳，表现为灰屏体感。",
-  "fix": "移除 unlockAudio 的 data:audio 播放，仅保留 AudioContext 解锁；CSP 增加 media-src 'self' data: blob:；补充静态 m-confirm 弹层并修正 overlay 关闭守卫优先按 overlay.id 关闭。plaza vitest 10/10 + node --check 通过。",
-  "tags": [
-   "plaza",
-   "delete",
-   "modal",
-   "csp",
-   "media-src",
-   "tts"
-  ],
-  "related_bugs": [
-   "bug-012"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T17:18:00.000000"
- },
- {
-  "id": "bug-014",
-  "timestamp": "2026-06-16T18:51:00.000000",
-  "error_message": "Agent-digital-twin.html 运行时状态一直显示'连接中...'，页面像一直在转圈",
-  "file": "src/frontend/js/digital-twin/secs-core.js",
-  "root_cause": "SECS 运行时面板只在 window.load 后才首次调用 loadRuntimeStatus()；若页面资源较慢或 load 事件被延后，右侧状态会永久停留在初始 connecting。且 runtime-status 使用裸 fetch 无超时，接口挂起时也会无限保持 spinner。",
-  "fix": "新增 _fetchWithTimeout() 给 /runtime-status 4s 超时；新增 _bootstrapRuntimePanel() 在 DOMContentLoaded 即启动 runtime/stats/history 拉取，并保留 load 时二次刷新。node --check + 4 个 digital-twin vitest 文件 10 用例通过。",
-  "tags": [
-   "digital-twin",
-   "secs",
-   "runtime-status",
-   "spinner",
-   "bootstrap",
-   "frontend"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T18:51:00.000000"
- },
- {
-  "id": "bug-015",
-  "timestamp": "2026-06-16T18:52:00.000000",
-  "error_message": "Agent-digital-twin.html 加载 lucide.min.css 失败，浏览器报 stylesheet URL 无法加载",
-  "file": "src/frontend/Agent-digital-twin.html",
-  "root_cause": "页面引用 `https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css`，该 URL 当前返回 404；同时页面内并无任何 lucide class 使用，属于失效且未使用的外部依赖。",
-  "fix": "删除 Agent-digital-twin.html 中无效的 lucide stylesheet 引用。`rg` 确认页面和相关脚本无 lucide 残留；digital-twin 4 个 vitest 文件 10 用例通过。",
-  "tags": [
-   "digital-twin",
-   "stylesheet",
-   "cdn",
-   "404",
-   "unused-dependency",
-   "frontend"
-  ],
-  "related_bugs": [
-   "bug-014"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-16T18:52:00.000000"
- },
- {
-  "id": "bug-016",
-  "timestamp": "2026-06-17T00:00:00.000000",
-  "error_message": "agent-team-config 模型与连接页点击编辑按钮不弹窗（仅遮罩出现，内容面板不可见 / 弹窗透明 / 位置错钉左上角）",
-  "file": "src/frontend/agent-team-config.html",
-  "root_cause": "根因来自 UI美化todos.md A1+A6 任务的回归(commit 8a420c7): A1「合并共享CSS三层」时把 ws-theme-bridge.css 归档，只搬了 4 套 [data-obc-theme] 主题令牌进 theme.css，漏搬了文件末尾整段 --ws-* 辅助色系(--ws-panel-bg/--ws-border-light/--ws-hover-bg/--ws-active-bg 等，注释明写 used by agent-team-config)；A6 又在 agent-team-config.html 删掉 ws-theme-bridge.css 的 <link> 并加入 components.css。后果叠加: (1) --ws-* 整层失效→弹窗/toast/卡片背景透明无边框; (2) components.css 的 .modal{display:none;position:fixed;inset:0} 污染本页用作内容面板的 .modal(本页局部 .modal 未声明 display/position)→面板被隐藏且钉死左上角。浏览器复现确认 overlayDisplay=flex 但 panelDisplay=none、bg=rgba(0,0,0,0)。审计: 全工程仅 agent-team-config.css 消费 --ws-*(64处)，影响面只此一页。最初误诊为 model_id 编码问题在 js 加 encode/decode，无效已 git checkout 还原。",
-  "fix": "两处: (1) src/frontend/agent-team-config.html 在 components.css 之后、agent-team-config.css 之前恢复 <link rel=stylesheet href=/css/ws-theme-bridge.css>，补回 --ws-* 辅助色系(theme.css 已接管主题令牌，此处只补 --ws-*，同值重复不改外观)。(2) src/frontend/css/agent-team-config.css 局部 .modal 加 display:block;position:relative;inset:auto 覆盖 components.css 的全局污染。验证: --ws-panel-bg=#21272D、面板 bg=rgb(33,39,45) 实色有边框、position=relative、居中(centeredX/Y true)、编辑弹窗完整渲染。",
-  "tags": [
-   "frontend",
-   "agent-team-config",
-   "modal",
-   "css-cascade",
-   "ws-theme-bridge",
-   "components-css-pollution",
-   "ui美化todos-A1-regression"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T00:00:00.000000"
- },
- {
-  "id": "bug-017",
-  "timestamp": "2026-06-17T00:00:00.000000",
-  "error_message": "新建智能体向导第2步『专长领域』点击『+ 添加』报错: ReferenceError: addExp is not defined",
-  "file": "src/frontend/js/wizard.js",
-  "root_cause": "wizard.js 使用 IIFE 封装并启用 strict mode，模板里仍用内联 onclick(如 addExp()/addPerm()/rmPerm()/togWzChan()/wzFinish())。函数本体存在，但底部 window 导出列表缺少这些函数，导致点击时在全局作用域找不到 addExp，抛出 ReferenceError。",
-  "fix": "补齐 wizard.js 底部全局导出: window.addExp / window.addPerm / window.rmPerm / window.togWzChan / window.wzFinish（并保留原有导出）。浏览器验证: typeof window.addExp==='function'，执行 addExp 后专长 chip 可正常新增。",
-  "tags": [
-   "frontend",
-   "agent-team-config",
-   "wizard",
-   "onclick",
-   "iife",
-   "global-export"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T00:00:00.000000"
- },
- {
-  "id": "bug-018",
-  "timestamp": "2026-06-17T18:25:00.000000",
-  "error_message": "AWS 运维团队智能体详情会话聊天返回兜底文案‘当前 LLM 未连接 (11133 Invalid request parameters)’，导致无法获得真实 LLM 回答",
-  "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py",
-  "root_cause": "CodeBuddy 会话路径与测试路径参数兼容性不一致：会话聊天会注入工具 schema / 较复杂系统提示词，在 CodeBuddy 严格参数校验下触发 11133；同时原实现遇到 11133 不做降级重试，直接进入 fallback 文案。",
-  "fix": "会话生成路径对 CodeBuddy 做兼容：1) api.py 在 _generate_agent_response 中识别 CodeBuddy 默认模型并跳过 tools schema 注入；2) chat_harness.py 在 LLMClient.chat_completion 中对 CodeBuddy 的 11133 增加参数降级重试（先最小非流式，再仅最后一条用户消息）；3) 保持前端会话创建 payload 合法。浏览器实测 POST /sessions/{sid}/messages 后 assistant 返回真实模型文本‘连接正常’，不再 fallback。",
-  "tags": [
-   "backend",
-   "chat-harness",
-   "codebuddy",
-   "llm",
-   "fallback",
-   "11133",
-   "compatibility"
-  ],
-  "related_bugs": [
-   "bug-010"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T18:25:00.000000"
- },
- {
-  "id": "bug-019",
-  "timestamp": "2026-06-17T19:05:00.000000",
-  "error_message": "智能体详情技能页缺少删除入口：部分行仅显示“绑定”，无法直接删除技能",
-  "file": "src/frontend/js/agent-detail.js",
-  "root_cause": "ag-skills 的 renderSkillRow 将删除按钮放在 isBound 条件分支内，导致未绑定技能行不渲染删除操作；页面表现为只有“绑定”而无“删除”。",
-  "fix": "将 deleteSkillWithContext 删除按钮改为技能行通用操作（绑定/未绑定都显示），仅绑定状态按钮继续按 isBound 切换为“解绑”或“绑定”。",
-  "tags": [
-   "frontend",
-   "agent-detail",
-   "skills",
-   "delete",
-   "binding",
-   "ui-regression"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T19:05:00.000000"
- },
- {
-  "id": "bug-020",
-  "timestamp": "2026-06-17T19:22:00.000000",
-  "error_message": "智能体详情技能页点击删除不生效（按钮可见但接口未正确命中）",
-  "file": "src/frontend/js/agent-detail.js",
-  "root_cause": "删除按钮 inline onclick 使用 escapeHtml(skill_id) 直接传参，包含特殊字符时被 HTML 实体化（如 & -> &amp;），deleteSkillWithContext 拿到的不是原始 skill_id，导致 DELETE /teams/{tid}/skills/{skill_id} 命中失败。",
-  "fix": "将 skill_id/skill_name/sourceId 改为 encodeURIComponent 传参，在 deleteSkillWithContext 内 decodeURIComponent 还原；DELETE 路径段使用 encodeURIComponent(rawSkillId) 发送。",
-  "tags": [
-   "frontend",
-   "agent-detail",
-   "skills",
-   "delete",
-   "encoding",
-   "onclick"
-  ],
-  "related_bugs": [
-   "bug-019"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T19:22:00.000000"
- },
- {
-  "id": "bug-021",
-  "timestamp": "2026-06-17T23:10:00.000000",
-  "error_message": "议事广场页底部「+ 新建广场」和「开始」按钮不可见（以前修过又复现），疑似前端优化导致",
-  "file": "src/frontend/plaza.html",
-  "root_cause": "UI美化(commit 8a420c7)把页面顶栏换成共享组件 .topbar-ws，其 position:relative 处于普通流并占据 56px 高度；但 .layout 仍保留为固定顶栏设计的 margin-top:56px，且同时有 height:calc(100vh - 56px)。二者叠加使内容总高 = 56(顶栏) + 56(margin) + (100vh-56) = 100vh + 56，整体溢出视口 56px，正好把底部的 .btn-new 与 .ctrl-bar(含 #btn-start) 挤出视口下方。浏览器实测: innerHeight=561，.btn-new top=575/bottom=609 inView=false，#btn-start top=578 inView=false，.left/.right bottom=617。",
-  "fix": "删除 src/frontend/plaza.html 中 .layout 的 margin-top:56px（顶栏已是普通流自然占位，height:calc(100vh-56px) 已为其预留高度），并加注释说明不可再加 margin-top。浏览器重载实测: .btn-new top=519/bottom=553 inView=true、#btn-start top=522 inView=true、.left/.right=56→561 正好填满视口，截图确认两按钮可见。",
-  "tags": [
-   "frontend",
-   "plaza",
-   "layout",
-   "topbar-ws",
-   "viewport-overflow",
-   "ui美化-regression",
-   "css"
-  ],
-  "related_bugs": [
-   "bug-016"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T23:10:00.000000"
- },
- {
-  "id": "bug-022",
-  "timestamp": "2026-06-17T23:58:00.000000",
-  "error_message": "plaza 页面持续刷 API 404: /api/v1/agent-config/plaza/escalations?plaza_id=3c1394b23b1b&discussion_id=c7b791abb040（广场不存在）",
-  "file": "src/frontend/js/plaza.js",
-  "root_cause": "讨论信号刷新路径会多处触发 refreshEscalationState（含并发触发）；当后端对某讨论上下文返回 404 '广场不存在' 时，前端没有熔断与并发去重，导致同一上下文反复请求并持续产生控制台告警噪音。另有深链/本地缓存上下文选择路径，需在前端做上下文自愈与失效容错，避免旧上下文污染后续请求。",
-  "fix": "在 plaza.js 增加升级项拉取防护：1) 讨论维度熔断集合 escalationFetchBlocked，遇到 404(广场不存在/讨论不存在)后停止该讨论后续 escalations 拉取；2) 并发去重集合 escalationFetchInFlight，确保同一讨论同一时刻最多 1 个 escalations 请求；3) refreshEscalationState 增加上下文自愈（从 DOM/localStorage 回补 plaza/discussion id）与已知广场校验；4) init 深链优先级修正，仅当 deepLink plaza 与选中 plaza 一致时才采用 deepLink discussion。浏览器实测：并发 3 次 refreshEscalationState 仅发 1 次 escalations 请求，不再出现 2~3 秒持续刷 404。",
-  "tags": [
-   "frontend",
-   "plaza",
-   "escalations",
-   "404",
-   "circuit-breaker",
-   "dedupe",
-   "deep-link"
-  ],
-  "related_bugs": [
-   "bug-021"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-17T23:58:00.000000"
- },
- {
-  "id": "bug-023",
-  "timestamp": "2026-06-18T00:20:00.000000",
-  "error_message": "议事广场执行计划 ASSIGN 下拉选择 Build System 后会自动跳回 AI 编程团队，表现为“选不中”",
-  "file": "src/frontend/js/plaza.js",
-  "root_cause": "renderPlanCard 每次重渲染计划卡片都会重建 `<select id=assign-team>`，但选项未按当前选择或上下文做 selected 回填，导致 DOM 替换后默认落到第一个 option（ai_coding）。用户手动选择成功后，在下一次重渲染时被静默重置，体感为无法选中 Build System。",
-  "fix": "renderPlanCard 增加选择保留逻辑：渲染前读取旧节点值 `previousTeam`，回退到 `AGCtx.get('team')`；生成 option 时对 `preferredTeam` 打 selected，并在 innerHTML 后再次防御性赋值 `assign-team.value = preferredTeam`。浏览器实测：选择 build_system 后等待 6 秒经历重渲染（节点已替换）仍保持 build_system，不再回退。",
-  "tags": [
-   "frontend",
-   "plaza",
-   "assign-team",
-   "select",
-   "rerender",
-   "state-preservation"
-  ],
-  "related_bugs": [
-   "bug-022"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T00:20:00.000000"
- },
- {
-  "id": "bug-024",
-  "timestamp": "2026-06-18T00:45:00.000000",
-  "error_message": "任务流水线部署步骤（deployer）被 QA Gate 误阻断，最终报 pipeline halted: rewind cap (2) exhausted",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "Deploy QA Gate 同时读取结构化 test summary 与 test markdown 文本。即使 test_step._summary.verdict 已是 PASS，仍继续做 markdown 正则扫描（匹配 FAIL/BLOCKER 关键字），导致被历史文本/上下文中的 FAIL 字样误判，错误阻断 deploy；反复回滚后触发 rewind cap exhausted。",
-  "fix": "在 deploy QA Gate 逻辑中优先信任结构化 verdict：若 verdict=PASS/PASSED/OK/SUCCESS，跳过 markdown 正则兜底扫描；仅在 verdict 缺失/未知时才回退到 markdown 文本规则。保持 test step status=failed 与 verdict=FAIL/BLOCKER 的阻断不变。py_compile 与 get_errors 均通过。",
-  "tags": [
-   "backend",
-   "workflow",
-   "deploy",
-   "qa-gate",
-   "false-positive",
-   "rewind-cap",
-   "build-system"
-  ],
-  "related_bugs": [
-   "bug-023"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T00:45:00.000000"
- },
- {
-  "id": "bug-025",
-  "timestamp": "2026-06-18T01:25:00.000000",
-  "error_message": "删除任务时报 DELETE /api/v1/agent-config/teams/build_system/tasks/<task_id>/remove 404 (Task not found)",
-  "file": "src/frontend/js/tasks-view.js, src/backend/agents/api.py",
-  "root_cause": "前端任务列表存在历史/陈旧 task_id 时，调用 remove 接口会返回 Task not found；此前前端把该 404 当失败提示并记录警告日志，造成“删除不 work”的误导。",
-  "fix": "前端 tasks-view 删除与批量清理路径改为幂等处理：当 remove 返回 404 且 detail=Task not found 时视为已删除成功；同时后端 remove_task 路由改为幂等（缺失任务返回 already_absent），服务重载后可消除该 404。",
-  "tags": [
-   "frontend",
-   "backend",
-   "tasks",
-   "delete",
-   "idempotent",
-   "404",
-   "stale-id"
-  ],
-  "related_bugs": [
-   "bug-024"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T01:25:00.000000"
- },
- {
-  "id": "bug-026",
-  "timestamp": "2026-06-18T02:10:00.000000",
-  "error_message": "讨论结束后未看到萃取/网页等按钮，结束态操作入口缺失",
-  "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
-  "root_cause": "结束态讨论卡片将长标题与多个操作按钮渲染在同一行，标题过长导致按钮区域被挤压/折叠，体感为按钮消失。",
-  "fix": "`renderDiscList` 将 closed 状态按钮抽到独立 `.disc-actions` 行；样式层增加 `.disc-actions` 换行布局与 `.disc-act` nowrap，并让标题 `.tp` 支持 `min-width:0` 与 `word-break`，确保长标题不再吞掉按钮。",
-  "tags": [
-   "frontend",
-   "plaza",
-   "discussion",
-   "closed-state",
-   "buttons",
-   "layout"
-  ],
-  "related_bugs": [
-   "bug-021",
-   "bug-023"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T02:10:00.000000"
- },
- {
-  "id": "bug-027",
-  "timestamp": "2026-06-18T02:25:00.000000",
-  "error_message": "控制台持续出现 escalations 接口 404（广场不存在）提示，影响广场页面可读性",
-  "file": "src/frontend/js/plaza.js",
-  "root_cause": "refreshEscalationState 使用全局 api() 包装器请求 escalations；当后端返回已知无害 404（广场/讨论上下文失效）时，api.js 会先统一 console.warn 输出，导致即使业务层已熔断仍产生噪音提示。",
-  "fix": "将 escalations 拉取改为 scoped fetch + 本地状态处理：对 404(广场不存在/讨论不存在)直接熔断并静默返回，不再触发全局 API warn；其他状态按需 toast。",
-  "tags": [
-   "frontend",
-   "plaza",
-   "escalations",
-   "404",
-   "logging",
-   "noise-reduction"
-  ],
-  "related_bugs": [
-   "bug-022"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T02:25:00.000000"
- },
- {
-  "id": "bug-028",
-  "timestamp": "2026-06-18T16:20:00.000000",
-  "error_message": "技能萃取在不同讨论议题下误报“该文本已萃取过”，并重复返回同一技能候选",
-  "file": "src/backend/agents/skill_extractor.py, src/backend/agents/api.py, src/frontend/js/skill-extract.js",
-  "root_cause": "去重逻辑仅比较 source_text 前 2000 字符，且未携带 source_plaza_id/source_discussion_id/source_output_id 上下文；当不同讨论文本前缀相同或长文本前 2000 字重合时被误判为同源，直接返回旧队列项，前端看到跨议题重复技能。",
-  "fix": "将去重改为“全文 SHA-256 + 来源签名”策略：优先用 source_meta( plaza/discussion/output )比对，同步比对全文哈希；缺少来源签名时退化为同 type+title+全文哈希。API start 路由支持 source_meta 透传，前端 skill-extract 在 Plaza 跳转萃取时携带 source_meta。",
-  "tags": [
-   "frontend",
-   "backend",
-   "skill-extract",
-   "dedup",
-   "discussion-id",
-   "plaza",
-   "false-positive"
-  ],
-  "related_bugs": [
-   "bug-009"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T16:20:00.000000"
- },
- {
-  "id": "bug-029",
-  "timestamp": "2026-06-18T16:40:00.000000",
-  "error_message": "技能审核队列中手动删除后，从议事厅再次点击萃取会把同来源候选重新生成（技能‘复活’）",
-  "file": "src/backend/agents/skill_extractor.py",
-  "root_cause": "delete_item 仅删除队列项，没有保存‘已删除来源’状态；start_extraction 不知道该来源曾被人工删除，因此同来源再次触发时会重新入队生成。",
-  "fix": "增加 deleted source tombstone 机制：按 source_key(source_type/plaza/discussion/output)+全文sha256 生成来源指纹；delete_item 时写入墓碑并持久化；start_extraction 命中墓碑则返回 dedup_skipped/REJECTED，不再自动入队复活。",
-  "tags": [
-   "backend",
-   "skill-extract",
-   "delete",
-   "tombstone",
-   "dedup",
-   "queue"
-  ],
-  "related_bugs": [
-   "bug-028"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T16:40:00.000000"
- },
- {
-  "id": "bug-030",
-  "timestamp": "2026-06-18T17:05:00.000000",
-  "error_message": "不同议题点击萃取仍出现同一批技能候选（看起来像萃取到了其他议题）",
-  "file": "src/backend/agents/skill_extractor.py",
-  "root_cause": "LLM 不可用/解析失败时，_fallback_skill_specs 使用固定写死模板（ES容量、Terraform、成本治理等），导致任何议题都会产出相同候选名称，用户感知为‘还是其他议题的’。",
-  "fix": "将 fallback 候选改为 topic-aware：基于 source_title + source_text 提取关键词，动态生成需求拆解/实施路径/验收闭环三类技能，不再输出固定跨议题模板。",
-  "tags": [
-   "backend",
-   "skill-extract",
-   "fallback",
-   "llm-unavailable",
-   "topic-aware",
-   "ux"
-  ],
-  "related_bugs": [
-   "bug-028",
-   "bug-029"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T17:05:00.000000"
- },
- {
-  "id": "bug-031",
-  "timestamp": "2026-06-18T17:25:00.000000",
-  "error_message": "从议事厅跳转萃取后，右侧审核队列仍混入历史旧议题候选，用户误以为‘又萃取成其他议题’",
-  "file": "src/frontend/js/skill-extract.js",
-  "root_cause": "队列渲染默认展示团队全部历史项；历史项大量缺失 source_meta，且名称与当前议题不一致，视觉上像当前萃取结果被污染。",
-  "fix": "新增来源作用域过滤：当存在 currentExtractSourceMeta(plaza/discussion/output) 时，renderQueue 仅显示匹配 source_meta 的项目；空列表文案改为‘当前讨论来源暂无…’。",
-  "tags": [
-   "frontend",
-   "skill-extract",
-   "queue",
-   "source-scope",
-   "ux"
-  ],
-  "related_bugs": [
-   "bug-028",
-   "bug-029",
-   "bug-030"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T17:25:00.000000"
- },
- {
-  "id": "bug-032",
-  "timestamp": "2026-06-18T07:55:31.000000",
-  "error_message": "技能详情弹窗“效果”页部分按钮在中等宽度下不显示（展示对比/刷新及快捷按钮被裁切）",
-  "file": "src/frontend/skill-extract.html, src/frontend/css/skill-extract.css",
-  "root_cause": "按钮本身存在且 JS 未隐藏，但详情弹窗 tab 条和 usage 头部动作区使用单行 flex，空间不足时发生裁切/挤压，导致用户看到‘按钮没展示出来’。",
-  "fix": "给相关区域加稳定 class 并补响应式规则：modal tab 条允许 wrap + 横向滚动，usage 头部与快捷按钮区允许换行，在 <=960px 时动作区占满并左对齐，保证按钮始终可见。",
-  "tags": [
-   "frontend",
-   "skill-extract",
-   "modal",
-   "css",
-   "responsive",
-   "button-visibility"
-  ],
-  "related_bugs": [
-   "bug-031"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T07:55:31.000000"
- },
- {
-  "id": "bug-033",
-  "timestamp": "2026-06-18T08:30:00.000000",
-  "error_message": "智能体技能页点击「解绑」提示「绑定失败 HTTP 404」；点击「绑定」提示「被门禁拦截」",
-  "file": "src/frontend/js/agent-detail.js",
-  "root_cause": "togAgentSkill 所有错误分支都写死'绑定失败'，解绑操作也用同一文案；409 分支硬写'被门禁拦截/技能未通过验证'，但 PUT /agents/{id}/skills 后端没有 gate check，该文案完全误导用户。另外 URL 中 aid 未做 encodeURIComponent，agent_id 含特殊字符时导致 404。",
-  "fix": "1) 引入 action 变量（bind?'绑定':'解绑'），所有 toast 使用 action 变量；2) 合并 4xx/5xx 到统一错误分支，读取 body.detail 显示真实后端错误，不再特判 409 为'门禁'；3) URL 中 aid 改为 encodeURIComponent(aid) 防止特殊字符 404。",
-  "tags": [
-   "frontend",
-   "agent-detail",
-   "skill-bind",
-   "toast-message",
-   "url-encoding"
-  ],
-  "related_bugs": [
-   "bug-017"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-18T08:30:00.000000"
- },
- {
-  "id": "bug-034",
-  "timestamp": "2026-06-19T15:55:00.000000",
-  "error_message": "编辑模型 API Key 留空不修改：测试连接成功并保存后，重新登录系统再点「测试连接」又失败，需重新输入 key",
-  "file": "src/backend/agents/api.py / src/frontend/js/agent-team-config.js",
-  "root_cause": "并非持久化失败——key 已加密存于 config/.api_keys.json（master key 稳定）。真因：POST /llm/test-model 的 TestModelRequest 不含 team_id/model_id，test_model_config 直接用 req.api_key 且无回退。重新登录后编辑框按「留空不修改」把 key 字段置空，测试连接发出空 key → ChatHarness 无密钥 → 测试失败；因失败而不触发自动保存，用户误以为 key 丢失。保存修改(PUT)本身正常(L494 handler 调 _save_model_pool，blank key 经 `if req.api_key` 跳过覆盖，不会损坏已存 key)。",
-  "fix": "1) TestModelRequest 增加 team_id/model_id 字段；2) test_model_config 在 api_key 留空时回退到 _team_manager.get_team(team_id).get_model(model_id).api_key（base_url/name/provider 同样留空回退）；3) 前端 testModelInEdit 的请求体补 team_id:tid。这样重新登录后留空测试连接会用已保存密钥，成功且不需重输。",
-  "tags": [
-   "backend",
-   "frontend",
-   "llm-test-model",
-   "api-key",
-   "secret-store",
-   "fallback",
-   "model-pool"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-19T15:55:00.000000"
- },
- {
-  "id": "bug-035",
-  "timestamp": "2026-06-20T00:00:00.000000",
-  "error_message": "成本页「运行棘轮周期 / 仅审查」按钮点击无任何反应",
-  "file": "src/frontend/js/system-evolution.js / src/frontend/cost-dashboard.html",
-  "root_cause": "RatchetAnimator 在 system-evolution.js 中是顶层 const；顶层 const 创建全局词法绑定但不会成为 window 的属性。cost-dashboard.html 的 runCycleOnRatchet/runAuditOnly 用 `if(!window.RatchetAnimator) return;` 守卫，window.RatchetAnimator 恒为 undefined → 静默 return，点击无反应。",
-  "fix": "system-evolution.js 在 RatchetAnimator 定义后追加 `if(typeof window!=='undefined') window.RatchetAnimator = RatchetAnimator;` 显式导出到 window。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "ratchet",
-   "window-export",
-   "const-scope",
-   "silent-noop"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T00:00:00.000000"
- },
- {
-  "id": "bug-036",
-  "timestamp": "2026-06-20T01:00:00.000000",
-  "error_message": "成本页运行棘轮周期：当 Top 团队是「(未归因)」(空 team_id) 时，POST /cost/tokens/ratchet/advance 带 team_id='' → 后端 400 → 点击仍无反应",
-  "file": "src/frontend/cost-dashboard.html / src/frontend/js/cost-dashboard.js",
-  "root_cause": "by_team 首位常是空 team_id（历史/未归因调用聚合），breakdown 渲染为「(未归因)」。renderGovernance 用 breakdown[0] 作 governanceTarget、棘轮用 tokenByTeam[0].team_id，都会取到空 team_id；advance 端点对空 team_id 返回 400，前端不提示 → 表现为静默失败。",
-  "fix": "治理/棘轮目标改为取首个『已归因』团队（key 非空且非 (未归因)）；renderGovernance 仅在已归因时设 governanceTarget；棘轮 onClick 用 tokenByTeam.find 跳过空 team_id，全无归因时显示「无可锁定目标，请让调用带上 team_id」提示而非静默。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "ratchet",
-   "attribution",
-   "governance",
-   "empty-team-id"
-  ],
-  "related_bugs": [
-   "bug-035"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T01:00:00.000000"
- },
- {
-  "id": "bug-037",
-  "timestamp": "2026-06-20T01:05:00.000000",
-  "error_message": "Token 归因严重缺失：usage_log 中 phase=task 的 45M+ token 全部 team_id=''（未归因），效率视角/by-team/两杠杆被「(未归因)」主导",
-  "file": "src/backend/agents/api.py::_generate_agent_response",
-  "root_cause": "token_scope 仅覆盖 extract/skill_verify/drill；任务执行主路径 _generate_agent_response 已接收 team_id 却未传入 harness.chat，也未包 token_scope，导致所有任务/对话 token 落到空 team_id。record_usage 用 team_id or ctx，两者皆空 → 未归因。",
-  "fix": "_generate_agent_response 的两处 harness.chat 调用补 team_id=team_id（chat() 该参数直达 record_usage）。两个调用方(1694/1839)均已传 team_id。phase 保持 task（任务执行语义正确）。后续新调用即按团队归因，效率/两杠杆/棘轮目标不再被未归因主导。",
-  "tags": [
-   "backend",
-   "attribution",
-   "token-scope",
-   "record-usage",
-   "north-star",
-   "efficiency"
-  ],
-  "related_bugs": [
-   "bug-036"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T01:05:00.000000"
- },
- {
-  "id": "bug-038",
-  "timestamp": "2026-06-20T02:30:00.000000",
-  "error_message": "编辑模型测试连接仍 401：留空字段测试时密钥未送达；用户要求一个勾选框把 key 保存到浏览器",
-  "file": "src/frontend/agent-team-config.html / src/frontend/js/agent-team-config.js",
-  "root_cause": "服务端 key 已加密存储且(上次)加了留空回退，但需重启后端才生效；用户重新登录后字段留空、后端未重启→测试发空 key→上游 401。缺少客户端可控的密钥持久化。",
-  "fix": "编辑模型弹窗加「💾 记住密钥」勾选框；localStorage 按 team+model 存取：openEditModel 自动回填并勾选；test/save 用 _effectiveKey(输入框→记住的key)发请求；勾选则写入、取消则清除。即使后端未重启，首次填入并记住后字段自动填充，测试/保存始终带真实 key。",
-  "tags": [
-   "frontend",
-   "agent-team-config",
-   "api-key",
-   "localStorage",
-   "remember-key",
-   "test-connection"
-  ],
-  "related_bugs": [
-   "bug-034"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T02:30:00.000000"
- },
- {
-  "id": "bug-039",
-  "timestamp": "2026-06-20T02:35:00.000000",
-  "error_message": "效率视角全 0、棘轮 no_efficiency、目标 0% 且无推进引导",
-  "file": "src/frontend/js/cost-dashboard.js / src/frontend/cost-dashboard.html",
-  "root_cause": "token_efficiency=score/(tokens/1k)，score 来自数字孪生评分试炼；无任何团队跑过评分试炼→score=0→效率全 0→棘轮 advance 返回 no_efficiency→目标无法推进。UI 未告知用户必须先跑评分试炼，缺动作入口。",
-  "fix": "效率视角 token_only/no_data 行的提示改为可点链接→/Agent-digital-twin.html?team=；目标卡按 metric/杠杆加『如何推进』引导(评分试炼/技能萃取/议事广场)并附链接；棘轮 no_efficiency 时显示明确原因+去数字孪生评分链接。把死循环变成有引导的可执行闭环。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "efficiency",
-   "ratchet",
-   "guidance",
-   "north-star",
-   "drill-score"
-  ],
-  "related_bugs": [
-   "bug-036",
-   "bug-037"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T02:35:00.000000"
- },
- {
-  "id": "bug-040",
-  "timestamp": "2026-06-20T03:30:00.000000",
-  "error_message": "成本页『创建 Plaza 话题』后，plaza 页面看不到该话题",
-  "file": "src/frontend/js/cost-dashboard.js::createPlazaTopic",
-  "root_cause": "话题创建在专用『成本治理议事厅』(ensureCostPlaza 找/建的厅)，但结果链接是裸 /plaza.html，plaza.html 默认打开第一个/别的厅，所以看不到刚建的话题。话题其实已创建成功(discussion.id 返回)。plaza.html 本身支持 ?plaza_id=&discussion_id= 深链(L28-29)。",
-  "fix": "结果链接改为 /plaza.html?plaza_id=<plaza.id>&discussion_id=<discussion.id> 深链到话题所在厅+具体讨论，并标明厅名。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "plaza",
-   "deeplink",
-   "dispatch-loop"
-  ],
-  "related_bugs": [
-   "bug-039"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T03:30:00.000000"
- },
- {
-  "id": "bug-041",
-  "timestamp": "2026-06-20T03:35:00.000000",
-  "error_message": "成本目标『去技能萃取』跳转后，萃取页未高亮重复(冗余) skill",
-  "file": "src/backend/agents/api.py / src/frontend/js/cost-dashboard.js / src/frontend/js/skill-extract.js",
-  "root_cause": "cost 目标 skill_extraction 杠杆的链接是裸 /skill-extract.html，不带上下文；后端 SkillLibrary.find_duplicates 已存在但无路由暴露；萃取页也无『重复高亮』入口。派发环断在『去萃取但不知萃取哪个重复项』。",
-  "fix": "1) 新增 GET /skill-library/duplicates(threshold,team_id) 暴露 find_duplicates，返回 duplicates+skill_ids；2) cost 链接带 ?team_id=&focus=redundant；3) skill-extract.js 加 maybeHighlightRedundantSkills：focus=redundant 时拉重复技能→固定横幅列出重复对(相似度)+best-effort 高亮第一个水晶(复用 highlightExistingCrystal)。无重复时提示萃取重复意图。",
-  "tags": [
-   "backend",
-   "frontend",
-   "skill-extract",
-   "duplicates",
-   "highlight",
-   "dispatch-loop",
-   "north-star"
-  ],
-  "related_bugs": [
-   "bug-039",
-   "bug-040"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T03:35:00.000000"
- },
- {
-  "id": "bug-042",
-  "timestamp": "2026-06-20T17:00:00.000000",
-  "error_message": "演进式成本优化『后半环』脱节：派发任务不回写目标、tokens_per_goal 永远0%、棘轮锁定 KPI 无反馈、重复技能只列不合并",
-  "file": "cost_targets.py / cost_target_tracker.py / api.py / cost-dashboard.js / cost-dashboard.html / skill-extract.js",
-  "root_cause": "度量展示已闭环但派发→降token→回流断：①任务带 cost_target 却无 target_id、无消费者、完成不复测；②tokens_per_goal current 取窗口累计总量只增不减；③KPI④是阶段分布非棘轮；④重复技能横幅只展示无合并动作。",
-  "fix": "Phase 9 全做：9.2 _current_value 改 total/calls；9.1 前端 ensureTargetForTeam+target_id+新增 CostTargetTracker 订阅 TASK_COMPLETED 复测(达标自动推棘轮)；9.3 拉 /tokens/ratchet+KPI④改棘轮已锁定+advance后刷新；9.4 ?refresh=efficiency 自动刷新；9.6 新增 POST /skill-library/merge+横幅合并按钮 mergeDup；9.7 KPI最贵团队跳过未归因；9.8 效率视角加 score 来源说明；9.5 复用既有 enterCostGov 桥。",
-  "tags": [
-   "backend",
-   "frontend",
-   "cost-dashboard",
-   "closed-loop",
-   "target",
-   "ratchet",
-   "merge",
-   "north-star",
-   "phase9"
-  ],
-  "related_bugs": [
-   "bug-036",
-   "bug-037",
-   "bug-039",
-   "bug-040",
-   "bug-041"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T17:00:00.000000"
- },
- {
-  "id": "bug-043",
-  "timestamp": "2026-06-20T18:00:00.000000",
-  "error_message": "数字孪生演练 reward 恒为 0.0000、Agent数=0、综合评分为 —",
-  "file": "src/backend/sandbox/trial_api.py::create_trial",
-  "root_cause": "create_trial 创建 SECS session 后，仅在有 scenario_id 时才注入世界(且只注 tasks/resources，不注 agents)。无 scenario 的『工作坊演化』完全不 sync agents → world_state.take_snapshot() 无 agent → twin_loop._spawn_twins 返回 0 twin → 每步 step_rewards 为空 → global_reward=0、Agent数=0、score=—。这也使 drill 评分恒 0，连带效率/棘轮闭环无法解锁。",
-  "fix": "create_trial 关联 session 后，无条件从 _team_manager.get_team(team_id).agents 构造 agents payload 并 orch.world_state.sync_agents_from_team({'agents':[...]})，确保 take_snapshot 有 agent → 正常 spawn twin → reward 非零。",
-  "tags": [
-   "backend",
-   "sandbox",
-   "twin",
-   "reward",
-   "spawn-twins",
-   "drill-score",
-   "north-star"
-  ],
-  "related_bugs": [
-   "bug-039"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T18:00:00.000000"
- },
- {
-  "id": "bug-044",
-  "timestamp": "2026-06-20T18:05:00.000000",
-  "error_message": "页面加载 GET https://fonts.googleapis.com/css2 net::ERR_CONNECTION_TIMED_OUT",
-  "file": "src/frontend/*.html (12 个页面 head)",
-  "root_cause": "每个页面 head 都外链 Google Fonts(preconnect + css2 stylesheet)。离线/无法访问 Google 的网络下该请求超时报错(与技能萃取跳转无关，任意页面都会触发)。",
-  "fix": "移除全部页面的 fonts.googleapis/gstatic 外链(preconnect+stylesheet)，在 </head> 前注入系统 CJK 字体回退(PingFang SC/Microsoft YaHei/Noto Sans SC + JetBrains Mono/系统等宽)，离线零外部请求，观感稳定。",
-  "tags": [
-   "frontend",
-   "fonts",
-   "offline",
-   "csp",
-   "performance"
-  ],
-  "related_bugs": [],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T18:05:00.000000"
- },
- {
-  "id": "bug-045",
-  "timestamp": "2026-06-20T19:00:00.000000",
-  "error_message": "数字孪生 reward 仍恒为 0（团队 7 个 agent）— 跳转 ?team=build_system 但演练团队未自动选中",
-  "file": "src/frontend/js/digital-twin/secs-core.js + src/backend/sandbox/trial_api.py",
-  "root_cause": "两段叠加：①前端 Agent-digital-twin 页不消费 ?team= 参数，演练团队 _selectedTeamId 为空 → 演练以空/无团队跑（或被中止）→ create_trial team_id 空 → world 无 agent → _spawn_twins=0 → 每步 step_rewards 空 → global_reward 恒 0；②（已于 bug-043 修）create_trial 不 sync agents。_calculate_reward 对任意动作都给非零，唯有 0 twin 才会全 0，故根因是 0 twin。",
-  "fix": "secs-core.js load 时 _applyUrlTeamParam()：读 ?team=/?team_id= → fetch teams-tree → window.sexySelectTeam(tid,name) 自动选中演练团队，使 _selectedTeamId 有值、create_trial 拿到正确 team_id；配合 bug-043 的 create_trial agent sync，world 有 agent→twin 非零→reward 非零。需重启后端使 bug-043 生效。",
-  "tags": [
-   "frontend",
-   "backend",
-   "digital-twin",
-   "reward",
-   "team-select",
-   "url-param",
-   "spawn-twins"
-  ],
-  "related_bugs": [
-   "bug-043"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T19:00:00.000000"
- },
- {
-  "id": "bug-046",
-  "timestamp": "2026-06-20T20:00:00.000000",
-  "error_message": "数字孪生 3D 演练多个问题：控制台无步进输出 / SECS流水线高亮固定L2 / 3D窗口不显示agent / 奖励用随机虚线+数值看不懂",
-  "file": "src/frontend/js/digital-twin/secs-core.js + src/frontend/js/digital-twin-cli-3d.js",
-  "root_cause": "①sexyAutoRun POST /run 不保证 SSE 已连（_connectSSE 仅在 sexyCreateAndRun 调），经导演台等路径创建的 session 无流→控制台静默；②SECS pipeline 的 active 高亮在 HTML 写死 L2，无任何随步进推进逻辑；③3D buildRoom 在 _currentRoomId 为空时不重建，选团队后议事厅 0 agent；④奖励用 showBarrageBubble(随机xy)+drawLinkageLine(随机xy) 展示，飘在空中且无锚点（因为没有 agent 可锚）。",
-  "fix": "①sexyAutoRun 跑前幂等补 _connectSSE；②新增 _advancePipelineStage(step) 按步 L1→L2→L3→L4 循环高亮，SSE step 时调用；③_applyUrlTeamParam 选团队后强制 _dt3dBuildRoom(_currentRoomId||'council') 让 agent 渲染；④新增 _dt3dRewardPop(agent,reward,idx)：在对应 agent 头顶弹 +value 浮卡(上升淡出+脉冲)，emitStepBarrage 改用之并移除随机虚线/弹幕。",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "3d",
-   "sse",
-   "pipeline",
-   "reward-viz",
-   "agent-render"
-  ],
-  "related_bugs": [
-   "bug-043",
-   "bug-045"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T20:00:00.000000"
- },
- {
-  "id": "bug-047",
-  "timestamp": "2026-06-20T21:00:00.000000",
-  "error_message": "成本页选了 Build System 团队，但 KPI 卡显示的是全部团队汇总：最贵团队=a7c36670(非所选)、团队数=3、且显示原始 team_id 而非名称",
-  "file": "src/frontend/js/cost-dashboard.js::renderKpiHero",
-  "root_cause": "KPI 读 /cost/tokens/overview(只按 window，不带 team 过滤)→恒为全部团队汇总；renderKpiHero 未应用 state.filters.team；且『最贵团队』直接显示 topTeam.team_id(如 a7c36670)而非友好名。",
-  "fix": "renderKpiHero 增 team_id↔名称映射，把筛选值(名称或id)解析为 team_id；选中团队时把窗口总Token/调用数限定到该团队、第二卡改『当前团队』显示其名与tokens、第三卡改『团队(已筛选)=1』；未筛选时第二卡仍『最贵团队』但显示名称不显示原始id；第三卡 sub 标注为『阶段 ...』避免与团队数混淆。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "kpi",
-   "team-filter",
-   "naming"
-  ],
-  "related_bugs": [
-   "bug-036",
-   "bug-037"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T21:00:00.000000"
- },
- {
-  "id": "bug-048",
-  "timestamp": "2026-06-20T22:00:00.000000",
-  "error_message": "房间任务流程仿真(secsDevWorkflow)启动后无法停止，按钮被 disabled，无停止控制",
-  "file": "src/frontend/js/digital-twin-cli.js::secsDevWorkflow/_secsRunStep",
-  "root_cause": "secsDevWorkflow 运行时把 secs-dev-btn disabled 并显示『仿真进行中』，没有任何停止标志或按钮；动画由大量 setTimeout await 串行驱动，无法中断。",
-  "fix": "加 window._secsDevStop 标志：运行中按钮改为可点击『⏹ 停止仿真』，再次点击进入 secsDevWorkflow 时置 _secsDevStop=true；_secsRunStep 开头检测则直接 return(跳过该步动画)；6 个主循环(council/arena/extraction/library/generic/parallel)顶部加 if(_secsDevStop)break；流程快速走到 finalize 复位按钮+清标志并提示『仿真已停止』。",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "simulation",
-   "stop-control",
-   "secsDevWorkflow"
-  ],
-  "related_bugs": [
-   "bug-046"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T22:00:00.000000"
- },
- {
-  "id": "bug-049",
-  "timestamp": "2026-06-20T23:00:00.000000",
-  "error_message": "试炼/进化创建入口未校验 team_id，误写(如 build-system)会产生幻影团队",
-  "file": "src/backend/sandbox/trial_api.py::resolve_team_id + create_trial / evolution_api.py::start_evolution_run",
-  "root_cause": "create_trial 与 start_evolution_run 直接采用请求里的 team_id，无任何校验/归一；连字符/下划线或拼写错误(build-system)会被当成新团队写入 trials/evolution_runs，再经 list_known_team_ids 显示为幻影团队。",
-  "fix": "新增 resolve_team_id(team_id)：①空→400；②精确匹配已存在团队 id 直接通过；③连字符↔下划线归一(build-system→build_system)；④按团队名称(大小写不敏感)匹配；⑤都不匹配→400 并列出可用团队。create_trial 与 start_evolution_run 入口均先 req.team_id=resolve_team_id(req.team_id)。team_manager 未就绪时放行不误伤。实测 build-system→build_system、Build System(名)→build_system、ghost-team→400。",
-  "tags": [
-   "backend",
-   "sandbox",
-   "trial",
-   "evolution",
-   "team-id",
-   "validation",
-   "phantom-team",
-   "data-integrity"
-  ],
-  "related_bugs": [
-   "bug-043",
-   "bug-045"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T23:00:00.000000"
- },
- {
-  "id": "bug-050",
-  "timestamp": "2026-06-20T23:40:00.000000",
-  "error_message": "成本报告全局对账 reconciliation.consistent=false（C1 跨维恒等失败）：phase_sum=120868 ≠ team_sum=19689",
-  "file": "src/backend/agents/cost_report.py",
-  "root_cause": "P10.2 让 LEDGER.by_team 默认 include_unattributed=False（剔除 team_id='' 的历史未归因，利于 UI）；但 by_phase 仍含全部 → cost_report 用 Σby_phase(全量) 对账 Σby_team(剔未归因) 必不相等。run/skill 级一致(C2/C3 OK)，仅全局跨维(C1)因口径不一致而 false。",
-  "fix": "cost_report 对账改同口径：无 team 过滤时 team_sum 用 LEDGER.by_team(window, include_unattributed=True) 全量求和（与 by_phase 一致）；展示用 by_team 仍剔未归因；新增 unattributed_tokens 单列历史未归因金额。实测 C1 恢复 120868==120868，全局/团队 reconciliation 均 consistent=true。",
-  "tags": [
-   "backend",
-   "cost-report",
-   "reconciliation",
-   "attribution",
-   "C1",
-   "demo-case"
-  ],
-  "related_bugs": [
-   "bug-037",
-   "bug-047"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-20T23:40:00.000000"
- },
- {
-  "id": "bug-051",
-  "timestamp": "2026-06-21T03:35:00.000000",
-  "error_message": "cost-dashboard.js:1049 Uncaught SyntaxError: Unexpected token 'var'；连带 runCostGateSelfCheck is not defined",
-  "file": "src/frontend/js/cost-dashboard.js::refreshDashboard",
-  "root_cause": "P10.1(team_id 透传)实现把 `var teamFilter = ...` 声明写在了 Promise.all([...]) 数组字面量内部，数组元素位置不能放语句声明 → 整个文件解析失败 → 所有函数(含 runCostGateSelfCheck)未定义，按钮 onclick 报 ReferenceError。",
-  "fix": "把 `var teamFilter = state.filters.team ? '&team_id='+encode(...) : ''` 移到 Promise.all 之前声明，数组内只保留各 requestJson 调用并拼接 teamFilter。node --check 通过；同时正确完成了 10.1 的筛选透传(breakdown/trend/detail 带 team_id)。",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "syntax-error",
-   "promise-all",
-   "P10.1",
-   "team-filter"
-  ],
-  "related_bugs": [
-   "bug-047"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-21T03:35:00.000000"
- },
- {
-  "id": "bug-052",
-  "timestamp": "2026-06-22T05:00:00.000000",
-  "error_message": "模型池「设为全局」点击报 设为全局失败: Not Found (HTTP 404, 请求ID ag-mqox4wsf-890pxswb)",
-  "file": "运行态(后端未重启) + src/frontend/js/agent-team-config.js(错误提示)",
-  "root_cause": "systematic-debugging 结论：前端解析到 {\"detail\":\"Not Found\"} —— 这是 FastAPI 对【未注册路由】的默认 404 体，不是业务 404(应为 '未找到该团队模型')。代码侧已核实无误：① api.py 仅一个 router=APIRouter(prefix=/api/v1/agent-config) (L69)，main.py include_router (L394/459)；② 3 个 /llm/global-model 路由(GET/POST/DELETE)经 AST 确认在模块顶层装饰在同一 router 上，与可用的 /llm/test-model 同源；③ 前端 tid 为模块级变量，loadModels 用它成功拉到模型列表，setGlobalModel 用同一 tid，team_id/model_id 一致且与 get_model 同一内存源。→ 真因=运行中的后端是在新增这些路由之前启动的，未重启，故路由不在运行态 app 中 → 路由级 404。非代码 bug。",
-  "fix": "① 重启后端使新路由生效(本质修复)；② 前端 setGlobalModel 错误分支识别 status==404 且 detail=='Not Found' → 明确提示『后端缺少该接口(/llm/global-model)，请重启后端服务后重试』，避免再被当成神秘 404。代码侧 AST/业务一致性均已离线验证；活体 HTTP 验证需运行中的后端(沙箱无 fastapi，无法起服务)。",
-  "tags": [
-   "frontend",
-   "backend",
-   "global-model",
-   "404",
-   "stale-server",
-   "not-restarted",
-   "systematic-debugging"
-  ],
-  "related_bugs": [
-   "bug-034"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-22T05:00:00.000000"
- },
- {
-  "id": "bug-053",
-  "timestamp": "2026-06-22T06:00:00.000000",
-  "error_message": "数字孪生「创建试炼」过程不在「实时控制台」联动显示（控制台只见模块加载行）",
-  "file": "src/frontend/js/digital-twin/secs-core.js + director.js",
-  "root_cause": "两段叠加：①createTrial 的开始/成功路径只 console.log('[DT]...')(浏览器控制台)，没调 _dtLogConsole 写页面控制台；②更关键：_logConsole 定义在 secs-core.js 的 IIFE 内、未暴露到 window，而 director.js 的 _dtLogConsole 用 `if(typeof _logConsole==='function')` 判定——跨 IIFE 取不到 → 恒 false → 连已有的 eval/feedback 日志也没真正写进 #live-console。",
-  "fix": "①secs-core.js IIFE 收尾处 `window._logConsole=_logConsole` 暴露写入函数；②director.js createTrial 开始处 _dtLogConsole('🧪 创建试炼·团队·模式·步数')、成功处 _dtLogConsole('✅ 试炼已创建·trial·session·就绪')。这样创建试炼与实时控制台联动，且 director 既有的评分/反哺/进化日志也一并恢复进页面控制台。",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "director",
-   "live-console",
-   "iife-scope",
-   "linkage"
-  ],
-  "related_bugs": [
-   "bug-046"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-22T06:00:00.000000"
- },
- {
-  "id": "bug-054",
-  "timestamp": "2026-06-22T06:30:00.000000",
-  "error_message": "试炼导演台：选了团队仍卡在「创建中...」，按钮不复位",
-  "file": "src/frontend/js/digital-twin/director.js + secs-core.js",
-  "root_cause": "两个真bug：①transitionTrialStatus 合法转移表 creating 只允许 ['ready','failed']，没有 creating→idle；createTrial 在「无团队」分支调 transitionTrialStatus('creating','idle') 被判非法返回 false → 状态卡在 creating → 按钮永远「创建中」。②_selectedTeamId 是 secs-core IIFE 私有，未暴露 window；director.js 读 bare _selectedTeamId 恒 undefined → 即便在 SECS 选了团队，createTrial 的 tid 仍取不到 → 走「请先选择团队」。",
-  "fix": "①转移表 creating 增加 'idle'，无团队时能复位回「创建试炼」；②secs-core sexySelectTeam/secsSyncTeamFromLeft 赋值处同步 window._selectedTeamId/_selectedTeamName，让 director.js 能读到选中团队 → tid 正确解析、继续创建。",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "director",
-   "state-machine",
-   "iife-scope",
-   "team-select"
-  ],
-  "related_bugs": [
-   "bug-053",
-   "bug-045"
-  ],
-  "occurrences": 1,
-  "last_seen": "2026-06-22T06:30:00.000000"
- },
- {
-  "id": "bug-055",
-  "error_message": "showToast 提示「已选择团队…」在 3D 窗口里渲染成一竖条（逐字换行），遮挡且难看",
-  "root_cause": "toast <div> 未设 white-space / width，父容器收缩时块级子元素宽度被压到约一个字宽，文字逐字换行成竖排",
-  "fix": "toast 内联样式加 position:fixed;left:50%;bottom:24px;transform:translateX(-50%);white-space:nowrap;width:max-content;max-width:90vw;writing-mode:horizontal-tb;display:flex — 强制单行横排、底部居中、随内容收缩",
-  "tags": [
-   "frontend",
-   "css",
-   "toast",
-   "digital-twin",
-   "secs-core"
-  ],
-  "date": "2026-06-22"
- },
- {
-  "id": "bug-056",
-  "error_message": "静态合并脚本删 #env-status-float 时按内容标记 '收益曲线内嵌浮动卡' 定位，误删 267 行（539..806）",
-  "root_cause": "标记字符串不唯一——同一短语同时出现在 L540 的 CSS 注释和 L797 的 HTML 注释；find 命中第一个，删除区间跨越大量无关代码",
-  "fix": "改用唯一标记 '<!-- P3: 收益曲线内嵌浮动卡 -->'(带 HTML 注释符) + id=\"env-status-float\"，并加安全闸 assert (fe-fs)<15 行；操作前 cp 备份到 /tmp，发现异常立即还原",
-  "tags": [
-   "frontend",
-   "refactor",
-   "script",
-   "digital-twin",
-   "html"
-  ],
-  "date": "2026-06-22"
- },
- {
-  "id": "bug-057",
-  "error_message": "后端启动崩溃 NameError: name 'logging' is not defined（_load_global_model_on_startup 与其 except 处理器）",
-  "root_cause": "api.py 模块级把 logging 导成别名 `import logging as _logging`(L2514)，但全局模型相关代码(L199/L7280)用了未导入的裸名 `logging`",
-  "fix": "L199、L7280 改用模块别名 `_logging.getLogger(__name__)`；grep 确认无残留裸 logging.，py_compile 通过",
-  "tags": [
-   "backend",
-   "startup",
-   "global-model",
-   "import",
-   "api.py"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-058",
-  "error_message": "门禁提示「单人即可推进」但点推进报 缺少必要身份:['peer'] + 复核0人/同意0票，无 UI 完成复核",
-  "root_cause": "default_gate_requirements 虽 min_reviewers=1 却仍 required_identities=[PEER] 且需 1 张 approve 票；advance() 不会把触发者登记为复核人 → 永远 0 票，单人无法推进",
-  "fix": "advance() 真人推进时自动登记其为 approve 复核(identity=PEER，幂等)；default_gate_requirements 三阶段 required_identities 改 []。新/旧管线单人一键即可推进",
-  "tags": [
-   "backend",
-   "gate",
-   "review",
-   "extraction-pipeline"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-059",
-  "error_message": "技能详情「对话优化技能」对话框内容展示不全（截屏被裁）",
-  "root_cause": "#usage-chat-log max-height:200px 太矮，AI 改进建议较长时大部分需滚动",
-  "fix": "max-height 改 min(460px,52vh) + overflow-wrap:anywhere + white-space:pre-wrap",
-  "tags": [
-   "frontend",
-   "css",
-   "skill-extract"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-060",
-  "error_message": "技能详情弹窗 演化/验证/效果/版本/管线 各 tab 多个栏目内容被裁切、展示不全",
-  "root_cause": ".modal-tab-content 为 flex 列(overflow-y:auto)，子区块默认 flex-shrink:1，栏目多时被压缩到低于内容高度，叠加各区块自身 overflow:hidden → 内容被裁",
-  "fix": "skill-extract.css 增加 #tab-evolve/#tab-verify/#tab-usage/#tab-version/#tab-pipeline > * { flex-shrink:0 }，区块保持自然高度，超出由 .modal-body overflow-y:auto 整体下拉滚动",
-  "tags": [
-   "frontend",
-   "css",
-   "flexbox",
-   "skill-extract",
-   "overflow"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-061",
-  "error_message": "沙箱孪生页「协作图」持续空白（无节点/连线，也无错误文字）",
-  "root_cause": "bootSandboxTwin 顺序执行各 init，initCollabGraph 排在 setupTabs/bindPipelineNodes 之后；若前面任一步抛错，initCollabGraph(含5s自愈定时器)整段不执行 → 协作图永久留白且无自愈",
-  "fix": "bootSandboxTwin 改为步骤数组，initCollabGraph 提到第一个执行，且每步包 try/catch 隔离——单步失败不再阻断协作图渲染与自愈",
-  "tags": [
-   "frontend",
-   "sandbox-twin",
-   "collab-graph",
-   "init",
-   "robustness"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-062",
-  "error_message": "棘轮显示团队『有 token 消耗但无演练评分』(score=0→效率=0)，但团队实际跑过评分试炼",
-  "root_cause": "collect_team_usage 只读内存 _trials；_trials 仅在创建试炼时写入、后端重启即清空；而 token 用量(usage.db)与试炼(TrialStore)均持久化 → 重启后 token 在、评分丢 → token_only",
-  "fix": "新增 _enrich_trials_from_store()，在 collect_team_usage_async 里从持久化 TrialStore.list_trials() 按 team_id 合并已评分试炼(去重)，并在补回真实分后纠正 data_quality=measured",
-  "tags": [
-   "backend",
-   "sustainability",
-   "ratchet",
-   "persistence",
-   "trial-score",
-   "data-linkage"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-062b",
-  "error_message": "棘轮仍报 score=0（效率视角已修但棘轮没同步）",
-  "root_cause": "上一版只修了异步 collect_team_usage_async；棘轮 advance(cost_routes.py /tokens/ratchet/advance) 与 cost_targets 走的是同步 collect_team_usage，未合并持久化试炼",
-  "fix": "把合并逻辑下沉为同步 _merge_persisted_trials()，直接读 trials.json，在 collect_team_usage 内调用 → 覆盖所有同步调用方(棘轮/cost_targets/效率视角)。离线验证 a7c36670 total_score=3.96",
-  "tags": [
-   "backend",
-   "ratchet",
-   "sustainability",
-   "sync-path",
-   "persistence"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-063",
-  "error_message": "演练 Agent 动画改错位置：错加在议事广场 plaza，用户要的是数字孪生 沙箱推演/自动·单步 的 3D",
-  "root_cause": "误判页面；破茧成蝶动画应在 digital-twin-cli-3d.js（演练 3D）而非 plaza.js",
-  "fix": "还原 plaza.js；在 digital-twin-cli-3d.js createAgentFigure 加进化光圈，并把 _pulseQueue 的 body 脉冲由『整体放大缩小』改为『光环分步(14步)从底座升到头部、到顶张开淡出』",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "3d",
-   "animation"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-064",
-  "error_message": "GET /plaza/escalations 404，前端不停刷+弹『讨论结束』",
-  "root_cause": "FastAPI 按注册顺序匹配：@router.get('/{plaza_id}')(L503) 在 @router.get('/escalations')(L1581) 之前，导致 /escalations 被 /{plaza_id} 吞掉(plaza_id='escalations')→404 广场不存在",
-  "fix": "把 get_escalation_queue 路由上移到 /{plaza_id} 之前(紧跟 /presets)",
-  "tags": [
-   "backend",
-   "fastapi",
-   "routing",
-   "plaza",
-   "404"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-065",
-  "error_message": "DELETE /teams/{id}/skills/{id} 500，技能不可删除",
-  "root_cause": "delete_skill 里 `for agent in team.agents` 遍历的是 dict 的键(agent_id 字符串)，再取 agent.skills → str 无 skills 属性 → AttributeError 500",
-  "fix": "改为 `for agent in team.agents.values()`",
-  "tags": [
-   "backend",
-   "api",
-   "skill",
-   "delete",
-   "500",
-   "dict-iteration"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-066",
-  "error_message": "点『进入演化』只笼统报『演化启动失败』，看不出原因",
-  "root_cause": "enterEvolution 用 api() 包装，非2xx 返回 null → 真实 detail(尚无执行计划/演化引擎未初始化) 被吞",
-  "fix": "改直连 fetch 读取后端 detail，失败时一并提示真实原因",
-  "tags": [
-   "frontend",
-   "plaza",
-   "error-surfacing"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-065b",
-  "error_message": "DELETE 技能改 .values() 后不再 500，但库内(非 team.skills)技能删除报 404",
-  "root_cause": "delete_skill 在 team.skills.pop 为 None 时直接 404，而 UI 展示的技能可能只在 skill_store/库里、未注册进 team.skills",
-  "fix": "改为三处都尝试删(team.skills / 各 agent.skills / skill_store.delete)，仅当 team 与库都无该技能才 404",
-  "tags": [
-   "backend",
-   "api",
-   "skill",
-   "delete",
-   "404"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-067",
-  "error_message": "创建试炼 与 沙箱推演 两个创建入口冗余",
-  "root_cause": "两者最终都调用 createTrial()；沙箱推演(sexyCreateAndRun)还额外读仿真参数面板+空场景守卫+切出运行控制区，导演台 idle 态的『创建试炼』按钮属重复入口",
-  "fix": "_BG.idle 由『🧪创建试炼』按钮改为指向『沙箱推演』的提示文案，统一为单一创建入口；ready/completed 等其它生命周期按钮(单步/自动/评分/反哺/新试炼)保持不变",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "director",
-   "ux",
-   "dedup"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-068",
-  "error_message": "沙箱出料『SOP』标签永远显示占位『仿真完成后提取SOP』，看不到提取结果与过程",
-  "root_cause": "#sub-sop 标签是死占位；extractSop/renderSopList 只写 #sop-list-area(导演台元素)，从不写 #sub-sop；点 SOP 标签(switchIOSub)也不触发提取",
-  "fix": "switchIOSub('sop') 触发新增 _loadSecsSop()：调 /extract-sop 提取本次试炼 SOP，渲染到 #sub-sop(含『提取过程』说明+每条 SOP 名称/置信度/步数)，空结果给明确提示",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "secs",
-   "sop",
-   "extraction"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-069",
-  "error_message": "Cost Gate 自检总是失败(block)",
-  "root_cause": "前端自检硬编码 inline.score=0 且 min_efficiency=1.0 → eff=score/(tokens/1k)恒为0 < 1.0 → LOW_TOKEN_EFFICIENCY(high) → block；即便真实效率(~0.3)也低于1.0仍会失败",
-  "fix": "自检改用 /sustainability/group 的真实数据(total_score/tokens_consumed/trial_count)选 token 最高团队为样本；阈值改 min_efficiency=0.05、max_tokens=1e6；结果行标注团队。离线验证 AWS eff=0.2968 → pass",
-  "tags": [
-   "frontend",
-   "cost-gate",
-   "self-check",
-   "threshold",
-   "score"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-070",
-  "error_message": "成本治理『创建 Plaza 话题』未归属选中团队，话题不在该团队下",
-  "root_cause": "createPlazaTopic 创建讨论时不传 team_id；且后端 create_discussion 即便收到 team_id 也忽略(只 /assign 用 assigned_team_id)",
-  "fix": "前端传 team_id=target.ref_id||filters.team；后端 create_discussion 用 req.team_id 设 disc.assigned_team_id 并 save_plaza 持久化",
-  "tags": [
-   "frontend",
-   "backend",
-   "plaza",
-   "cost-governance",
-   "team-association"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-071",
-  "error_message": "点『标签补丁』提示『请选择pod』——项目不使用 k8s，不该有 pod 概念",
-  "root_cause": "标签补丁=k8s pod label patch(OpenCost 云成本归因)，与 Token 成本北极星无关，属遗留 infra 动作",
-  "fix": "从治理动作按钮行移除『标签补丁』(generateLabelPatch) 按钮",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "k8s",
-   "scope",
-   "cleanup"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-013",
-  "error_message": "Phase 13 演进式成本优化闭环 — 代码可完成项落地",
-  "root_cause": "Phase 13 设计的闭环增强项待实现",
-  "fix": "13.1 效率视角顶部未归因 token 占比(>5%红字, /cost/report); 13.3 director _dtAutoCostRatchet 评分/反哺后自动推进 cost 棘轮; 13.4 CostGate 自检阈值改全员效率 P25×0.5 自适应; 13.5 targetHowto 附预计可省 token(skill 25%/collab 15%); 13.2 OpenCost/云成本标注'可选·非北极星'文案。live-env-only(Phase7 Demo/10 D1D2/11 AWS e2e)需真实 LLM 不可离线完成",
-  "tags": [
-   "cost-optimization",
-   "phase13",
-   "frontend",
-   "ratchet",
-   "gate",
-   "attribution"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-072",
-  "error_message": "技能赋予给 agent 后，智能体页技能列表找不到该技能",
-  "root_cause": "两处：①skill_router.assign 只往 agent.skills 追加 skill_id，不登记进 team.skills→团队不识别该技能；②智能体页 agent 卡片直接渲染原始 skill_id(如 7b33f2f0 哈希)而非名称，且 slice(0,3) 截断",
-  "fix": "①assign 时用 skill_library._find_skill 取 SkillDefinition 并 team.add_skill 登记进 team.skills；②agent 卡片用 team.skills 映射 skill_id→name 显示，>3 个显示 +N。注：已存在的散值需重新赋予一次才会登记+解析",
-  "tags": [
-   "backend",
-   "frontend",
-   "skill-router",
-   "agent",
-   "skill-assign",
-   "display"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-073",
-  "error_message": "已两人 approve(2/1 复核 2/1 同意)仍报『不能通过门禁』",
-  "root_cause": "该管线 current_stage 已是 published(最终阶段)，技能其实已发布；advance 无下一阶段→返回『已是最终阶段』，但前端把它当门禁失败显示。#btn-advance-pipe 在 published 已禁用，但我之前新增的『通过并推进』主按钮(btn-advance-pipe-primary)与复核按钮未禁用，误点即报错",
-  "fix": "published 时隐藏 通过并推进/多人复核 按钮、徽章显示『🎉已发布(最终阶段)』；advancePipeline 对 published 或『最终阶段』原因给成功提示而非门禁失败",
-  "tags": [
-   "frontend",
-   "skill-extract",
-   "pipeline",
-   "published",
-   "gate",
-   "ux"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-074",
-  "error_message": "团队-场景-任务闭环：5 个富场景(taskflow+rubric)从未进入试炼，选场景只列 3D 房间",
-  "root_cause": "sexyPickScene 只列数字孪生房间/模式/SOP，从不列场景库；且 _sx.scenarioId 从未赋值→createTrial 永远发 scenario_id='' → 后端 compile_scenario/rubric 链路虽完整却收不到 id。(原 plan 误判 tasks:0 系字段名 task_flow vs taskflow)",
-  "fix": "后端 list_scenarios 加 team_id 按 match_team 排序;前端 sexyPickScene 顶部接入真实场景库(显示匹配%/缺技能/任务数);sexySelectScene 选真实场景即设 _sx.scenarioId → 贯通 taskflow 编译 + rubric 领域化评分",
-  "tags": [
-   "backend",
-   "frontend",
-   "scenario",
-   "closed-loop",
-   "digital-twin",
-   "match"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-014",
-  "error_message": "闭环优化 C2′/C3/C5 落地",
-  "root_cause": "团队-场景-任务闭环：场景库未接入选择器、演练/仿真两按钮割裂",
-  "fix": "C2′ 场景库接入选场景弹层(按团队匹配排序)+选中设_sx.scenarioId; C3 选任务弹层顶部带出场景 taskflow(整条流程+各任务,__flow__清override); C5.1 演练/仿真合并:沙箱推演→『运行演练』为唯一主入口、房间仿真降级为『仅可视化预演(不评分)』虚线小按钮+说明。C5.2 深度绑定标[人工]未做(scored drill 本就渲染3D,redundant)",
-  "tags": [
-   "frontend",
-   "backend",
-   "scenario",
-   "closed-loop",
-   "drill-sim-merge"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-075",
-  "error_message": "停止演练后选『并行』再点运行演练，不出现自动/单步按钮",
-  "root_cause": "SECS 并行 radio 值='parallel'，但后端 TrialMode 合法值是 'multi_branch'；sexyCreateAndRun 直接送 'parallel' → create_trial 的 TrialMode('parallel') 抛 400 Invalid mode → createTrial 失败 → 不展开 secs-ctrl-panel(自动/单步)。What-if/演化 恰好字符串匹配故无碍",
-  "fix": "sexyCreateAndRun 加 _MODE_MAP{what_if,parallel→multi_branch,evolutionary} 映射到合法 TrialMode 值；并把残留『沙箱推演』文案统一为『运行演练』；房间预演按钮 6 个 btnText 追加『· 仅预演(不评分)』",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "mode",
-   "trial",
-   "parallel"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-015",
-  "error_message": "智能体加入(agent_join)只恢复被禁用 Agent，无禁用时无效；增援不带对口技能",
-  "root_cause": "twin_loop agent_join 仅 if disabled_agents: 恢复一个；无禁用 Agent 时整个 elif 不返回→空操作；从不新增 Agent、更不匹配技能缺口",
-  "fix": "无可恢复时新增『增援』AgentTwin：技能=待办任务 required_skills 中最需要且活跃团队未覆盖的缺口(top3,无缺口则同质增援)，append 进 session.twins 参与下一步；前端 tooltip 同步说明",
-  "tags": [
-   "backend",
-   "twin-loop",
-   "chaos",
-   "agent-join",
-   "skill-gap"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-076",
-  "error_message": "agent-team-config-new.html 预算与告警/运行痕迹的下拉框在浅色页面上渲染成黑框",
-  "root_cause": "页面是浅色主题但未声明 color-scheme；OS 处于深色模式时原生 <select>/滚动条等 UA 控件回退到系统深色 → 黑框",
-  "fix": ":root 加 color-scheme: light，强制 UA 控件按浅色渲染",
-  "tags": [
-   "frontend",
-   "css",
-   "color-scheme",
-   "select",
-   "theme"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-077",
-  "error_message": "数字孪生议事厅 3D 太暗，精心设计的安藤式看台/讲坛被吞进黑里，只剩 agent 浮在黑坑上",
-  "root_cause": "buildCouncil 环境光 0.06/半球光 0.04 过低（刻意 Ando 暗调），实际渲染成黑团",
-  "fix": "提亮：AmbientLight 0.06→0.22、Hemisphere 0.04→0.20、main 0.46→0.62，并加 0.28 正面柔和补光照亮中央讲坛，消除黑坑观感（保留主光方向感）",
-  "tags": [
-   "frontend",
-   "3d",
-   "lighting",
-   "digital-twin",
-   "aesthetics"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-078",
-  "error_message": "自动运行后点『智能体加入/离开/注入故障』无反应",
-  "root_cause": "注入按钮在『运行中』(simRunning) 才可点；sexyAutoRun 把 simRunning 置 true 却没调 _setInjectEnabled(true)。若按钮此前被禁用(如运行前点过一次触发 guard→禁用)，自动运行不会重新启用→disabled 按钮点了无 onclick",
-  "fix": "sexyAutoRun 置 simRunning=true 后补 _setInjectEnabled(true)，运行期注入按钮恒可点",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "inject",
-   "auto-run",
-   "disabled"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-016",
-  "error_message": "场景驱动 3D + 通用场景房间美化",
-  "root_cause": "applyScenarioRooms 被调用却未定义；buildGenericRoom 无灯光→黑屏；选场景不联动3D",
-  "fix": "定义 applyScenarioRooms(world.rooms→S.rooms→切首房间)；buildGenericRoom 补灯光+背景+房间名标牌；sexySelectScene 选场景拉 world.rooms 预览",
-  "tags": [
-   "frontend",
-   "3d",
-   "scenario"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-079",
-  "error_message": "点智能体加入报 unknown_event_type",
-  "root_cause": "旧后端 agent_join 无禁用Agent时不返回→落 unknown_event_type；feat-015 已修必返回",
-  "fix": "重启后端使 feat-015 生效",
-  "tags": [
-   "backend",
-   "restart"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-080",
-  "error_message": "agent_leave 后端剩余N个，但3D里agent一个没少(故障/加入同理3D不动)",
-  "root_cause": "3D场景建一次后从不响应混沌事件；_doInjectEvent 只记日志不更新agentMeshes",
-  "fix": "新增 _dt3dRemoveAgent/_dt3dDimAgent/_dt3dAddAgent；_doInjectEvent 按 d.type+d.agent 同步:离开移除/故障置灰/加入新增或恢复，并同步 env-3d-info 计数",
-  "tags": [
-   "frontend",
-   "3d",
-   "chaos",
-   "sync",
-   "agent-leave"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-017",
-  "error_message": "数字孪生 Tab 收口：协作拓扑并入交互Tab + 编排管线重构",
-  "root_cause": "协作拓扑错放系统状态(与交互流割裂);编排管线Tab显示的是技能萃取阶段(与萃取页重复、文不对题)",
-  "fix": "B:协作拓扑迁入「协作·交互」Tab双视图,系统状态只留实时仪表盘;B':renderPipeline 重构为场景 taskflow 的拓扑分层DAG+实时状态(近似步进比例),去掉萃取阶段复制品",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "tabs",
-   "pipeline",
-   "closed-loop"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-085",
-  "error_message": "编排管线DAG不随步进推进(停在事故定级进行中)、执行日志0条",
-  "root_cause": "renderPipeline 只在切Tab/选场景时渲染一次;进度取 trial 接口字段没对上→doneCount=0;运行期不重渲染",
-  "fix": "进度改用 _sx.steps/_sx.maxSteps(每步更新的活值);场景缓存避免每步重拉;SECS 步进处若编排管线Tab可见则重渲染 → DAG 随步数实时推进",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "pipeline",
-   "live",
-   "step"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-018",
-  "error_message": "数字孪生 Tab↔右侧面板联动打地鼠(选团队/场景某Tab不跟着变)",
-  "root_cause": "各Tab渲染各自为政,无统一'上下文变→刷新当前Tab'入口;改团队/切Tab只零散补个别渲染,漏的不动",
-  "fix": "建 dtContext()+dtRefresh(reason) 调度器只刷当前可见Tab;switchView/选团队/选场景/选任务/每步/混沌 6处统一喊 dtRefresh(reason),替换零散补渲染。配 数字孪生联动plan/todos",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "linkage",
-   "dispatcher",
-   "refactor"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "feat-019",
-  "error_message": "数字孪生联动 L3/L4 落地",
-  "root_cause": "仪表盘无当前演练摘要;交互时间线运行时不追加演练消息",
-  "fix": "L3 renderDashboard 顶部加'当前演练'卡(团队/场景/运行/步/收益,随dtRefresh刷新);L4 step事件把 agent_actions 规范化 push 进 S.messages(from=agent名,按团队过滤),dtRefresh('step')追加渲染。L5 精确节点状态需后端 emit active_task_id,标进阶",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "linkage",
-   "dashboard",
-   "timeline"
-  ],
-  "date": "2026-06-23"
- },
- {
-  "id": "bug-087",
-  "error_message": "数字孪生顶部房间 tab(接单台/分类室/查询室…)与当前演练场景不对应,且互相长得一样",
-  "root_cause": "tab 栏渲染自全局 S.rooms;上一场景(客服工单高峰 cs_ticket_surge)的 world.rooms 经 applyScenarioRooms 并入后被 persist/syncDtState 持久化到 localStorage 及 /digital-twin/state,再 load 时以 rooms>=6 无条件采纳,残留到 tab 栏;而当前演练是代码评审交付(规划室),tab 不随当前场景重建 → 串台",
-  "fix": "新增 BUILTIN_ROOM_IDS + scopeRoomsToCurrentScenario()(只保留6内置+自定义r_+当前场景_scn),在 loadLocal/loadDtState 采纳房间后调用剔除他场景残留;场景房间在 applyScenarioRooms 打 _scn 标记并先清旧_scn再并入,末尾 renderRoomTabs 收口 tab='6内置+当前场景';persist/syncDtState 过滤 _scn 不再持久化场景房间(自愈历史残留);renderRoomTabs 高亮改跟随 _currentRoomId;切到environment tab 优先场景首房",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "rooms",
-   "scenario",
-   "linkage",
-   "tabs"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "feat-020",
-  "error_message": "场景房间(接单台/分类室/查询室…)3D 长得一模一样,无法区分",
-  "root_cause": "非内置房间全走 buildGenericRoom 同一套圆台+球顶+青色环,仅浮空名牌不同;rooms 无 type 字段,只有 stage/name/icon",
-  "fix": "新增 _scnRoomStyle(room) 按 room.stage(无则 id 哈希)映射6档配色,_scnPropGeo(shape) 按阶段给中心构件换6种基础几何(二十面体/立方/锥/八面体/环/十二面体,userData.spin 旋转);buildGenericRoom 的平台自发光边/外环/中心构件/粒子环全部用该阶段配色。纯数据驱动,不针对具体场景硬编码",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "rooms",
-   "3d",
-   "scenario"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "feat-021",
-  "error_message": "数字孪生模块后台轮询不随页面可见性暂停,隐藏时仍空转打后端",
-  "root_cause": "cli.js 3个 setInterval(指标10s/频率图2s/智能体30s)+director.js 2个(健康2s/团队镜像1s)均无 document.hidden 守卫;而仓库其它模块(nav-sidebar/cost-dashboard/agent-team-config/sandbox-twin)早已统一门控——数字孪生漏了,是性能+一致性缺口",
-  "fix": "5个轮询回调首行加 if(document.hidden)return;syncTeam 1000ms→2000ms;cli.js 加 visibilitychange 监听,重新可见时 loadLiveMetrics()+dtRefresh('tab') 补刷。对齐既有约定,低风险。产出 docs/数字孪生优化plan.md + todos.md,P4空catch/P5冷启动重渲染标延后(理由见plan)",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "polling",
-   "performance",
-   "visibility"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-088",
-  "error_message": "右侧「协作图 [5v7]」空白,不反映增/减 agent,标题硬编码",
-  "root_cause": "_renderCollabGraph 仅评分报告返回时调一次,if(!twins.length)return 无数据即空白;标题[5v7]是HTML硬编码;不接_chaosTopoState,故 agent_join/leave 不反映;r=110 在400x140视窗上下裁切",
-  "fix": "数据源 报告twins>缓存_sx.lastTwins>当前团队agent回退;叠加_chaosTopoState剔离开+并增援(增援虚线描边);动态标题#secs-collab-title显示[n]+空态提示;椭圆布局rx155/ry48;_doInjectEvent末尾调_renderCollabGraph()实时重渲染;暴露window._secsRenderCollab供init占位。注:协作·交互Tab的#topo-svg早已反映增减,本次补齐右侧这张",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "collab-graph",
-   "chaos",
-   "secs"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "feat-022",
-  "error_message": "数字孪生 P4(空catch吞异常)/P5(冷启动全量渲染) 优化",
-  "root_cause": "P4:30处空catch排障困难;P5:init冷启动渲染全部Tab但默认只environment可见,architecture/interaction/pipeline三次渲染无谓",
-  "fix": "P4定向:cli.js 6处网络/状态加载路径(loadDtState/syncDtState/加载团队agent/loadSkills/loadTools/loadLiveMetrics)+secs-core混沌同步补 console.warn('[dt]',e);纯UI防御catch保持静默。P5:init只渲染常驻区+默认environment Tab,其余三Tab进入时经switchView→dtRefresh('tab')惰性渲染",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "logging",
-   "performance",
-   "lazy-render"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-089",
-  "error_message": "编排管线在演练运行中显示'请选择场景'占位,无任务编排DAG",
-  "root_cause": "renderPipeline 只读 _sx.scenarioId(仅场景选择器设置,初始undefined);运行中切房间/切场景或经非选择器路径起跑会使其为空 → 管线空白,即使后端试炼有真实场景taskflow在跑",
-  "fix": "createTrial 成功时把试炼实际场景捕获进 _sx.runScenarioId(只此处写,房间/场景导航不清它);renderPipeline sid 回退到 runScenarioId;createTrial 后 dtRefresh('scenario') 立即刷管线;resetForNew 清 runScenarioId;无场景基线运行时占位文案改为'无场景基线运行,无DAG'而非误导性'请选场景'",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "pipeline",
-   "trial",
-   "scenario"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-090",
-  "error_message": "全局模型(build_system/codebuddy)不出现在其它团队(AWS运维)的模型与连接列表",
-  "root_cause": "loadModels 表格只 map 本团队 /teams/{tid}/models;全局模型属于别团队,不在本团队列表,故只在顶部横幅显示、列表里看不到",
-  "fix": "loadModels 先读 /llm/global-model;若全局模型不属于本团队,拉源团队 models 取详情,在列表顶部补一行只读引用(背景高亮,操作列标'🌐 全局·来自<team>'),让每个团队都能看到实际生效的全局模型;空列表但有全局时也显示该行",
-  "tags": [
-   "frontend",
-   "agent-team-config",
-   "global-model",
-   "llm"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-091",
-  "error_message": "协作·交互 序列图显示的是旧 build 演示交互(stress-test/模拟交互),与所选场景/任务不符",
-  "root_cause": "renderSequenceDiagram 用 S.messages.slice(-30) 全量渲染,既没按团队过滤(时间线 bug-086 已过滤但序列图漏了),又混入 CLI simulate 生成并持久化到 localStorage(dt2_messages) 的 stress-test/模拟交互 演示消息",
-  "fix": "renderSequenceDiagram 改用 _scopedMsgs()(团队过滤,与时间线同口径);sexyCreateAndRun 新一轮演练启动时清空 S.messages+localStorage.dt2_messages(与 _dt2dChaosReset 同处),dtRefresh('step') 刷新 → 时间线/序列图只反映本次运行",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "sequence-diagram",
-   "interaction",
-   "secs"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-092",
-  "error_message": "广场「拆解并执行」失败(拆解执行失败·请求ID) — dispatch-and-execute 500",
-  "root_cause": "plaza_routes._dispatch_discussion_tasks 内 `from .api import _submit_internal_task`,但该函数早已从 api.py 移除(仅剩 submit_task REST 端点与测试 mock)→ ImportError→500;智能拆解/拆解并执行 走同一函数,均受影响",
-  "fix": "在 api.py 补回 _submit_internal_task(team_id,*,agent_id,title,description,priority,dependencies,metadata,auto_start) 作单一实现(建AgentTask→生成workflow→入队→auto_start时启动首步+harness监控);submit_task REST 端点改为复用该 helper。需重启后端生效",
-  "tags": [
-   "backend",
-   "plaza",
-   "dispatch",
-   "import-error",
-   "tasks"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "feat-023",
-  "error_message": "演进式成本优化收口2:效率视角缺'该动哪个杠杆'引导+排序未暴露反指标",
-  "root_cause": "renderEfficiencyView 有两杠杆占比条但无下一步动作链接;排序恒按效率降序(最优在前),不暴露'高Token低产出'北极星反指标",
-  "fix": "13.5:每有消耗团队按主导杠杆追加'去技能萃取/去议事广场'下一步链接;13.3:默认'最需优化优先'(有消耗且效率最低在前,无消耗沉底)+toggleEffSort切换'效率最高优先'。产出 收口2plan/todos。重后端项(13.1归因/13.4运行时Gate/13.5复跑回写/13.6同源)单列延后",
-  "tags": [
-   "frontend",
-   "cost-dashboard",
-   "efficiency",
-   "lever",
-   "north-star"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-093",
-  "error_message": "技能注入不给任何 agent — 只显示'已注入沙箱',看不到注入到了谁",
-  "root_cause": "twin_loop.inject_chaos_event 的 skill_inject 分支只把事件记进 chaos.events 并返回'技能X已注入沙箱',从未把技能写给任何 twin;前端也只显示 skill_id,故用户无法知道注入到哪个 agent(实际上没注入到任何 agent)",
-  "fix": "skill_inject 改为把技能真正加到在役 twin 的 skills(target_agent 指定则只给该 agent,否则全体在役),记录 targets,detail 改为'技能X已注入N个在役Agent: 名单';前端 _doInjectSkill 显示 d.targets 数量并用 d.detail 做 toast。需重启后端生效",
-  "tags": [
-   "backend",
-   "frontend",
-   "digital-twin",
-   "skill-inject",
-   "twin-loop"
-  ],
-  "date": "2026-07-02"
- },
- {
-  "id": "bug-033-auth-exempt-writes",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "未登录请求可 POST/PUT/DELETE /api/v1/agent-config/teams*（返回422/404而非401）",
-  "file": "src/backend/main.py",
-  "root_cause": "_AUTH_EXEMPT_PREFIXES 含 /agent-config/teams 全方法豁免（为消除页面加载401噪声），写操作也被放行",
-  "fix": "豁免改为方法感知：只读豁免仅限 GET/HEAD/OPTIONS（_AUTH_EXEMPT_READONLY_*），移除 digital-twin/state 与 overview/evolution/bridge-chat 豁免；csrf/auth 中间件均传 request.method",
-  "tags": [
-   "security",
-   "auth",
-   "middleware"
-  ]
- },
- {
-  "id": "bug-034-twinloop-stuck-evaluating",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "孪生演练完成后 alignment 为 None，session 永久卡在 evaluating",
-  "file": "src/backend/sandbox/orchestrator.py",
-  "root_cause": "run_full_pipeline 用 status != RUNNING 判定用户中断，但 run_simulation 正常结束状态是 EVALUATING，正常完成被误判为中断跳过对齐",
-  "fix": "仅 PAUSED/FAILED 视为中断",
-  "tags": [
-   "sandbox",
-   "twin_loop",
-   "state-machine"
-  ]
- },
- {
-  "id": "bug-035-phantom-team-twin-worlds",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "twin-trials 创建对孪生世界注册的团队返回 400 未知团队（测试全量跑时 v4_apis 7 用例连环失败）",
-  "file": "src/backend/sandbox/trial_api.py",
-  "root_cause": "resolve_team_id 只认 agents 侧 TeamManager；orchestrator.sync_world 丢弃 team_id，孪生侧团队无处登记",
-  "fix": "orchestrator 新增 known_teams 集合并在 sync_world 登记；resolve_team_id 放行孪生已知团队",
-  "tags": [
-   "sandbox",
-   "trial_api",
-   "test-isolation"
-  ]
- },
- {
-  "id": "bug-036-lite-sandbox-stdlib-import",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "run_python 工具执行 `from agents.models import ...` 报 blocked dangerous import: subprocess",
-  "file": "src/backend/sandbox/python_runner_lite.py",
-  "root_cause": "__import__ 钩子按模块名拦截，Python3.10 中 uuid→platform→subprocess 传递依赖被误杀（subprocess 危险函数本已被中和）",
-  "fix": "已在 sys.modules 的模块放行；用户显式危险导入仍由 AST 静态检查拦截",
-  "tags": [
-   "sandbox",
-   "security",
-   "portability"
-  ]
- },
- {
-  "id": "bug-037-pagination-envelope-gap",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "agents/api.py 9 个列表端点不支持 limit/offset 分页信封（12+ 测试失败）",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "agent_team_api._paginate_optional 可选分页契约从未移植到 agent-config 路由",
-  "fix": "移植同一契约（默认返回裸数组向后兼容，带参返回 items/total/limit/offset/has_more）",
-  "tags": [
-   "api",
-   "pagination"
-  ]
- },
- {
-  "id": "bug-038-skill-binding-not-materialized",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "Agent 绑定技能不物化团队副本/不持久化；删除技能不解绑 Agent、不跨团队清理",
-  "file": "src/backend/agents/api.py",
-  "root_cause": "update_agent_skills 只写引用；disable/delete_skill 未遍历 agents 与全部团队",
-  "fix": "物化 registry 技能副本、canonical id 绑定、_persist；delete_skill 跨团队清理并返回 removed_from_teams/removed_agent_bindings",
-  "tags": [
-   "skills",
-   "api"
-  ]
- },
- {
-  "id": "bug-039-vendor-three-import",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "npm run build 失败：无法解析 /vendor/three/build/three.module.js",
-  "file": "src/frontend/js/sandbox-twin-3d.js",
-  "root_cause": "唯一一个 3D 文件用不存在的 vendor 绝对路径，其余均为裸导入 three",
-  "fix": "统一为 import * as THREE from 'three'（页面 importmap 兜底原生加载）",
-  "tags": [
-   "build",
-   "frontend"
-  ]
- },
- {
-  "id": "bug-040-dt-html-split-regression",
-  "timestamp": "2026-07-04T05:25:00.000000",
-  "error_message": "Agent-digital-twin.html 缺场景卡片容器/故障注入面板/手动创建入口（JS与CSS均在）",
-  "file": "src/frontend/Agent-digital-twin.html",
-  "root_cause": "frontendBigChange 文件拆分时 DOM 段丢失，仅 JS/CSS 迁移",
-  "fix": "补 dp-scenario-cards、inject-event-panel(6个doInjectEvent按钮)、dp-btn-create-trial；login 回退页从 -new.html 修正为打包页",
-  "tags": [
-   "frontend",
-   "regression"
-  ]
- },
- {
-  "id": "bug-041-openclaw-sync-flaky",
-  "timestamp": "2026-07-04T07:06:36.870895",
-  "error_message": "tests/test_openclaw_sync.py::test_process_sync_request_deep_dependency 全量 pytest 偶发失败（单独/复跑均过）",
-  "file": "tests/test_openclaw_sync.py",
-  "root_cause": "OpenClawSyncChannel 经 get_ab_test_manager() 共享模块级单例 ABTestManager，前序用例事件改动共享 EWMA 阈值/决策历史，全量执行顺序下污染 deep_dependency 判定",
-  "fix": "在 test_openclaw_sync.py 加 autouse fixture，每个用例前后调用 reset_ab_test_manager() 隔离单例 EWMA 状态；全量 1399 passed，本文件连续 5 次通过。[2026-07-05 根治升级] 把单例重置提升到 tests/conftest.py 与 src/backend/tests/conftest.py 的 autouse fixture _reset_shared_singletons，覆盖全部测试文件、无需各文件自建；移除 test_openclaw_sync.py 本地 fixture。根全量 251 passed、后端 1165 passed、openclaw 连 5 次通过。",
-  "tags": [
-   "test",
-   "flaky",
-   "shared-singleton",
-   "ewma"
-  ]
- },
- {
-  "id": "bug-042-office-agent-model-regression",
-  "timestamp": "2026-07-04T09:30:00.000000",
-  "error_message": "Agent-digital-twin.html?office3d=1 里的 Agent 造型像黑色圆柱/棋子，没有复用 plaza 里的 agent 模型语言",
-  "file": "src/frontend/js/office/office-scene.js",
-  "root_cause": "office-engine 首版 buildAgentFigure 重新手写了 CapsuleGeometry + SphereGeometry + ConeGeometry 站桩造型，偏离用户要求的 plaza agent 模型骨架，也与 Marvis 办公室参考图的角色观感不一致",
-  "fix": "将 buildAgentFigure 改为 plaza 风格头环 + U 形身体 + 彩色光环 + 名字 sprite；移除胶囊/球头/尖耳；动画改为驱动 group.userData.bobRoot，避免依赖旧模型 child[0]。office-state 9/9、node --check、npm run build 通过",
-  "tags": [
-   "frontend",
-   "digital-twin",
-   "office3d",
-   "threejs",
-   "visual-regression"
-  ]
- },
- {
-  "id": "bug-041-test-agents-pollute-team-store",
-  "timestamp": "2026-07-05T01:40:00.000000",
-  "error_message": "演练协作图/3D出现大量测试Agent(TestAgent01等哈希id)，Build System 7人团队演练出现40节点",
-  "file": "storage/teams/teams.json",
-  "root_cause": "部分集成/冒烟测试直接对活服务或真实TeamStore执行，测试Agent与空测试团队被持久化；世界同步旧累积语义放大了污染",
-  "fix": "带备份清理(移除6测试Agent+2空测试团队+1测试工作区)；世界同步已改整队替换；待办: 排查走活服务的测试改用隔离store",
-  "tags": [
-   "test-isolation",
-   "data-hygiene",
-   "storage"
-  ]
- }
+  {
+    "id": "bug-cat-speak-skill-execute-404",
+    "timestamp": "2026-07-07T03:40:00.000000",
+    "error_message": "agent-team-config 点击“猫台词”(cat_speak_prompt)技能执行 → 提示失败，后端 404 Skill '猫台词提示词 (Mei Ling)' not found",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "execute_skill 只用 sr.get_by_slug(skill_name) 在全局技能注册表(_sr)里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
+    "fix": "execute_skill 注册表未命中时回退团队本地技能：_tm().get_team(team_id).skills.get(name) 或按 name/skill_id/slug 匹配。通用修复，任何 team-local 技能都可执行",
+    "tags": [
+      "backend",
+      "skill-execute",
+      "pet-ecosystem",
+      "team-local-skill",
+      "404",
+      "skill-registry"
+    ]
+  },
+  {
+    "id": "bug-cat-speak-skill-instructions-404",
+    "timestamp": "2026-07-08T00:00:00.000000",
+    "error_message": "agent-team-config 点击“猫发言提示词”技能“获取图标” → 显示“获取失败”，后端 404 /api/v1/agent-config/skills/cat_speak_prompt/instructions Skill not found",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "get_skill_instructions 只用 _sr().get(skill_id) 在全局技能注册表里找；cat_speak_prompt 只挂在 pet_squad 的 team.skills(team-local)，注册表没有该技能 → 返回 None → 404",
+    "fix": "get_skill_instructions 注册表未命中时回退遍历所有团队本地技能：for team in _tm().list_teams(): skill = team.skills.get(skill_id)。与 execute_skill 的团队本地回退模式一致",
+    "tags": [
+      "backend",
+      "skill-instructions",
+      "pet-ecosystem",
+      "team-local-skill",
+      "404",
+      "skill-registry"
+    ]
+  },
+  {
+    "id": "bug-pet-seed-not-cross-machine",
+    "timestamp": "2026-07-07T03:35:00.000000",
+    "error_message": "storage/pet_config.json 被 gitignore，拉取覆盖后其它机器缺小虎/吱吱，手补的 seed 不跨机同步",
+    "file": "src/backend/agents/pet_ecosystem.py",
+    "root_cause": "生物数据只来自 gitignored 的 storage/pet_config.json，pet_ecosystem.py 无内置种子；每台机器都要手工补文件",
+    "fix": "加内置常量 _DEFAULT_SEED(小虎 predator + 吱吱 prey，含 Phase A 全字段)；_load() 在文件缺失/损坏/无 pets 时 deepcopy 种子并 _save() 落盘——根治跨机不同步",
+    "tags": [
+      "backend",
+      "pet-ecosystem",
+      "gitignore",
+      "seed-data",
+      "cross-machine"
+    ]
+  },
+  {
+    "id": "bug-pet-config-missing-after-pull",
+    "timestamp": "2026-07-07T02:45:00.000000",
+    "error_message": "pet-config.html 与 office3d 数字孪生里小虎(猫)、吱吱(鼠)完全不加载；页面底部提示『✅ 配置已加载（0 个生物）』",
+    "file": "storage/pet_config.json",
+    "root_cause": "生物数据全部来自 storage/pet_config.json，pet_ecosystem.py 无内置种子；该文件被 .gitignore 忽略且未纳入 git 跟踪。从 GitHub 拉取覆盖本地时不会带过来，开发机上的该文件是本地生成的，故两机差异表现为一台有小虎/吱吱、另一台 0 生物",
+    "fix": "按 docs/宠物团队生态仿真plan.md 的 Phase A schema 重建 storage/pet_config.json，seed 小虎(role=predator, builtin_cat, xiaohu_cat)与吱吱(role=prey, builtin_mouse, squeak_mouse)，含 perception/mental_state/intention 块；PetEcosystem 为启动单例，需重启后端重新加载",
+    "tags": [
+      "pet-ecosystem",
+      "gitignore",
+      "seed-data",
+      "digital-twin",
+      "storage",
+      "singleton-reload"
+    ]
+  },
+  {
+    "id": "bug-pet-team-visibility-import",
+    "timestamp": "2026-07-07T02:20:00.000000",
+    "error_message": "启动告警：宠物智能体团队加载失败：cannot import name 'Visibility' from 'agents.team_manager'",
+    "file": "src/backend/main.py",
+    "root_cause": "main.py 里宠物团队引导用 `from agents.team_manager import AgentTeam, Visibility`，但 team_manager 只从 .models re-export AgentProfile/AgentTeam/ModelConfig，未导出 Visibility；Visibility 实际定义在 agents.models",
+    "fix": "改为 `from agents.models import AgentProfile, AgentPersonality, AgentTeam, Visibility`（合并单行导入）。修复后团队数 5→6、agents 34→36，pet_squad 正常加载",
+    "tags": [
+      "backend",
+      "import-error",
+      "pet-ecosystem",
+      "team_manager",
+      "Visibility"
+    ]
+  },
+  {
+    "id": "bug-plaza-modal-hidden",
+    "timestamp": "2026-06-16T13:30:00.000000",
+    "error_message": "议事广场删除按钮只弹出蒙版看不到确认框；新建广场按钮点击也只显示蒙版无内容",
+    "file": "src/frontend/plaza.html",
+    "root_cause": "commit 8a420c7 给 plaza.html 链入全局 css/components.css，其中 .modal{display:none} 与本页将 .modal 用作弹窗内容面板的写法冲突；本页局部 .modal 规则未设 display，全局 display:none 胜出，导致所有弹窗(删除确认/新建广场/编辑/新建讨论)内容面板被隐藏，仅遮罩 .modal-overlay 可见",
+    "fix": "在 plaza.html 局部 .modal 规则加 display:block 覆盖全局 display:none（单处改动）",
+    "tags": [
+      "frontend",
+      "plaza",
+      "css",
+      "modal",
+      "specificity",
+      "components.css"
+    ]
+  },
+  {
+    "id": "bug-001",
+    "timestamp": "2026-06-13T05:18:00.922814",
+    "error_message": "E-5 test_full_flow.py 跑出 401 '认证已失效，请重新登录' (Backend not healthy)",
+    "file": "tests/test_full_flow.py",
+    "root_cause": "老 E2E 脚本(5月)裸用 urllib 不带认证；后端现强制 cookie+token，连 /health 都拦，POST 还需 CSRF",
+    "fix": "加 bootstrap_auth(): 注册一次性用户→ag-token cookie 入 jar(GET 凭 cookie)；取 /auth/csrf-token，写操作带 X-CSRF-Token。Bearer/CSRF 中间件确认 cookie+CSRF 组合可通",
+    "tags": [
+      "auth",
+      "csrf",
+      "e2e",
+      "E-5",
+      "401",
+      "test_full_flow"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-13T05:18:00.922814"
+  },
+  {
+    "id": "bug-002",
+    "timestamp": "2026-06-13T05:40:00.000000",
+    "error_message": "system-evolution 实时更新完全不生效:概览 KPI 永不自动刷新,只能手动刷新",
+    "file": "src/frontend/js/system-evolution.js + src/backend/agent_team_api.py",
+    "root_cause": "两处叠加:1) 后端从未注册 GET /api/v1/agent-teams/evolution/stream,前端 _startSSE 连它必然 404→onerror;2) onerror 的轮询降级条件 if(!_ssePollTimer && _ssePollActive) 中 _ssePollActive 初始 false,只有 _fallbackPoll() 会置 true,而 _fallbackPoll 仅在 EventSource 构造抛异常的 catch 调用,404 走 onerror 不抛异常→降级永不触发",
+    "fix": "前端:onerror 改为 _closeSSE(); _fallbackPoll();(_fallbackPoll 自带 !_ssePollTimer 去重)。后端:新增 GET /evolution/stream,StreamingResponse(text/event-stream),每10s只读 get_evolution_summary() 变化检测推 stats_update,审计轨迹长度变化推 trail_update,带 ping 心跳,不改引擎。node --check + py_compile + vitest(3 passed)通过;真实 SSE 长连接需本机 rtk 验证",
+    "tags": [
+      "sse",
+      "realtime",
+      "system-evolution",
+      "frontend",
+      "fallback-polling",
+      "missing-endpoint"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-13T05:40:00.000000"
+  },
+  {
+    "id": "bug-003",
+    "timestamp": "2026-06-15T03:45:12.234880",
+    "error_message": "并发任务长期'执行中'不收敛(217总/5running卡死)；任务执行 LLM 写死本地 claude，本地不可达时会话无限挂起",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "_get_deepseek_credentials/_should_use_direct_api/_run_claude_cli_direct 全读 ~/.claude/settings.json + 本地 claude CLI，忽略系统'模型与连接页'配置的 ChatHarness provider(model_pool)",
+    "fix": "新增 _harness_provider_credentials() 读 get_chat_harness().get_provider_config()；_get_deepseek_credentials 改为优先 harness 配置再回退本地；_should_use_direct_api 在配置 provider 非 anthropic 时直连绕开本地 CLI",
+    "tags": [
+      "task-execution",
+      "llm-config",
+      "stuck",
+      "claude-cli",
+      "chat_harness",
+      "model_pool",
+      "T4"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-15T03:45:12.234880"
+  },
+  {
+    "id": "bug-009",
+    "timestamp": "2026-06-15T15:58:00.000000",
+    "error_message": "skill-extract 批准入库点击无反应：选了特质/公有/储备、保存了编辑，仍不能入库",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "登录会话过期，approve 接口返回 401（控制台 'API 401 ... 认证已失效，请重新登录'）。approveAs 的 `if (!r) return;` 在 api() 失败时静默返回，用户看不到原因，表现为按钮点了没反应、入库不了",
+    "fix": "approveAs 在 r 为空时不再静默：弹红色 toast '批准入库失败，请重新登录后再试' + addMessage 给出完整出路（登出重登→回到技能点击批准）。浏览器验证：重登后用有效会话+CSRF 调 approve，HTTP200，item 'IaC管理下的Auto Scaling组配置' 从 ready_for_review→approved",
+    "tags": [
+      "auth",
+      "401",
+      "csrf",
+      "skill-extract",
+      "approve",
+      "silent-failure",
+      "ux"
+    ],
+    "related_bugs": [
+      "bug-001"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-15T15:58:00.000000"
+  },
+  {
+    "id": "bug-010",
+    "timestamp": "2026-06-16T06:28:00.000000",
+    "error_message": "技能演化/验证/效果改进建议偶发报错: 当前 LLM 未连接 (Authentication Fails, api key: ****TAzS is invalid)",
+    "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py, src/backend/agents/skill_evolver.py, src/backend/agents/skill_verifier.py",
+    "root_cause": "skill-library/evolve 与 verify 走全局 ChatHarness 默认模型，启动时可能指向其他团队默认模型(ai_coding/qwen3)，未按当前 team_id 使用团队默认 CodeBuddy 模型；同时 api_base_url 允许带前导空格，增加配置不一致风险。",
+    "fix": "新增 _resolve_team_provider_config(team_id) 并将 ProviderConfig 注入 skill_evolver/skill_verifier 的 chat 调用(config_override)，确保按团队默认模型路由；在 add/update/load/resolve_base_url 统一 strip api_base_url 前导空格。",
+    "tags": [
+      "llm-routing",
+      "team-default-model",
+      "skill-evolve",
+      "skill-verify",
+      "codebuddy",
+      "api-base-url"
+    ],
+    "related_bugs": [
+      "bug-003"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T06:28:00.000000"
+  },
+  {
+    "id": "bug-011",
+    "timestamp": "2026-06-16T06:28:00.000000",
+    "error_message": "版本页点击创建新版本经常失败（依赖 LLM 状态）",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "confirmNewVersion 误将“创建版本快照”实现为先调用 /skill-library/evolve 再 apply-evolution，导致创建版本与 LLM 可用性耦合。",
+    "fix": "confirmNewVersion 改为直接调用 /skill-library/version/snapshot，不再依赖 LLM；同时保留刷新版本时间线与技能列表。",
+    "tags": [
+      "skill-version",
+      "snapshot",
+      "frontend",
+      "llm-coupling"
+    ],
+    "related_bugs": [
+      "bug-010"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T06:28:00.000000"
+  },
+  {
+    "id": "bug-012",
+    "timestamp": "2026-06-16T16:32:00.000000",
+    "error_message": "plaza 页面控制台报 CSP 拦截 sourcemap + Three.js 废弃警告(Clock/PCFSoftShadowMap)",
+    "file": "src/frontend/plaza.html, src/frontend/js/plaza.js",
+    "root_cause": "plaza.html 的 connect-src 未允许 ga.jspm.io，DevTools 拉取 es-module-shims.js.map 被 CSP 拦截；plaza.js 仍使用 THREE.Clock 与 THREE.PCFSoftShadowMap，升级到 three@0.174 后触发 deprecation 警告。",
+    "fix": "CSP connect-src 增加 https://ga.jspm.io；渲染循环改为 performance.now() 计时替代 THREE.Clock；shadowMap.type 改用 THREE.PCFShadowMap。vitest(plaza) 2 文件 10 用例通过，node --check 通过。",
+    "tags": [
+      "plaza",
+      "csp",
+      "sourcemap",
+      "threejs",
+      "deprecation",
+      "frontend"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T16:32:00.000000"
+  },
+  {
+    "id": "bug-013",
+    "timestamp": "2026-06-16T17:18:00.000000",
+    "error_message": "点击议事广场删除叉后出现灰屏，控制台报 data:audio/wav 被 CSP 拦截",
+    "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
+    "root_cause": "删除点击时触发首个用户手势，执行 unlockAudio 中 new Audio(data:audio/wav...) 解锁逻辑；页面 CSP 未声明 media-src，默认落到 default-src 'self' 导致报错。同时确认弹层依赖动态创建，遮罩关闭守卫对 overlay 关闭目标处理不稳，表现为灰屏体感。",
+    "fix": "移除 unlockAudio 的 data:audio 播放，仅保留 AudioContext 解锁；CSP 增加 media-src 'self' data: blob:；补充静态 m-confirm 弹层并修正 overlay 关闭守卫优先按 overlay.id 关闭。plaza vitest 10/10 + node --check 通过。",
+    "tags": [
+      "plaza",
+      "delete",
+      "modal",
+      "csp",
+      "media-src",
+      "tts"
+    ],
+    "related_bugs": [
+      "bug-012"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T17:18:00.000000"
+  },
+  {
+    "id": "bug-014",
+    "timestamp": "2026-06-16T18:51:00.000000",
+    "error_message": "Agent-digital-twin.html 运行时状态一直显示'连接中...'，页面像一直在转圈",
+    "file": "src/frontend/js/digital-twin/secs-core.js",
+    "root_cause": "SECS 运行时面板只在 window.load 后才首次调用 loadRuntimeStatus()；若页面资源较慢或 load 事件被延后，右侧状态会永久停留在初始 connecting。且 runtime-status 使用裸 fetch 无超时，接口挂起时也会无限保持 spinner。",
+    "fix": "新增 _fetchWithTimeout() 给 /runtime-status 4s 超时；新增 _bootstrapRuntimePanel() 在 DOMContentLoaded 即启动 runtime/stats/history 拉取，并保留 load 时二次刷新。node --check + 4 个 digital-twin vitest 文件 10 用例通过。",
+    "tags": [
+      "digital-twin",
+      "secs",
+      "runtime-status",
+      "spinner",
+      "bootstrap",
+      "frontend"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T18:51:00.000000"
+  },
+  {
+    "id": "bug-015",
+    "timestamp": "2026-06-16T18:52:00.000000",
+    "error_message": "Agent-digital-twin.html 加载 lucide.min.css 失败，浏览器报 stylesheet URL 无法加载",
+    "file": "src/frontend/Agent-digital-twin.html",
+    "root_cause": "页面引用 `https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css`，该 URL 当前返回 404；同时页面内并无任何 lucide class 使用，属于失效且未使用的外部依赖。",
+    "fix": "删除 Agent-digital-twin.html 中无效的 lucide stylesheet 引用。`rg` 确认页面和相关脚本无 lucide 残留；digital-twin 4 个 vitest 文件 10 用例通过。",
+    "tags": [
+      "digital-twin",
+      "stylesheet",
+      "cdn",
+      "404",
+      "unused-dependency",
+      "frontend"
+    ],
+    "related_bugs": [
+      "bug-014"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-16T18:52:00.000000"
+  },
+  {
+    "id": "bug-016",
+    "timestamp": "2026-06-17T00:00:00.000000",
+    "error_message": "agent-team-config 模型与连接页点击编辑按钮不弹窗（仅遮罩出现，内容面板不可见 / 弹窗透明 / 位置错钉左上角）",
+    "file": "src/frontend/agent-team-config.html",
+    "root_cause": "根因来自 UI美化todos.md A1+A6 任务的回归(commit 8a420c7): A1「合并共享CSS三层」时把 ws-theme-bridge.css 归档，只搬了 4 套 [data-obc-theme] 主题令牌进 theme.css，漏搬了文件末尾整段 --ws-* 辅助色系(--ws-panel-bg/--ws-border-light/--ws-hover-bg/--ws-active-bg 等，注释明写 used by agent-team-config)；A6 又在 agent-team-config.html 删掉 ws-theme-bridge.css 的 <link> 并加入 components.css。后果叠加: (1) --ws-* 整层失效→弹窗/toast/卡片背景透明无边框; (2) components.css 的 .modal{display:none;position:fixed;inset:0} 污染本页用作内容面板的 .modal(本页局部 .modal 未声明 display/position)→面板被隐藏且钉死左上角。浏览器复现确认 overlayDisplay=flex 但 panelDisplay=none、bg=rgba(0,0,0,0)。审计: 全工程仅 agent-team-config.css 消费 --ws-*(64处)，影响面只此一页。最初误诊为 model_id 编码问题在 js 加 encode/decode，无效已 git checkout 还原。",
+    "fix": "两处: (1) src/frontend/agent-team-config.html 在 components.css 之后、agent-team-config.css 之前恢复 <link rel=stylesheet href=/css/ws-theme-bridge.css>，补回 --ws-* 辅助色系(theme.css 已接管主题令牌，此处只补 --ws-*，同值重复不改外观)。(2) src/frontend/css/agent-team-config.css 局部 .modal 加 display:block;position:relative;inset:auto 覆盖 components.css 的全局污染。验证: --ws-panel-bg=#21272D、面板 bg=rgb(33,39,45) 实色有边框、position=relative、居中(centeredX/Y true)、编辑弹窗完整渲染。",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "modal",
+      "css-cascade",
+      "ws-theme-bridge",
+      "components-css-pollution",
+      "ui美化todos-A1-regression"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T00:00:00.000000"
+  },
+  {
+    "id": "bug-017",
+    "timestamp": "2026-06-17T00:00:00.000000",
+    "error_message": "新建智能体向导第2步『专长领域』点击『+ 添加』报错: ReferenceError: addExp is not defined",
+    "file": "src/frontend/js/wizard.js",
+    "root_cause": "wizard.js 使用 IIFE 封装并启用 strict mode，模板里仍用内联 onclick(如 addExp()/addPerm()/rmPerm()/togWzChan()/wzFinish())。函数本体存在，但底部 window 导出列表缺少这些函数，导致点击时在全局作用域找不到 addExp，抛出 ReferenceError。",
+    "fix": "补齐 wizard.js 底部全局导出: window.addExp / window.addPerm / window.rmPerm / window.togWzChan / window.wzFinish（并保留原有导出）。浏览器验证: typeof window.addExp==='function'，执行 addExp 后专长 chip 可正常新增。",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "wizard",
+      "onclick",
+      "iife",
+      "global-export"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T00:00:00.000000"
+  },
+  {
+    "id": "bug-018",
+    "timestamp": "2026-06-17T18:25:00.000000",
+    "error_message": "AWS 运维团队智能体详情会话聊天返回兜底文案‘当前 LLM 未连接 (11133 Invalid request parameters)’，导致无法获得真实 LLM 回答",
+    "file": "src/backend/agents/api.py, src/backend/agents/chat_harness.py",
+    "root_cause": "CodeBuddy 会话路径与测试路径参数兼容性不一致：会话聊天会注入工具 schema / 较复杂系统提示词，在 CodeBuddy 严格参数校验下触发 11133；同时原实现遇到 11133 不做降级重试，直接进入 fallback 文案。",
+    "fix": "会话生成路径对 CodeBuddy 做兼容：1) api.py 在 _generate_agent_response 中识别 CodeBuddy 默认模型并跳过 tools schema 注入；2) chat_harness.py 在 LLMClient.chat_completion 中对 CodeBuddy 的 11133 增加参数降级重试（先最小非流式，再仅最后一条用户消息）；3) 保持前端会话创建 payload 合法。浏览器实测 POST /sessions/{sid}/messages 后 assistant 返回真实模型文本‘连接正常’，不再 fallback。",
+    "tags": [
+      "backend",
+      "chat-harness",
+      "codebuddy",
+      "llm",
+      "fallback",
+      "11133",
+      "compatibility"
+    ],
+    "related_bugs": [
+      "bug-010"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T18:25:00.000000"
+  },
+  {
+    "id": "bug-019",
+    "timestamp": "2026-06-17T19:05:00.000000",
+    "error_message": "智能体详情技能页缺少删除入口：部分行仅显示“绑定”，无法直接删除技能",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "ag-skills 的 renderSkillRow 将删除按钮放在 isBound 条件分支内，导致未绑定技能行不渲染删除操作；页面表现为只有“绑定”而无“删除”。",
+    "fix": "将 deleteSkillWithContext 删除按钮改为技能行通用操作（绑定/未绑定都显示），仅绑定状态按钮继续按 isBound 切换为“解绑”或“绑定”。",
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skills",
+      "delete",
+      "binding",
+      "ui-regression"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:05:00.000000"
+  },
+  {
+    "id": "bug-020",
+    "timestamp": "2026-06-17T19:22:00.000000",
+    "error_message": "智能体详情技能页点击删除不生效（按钮可见但接口未正确命中）",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "删除按钮 inline onclick 使用 escapeHtml(skill_id) 直接传参，包含特殊字符时被 HTML 实体化（如 & -> &amp;），deleteSkillWithContext 拿到的不是原始 skill_id，导致 DELETE /teams/{tid}/skills/{skill_id} 命中失败。",
+    "fix": "将 skill_id/skill_name/sourceId 改为 encodeURIComponent 传参，在 deleteSkillWithContext 内 decodeURIComponent 还原；DELETE 路径段使用 encodeURIComponent(rawSkillId) 发送。",
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skills",
+      "delete",
+      "encoding",
+      "onclick"
+    ],
+    "related_bugs": [
+      "bug-019"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:22:00.000000"
+  },
+  {
+    "id": "bug-021",
+    "timestamp": "2026-06-17T23:10:00.000000",
+    "error_message": "议事广场页底部「+ 新建广场」和「开始」按钮不可见（以前修过又复现），疑似前端优化导致",
+    "file": "src/frontend/plaza.html",
+    "root_cause": "UI美化(commit 8a420c7)把页面顶栏换成共享组件 .topbar-ws，其 position:relative 处于普通流并占据 56px 高度；但 .layout 仍保留为固定顶栏设计的 margin-top:56px，且同时有 height:calc(100vh - 56px)。二者叠加使内容总高 = 56(顶栏) + 56(margin) + (100vh-56) = 100vh + 56，整体溢出视口 56px，正好把底部的 .btn-new 与 .ctrl-bar(含 #btn-start) 挤出视口下方。浏览器实测: innerHeight=561，.btn-new top=575/bottom=609 inView=false，#btn-start top=578 inView=false，.left/.right bottom=617。",
+    "fix": "删除 src/frontend/plaza.html 中 .layout 的 margin-top:56px（顶栏已是普通流自然占位，height:calc(100vh-56px) 已为其预留高度），并加注释说明不可再加 margin-top。浏览器重载实测: .btn-new top=519/bottom=553 inView=true、#btn-start top=522 inView=true、.left/.right=56→561 正好填满视口，截图确认两按钮可见。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "layout",
+      "topbar-ws",
+      "viewport-overflow",
+      "ui美化-regression",
+      "css"
+    ],
+    "related_bugs": [
+      "bug-016"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T23:10:00.000000"
+  },
+  {
+    "id": "bug-022",
+    "timestamp": "2026-06-17T23:58:00.000000",
+    "error_message": "plaza 页面持续刷 API 404: /api/v1/agent-config/plaza/escalations?plaza_id=3c1394b23b1b&discussion_id=c7b791abb040（广场不存在）",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "讨论信号刷新路径会多处触发 refreshEscalationState（含并发触发）；当后端对某讨论上下文返回 404 '广场不存在' 时，前端没有熔断与并发去重，导致同一上下文反复请求并持续产生控制台告警噪音。另有深链/本地缓存上下文选择路径，需在前端做上下文自愈与失效容错，避免旧上下文污染后续请求。",
+    "fix": "在 plaza.js 增加升级项拉取防护：1) 讨论维度熔断集合 escalationFetchBlocked，遇到 404(广场不存在/讨论不存在)后停止该讨论后续 escalations 拉取；2) 并发去重集合 escalationFetchInFlight，确保同一讨论同一时刻最多 1 个 escalations 请求；3) refreshEscalationState 增加上下文自愈（从 DOM/localStorage 回补 plaza/discussion id）与已知广场校验；4) init 深链优先级修正，仅当 deepLink plaza 与选中 plaza 一致时才采用 deepLink discussion。浏览器实测：并发 3 次 refreshEscalationState 仅发 1 次 escalations 请求，不再出现 2~3 秒持续刷 404。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "escalations",
+      "404",
+      "circuit-breaker",
+      "dedupe",
+      "deep-link"
+    ],
+    "related_bugs": [
+      "bug-021"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T23:58:00.000000"
+  },
+  {
+    "id": "bug-023",
+    "timestamp": "2026-06-18T00:20:00.000000",
+    "error_message": "议事广场执行计划 ASSIGN 下拉选择 Build System 后会自动跳回 AI 编程团队，表现为“选不中”",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "renderPlanCard 每次重渲染计划卡片都会重建 `<select id=assign-team>`，但选项未按当前选择或上下文做 selected 回填，导致 DOM 替换后默认落到第一个 option（ai_coding）。用户手动选择成功后，在下一次重渲染时被静默重置，体感为无法选中 Build System。",
+    "fix": "renderPlanCard 增加选择保留逻辑：渲染前读取旧节点值 `previousTeam`，回退到 `AGCtx.get('team')`；生成 option 时对 `preferredTeam` 打 selected，并在 innerHTML 后再次防御性赋值 `assign-team.value = preferredTeam`。浏览器实测：选择 build_system 后等待 6 秒经历重渲染（节点已替换）仍保持 build_system，不再回退。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "assign-team",
+      "select",
+      "rerender",
+      "state-preservation"
+    ],
+    "related_bugs": [
+      "bug-022"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T00:20:00.000000"
+  },
+  {
+    "id": "bug-024",
+    "timestamp": "2026-06-18T00:45:00.000000",
+    "error_message": "任务流水线部署步骤（deployer）被 QA Gate 误阻断，最终报 pipeline halted: rewind cap (2) exhausted",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "Deploy QA Gate 同时读取结构化 test summary 与 test markdown 文本。即使 test_step._summary.verdict 已是 PASS，仍继续做 markdown 正则扫描（匹配 FAIL/BLOCKER 关键字），导致被历史文本/上下文中的 FAIL 字样误判，错误阻断 deploy；反复回滚后触发 rewind cap exhausted。",
+    "fix": "在 deploy QA Gate 逻辑中优先信任结构化 verdict：若 verdict=PASS/PASSED/OK/SUCCESS，跳过 markdown 正则兜底扫描；仅在 verdict 缺失/未知时才回退到 markdown 文本规则。保持 test step status=failed 与 verdict=FAIL/BLOCKER 的阻断不变。py_compile 与 get_errors 均通过。",
+    "tags": [
+      "backend",
+      "workflow",
+      "deploy",
+      "qa-gate",
+      "false-positive",
+      "rewind-cap",
+      "build-system"
+    ],
+    "related_bugs": [
+      "bug-023"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T00:45:00.000000"
+  },
+  {
+    "id": "bug-025",
+    "timestamp": "2026-06-18T01:25:00.000000",
+    "error_message": "删除任务时报 DELETE /api/v1/agent-config/teams/build_system/tasks/<task_id>/remove 404 (Task not found)",
+    "file": "src/frontend/js/tasks-view.js, src/backend/agents/api.py",
+    "root_cause": "前端任务列表存在历史/陈旧 task_id 时，调用 remove 接口会返回 Task not found；此前前端把该 404 当失败提示并记录警告日志，造成“删除不 work”的误导。",
+    "fix": "前端 tasks-view 删除与批量清理路径改为幂等处理：当 remove 返回 404 且 detail=Task not found 时视为已删除成功；同时后端 remove_task 路由改为幂等（缺失任务返回 already_absent），服务重载后可消除该 404。",
+    "tags": [
+      "frontend",
+      "backend",
+      "tasks",
+      "delete",
+      "idempotent",
+      "404",
+      "stale-id"
+    ],
+    "related_bugs": [
+      "bug-024"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T01:25:00.000000"
+  },
+  {
+    "id": "bug-026",
+    "timestamp": "2026-06-18T02:10:00.000000",
+    "error_message": "讨论结束后未看到萃取/网页等按钮，结束态操作入口缺失",
+    "file": "src/frontend/js/plaza.js, src/frontend/plaza.html",
+    "root_cause": "结束态讨论卡片将长标题与多个操作按钮渲染在同一行，标题过长导致按钮区域被挤压/折叠，体感为按钮消失。",
+    "fix": "`renderDiscList` 将 closed 状态按钮抽到独立 `.disc-actions` 行；样式层增加 `.disc-actions` 换行布局与 `.disc-act` nowrap，并让标题 `.tp` 支持 `min-width:0` 与 `word-break`，确保长标题不再吞掉按钮。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "discussion",
+      "closed-state",
+      "buttons",
+      "layout"
+    ],
+    "related_bugs": [
+      "bug-021",
+      "bug-023"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:10:00.000000"
+  },
+  {
+    "id": "bug-027",
+    "timestamp": "2026-06-18T02:25:00.000000",
+    "error_message": "控制台持续出现 escalations 接口 404（广场不存在）提示，影响广场页面可读性",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "refreshEscalationState 使用全局 api() 包装器请求 escalations；当后端返回已知无害 404（广场/讨论上下文失效）时，api.js 会先统一 console.warn 输出，导致即使业务层已熔断仍产生噪音提示。",
+    "fix": "将 escalations 拉取改为 scoped fetch + 本地状态处理：对 404(广场不存在/讨论不存在)直接熔断并静默返回，不再触发全局 API warn；其他状态按需 toast。",
+    "tags": [
+      "frontend",
+      "plaza",
+      "escalations",
+      "404",
+      "logging",
+      "noise-reduction"
+    ],
+    "related_bugs": [
+      "bug-022"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:25:00.000000"
+  },
+  {
+    "id": "bug-028",
+    "timestamp": "2026-06-18T16:20:00.000000",
+    "error_message": "技能萃取在不同讨论议题下误报“该文本已萃取过”，并重复返回同一技能候选",
+    "file": "src/backend/agents/skill_extractor.py, src/backend/agents/api.py, src/frontend/js/skill-extract.js",
+    "root_cause": "去重逻辑仅比较 source_text 前 2000 字符，且未携带 source_plaza_id/source_discussion_id/source_output_id 上下文；当不同讨论文本前缀相同或长文本前 2000 字重合时被误判为同源，直接返回旧队列项，前端看到跨议题重复技能。",
+    "fix": "将去重改为“全文 SHA-256 + 来源签名”策略：优先用 source_meta( plaza/discussion/output )比对，同步比对全文哈希；缺少来源签名时退化为同 type+title+全文哈希。API start 路由支持 source_meta 透传，前端 skill-extract 在 Plaza 跳转萃取时携带 source_meta。",
+    "tags": [
+      "frontend",
+      "backend",
+      "skill-extract",
+      "dedup",
+      "discussion-id",
+      "plaza",
+      "false-positive"
+    ],
+    "related_bugs": [
+      "bug-009"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T16:20:00.000000"
+  },
+  {
+    "id": "bug-029",
+    "timestamp": "2026-06-18T16:40:00.000000",
+    "error_message": "技能审核队列中手动删除后，从议事厅再次点击萃取会把同来源候选重新生成（技能‘复活’）",
+    "file": "src/backend/agents/skill_extractor.py",
+    "root_cause": "delete_item 仅删除队列项，没有保存‘已删除来源’状态；start_extraction 不知道该来源曾被人工删除，因此同来源再次触发时会重新入队生成。",
+    "fix": "增加 deleted source tombstone 机制：按 source_key(source_type/plaza/discussion/output)+全文sha256 生成来源指纹；delete_item 时写入墓碑并持久化；start_extraction 命中墓碑则返回 dedup_skipped/REJECTED，不再自动入队复活。",
+    "tags": [
+      "backend",
+      "skill-extract",
+      "delete",
+      "tombstone",
+      "dedup",
+      "queue"
+    ],
+    "related_bugs": [
+      "bug-028"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T16:40:00.000000"
+  },
+  {
+    "id": "bug-030",
+    "timestamp": "2026-06-18T17:05:00.000000",
+    "error_message": "不同议题点击萃取仍出现同一批技能候选（看起来像萃取到了其他议题）",
+    "file": "src/backend/agents/skill_extractor.py",
+    "root_cause": "LLM 不可用/解析失败时，_fallback_skill_specs 使用固定写死模板（ES容量、Terraform、成本治理等），导致任何议题都会产出相同候选名称，用户感知为‘还是其他议题的’。",
+    "fix": "将 fallback 候选改为 topic-aware：基于 source_title + source_text 提取关键词，动态生成需求拆解/实施路径/验收闭环三类技能，不再输出固定跨议题模板。",
+    "tags": [
+      "backend",
+      "skill-extract",
+      "fallback",
+      "llm-unavailable",
+      "topic-aware",
+      "ux"
+    ],
+    "related_bugs": [
+      "bug-028",
+      "bug-029"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T17:05:00.000000"
+  },
+  {
+    "id": "bug-031",
+    "timestamp": "2026-06-18T17:25:00.000000",
+    "error_message": "从议事厅跳转萃取后，右侧审核队列仍混入历史旧议题候选，用户误以为‘又萃取成其他议题’",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "队列渲染默认展示团队全部历史项；历史项大量缺失 source_meta，且名称与当前议题不一致，视觉上像当前萃取结果被污染。",
+    "fix": "新增来源作用域过滤：当存在 currentExtractSourceMeta(plaza/discussion/output) 时，renderQueue 仅显示匹配 source_meta 的项目；空列表文案改为‘当前讨论来源暂无…’。",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "queue",
+      "source-scope",
+      "ux"
+    ],
+    "related_bugs": [
+      "bug-028",
+      "bug-029",
+      "bug-030"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T17:25:00.000000"
+  },
+  {
+    "id": "bug-032",
+    "timestamp": "2026-06-18T07:55:31.000000",
+    "error_message": "技能详情弹窗“效果”页部分按钮在中等宽度下不显示（展示对比/刷新及快捷按钮被裁切）",
+    "file": "src/frontend/skill-extract.html, src/frontend/css/skill-extract.css",
+    "root_cause": "按钮本身存在且 JS 未隐藏，但详情弹窗 tab 条和 usage 头部动作区使用单行 flex，空间不足时发生裁切/挤压，导致用户看到‘按钮没展示出来’。",
+    "fix": "给相关区域加稳定 class 并补响应式规则：modal tab 条允许 wrap + 横向滚动，usage 头部与快捷按钮区允许换行，在 <=960px 时动作区占满并左对齐，保证按钮始终可见。",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "modal",
+      "css",
+      "responsive",
+      "button-visibility"
+    ],
+    "related_bugs": [
+      "bug-031"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T07:55:31.000000"
+  },
+  {
+    "id": "bug-033",
+    "timestamp": "2026-06-18T08:30:00.000000",
+    "error_message": "智能体技能页点击「解绑」提示「绑定失败 HTTP 404」；点击「绑定」提示「被门禁拦截」",
+    "file": "src/frontend/js/agent-detail.js",
+    "root_cause": "togAgentSkill 所有错误分支都写死'绑定失败'，解绑操作也用同一文案；409 分支硬写'被门禁拦截/技能未通过验证'，但 PUT /agents/{id}/skills 后端没有 gate check，该文案完全误导用户。另外 URL 中 aid 未做 encodeURIComponent，agent_id 含特殊字符时导致 404。",
+    "fix": "1) 引入 action 变量（bind?'绑定':'解绑'），所有 toast 使用 action 变量；2) 合并 4xx/5xx 到统一错误分支，读取 body.detail 显示真实后端错误，不再特判 409 为'门禁'；3) URL 中 aid 改为 encodeURIComponent(aid) 防止特殊字符 404。",
+    "tags": [
+      "frontend",
+      "agent-detail",
+      "skill-bind",
+      "toast-message",
+      "url-encoding"
+    ],
+    "related_bugs": [
+      "bug-017"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T08:30:00.000000"
+  },
+  {
+    "id": "bug-034",
+    "timestamp": "2026-06-19T15:55:00.000000",
+    "error_message": "编辑模型 API Key 留空不修改：测试连接成功并保存后，重新登录系统再点「测试连接」又失败，需重新输入 key",
+    "file": "src/backend/agents/api.py / src/frontend/js/agent-team-config.js",
+    "root_cause": "并非持久化失败——key 已加密存于 config/.api_keys.json（master key 稳定）。真因：POST /llm/test-model 的 TestModelRequest 不含 team_id/model_id，test_model_config 直接用 req.api_key 且无回退。重新登录后编辑框按「留空不修改」把 key 字段置空，测试连接发出空 key → ChatHarness 无密钥 → 测试失败；因失败而不触发自动保存，用户误以为 key 丢失。保存修改(PUT)本身正常(L494 handler 调 _save_model_pool，blank key 经 `if req.api_key` 跳过覆盖，不会损坏已存 key)。",
+    "fix": "1) TestModelRequest 增加 team_id/model_id 字段；2) test_model_config 在 api_key 留空时回退到 _team_manager.get_team(team_id).get_model(model_id).api_key（base_url/name/provider 同样留空回退）；3) 前端 testModelInEdit 的请求体补 team_id:tid。这样重新登录后留空测试连接会用已保存密钥，成功且不需重输。",
+    "tags": [
+      "backend",
+      "frontend",
+      "llm-test-model",
+      "api-key",
+      "secret-store",
+      "fallback",
+      "model-pool"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-19T15:55:00.000000"
+  },
+  {
+    "id": "bug-035",
+    "timestamp": "2026-06-20T00:00:00.000000",
+    "error_message": "成本页「运行棘轮周期 / 仅审查」按钮点击无任何反应",
+    "file": "src/frontend/js/system-evolution.js / src/frontend/cost-dashboard.html",
+    "root_cause": "RatchetAnimator 在 system-evolution.js 中是顶层 const；顶层 const 创建全局词法绑定但不会成为 window 的属性。cost-dashboard.html 的 runCycleOnRatchet/runAuditOnly 用 `if(!window.RatchetAnimator) return;` 守卫，window.RatchetAnimator 恒为 undefined → 静默 return，点击无反应。",
+    "fix": "system-evolution.js 在 RatchetAnimator 定义后追加 `if(typeof window!=='undefined') window.RatchetAnimator = RatchetAnimator;` 显式导出到 window。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "ratchet",
+      "window-export",
+      "const-scope",
+      "silent-noop"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T00:00:00.000000"
+  },
+  {
+    "id": "bug-036",
+    "timestamp": "2026-06-20T01:00:00.000000",
+    "error_message": "成本页运行棘轮周期：当 Top 团队是「(未归因)」(空 team_id) 时，POST /cost/tokens/ratchet/advance 带 team_id='' → 后端 400 → 点击仍无反应",
+    "file": "src/frontend/cost-dashboard.html / src/frontend/js/cost-dashboard.js",
+    "root_cause": "by_team 首位常是空 team_id（历史/未归因调用聚合），breakdown 渲染为「(未归因)」。renderGovernance 用 breakdown[0] 作 governanceTarget、棘轮用 tokenByTeam[0].team_id，都会取到空 team_id；advance 端点对空 team_id 返回 400，前端不提示 → 表现为静默失败。",
+    "fix": "治理/棘轮目标改为取首个『已归因』团队（key 非空且非 (未归因)）；renderGovernance 仅在已归因时设 governanceTarget；棘轮 onClick 用 tokenByTeam.find 跳过空 team_id，全无归因时显示「无可锁定目标，请让调用带上 team_id」提示而非静默。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "ratchet",
+      "attribution",
+      "governance",
+      "empty-team-id"
+    ],
+    "related_bugs": [
+      "bug-035"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T01:00:00.000000"
+  },
+  {
+    "id": "bug-037",
+    "timestamp": "2026-06-20T01:05:00.000000",
+    "error_message": "Token 归因严重缺失：usage_log 中 phase=task 的 45M+ token 全部 team_id=''（未归因），效率视角/by-team/两杠杆被「(未归因)」主导",
+    "file": "src/backend/agents/api.py::_generate_agent_response",
+    "root_cause": "token_scope 仅覆盖 extract/skill_verify/drill；任务执行主路径 _generate_agent_response 已接收 team_id 却未传入 harness.chat，也未包 token_scope，导致所有任务/对话 token 落到空 team_id。record_usage 用 team_id or ctx，两者皆空 → 未归因。",
+    "fix": "_generate_agent_response 的两处 harness.chat 调用补 team_id=team_id（chat() 该参数直达 record_usage）。两个调用方(1694/1839)均已传 team_id。phase 保持 task（任务执行语义正确）。后续新调用即按团队归因，效率/两杠杆/棘轮目标不再被未归因主导。",
+    "tags": [
+      "backend",
+      "attribution",
+      "token-scope",
+      "record-usage",
+      "north-star",
+      "efficiency"
+    ],
+    "related_bugs": [
+      "bug-036"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T01:05:00.000000"
+  },
+  {
+    "id": "bug-038",
+    "timestamp": "2026-06-20T02:30:00.000000",
+    "error_message": "编辑模型测试连接仍 401：留空字段测试时密钥未送达；用户要求一个勾选框把 key 保存到浏览器",
+    "file": "src/frontend/agent-team-config.html / src/frontend/js/agent-team-config.js",
+    "root_cause": "服务端 key 已加密存储且(上次)加了留空回退，但需重启后端才生效；用户重新登录后字段留空、后端未重启→测试发空 key→上游 401。缺少客户端可控的密钥持久化。",
+    "fix": "编辑模型弹窗加「💾 记住密钥」勾选框；localStorage 按 team+model 存取：openEditModel 自动回填并勾选；test/save 用 _effectiveKey(输入框→记住的key)发请求；勾选则写入、取消则清除。即使后端未重启，首次填入并记住后字段自动填充，测试/保存始终带真实 key。",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "api-key",
+      "localStorage",
+      "remember-key",
+      "test-connection"
+    ],
+    "related_bugs": [
+      "bug-034"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T02:30:00.000000"
+  },
+  {
+    "id": "bug-039",
+    "timestamp": "2026-06-20T02:35:00.000000",
+    "error_message": "效率视角全 0、棘轮 no_efficiency、目标 0% 且无推进引导",
+    "file": "src/frontend/js/cost-dashboard.js / src/frontend/cost-dashboard.html",
+    "root_cause": "token_efficiency=score/(tokens/1k)，score 来自数字孪生评分试炼；无任何团队跑过评分试炼→score=0→效率全 0→棘轮 advance 返回 no_efficiency→目标无法推进。UI 未告知用户必须先跑评分试炼，缺动作入口。",
+    "fix": "效率视角 token_only/no_data 行的提示改为可点链接→/Agent-digital-twin.html?team=；目标卡按 metric/杠杆加『如何推进』引导(评分试炼/技能萃取/议事广场)并附链接；棘轮 no_efficiency 时显示明确原因+去数字孪生评分链接。把死循环变成有引导的可执行闭环。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "efficiency",
+      "ratchet",
+      "guidance",
+      "north-star",
+      "drill-score"
+    ],
+    "related_bugs": [
+      "bug-036",
+      "bug-037"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T02:35:00.000000"
+  },
+  {
+    "id": "bug-040",
+    "timestamp": "2026-06-20T03:30:00.000000",
+    "error_message": "成本页『创建 Plaza 话题』后，plaza 页面看不到该话题",
+    "file": "src/frontend/js/cost-dashboard.js::createPlazaTopic",
+    "root_cause": "话题创建在专用『成本治理议事厅』(ensureCostPlaza 找/建的厅)，但结果链接是裸 /plaza.html，plaza.html 默认打开第一个/别的厅，所以看不到刚建的话题。话题其实已创建成功(discussion.id 返回)。plaza.html 本身支持 ?plaza_id=&discussion_id= 深链(L28-29)。",
+    "fix": "结果链接改为 /plaza.html?plaza_id=<plaza.id>&discussion_id=<discussion.id> 深链到话题所在厅+具体讨论，并标明厅名。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "plaza",
+      "deeplink",
+      "dispatch-loop"
+    ],
+    "related_bugs": [
+      "bug-039"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T03:30:00.000000"
+  },
+  {
+    "id": "bug-041",
+    "timestamp": "2026-06-20T03:35:00.000000",
+    "error_message": "成本目标『去技能萃取』跳转后，萃取页未高亮重复(冗余) skill",
+    "file": "src/backend/agents/api.py / src/frontend/js/cost-dashboard.js / src/frontend/js/skill-extract.js",
+    "root_cause": "cost 目标 skill_extraction 杠杆的链接是裸 /skill-extract.html，不带上下文；后端 SkillLibrary.find_duplicates 已存在但无路由暴露；萃取页也无『重复高亮』入口。派发环断在『去萃取但不知萃取哪个重复项』。",
+    "fix": "1) 新增 GET /skill-library/duplicates(threshold,team_id) 暴露 find_duplicates，返回 duplicates+skill_ids；2) cost 链接带 ?team_id=&focus=redundant；3) skill-extract.js 加 maybeHighlightRedundantSkills：focus=redundant 时拉重复技能→固定横幅列出重复对(相似度)+best-effort 高亮第一个水晶(复用 highlightExistingCrystal)。无重复时提示萃取重复意图。",
+    "tags": [
+      "backend",
+      "frontend",
+      "skill-extract",
+      "duplicates",
+      "highlight",
+      "dispatch-loop",
+      "north-star"
+    ],
+    "related_bugs": [
+      "bug-039",
+      "bug-040"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T03:35:00.000000"
+  },
+  {
+    "id": "bug-042",
+    "timestamp": "2026-06-20T17:00:00.000000",
+    "error_message": "演进式成本优化『后半环』脱节：派发任务不回写目标、tokens_per_goal 永远0%、棘轮锁定 KPI 无反馈、重复技能只列不合并",
+    "file": "cost_targets.py / cost_target_tracker.py / api.py / cost-dashboard.js / cost-dashboard.html / skill-extract.js",
+    "root_cause": "度量展示已闭环但派发→降token→回流断：①任务带 cost_target 却无 target_id、无消费者、完成不复测；②tokens_per_goal current 取窗口累计总量只增不减；③KPI④是阶段分布非棘轮；④重复技能横幅只展示无合并动作。",
+    "fix": "Phase 9 全做：9.2 _current_value 改 total/calls；9.1 前端 ensureTargetForTeam+target_id+新增 CostTargetTracker 订阅 TASK_COMPLETED 复测(达标自动推棘轮)；9.3 拉 /tokens/ratchet+KPI④改棘轮已锁定+advance后刷新；9.4 ?refresh=efficiency 自动刷新；9.6 新增 POST /skill-library/merge+横幅合并按钮 mergeDup；9.7 KPI最贵团队跳过未归因；9.8 效率视角加 score 来源说明；9.5 复用既有 enterCostGov 桥。",
+    "tags": [
+      "backend",
+      "frontend",
+      "cost-dashboard",
+      "closed-loop",
+      "target",
+      "ratchet",
+      "merge",
+      "north-star",
+      "phase9"
+    ],
+    "related_bugs": [
+      "bug-036",
+      "bug-037",
+      "bug-039",
+      "bug-040",
+      "bug-041"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T17:00:00.000000"
+  },
+  {
+    "id": "bug-043",
+    "timestamp": "2026-06-20T18:00:00.000000",
+    "error_message": "数字孪生演练 reward 恒为 0.0000、Agent数=0、综合评分为 —",
+    "file": "src/backend/sandbox/trial_api.py::create_trial",
+    "root_cause": "create_trial 创建 SECS session 后，仅在有 scenario_id 时才注入世界(且只注 tasks/resources，不注 agents)。无 scenario 的『工作坊演化』完全不 sync agents → world_state.take_snapshot() 无 agent → twin_loop._spawn_twins 返回 0 twin → 每步 step_rewards 为空 → global_reward=0、Agent数=0、score=—。这也使 drill 评分恒 0，连带效率/棘轮闭环无法解锁。",
+    "fix": "create_trial 关联 session 后，无条件从 _team_manager.get_team(team_id).agents 构造 agents payload 并 orch.world_state.sync_agents_from_team({'agents':[...]})，确保 take_snapshot 有 agent → 正常 spawn twin → reward 非零。",
+    "tags": [
+      "backend",
+      "sandbox",
+      "twin",
+      "reward",
+      "spawn-twins",
+      "drill-score",
+      "north-star"
+    ],
+    "related_bugs": [
+      "bug-039"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T18:00:00.000000"
+  },
+  {
+    "id": "bug-044",
+    "timestamp": "2026-06-20T18:05:00.000000",
+    "error_message": "页面加载 GET https://fonts.googleapis.com/css2 net::ERR_CONNECTION_TIMED_OUT",
+    "file": "src/frontend/*.html (12 个页面 head)",
+    "root_cause": "每个页面 head 都外链 Google Fonts(preconnect + css2 stylesheet)。离线/无法访问 Google 的网络下该请求超时报错(与技能萃取跳转无关，任意页面都会触发)。",
+    "fix": "移除全部页面的 fonts.googleapis/gstatic 外链(preconnect+stylesheet)，在 </head> 前注入系统 CJK 字体回退(PingFang SC/Microsoft YaHei/Noto Sans SC + JetBrains Mono/系统等宽)，离线零外部请求，观感稳定。",
+    "tags": [
+      "frontend",
+      "fonts",
+      "offline",
+      "csp",
+      "performance"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T18:05:00.000000"
+  },
+  {
+    "id": "bug-045",
+    "timestamp": "2026-06-20T19:00:00.000000",
+    "error_message": "数字孪生 reward 仍恒为 0（团队 7 个 agent）— 跳转 ?team=build_system 但演练团队未自动选中",
+    "file": "src/frontend/js/digital-twin/secs-core.js + src/backend/sandbox/trial_api.py",
+    "root_cause": "两段叠加：①前端 Agent-digital-twin 页不消费 ?team= 参数，演练团队 _selectedTeamId 为空 → 演练以空/无团队跑（或被中止）→ create_trial team_id 空 → world 无 agent → _spawn_twins=0 → 每步 step_rewards 空 → global_reward 恒 0；②（已于 bug-043 修）create_trial 不 sync agents。_calculate_reward 对任意动作都给非零，唯有 0 twin 才会全 0，故根因是 0 twin。",
+    "fix": "secs-core.js load 时 _applyUrlTeamParam()：读 ?team=/?team_id= → fetch teams-tree → window.sexySelectTeam(tid,name) 自动选中演练团队，使 _selectedTeamId 有值、create_trial 拿到正确 team_id；配合 bug-043 的 create_trial agent sync，world 有 agent→twin 非零→reward 非零。需重启后端使 bug-043 生效。",
+    "tags": [
+      "frontend",
+      "backend",
+      "digital-twin",
+      "reward",
+      "team-select",
+      "url-param",
+      "spawn-twins"
+    ],
+    "related_bugs": [
+      "bug-043"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T19:00:00.000000"
+  },
+  {
+    "id": "bug-046",
+    "timestamp": "2026-06-20T20:00:00.000000",
+    "error_message": "数字孪生 3D 演练多个问题：控制台无步进输出 / SECS流水线高亮固定L2 / 3D窗口不显示agent / 奖励用随机虚线+数值看不懂",
+    "file": "src/frontend/js/digital-twin/secs-core.js + src/frontend/js/digital-twin-cli-3d.js",
+    "root_cause": "①sexyAutoRun POST /run 不保证 SSE 已连（_connectSSE 仅在 sexyCreateAndRun 调），经导演台等路径创建的 session 无流→控制台静默；②SECS pipeline 的 active 高亮在 HTML 写死 L2，无任何随步进推进逻辑；③3D buildRoom 在 _currentRoomId 为空时不重建，选团队后议事厅 0 agent；④奖励用 showBarrageBubble(随机xy)+drawLinkageLine(随机xy) 展示，飘在空中且无锚点（因为没有 agent 可锚）。",
+    "fix": "①sexyAutoRun 跑前幂等补 _connectSSE；②新增 _advancePipelineStage(step) 按步 L1→L2→L3→L4 循环高亮，SSE step 时调用；③_applyUrlTeamParam 选团队后强制 _dt3dBuildRoom(_currentRoomId||'council') 让 agent 渲染；④新增 _dt3dRewardPop(agent,reward,idx)：在对应 agent 头顶弹 +value 浮卡(上升淡出+脉冲)，emitStepBarrage 改用之并移除随机虚线/弹幕。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "3d",
+      "sse",
+      "pipeline",
+      "reward-viz",
+      "agent-render"
+    ],
+    "related_bugs": [
+      "bug-043",
+      "bug-045"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T20:00:00.000000"
+  },
+  {
+    "id": "bug-047",
+    "timestamp": "2026-06-20T21:00:00.000000",
+    "error_message": "成本页选了 Build System 团队，但 KPI 卡显示的是全部团队汇总：最贵团队=a7c36670(非所选)、团队数=3、且显示原始 team_id 而非名称",
+    "file": "src/frontend/js/cost-dashboard.js::renderKpiHero",
+    "root_cause": "KPI 读 /cost/tokens/overview(只按 window，不带 team 过滤)→恒为全部团队汇总；renderKpiHero 未应用 state.filters.team；且『最贵团队』直接显示 topTeam.team_id(如 a7c36670)而非友好名。",
+    "fix": "renderKpiHero 增 team_id↔名称映射，把筛选值(名称或id)解析为 team_id；选中团队时把窗口总Token/调用数限定到该团队、第二卡改『当前团队』显示其名与tokens、第三卡改『团队(已筛选)=1』；未筛选时第二卡仍『最贵团队』但显示名称不显示原始id；第三卡 sub 标注为『阶段 ...』避免与团队数混淆。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "kpi",
+      "team-filter",
+      "naming"
+    ],
+    "related_bugs": [
+      "bug-036",
+      "bug-037"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T21:00:00.000000"
+  },
+  {
+    "id": "bug-048",
+    "timestamp": "2026-06-20T22:00:00.000000",
+    "error_message": "房间任务流程仿真(secsDevWorkflow)启动后无法停止，按钮被 disabled，无停止控制",
+    "file": "src/frontend/js/digital-twin-cli.js::secsDevWorkflow/_secsRunStep",
+    "root_cause": "secsDevWorkflow 运行时把 secs-dev-btn disabled 并显示『仿真进行中』，没有任何停止标志或按钮；动画由大量 setTimeout await 串行驱动，无法中断。",
+    "fix": "加 window._secsDevStop 标志：运行中按钮改为可点击『⏹ 停止仿真』，再次点击进入 secsDevWorkflow 时置 _secsDevStop=true；_secsRunStep 开头检测则直接 return(跳过该步动画)；6 个主循环(council/arena/extraction/library/generic/parallel)顶部加 if(_secsDevStop)break；流程快速走到 finalize 复位按钮+清标志并提示『仿真已停止』。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "simulation",
+      "stop-control",
+      "secsDevWorkflow"
+    ],
+    "related_bugs": [
+      "bug-046"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T22:00:00.000000"
+  },
+  {
+    "id": "bug-049",
+    "timestamp": "2026-06-20T23:00:00.000000",
+    "error_message": "试炼/进化创建入口未校验 team_id，误写(如 build-system)会产生幻影团队",
+    "file": "src/backend/sandbox/trial_api.py::resolve_team_id + create_trial / evolution_api.py::start_evolution_run",
+    "root_cause": "create_trial 与 start_evolution_run 直接采用请求里的 team_id，无任何校验/归一；连字符/下划线或拼写错误(build-system)会被当成新团队写入 trials/evolution_runs，再经 list_known_team_ids 显示为幻影团队。",
+    "fix": "新增 resolve_team_id(team_id)：①空→400；②精确匹配已存在团队 id 直接通过；③连字符↔下划线归一(build-system→build_system)；④按团队名称(大小写不敏感)匹配；⑤都不匹配→400 并列出可用团队。create_trial 与 start_evolution_run 入口均先 req.team_id=resolve_team_id(req.team_id)。team_manager 未就绪时放行不误伤。实测 build-system→build_system、Build System(名)→build_system、ghost-team→400。",
+    "tags": [
+      "backend",
+      "sandbox",
+      "trial",
+      "evolution",
+      "team-id",
+      "validation",
+      "phantom-team",
+      "data-integrity"
+    ],
+    "related_bugs": [
+      "bug-043",
+      "bug-045"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T23:00:00.000000"
+  },
+  {
+    "id": "bug-050",
+    "timestamp": "2026-06-20T23:40:00.000000",
+    "error_message": "成本报告全局对账 reconciliation.consistent=false（C1 跨维恒等失败）：phase_sum=120868 ≠ team_sum=19689",
+    "file": "src/backend/agents/cost_report.py",
+    "root_cause": "P10.2 让 LEDGER.by_team 默认 include_unattributed=False（剔除 team_id='' 的历史未归因，利于 UI）；但 by_phase 仍含全部 → cost_report 用 Σby_phase(全量) 对账 Σby_team(剔未归因) 必不相等。run/skill 级一致(C2/C3 OK)，仅全局跨维(C1)因口径不一致而 false。",
+    "fix": "cost_report 对账改同口径：无 team 过滤时 team_sum 用 LEDGER.by_team(window, include_unattributed=True) 全量求和（与 by_phase 一致）；展示用 by_team 仍剔未归因；新增 unattributed_tokens 单列历史未归因金额。实测 C1 恢复 120868==120868，全局/团队 reconciliation 均 consistent=true。",
+    "tags": [
+      "backend",
+      "cost-report",
+      "reconciliation",
+      "attribution",
+      "C1",
+      "demo-case"
+    ],
+    "related_bugs": [
+      "bug-037",
+      "bug-047"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-20T23:40:00.000000"
+  },
+  {
+    "id": "bug-051",
+    "timestamp": "2026-06-21T03:35:00.000000",
+    "error_message": "cost-dashboard.js:1049 Uncaught SyntaxError: Unexpected token 'var'；连带 runCostGateSelfCheck is not defined",
+    "file": "src/frontend/js/cost-dashboard.js::refreshDashboard",
+    "root_cause": "P10.1(team_id 透传)实现把 `var teamFilter = ...` 声明写在了 Promise.all([...]) 数组字面量内部，数组元素位置不能放语句声明 → 整个文件解析失败 → 所有函数(含 runCostGateSelfCheck)未定义，按钮 onclick 报 ReferenceError。",
+    "fix": "把 `var teamFilter = state.filters.team ? '&team_id='+encode(...) : ''` 移到 Promise.all 之前声明，数组内只保留各 requestJson 调用并拼接 teamFilter。node --check 通过；同时正确完成了 10.1 的筛选透传(breakdown/trend/detail 带 team_id)。",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "syntax-error",
+      "promise-all",
+      "P10.1",
+      "team-filter"
+    ],
+    "related_bugs": [
+      "bug-047"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-21T03:35:00.000000"
+  },
+  {
+    "id": "bug-052",
+    "timestamp": "2026-06-22T05:00:00.000000",
+    "error_message": "模型池「设为全局」点击报 设为全局失败: Not Found (HTTP 404, 请求ID ag-mqox4wsf-890pxswb)",
+    "file": "运行态(后端未重启) + src/frontend/js/agent-team-config.js(错误提示)",
+    "root_cause": "systematic-debugging 结论：前端解析到 {\"detail\":\"Not Found\"} —— 这是 FastAPI 对【未注册路由】的默认 404 体，不是业务 404(应为 '未找到该团队模型')。代码侧已核实无误：① api.py 仅一个 router=APIRouter(prefix=/api/v1/agent-config) (L69)，main.py include_router (L394/459)；② 3 个 /llm/global-model 路由(GET/POST/DELETE)经 AST 确认在模块顶层装饰在同一 router 上，与可用的 /llm/test-model 同源；③ 前端 tid 为模块级变量，loadModels 用它成功拉到模型列表，setGlobalModel 用同一 tid，team_id/model_id 一致且与 get_model 同一内存源。→ 真因=运行中的后端是在新增这些路由之前启动的，未重启，故路由不在运行态 app 中 → 路由级 404。非代码 bug。",
+    "fix": "① 重启后端使新路由生效(本质修复)；② 前端 setGlobalModel 错误分支识别 status==404 且 detail=='Not Found' → 明确提示『后端缺少该接口(/llm/global-model)，请重启后端服务后重试』，避免再被当成神秘 404。代码侧 AST/业务一致性均已离线验证；活体 HTTP 验证需运行中的后端(沙箱无 fastapi，无法起服务)。",
+    "tags": [
+      "frontend",
+      "backend",
+      "global-model",
+      "404",
+      "stale-server",
+      "not-restarted",
+      "systematic-debugging"
+    ],
+    "related_bugs": [
+      "bug-034"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T05:00:00.000000"
+  },
+  {
+    "id": "bug-053",
+    "timestamp": "2026-06-22T06:00:00.000000",
+    "error_message": "数字孪生「创建试炼」过程不在「实时控制台」联动显示（控制台只见模块加载行）",
+    "file": "src/frontend/js/digital-twin/secs-core.js + director.js",
+    "root_cause": "两段叠加：①createTrial 的开始/成功路径只 console.log('[DT]...')(浏览器控制台)，没调 _dtLogConsole 写页面控制台；②更关键：_logConsole 定义在 secs-core.js 的 IIFE 内、未暴露到 window，而 director.js 的 _dtLogConsole 用 `if(typeof _logConsole==='function')` 判定——跨 IIFE 取不到 → 恒 false → 连已有的 eval/feedback 日志也没真正写进 #live-console。",
+    "fix": "①secs-core.js IIFE 收尾处 `window._logConsole=_logConsole` 暴露写入函数；②director.js createTrial 开始处 _dtLogConsole('🧪 创建试炼·团队·模式·步数')、成功处 _dtLogConsole('✅ 试炼已创建·trial·session·就绪')。这样创建试炼与实时控制台联动，且 director 既有的评分/反哺/进化日志也一并恢复进页面控制台。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "live-console",
+      "iife-scope",
+      "linkage"
+    ],
+    "related_bugs": [
+      "bug-046"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T06:00:00.000000"
+  },
+  {
+    "id": "bug-054",
+    "timestamp": "2026-06-22T06:30:00.000000",
+    "error_message": "试炼导演台：选了团队仍卡在「创建中...」，按钮不复位",
+    "file": "src/frontend/js/digital-twin/director.js + secs-core.js",
+    "root_cause": "两个真bug：①transitionTrialStatus 合法转移表 creating 只允许 ['ready','failed']，没有 creating→idle；createTrial 在「无团队」分支调 transitionTrialStatus('creating','idle') 被判非法返回 false → 状态卡在 creating → 按钮永远「创建中」。②_selectedTeamId 是 secs-core IIFE 私有，未暴露 window；director.js 读 bare _selectedTeamId 恒 undefined → 即便在 SECS 选了团队，createTrial 的 tid 仍取不到 → 走「请先选择团队」。",
+    "fix": "①转移表 creating 增加 'idle'，无团队时能复位回「创建试炼」；②secs-core sexySelectTeam/secsSyncTeamFromLeft 赋值处同步 window._selectedTeamId/_selectedTeamName，让 director.js 能读到选中团队 → tid 正确解析、继续创建。",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "state-machine",
+      "iife-scope",
+      "team-select"
+    ],
+    "related_bugs": [
+      "bug-053",
+      "bug-045"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-06-22T06:30:00.000000"
+  },
+  {
+    "id": "bug-055",
+    "error_message": "showToast 提示「已选择团队…」在 3D 窗口里渲染成一竖条（逐字换行），遮挡且难看",
+    "root_cause": "toast <div> 未设 white-space / width，父容器收缩时块级子元素宽度被压到约一个字宽，文字逐字换行成竖排",
+    "fix": "toast 内联样式加 position:fixed;left:50%;bottom:24px;transform:translateX(-50%);white-space:nowrap;width:max-content;max-width:90vw;writing-mode:horizontal-tb;display:flex — 强制单行横排、底部居中、随内容收缩",
+    "tags": [
+      "frontend",
+      "css",
+      "toast",
+      "digital-twin",
+      "secs-core"
+    ],
+    "date": "2026-06-22"
+  },
+  {
+    "id": "bug-056",
+    "error_message": "静态合并脚本删 #env-status-float 时按内容标记 '收益曲线内嵌浮动卡' 定位，误删 267 行（539..806）",
+    "root_cause": "标记字符串不唯一——同一短语同时出现在 L540 的 CSS 注释和 L797 的 HTML 注释；find 命中第一个，删除区间跨越大量无关代码",
+    "fix": "改用唯一标记 '<!-- P3: 收益曲线内嵌浮动卡 -->'(带 HTML 注释符) + id=\"env-status-float\"，并加安全闸 assert (fe-fs)<15 行；操作前 cp 备份到 /tmp，发现异常立即还原",
+    "tags": [
+      "frontend",
+      "refactor",
+      "script",
+      "digital-twin",
+      "html"
+    ],
+    "date": "2026-06-22"
+  },
+  {
+    "id": "bug-057",
+    "error_message": "后端启动崩溃 NameError: name 'logging' is not defined（_load_global_model_on_startup 与其 except 处理器）",
+    "root_cause": "api.py 模块级把 logging 导成别名 `import logging as _logging`(L2514)，但全局模型相关代码(L199/L7280)用了未导入的裸名 `logging`",
+    "fix": "L199、L7280 改用模块别名 `_logging.getLogger(__name__)`；grep 确认无残留裸 logging.，py_compile 通过",
+    "tags": [
+      "backend",
+      "startup",
+      "global-model",
+      "import",
+      "api.py"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-058",
+    "error_message": "门禁提示「单人即可推进」但点推进报 缺少必要身份:['peer'] + 复核0人/同意0票，无 UI 完成复核",
+    "root_cause": "default_gate_requirements 虽 min_reviewers=1 却仍 required_identities=[PEER] 且需 1 张 approve 票；advance() 不会把触发者登记为复核人 → 永远 0 票，单人无法推进",
+    "fix": "advance() 真人推进时自动登记其为 approve 复核(identity=PEER，幂等)；default_gate_requirements 三阶段 required_identities 改 []。新/旧管线单人一键即可推进",
+    "tags": [
+      "backend",
+      "gate",
+      "review",
+      "extraction-pipeline"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-059",
+    "error_message": "技能详情「对话优化技能」对话框内容展示不全（截屏被裁）",
+    "root_cause": "#usage-chat-log max-height:200px 太矮，AI 改进建议较长时大部分需滚动",
+    "fix": "max-height 改 min(460px,52vh) + overflow-wrap:anywhere + white-space:pre-wrap",
+    "tags": [
+      "frontend",
+      "css",
+      "skill-extract"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-060",
+    "error_message": "技能详情弹窗 演化/验证/效果/版本/管线 各 tab 多个栏目内容被裁切、展示不全",
+    "root_cause": ".modal-tab-content 为 flex 列(overflow-y:auto)，子区块默认 flex-shrink:1，栏目多时被压缩到低于内容高度，叠加各区块自身 overflow:hidden → 内容被裁",
+    "fix": "skill-extract.css 增加 #tab-evolve/#tab-verify/#tab-usage/#tab-version/#tab-pipeline > * { flex-shrink:0 }，区块保持自然高度，超出由 .modal-body overflow-y:auto 整体下拉滚动",
+    "tags": [
+      "frontend",
+      "css",
+      "flexbox",
+      "skill-extract",
+      "overflow"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-061",
+    "error_message": "沙箱孪生页「协作图」持续空白（无节点/连线，也无错误文字）",
+    "root_cause": "bootSandboxTwin 顺序执行各 init，initCollabGraph 排在 setupTabs/bindPipelineNodes 之后；若前面任一步抛错，initCollabGraph(含5s自愈定时器)整段不执行 → 协作图永久留白且无自愈",
+    "fix": "bootSandboxTwin 改为步骤数组，initCollabGraph 提到第一个执行，且每步包 try/catch 隔离——单步失败不再阻断协作图渲染与自愈",
+    "tags": [
+      "frontend",
+      "sandbox-twin",
+      "collab-graph",
+      "init",
+      "robustness"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-062",
+    "error_message": "棘轮显示团队『有 token 消耗但无演练评分』(score=0→效率=0)，但团队实际跑过评分试炼",
+    "root_cause": "collect_team_usage 只读内存 _trials；_trials 仅在创建试炼时写入、后端重启即清空；而 token 用量(usage.db)与试炼(TrialStore)均持久化 → 重启后 token 在、评分丢 → token_only",
+    "fix": "新增 _enrich_trials_from_store()，在 collect_team_usage_async 里从持久化 TrialStore.list_trials() 按 team_id 合并已评分试炼(去重)，并在补回真实分后纠正 data_quality=measured",
+    "tags": [
+      "backend",
+      "sustainability",
+      "ratchet",
+      "persistence",
+      "trial-score",
+      "data-linkage"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-062b",
+    "error_message": "棘轮仍报 score=0（效率视角已修但棘轮没同步）",
+    "root_cause": "上一版只修了异步 collect_team_usage_async；棘轮 advance(cost_routes.py /tokens/ratchet/advance) 与 cost_targets 走的是同步 collect_team_usage，未合并持久化试炼",
+    "fix": "把合并逻辑下沉为同步 _merge_persisted_trials()，直接读 trials.json，在 collect_team_usage 内调用 → 覆盖所有同步调用方(棘轮/cost_targets/效率视角)。离线验证 a7c36670 total_score=3.96",
+    "tags": [
+      "backend",
+      "ratchet",
+      "sustainability",
+      "sync-path",
+      "persistence"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-063",
+    "error_message": "演练 Agent 动画改错位置：错加在议事广场 plaza，用户要的是数字孪生 沙箱推演/自动·单步 的 3D",
+    "root_cause": "误判页面；破茧成蝶动画应在 digital-twin-cli-3d.js（演练 3D）而非 plaza.js",
+    "fix": "还原 plaza.js；在 digital-twin-cli-3d.js createAgentFigure 加进化光圈，并把 _pulseQueue 的 body 脉冲由『整体放大缩小』改为『光环分步(14步)从底座升到头部、到顶张开淡出』",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "3d",
+      "animation"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-064",
+    "error_message": "GET /plaza/escalations 404，前端不停刷+弹『讨论结束』",
+    "root_cause": "FastAPI 按注册顺序匹配：@router.get('/{plaza_id}')(L503) 在 @router.get('/escalations')(L1581) 之前，导致 /escalations 被 /{plaza_id} 吞掉(plaza_id='escalations')→404 广场不存在",
+    "fix": "把 get_escalation_queue 路由上移到 /{plaza_id} 之前(紧跟 /presets)",
+    "tags": [
+      "backend",
+      "fastapi",
+      "routing",
+      "plaza",
+      "404"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-065",
+    "error_message": "DELETE /teams/{id}/skills/{id} 500，技能不可删除",
+    "root_cause": "delete_skill 里 `for agent in team.agents` 遍历的是 dict 的键(agent_id 字符串)，再取 agent.skills → str 无 skills 属性 → AttributeError 500",
+    "fix": "改为 `for agent in team.agents.values()`",
+    "tags": [
+      "backend",
+      "api",
+      "skill",
+      "delete",
+      "500",
+      "dict-iteration"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-066",
+    "error_message": "点『进入演化』只笼统报『演化启动失败』，看不出原因",
+    "root_cause": "enterEvolution 用 api() 包装，非2xx 返回 null → 真实 detail(尚无执行计划/演化引擎未初始化) 被吞",
+    "fix": "改直连 fetch 读取后端 detail，失败时一并提示真实原因",
+    "tags": [
+      "frontend",
+      "plaza",
+      "error-surfacing"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-065b",
+    "error_message": "DELETE 技能改 .values() 后不再 500，但库内(非 team.skills)技能删除报 404",
+    "root_cause": "delete_skill 在 team.skills.pop 为 None 时直接 404，而 UI 展示的技能可能只在 skill_store/库里、未注册进 team.skills",
+    "fix": "改为三处都尝试删(team.skills / 各 agent.skills / skill_store.delete)，仅当 team 与库都无该技能才 404",
+    "tags": [
+      "backend",
+      "api",
+      "skill",
+      "delete",
+      "404"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-067",
+    "error_message": "创建试炼 与 沙箱推演 两个创建入口冗余",
+    "root_cause": "两者最终都调用 createTrial()；沙箱推演(sexyCreateAndRun)还额外读仿真参数面板+空场景守卫+切出运行控制区，导演台 idle 态的『创建试炼』按钮属重复入口",
+    "fix": "_BG.idle 由『🧪创建试炼』按钮改为指向『沙箱推演』的提示文案，统一为单一创建入口；ready/completed 等其它生命周期按钮(单步/自动/评分/反哺/新试炼)保持不变",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "director",
+      "ux",
+      "dedup"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-068",
+    "error_message": "沙箱出料『SOP』标签永远显示占位『仿真完成后提取SOP』，看不到提取结果与过程",
+    "root_cause": "#sub-sop 标签是死占位；extractSop/renderSopList 只写 #sop-list-area(导演台元素)，从不写 #sub-sop；点 SOP 标签(switchIOSub)也不触发提取",
+    "fix": "switchIOSub('sop') 触发新增 _loadSecsSop()：调 /extract-sop 提取本次试炼 SOP，渲染到 #sub-sop(含『提取过程』说明+每条 SOP 名称/置信度/步数)，空结果给明确提示",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "secs",
+      "sop",
+      "extraction"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-069",
+    "error_message": "Cost Gate 自检总是失败(block)",
+    "root_cause": "前端自检硬编码 inline.score=0 且 min_efficiency=1.0 → eff=score/(tokens/1k)恒为0 < 1.0 → LOW_TOKEN_EFFICIENCY(high) → block；即便真实效率(~0.3)也低于1.0仍会失败",
+    "fix": "自检改用 /sustainability/group 的真实数据(total_score/tokens_consumed/trial_count)选 token 最高团队为样本；阈值改 min_efficiency=0.05、max_tokens=1e6；结果行标注团队。离线验证 AWS eff=0.2968 → pass",
+    "tags": [
+      "frontend",
+      "cost-gate",
+      "self-check",
+      "threshold",
+      "score"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-070",
+    "error_message": "成本治理『创建 Plaza 话题』未归属选中团队，话题不在该团队下",
+    "root_cause": "createPlazaTopic 创建讨论时不传 team_id；且后端 create_discussion 即便收到 team_id 也忽略(只 /assign 用 assigned_team_id)",
+    "fix": "前端传 team_id=target.ref_id||filters.team；后端 create_discussion 用 req.team_id 设 disc.assigned_team_id 并 save_plaza 持久化",
+    "tags": [
+      "frontend",
+      "backend",
+      "plaza",
+      "cost-governance",
+      "team-association"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-071",
+    "error_message": "点『标签补丁』提示『请选择pod』——项目不使用 k8s，不该有 pod 概念",
+    "root_cause": "标签补丁=k8s pod label patch(OpenCost 云成本归因)，与 Token 成本北极星无关，属遗留 infra 动作",
+    "fix": "从治理动作按钮行移除『标签补丁』(generateLabelPatch) 按钮",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "k8s",
+      "scope",
+      "cleanup"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-013",
+    "error_message": "Phase 13 演进式成本优化闭环 — 代码可完成项落地",
+    "root_cause": "Phase 13 设计的闭环增强项待实现",
+    "fix": "13.1 效率视角顶部未归因 token 占比(>5%红字, /cost/report); 13.3 director _dtAutoCostRatchet 评分/反哺后自动推进 cost 棘轮; 13.4 CostGate 自检阈值改全员效率 P25×0.5 自适应; 13.5 targetHowto 附预计可省 token(skill 25%/collab 15%); 13.2 OpenCost/云成本标注'可选·非北极星'文案。live-env-only(Phase7 Demo/10 D1D2/11 AWS e2e)需真实 LLM 不可离线完成",
+    "tags": [
+      "cost-optimization",
+      "phase13",
+      "frontend",
+      "ratchet",
+      "gate",
+      "attribution"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-072",
+    "error_message": "技能赋予给 agent 后，智能体页技能列表找不到该技能",
+    "root_cause": "两处：①skill_router.assign 只往 agent.skills 追加 skill_id，不登记进 team.skills→团队不识别该技能；②智能体页 agent 卡片直接渲染原始 skill_id(如 7b33f2f0 哈希)而非名称，且 slice(0,3) 截断",
+    "fix": "①assign 时用 skill_library._find_skill 取 SkillDefinition 并 team.add_skill 登记进 team.skills；②agent 卡片用 team.skills 映射 skill_id→name 显示，>3 个显示 +N。注：已存在的散值需重新赋予一次才会登记+解析",
+    "tags": [
+      "backend",
+      "frontend",
+      "skill-router",
+      "agent",
+      "skill-assign",
+      "display"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-073",
+    "error_message": "已两人 approve(2/1 复核 2/1 同意)仍报『不能通过门禁』",
+    "root_cause": "该管线 current_stage 已是 published(最终阶段)，技能其实已发布；advance 无下一阶段→返回『已是最终阶段』，但前端把它当门禁失败显示。#btn-advance-pipe 在 published 已禁用，但我之前新增的『通过并推进』主按钮(btn-advance-pipe-primary)与复核按钮未禁用，误点即报错",
+    "fix": "published 时隐藏 通过并推进/多人复核 按钮、徽章显示『🎉已发布(最终阶段)』；advancePipeline 对 published 或『最终阶段』原因给成功提示而非门禁失败",
+    "tags": [
+      "frontend",
+      "skill-extract",
+      "pipeline",
+      "published",
+      "gate",
+      "ux"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-074",
+    "error_message": "团队-场景-任务闭环：5 个富场景(taskflow+rubric)从未进入试炼，选场景只列 3D 房间",
+    "root_cause": "sexyPickScene 只列数字孪生房间/模式/SOP，从不列场景库；且 _sx.scenarioId 从未赋值→createTrial 永远发 scenario_id='' → 后端 compile_scenario/rubric 链路虽完整却收不到 id。(原 plan 误判 tasks:0 系字段名 task_flow vs taskflow)",
+    "fix": "后端 list_scenarios 加 team_id 按 match_team 排序;前端 sexyPickScene 顶部接入真实场景库(显示匹配%/缺技能/任务数);sexySelectScene 选真实场景即设 _sx.scenarioId → 贯通 taskflow 编译 + rubric 领域化评分",
+    "tags": [
+      "backend",
+      "frontend",
+      "scenario",
+      "closed-loop",
+      "digital-twin",
+      "match"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-014",
+    "error_message": "闭环优化 C2′/C3/C5 落地",
+    "root_cause": "团队-场景-任务闭环：场景库未接入选择器、演练/仿真两按钮割裂",
+    "fix": "C2′ 场景库接入选场景弹层(按团队匹配排序)+选中设_sx.scenarioId; C3 选任务弹层顶部带出场景 taskflow(整条流程+各任务,__flow__清override); C5.1 演练/仿真合并:沙箱推演→『运行演练』为唯一主入口、房间仿真降级为『仅可视化预演(不评分)』虚线小按钮+说明。C5.2 深度绑定标[人工]未做(scored drill 本就渲染3D,redundant)",
+    "tags": [
+      "frontend",
+      "backend",
+      "scenario",
+      "closed-loop",
+      "drill-sim-merge"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-075",
+    "error_message": "停止演练后选『并行』再点运行演练，不出现自动/单步按钮",
+    "root_cause": "SECS 并行 radio 值='parallel'，但后端 TrialMode 合法值是 'multi_branch'；sexyCreateAndRun 直接送 'parallel' → create_trial 的 TrialMode('parallel') 抛 400 Invalid mode → createTrial 失败 → 不展开 secs-ctrl-panel(自动/单步)。What-if/演化 恰好字符串匹配故无碍",
+    "fix": "sexyCreateAndRun 加 _MODE_MAP{what_if,parallel→multi_branch,evolutionary} 映射到合法 TrialMode 值；并把残留『沙箱推演』文案统一为『运行演练』；房间预演按钮 6 个 btnText 追加『· 仅预演(不评分)』",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "mode",
+      "trial",
+      "parallel"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-015",
+    "error_message": "智能体加入(agent_join)只恢复被禁用 Agent，无禁用时无效；增援不带对口技能",
+    "root_cause": "twin_loop agent_join 仅 if disabled_agents: 恢复一个；无禁用 Agent 时整个 elif 不返回→空操作；从不新增 Agent、更不匹配技能缺口",
+    "fix": "无可恢复时新增『增援』AgentTwin：技能=待办任务 required_skills 中最需要且活跃团队未覆盖的缺口(top3,无缺口则同质增援)，append 进 session.twins 参与下一步；前端 tooltip 同步说明",
+    "tags": [
+      "backend",
+      "twin-loop",
+      "chaos",
+      "agent-join",
+      "skill-gap"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-076",
+    "error_message": "agent-team-config-new.html 预算与告警/运行痕迹的下拉框在浅色页面上渲染成黑框",
+    "root_cause": "页面是浅色主题但未声明 color-scheme；OS 处于深色模式时原生 <select>/滚动条等 UA 控件回退到系统深色 → 黑框",
+    "fix": ":root 加 color-scheme: light，强制 UA 控件按浅色渲染",
+    "tags": [
+      "frontend",
+      "css",
+      "color-scheme",
+      "select",
+      "theme"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-077",
+    "error_message": "数字孪生议事厅 3D 太暗，精心设计的安藤式看台/讲坛被吞进黑里，只剩 agent 浮在黑坑上",
+    "root_cause": "buildCouncil 环境光 0.06/半球光 0.04 过低（刻意 Ando 暗调），实际渲染成黑团",
+    "fix": "提亮：AmbientLight 0.06→0.22、Hemisphere 0.04→0.20、main 0.46→0.62，并加 0.28 正面柔和补光照亮中央讲坛，消除黑坑观感（保留主光方向感）",
+    "tags": [
+      "frontend",
+      "3d",
+      "lighting",
+      "digital-twin",
+      "aesthetics"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-078",
+    "error_message": "自动运行后点『智能体加入/离开/注入故障』无反应",
+    "root_cause": "注入按钮在『运行中』(simRunning) 才可点；sexyAutoRun 把 simRunning 置 true 却没调 _setInjectEnabled(true)。若按钮此前被禁用(如运行前点过一次触发 guard→禁用)，自动运行不会重新启用→disabled 按钮点了无 onclick",
+    "fix": "sexyAutoRun 置 simRunning=true 后补 _setInjectEnabled(true)，运行期注入按钮恒可点",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "inject",
+      "auto-run",
+      "disabled"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-016",
+    "error_message": "场景驱动 3D + 通用场景房间美化",
+    "root_cause": "applyScenarioRooms 被调用却未定义；buildGenericRoom 无灯光→黑屏；选场景不联动3D",
+    "fix": "定义 applyScenarioRooms(world.rooms→S.rooms→切首房间)；buildGenericRoom 补灯光+背景+房间名标牌；sexySelectScene 选场景拉 world.rooms 预览",
+    "tags": [
+      "frontend",
+      "3d",
+      "scenario"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-079",
+    "error_message": "点智能体加入报 unknown_event_type",
+    "root_cause": "旧后端 agent_join 无禁用Agent时不返回→落 unknown_event_type；feat-015 已修必返回",
+    "fix": "重启后端使 feat-015 生效",
+    "tags": [
+      "backend",
+      "restart"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-080",
+    "error_message": "agent_leave 后端剩余N个，但3D里agent一个没少(故障/加入同理3D不动)",
+    "root_cause": "3D场景建一次后从不响应混沌事件；_doInjectEvent 只记日志不更新agentMeshes",
+    "fix": "新增 _dt3dRemoveAgent/_dt3dDimAgent/_dt3dAddAgent；_doInjectEvent 按 d.type+d.agent 同步:离开移除/故障置灰/加入新增或恢复，并同步 env-3d-info 计数",
+    "tags": [
+      "frontend",
+      "3d",
+      "chaos",
+      "sync",
+      "agent-leave"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-017",
+    "error_message": "数字孪生 Tab 收口：协作拓扑并入交互Tab + 编排管线重构",
+    "root_cause": "协作拓扑错放系统状态(与交互流割裂);编排管线Tab显示的是技能萃取阶段(与萃取页重复、文不对题)",
+    "fix": "B:协作拓扑迁入「协作·交互」Tab双视图,系统状态只留实时仪表盘;B':renderPipeline 重构为场景 taskflow 的拓扑分层DAG+实时状态(近似步进比例),去掉萃取阶段复制品",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "tabs",
+      "pipeline",
+      "closed-loop"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-085",
+    "error_message": "编排管线DAG不随步进推进(停在事故定级进行中)、执行日志0条",
+    "root_cause": "renderPipeline 只在切Tab/选场景时渲染一次;进度取 trial 接口字段没对上→doneCount=0;运行期不重渲染",
+    "fix": "进度改用 _sx.steps/_sx.maxSteps(每步更新的活值);场景缓存避免每步重拉;SECS 步进处若编排管线Tab可见则重渲染 → DAG 随步数实时推进",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "pipeline",
+      "live",
+      "step"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-018",
+    "error_message": "数字孪生 Tab↔右侧面板联动打地鼠(选团队/场景某Tab不跟着变)",
+    "root_cause": "各Tab渲染各自为政,无统一'上下文变→刷新当前Tab'入口;改团队/切Tab只零散补个别渲染,漏的不动",
+    "fix": "建 dtContext()+dtRefresh(reason) 调度器只刷当前可见Tab;switchView/选团队/选场景/选任务/每步/混沌 6处统一喊 dtRefresh(reason),替换零散补渲染。配 数字孪生联动plan/todos",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "linkage",
+      "dispatcher",
+      "refactor"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "feat-019",
+    "error_message": "数字孪生联动 L3/L4 落地",
+    "root_cause": "仪表盘无当前演练摘要;交互时间线运行时不追加演练消息",
+    "fix": "L3 renderDashboard 顶部加'当前演练'卡(团队/场景/运行/步/收益,随dtRefresh刷新);L4 step事件把 agent_actions 规范化 push 进 S.messages(from=agent名,按团队过滤),dtRefresh('step')追加渲染。L5 精确节点状态需后端 emit active_task_id,标进阶",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "linkage",
+      "dashboard",
+      "timeline"
+    ],
+    "date": "2026-06-23"
+  },
+  {
+    "id": "bug-087",
+    "error_message": "数字孪生顶部房间 tab(接单台/分类室/查询室…)与当前演练场景不对应,且互相长得一样",
+    "root_cause": "tab 栏渲染自全局 S.rooms;上一场景(客服工单高峰 cs_ticket_surge)的 world.rooms 经 applyScenarioRooms 并入后被 persist/syncDtState 持久化到 localStorage 及 /digital-twin/state,再 load 时以 rooms>=6 无条件采纳,残留到 tab 栏;而当前演练是代码评审交付(规划室),tab 不随当前场景重建 → 串台",
+    "fix": "新增 BUILTIN_ROOM_IDS + scopeRoomsToCurrentScenario()(只保留6内置+自定义r_+当前场景_scn),在 loadLocal/loadDtState 采纳房间后调用剔除他场景残留;场景房间在 applyScenarioRooms 打 _scn 标记并先清旧_scn再并入,末尾 renderRoomTabs 收口 tab='6内置+当前场景';persist/syncDtState 过滤 _scn 不再持久化场景房间(自愈历史残留);renderRoomTabs 高亮改跟随 _currentRoomId;切到environment tab 优先场景首房",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "rooms",
+      "scenario",
+      "linkage",
+      "tabs"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "feat-020",
+    "error_message": "场景房间(接单台/分类室/查询室…)3D 长得一模一样,无法区分",
+    "root_cause": "非内置房间全走 buildGenericRoom 同一套圆台+球顶+青色环,仅浮空名牌不同;rooms 无 type 字段,只有 stage/name/icon",
+    "fix": "新增 _scnRoomStyle(room) 按 room.stage(无则 id 哈希)映射6档配色,_scnPropGeo(shape) 按阶段给中心构件换6种基础几何(二十面体/立方/锥/八面体/环/十二面体,userData.spin 旋转);buildGenericRoom 的平台自发光边/外环/中心构件/粒子环全部用该阶段配色。纯数据驱动,不针对具体场景硬编码",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "rooms",
+      "3d",
+      "scenario"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "feat-021",
+    "error_message": "数字孪生模块后台轮询不随页面可见性暂停,隐藏时仍空转打后端",
+    "root_cause": "cli.js 3个 setInterval(指标10s/频率图2s/智能体30s)+director.js 2个(健康2s/团队镜像1s)均无 document.hidden 守卫;而仓库其它模块(nav-sidebar/cost-dashboard/agent-team-config/sandbox-twin)早已统一门控——数字孪生漏了,是性能+一致性缺口",
+    "fix": "5个轮询回调首行加 if(document.hidden)return;syncTeam 1000ms→2000ms;cli.js 加 visibilitychange 监听,重新可见时 loadLiveMetrics()+dtRefresh('tab') 补刷。对齐既有约定,低风险。产出 docs/数字孪生优化plan.md + todos.md,P4空catch/P5冷启动重渲染标延后(理由见plan)",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "polling",
+      "performance",
+      "visibility"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-088",
+    "error_message": "右侧「协作图 [5v7]」空白,不反映增/减 agent,标题硬编码",
+    "root_cause": "_renderCollabGraph 仅评分报告返回时调一次,if(!twins.length)return 无数据即空白;标题[5v7]是HTML硬编码;不接_chaosTopoState,故 agent_join/leave 不反映;r=110 在400x140视窗上下裁切",
+    "fix": "数据源 报告twins>缓存_sx.lastTwins>当前团队agent回退;叠加_chaosTopoState剔离开+并增援(增援虚线描边);动态标题#secs-collab-title显示[n]+空态提示;椭圆布局rx155/ry48;_doInjectEvent末尾调_renderCollabGraph()实时重渲染;暴露window._secsRenderCollab供init占位。注:协作·交互Tab的#topo-svg早已反映增减,本次补齐右侧这张",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "collab-graph",
+      "chaos",
+      "secs"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "feat-022",
+    "error_message": "数字孪生 P4(空catch吞异常)/P5(冷启动全量渲染) 优化",
+    "root_cause": "P4:30处空catch排障困难;P5:init冷启动渲染全部Tab但默认只environment可见,architecture/interaction/pipeline三次渲染无谓",
+    "fix": "P4定向:cli.js 6处网络/状态加载路径(loadDtState/syncDtState/加载团队agent/loadSkills/loadTools/loadLiveMetrics)+secs-core混沌同步补 console.warn('[dt]',e);纯UI防御catch保持静默。P5:init只渲染常驻区+默认environment Tab,其余三Tab进入时经switchView→dtRefresh('tab')惰性渲染",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "logging",
+      "performance",
+      "lazy-render"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-089",
+    "error_message": "编排管线在演练运行中显示'请选择场景'占位,无任务编排DAG",
+    "root_cause": "renderPipeline 只读 _sx.scenarioId(仅场景选择器设置,初始undefined);运行中切房间/切场景或经非选择器路径起跑会使其为空 → 管线空白,即使后端试炼有真实场景taskflow在跑",
+    "fix": "createTrial 成功时把试炼实际场景捕获进 _sx.runScenarioId(只此处写,房间/场景导航不清它);renderPipeline sid 回退到 runScenarioId;createTrial 后 dtRefresh('scenario') 立即刷管线;resetForNew 清 runScenarioId;无场景基线运行时占位文案改为'无场景基线运行,无DAG'而非误导性'请选场景'",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "pipeline",
+      "trial",
+      "scenario"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-090",
+    "error_message": "全局模型(build_system/codebuddy)不出现在其它团队(AWS运维)的模型与连接列表",
+    "root_cause": "loadModels 表格只 map 本团队 /teams/{tid}/models;全局模型属于别团队,不在本团队列表,故只在顶部横幅显示、列表里看不到",
+    "fix": "loadModels 先读 /llm/global-model;若全局模型不属于本团队,拉源团队 models 取详情,在列表顶部补一行只读引用(背景高亮,操作列标'🌐 全局·来自<team>'),让每个团队都能看到实际生效的全局模型;空列表但有全局时也显示该行",
+    "tags": [
+      "frontend",
+      "agent-team-config",
+      "global-model",
+      "llm"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-091",
+    "error_message": "协作·交互 序列图显示的是旧 build 演示交互(stress-test/模拟交互),与所选场景/任务不符",
+    "root_cause": "renderSequenceDiagram 用 S.messages.slice(-30) 全量渲染,既没按团队过滤(时间线 bug-086 已过滤但序列图漏了),又混入 CLI simulate 生成并持久化到 localStorage(dt2_messages) 的 stress-test/模拟交互 演示消息",
+    "fix": "renderSequenceDiagram 改用 _scopedMsgs()(团队过滤,与时间线同口径);sexyCreateAndRun 新一轮演练启动时清空 S.messages+localStorage.dt2_messages(与 _dt2dChaosReset 同处),dtRefresh('step') 刷新 → 时间线/序列图只反映本次运行",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "sequence-diagram",
+      "interaction",
+      "secs"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-092",
+    "error_message": "广场「拆解并执行」失败(拆解执行失败·请求ID) — dispatch-and-execute 500",
+    "root_cause": "plaza_routes._dispatch_discussion_tasks 内 `from .api import _submit_internal_task`,但该函数早已从 api.py 移除(仅剩 submit_task REST 端点与测试 mock)→ ImportError→500;智能拆解/拆解并执行 走同一函数,均受影响",
+    "fix": "在 api.py 补回 _submit_internal_task(team_id,*,agent_id,title,description,priority,dependencies,metadata,auto_start) 作单一实现(建AgentTask→生成workflow→入队→auto_start时启动首步+harness监控);submit_task REST 端点改为复用该 helper。需重启后端生效",
+    "tags": [
+      "backend",
+      "plaza",
+      "dispatch",
+      "import-error",
+      "tasks"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "feat-023",
+    "error_message": "演进式成本优化收口2:效率视角缺'该动哪个杠杆'引导+排序未暴露反指标",
+    "root_cause": "renderEfficiencyView 有两杠杆占比条但无下一步动作链接;排序恒按效率降序(最优在前),不暴露'高Token低产出'北极星反指标",
+    "fix": "13.5:每有消耗团队按主导杠杆追加'去技能萃取/去议事广场'下一步链接;13.3:默认'最需优化优先'(有消耗且效率最低在前,无消耗沉底)+toggleEffSort切换'效率最高优先'。产出 收口2plan/todos。重后端项(13.1归因/13.4运行时Gate/13.5复跑回写/13.6同源)单列延后",
+    "tags": [
+      "frontend",
+      "cost-dashboard",
+      "efficiency",
+      "lever",
+      "north-star"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-093",
+    "error_message": "技能注入不给任何 agent — 只显示'已注入沙箱',看不到注入到了谁",
+    "root_cause": "twin_loop.inject_chaos_event 的 skill_inject 分支只把事件记进 chaos.events 并返回'技能X已注入沙箱',从未把技能写给任何 twin;前端也只显示 skill_id,故用户无法知道注入到哪个 agent(实际上没注入到任何 agent)",
+    "fix": "skill_inject 改为把技能真正加到在役 twin 的 skills(target_agent 指定则只给该 agent,否则全体在役),记录 targets,detail 改为'技能X已注入N个在役Agent: 名单';前端 _doInjectSkill 显示 d.targets 数量并用 d.detail 做 toast。需重启后端生效",
+    "tags": [
+      "backend",
+      "frontend",
+      "digital-twin",
+      "skill-inject",
+      "twin-loop"
+    ],
+    "date": "2026-07-02"
+  },
+  {
+    "id": "bug-033-auth-exempt-writes",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "未登录请求可 POST/PUT/DELETE /api/v1/agent-config/teams*（返回422/404而非401）",
+    "file": "src/backend/main.py",
+    "root_cause": "_AUTH_EXEMPT_PREFIXES 含 /agent-config/teams 全方法豁免（为消除页面加载401噪声），写操作也被放行",
+    "fix": "豁免改为方法感知：只读豁免仅限 GET/HEAD/OPTIONS（_AUTH_EXEMPT_READONLY_*），移除 digital-twin/state 与 overview/evolution/bridge-chat 豁免；csrf/auth 中间件均传 request.method",
+    "tags": [
+      "security",
+      "auth",
+      "middleware"
+    ]
+  },
+  {
+    "id": "bug-034-twinloop-stuck-evaluating",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "孪生演练完成后 alignment 为 None，session 永久卡在 evaluating",
+    "file": "src/backend/sandbox/orchestrator.py",
+    "root_cause": "run_full_pipeline 用 status != RUNNING 判定用户中断，但 run_simulation 正常结束状态是 EVALUATING，正常完成被误判为中断跳过对齐",
+    "fix": "仅 PAUSED/FAILED 视为中断",
+    "tags": [
+      "sandbox",
+      "twin_loop",
+      "state-machine"
+    ]
+  },
+  {
+    "id": "bug-035-phantom-team-twin-worlds",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "twin-trials 创建对孪生世界注册的团队返回 400 未知团队（测试全量跑时 v4_apis 7 用例连环失败）",
+    "file": "src/backend/sandbox/trial_api.py",
+    "root_cause": "resolve_team_id 只认 agents 侧 TeamManager；orchestrator.sync_world 丢弃 team_id，孪生侧团队无处登记",
+    "fix": "orchestrator 新增 known_teams 集合并在 sync_world 登记；resolve_team_id 放行孪生已知团队",
+    "tags": [
+      "sandbox",
+      "trial_api",
+      "test-isolation"
+    ]
+  },
+  {
+    "id": "bug-036-lite-sandbox-stdlib-import",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "run_python 工具执行 `from agents.models import ...` 报 blocked dangerous import: subprocess",
+    "file": "src/backend/sandbox/python_runner_lite.py",
+    "root_cause": "__import__ 钩子按模块名拦截，Python3.10 中 uuid→platform→subprocess 传递依赖被误杀（subprocess 危险函数本已被中和）",
+    "fix": "已在 sys.modules 的模块放行；用户显式危险导入仍由 AST 静态检查拦截",
+    "tags": [
+      "sandbox",
+      "security",
+      "portability"
+    ]
+  },
+  {
+    "id": "bug-037-pagination-envelope-gap",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "agents/api.py 9 个列表端点不支持 limit/offset 分页信封（12+ 测试失败）",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "agent_team_api._paginate_optional 可选分页契约从未移植到 agent-config 路由",
+    "fix": "移植同一契约（默认返回裸数组向后兼容，带参返回 items/total/limit/offset/has_more）",
+    "tags": [
+      "api",
+      "pagination"
+    ]
+  },
+  {
+    "id": "bug-038-skill-binding-not-materialized",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "Agent 绑定技能不物化团队副本/不持久化；删除技能不解绑 Agent、不跨团队清理",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "update_agent_skills 只写引用；disable/delete_skill 未遍历 agents 与全部团队",
+    "fix": "物化 registry 技能副本、canonical id 绑定、_persist；delete_skill 跨团队清理并返回 removed_from_teams/removed_agent_bindings",
+    "tags": [
+      "skills",
+      "api"
+    ]
+  },
+  {
+    "id": "bug-039-vendor-three-import",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "npm run build 失败：无法解析 /vendor/three/build/three.module.js",
+    "file": "src/frontend/js/sandbox-twin-3d.js",
+    "root_cause": "唯一一个 3D 文件用不存在的 vendor 绝对路径，其余均为裸导入 three",
+    "fix": "统一为 import * as THREE from 'three'（页面 importmap 兜底原生加载）",
+    "tags": [
+      "build",
+      "frontend"
+    ]
+  },
+  {
+    "id": "bug-040-dt-html-split-regression",
+    "timestamp": "2026-07-04T05:25:00.000000",
+    "error_message": "Agent-digital-twin.html 缺场景卡片容器/故障注入面板/手动创建入口（JS与CSS均在）",
+    "file": "src/frontend/Agent-digital-twin.html",
+    "root_cause": "frontendBigChange 文件拆分时 DOM 段丢失，仅 JS/CSS 迁移",
+    "fix": "补 dp-scenario-cards、inject-event-panel(6个doInjectEvent按钮)、dp-btn-create-trial；login 回退页从 -new.html 修正为打包页",
+    "tags": [
+      "frontend",
+      "regression"
+    ]
+  },
+  {
+    "id": "bug-041-openclaw-sync-flaky",
+    "timestamp": "2026-07-04T07:06:36.870895",
+    "error_message": "tests/test_openclaw_sync.py::test_process_sync_request_deep_dependency 全量 pytest 偶发失败（单独/复跑均过）",
+    "file": "tests/test_openclaw_sync.py",
+    "root_cause": "OpenClawSyncChannel 经 get_ab_test_manager() 共享模块级单例 ABTestManager，前序用例事件改动共享 EWMA 阈值/决策历史，全量执行顺序下污染 deep_dependency 判定",
+    "fix": "在 test_openclaw_sync.py 加 autouse fixture，每个用例前后调用 reset_ab_test_manager() 隔离单例 EWMA 状态；全量 1399 passed，本文件连续 5 次通过。[2026-07-05 根治升级] 把单例重置提升到 tests/conftest.py 与 src/backend/tests/conftest.py 的 autouse fixture _reset_shared_singletons，覆盖全部测试文件、无需各文件自建；移除 test_openclaw_sync.py 本地 fixture。根全量 251 passed、后端 1165 passed、openclaw 连 5 次通过。",
+    "tags": [
+      "test",
+      "flaky",
+      "shared-singleton",
+      "ewma"
+    ]
+  },
+  {
+    "id": "bug-042-office-agent-model-regression",
+    "timestamp": "2026-07-04T09:30:00.000000",
+    "error_message": "Agent-digital-twin.html?office3d=1 里的 Agent 造型像黑色圆柱/棋子，没有复用 plaza 里的 agent 模型语言",
+    "file": "src/frontend/js/office/office-scene.js",
+    "root_cause": "office-engine 首版 buildAgentFigure 重新手写了 CapsuleGeometry + SphereGeometry + ConeGeometry 站桩造型，偏离用户要求的 plaza agent 模型骨架，也与 Marvis 办公室参考图的角色观感不一致",
+    "fix": "将 buildAgentFigure 改为 plaza 风格头环 + U 形身体 + 彩色光环 + 名字 sprite；移除胶囊/球头/尖耳；动画改为驱动 group.userData.bobRoot，避免依赖旧模型 child[0]。office-state 9/9、node --check、npm run build 通过",
+    "tags": [
+      "frontend",
+      "digital-twin",
+      "office3d",
+      "threejs",
+      "visual-regression"
+    ]
+  },
+  {
+    "id": "bug-041-test-agents-pollute-team-store",
+    "timestamp": "2026-07-05T01:40:00.000000",
+    "error_message": "演练协作图/3D出现大量测试Agent(TestAgent01等哈希id)，Build System 7人团队演练出现40节点",
+    "file": "storage/teams/teams.json",
+    "root_cause": "部分集成/冒烟测试直接对活服务或真实TeamStore执行，测试Agent与空测试团队被持久化；世界同步旧累积语义放大了污染",
+    "fix": "带备份清理(移除6测试Agent+2空测试团队+1测试工作区)；世界同步已改整队替换；待办: 排查走活服务的测试改用隔离store",
+    "tags": [
+      "test-isolation",
+      "data-hygiene",
+      "storage"
+    ]
+  },
+  {
+    "id": "bug-042-eco-drill-duplicate-method-defs",
+    "timestamp": "2026-07-11T01:58:19.579618",
+    "error_message": "eco_drill.py 中 ratchet_lock 与 inject_predator_pressure 各被定义两次，签名不一致，后定义静默覆盖前定义",
+    "file": "src/backend/sandbox/eco_drill.py",
+    "root_cause": "ND-2.3/ND-6.1 两轮补丁在同一类里重复追加方法，未删旧实现；Python 类体后定义覆盖前定义，不报错",
+    "fix": "v2 重写时统一为单一实现：ratchet_lock(team_id,best,gen)、inject_predator_pressure(intensity=0)，保留 PREDATOR_PRESSURE_PROB 类属性与模块级 _PREDATOR_PRESSURE_PROB 测试契约",
+    "tags": [
+      "python",
+      "duplicate-def",
+      "eco_drill",
+      "物竞天择"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T01:58:19.579618"
+  },
+  {
+    "id": "bug-028-rp-eco-outside-layout",
+    "timestamp": "2026-07-11T01:58:19.579618",
+    "error_message": "办公室视图(?office3d=1)切到物竞天择控制台后 3D 窗口消失，rp-eco 渲染在页面最左、主视图区空黑",
+    "file": "src/frontend/Agent-digital-twin.html",
+    "root_cause": "v1 ND-5.1 把 rp-eco 面板插在布局容器闭合标签之后（DOM depth 0），与 rp-secs(depth 1)不同级；面板隐藏时无症状，显示后把 view-environment 挤出布局",
+    "fix": "把 rp-eco 移入布局容器内与 rp-secs 同级，并补容器闭合 div；用 div 深度扫描脚本验证 view-environment=2/rp-secs=1/rp-eco=1",
+    "tags": [
+      "html",
+      "layout",
+      "rp-eco",
+      "3d",
+      "办公室视图"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T01:58:19.579618"
+  },
+  {
+    "id": "bug-043-api-keys-wiped-on-model-pool-save",
+    "timestamp": "2026-07-11T06:23:29.626449",
+    "error_message": "模型 API Key 每次重启都要重新输入；.api_keys.json 解密后只剩最近保存的一条(build_system.codebuddy)，其他团队 key 与 __default__ 全丢",
+    "file": "src/backend/agents/secret_store.py, src/backend/agents/api.py",
+    "root_cause": "save_model_api_keys 按『当前内存中的密钥全集』整体重写加密库；而 teams.json 反序列化按设计丢弃明文 key(只保留 env: 引用)。团队重载/加删模型/任何内存密钥缺失时机触发 _save_model_pool，磁盘上其余 key 即被连锅端；save_secret_store({}) 还会直接删文件把 __default__ 一起带走。重启后 _load_model_pool 无 key 可载 → 用户被迫重输",
+    "fix": "save_model_api_keys 改合并式写入(只新增/更新非空 key，绝不隐式删除)；新增 delete_model_api_key 显式删除；remove_model 端点删除模型时调用显式删除。临时目录单测验证合并/空值不覆盖/显式删除/默认 key 保留全过",
+    "tags": [
+      "api-key",
+      "secret-store",
+      "persistence",
+      "restart",
+      "模型与连接"
+    ],
+    "related_bugs": [
+      "bug-034",
+      "bug-038"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T06:23:29.626449"
+  },
+  {
+    "id": "bug-044-hideViewLoading-undefined-blank-tasks",
+    "timestamp": "2026-07-11T06:34:53.677403",
+    "error_message": "议事广场已向 Build System 派发任务（智能拆解 5 条），但团队『并发任务』页列表完全空白（连『暂无任务』占位行都没有）",
+    "file": "src/frontend/js/utils.js (根因), js/tasks-view.js js/sessions-runtime.js js/tools-skills.js js/token-factory.js (调用方)",
+    "root_cause": "任务本身派发成功且已持久化（storage/tasks 下 build_system 30 条 running）。前端 tasks-view.js 的 loadTasks() 首行调用 hideViewLoading('view-tasks')，但该函数从未在任何文件中定义（utils.js 只有 showViewLoading）→ ReferenceError 中断渲染。又因 tasks-view.js 后加载，其 window.loadTasks 覆盖了 agent-team-config.js 内可用的同名旧实现，视图切换实际调用的是会崩的版本。sessions/tools/skills/token-factory 四个视图同样中招",
+    "fix": "utils.js 补 utils.hideViewLoading + window.hideViewLoading（只移除 showViewLoading 注入的 [data-view-loading] spinner，不动其他 DOM），showViewLoading 的 spinner 加 data-view-loading 标记。刷新页面即可看到已派发任务",
+    "tags": [
+      "frontend",
+      "ReferenceError",
+      "tasks-view",
+      "utils",
+      "并发任务",
+      "派发"
+    ],
+    "related_bugs": [
+      "bug-092"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T06:34:53.677403"
+  },
+  {
+    "id": "bug-045-cat-speak-fallback-leak",
+    "timestamp": "2026-07-11T06:51:27.135283",
+    "error_message": "小虎气泡输出『我是 AgentsGroup2026 智能体(xiaohu_cat)。收到您的消息…』而非 Mei Ling 台词",
+    "file": "src/backend/agents/api.py (cat_speak), chat_harness.py",
+    "root_cause": "LLM 未连接（bug-043 密钥被抹的连带症状）时 ChatHarness 返回通用中文降级文案，cat_speak 未检测直接透传进猫气泡",
+    "fix": "cat_speak 检测 result.error/降级特征字符串 → 返回本地 Mei Ling 风格兜底语录(success=false)；根治仍需重输默认密钥",
+    "tags": [
+      "cat-speak",
+      "llm-fallback",
+      "pet"
+    ],
+    "related_bugs": [
+      "bug-043"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T06:51:27.135283"
+  },
+  {
+    "id": "bug-046-eco-console-create-trial-shape",
+    "timestamp": "2026-07-11T06:51:27.135283",
+    "error_message": "生境控制台点『开始物竞天择』报『演练失败: 创建试炼失败』",
+    "file": "src/frontend/js/digital-twin/eco-console.js",
+    "root_cause": "trial_api.create_trial 返回 {trial_id, branch_id}，前端（沿袭 CodeBuddy 旧 ecoRunDrill）读 trial.id 与 trial.branches[0] → 恒 falsy",
+    "fix": "兼容两种返回形状 + 非 2xx 时透传 HTTP 状态与 detail 到状态栏",
+    "tags": [
+      "eco-console",
+      "twin-trials",
+      "api-contract"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T06:51:27.135283"
+  },
+  {
+    "id": "bug-047-fear-window-absorbing-avoid",
+    "timestamp": "2026-07-11T07:17:27.496623",
+    "error_message": "生境演练任何参数组合下种群系统性全灭（5 seed 平均存活≈0/7），gain 调高也无效",
+    "file": "src/backend/sandbox/eco_drill.py",
+    "root_cause": "恐惧窗口(recent_outcomes)只在觅食尝试时追加——个体连败后 fear>escape 进入 AVOID，躲藏期不觅食→窗口冻结→fear 永不下降→滞回出口(fear<calm)永远达不到→锁死躲藏至饿死（吸收态）",
+    "fix": "AVOID tick 时 pop 最旧记忆（躲一阵恐惧消退）；修复后参数恢复生态意义，TestFearDecay 固化",
+    "tags": [
+      "eco_drill",
+      "fear",
+      "absorbing-state",
+      "balance"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T07:17:27.496623"
+  },
+  {
+    "id": "bug-048-timeline-sampling-drops-death-frames",
+    "timestamp": "2026-07-11T07:17:27.496623",
+    "error_message": "3D 回放动画与淘汰过程不吻合：被淘汰个体在 3D 中不死/面板已标死（用户反馈）",
+    "file": "src/backend/sandbox/eco_drill.py (sample_timeline)",
+    "root_cause": "timeline 等距采样按 stride 取帧，死亡/捕食事件只存在于单帧，被跳过后前端永远收不到该个体的死亡事件；且帧上没有世代号，回放世代边界靠均分猜测",
+    "fix": "事件保真采样（deaths/predated 帧必保留+剩余配额等距）+ run_drill 在帧上盖 generation",
+    "tags": [
+      "timeline",
+      "sampling",
+      "replay",
+      "3d"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T07:17:27.496623"
+  },
+  {
+    "id": "bug-049-cat-speak-env-fallback-nameerror",
+    "timestamp": "2026-07-11T11:44:59.069815",
+    "error_message": "XB-8.1 三级回退的分支③（provider env 兜底）在 pet_squad 缺失/无默认模型时静默失效",
+    "file": "src/backend/agents/api.py (cat_speak)",
+    "root_cause": "ProviderConfig 仅在分支①的 try 内局部 import；分支①未执行时分支③引用 ProviderConfig → NameError 被裸 except 吞掉 → env 兜底永远不生效",
+    "fix": "分支③ import 补上 ProviderConfig（Fable 5 复查 CodeBuddy XB-8.1 时发现并修复）",
+    "tags": [
+      "cat-speak",
+      "import-scope",
+      "silent-except",
+      "code-review"
+    ],
+    "related_bugs": [
+      "bug-045"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T11:44:59.069815"
+  },
+  {
+    "id": "bug-050-cat-bubble-degraded-text-leak-frontend",
+    "timestamp": "2026-07-11T11:47:54.490138",
+    "error_message": "重启不确定期间小虎气泡/语音仍播大段中文降级文案（服务端 bug-045 修复依赖新代码进程）",
+    "file": "src/frontend/js/office/pet-ecosystem.js, office-boot.js",
+    "root_cause": "降级文案净化只在服务端做——只要用户浏览器请求打到旧代码进程，脏文案就原样进气泡并被 TTS 朗读。缺前端防御层",
+    "fix": "前端加 PetEcosystem.sanitizeCatReply（含'收到您的消息/LLM 未连接/长度>120'特征拦截→Mei Ling 短句），pet-ecosystem 捕获播报与猫对话框两条路径统一接入。前后端双层防御，任一层生效即止血",
+    "tags": [
+      "cat",
+      "frontend-guard",
+      "defense-in-depth",
+      "tts"
+    ],
+    "related_bugs": [
+      "bug-045",
+      "bug-043"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T11:47:54.490138"
+  }
 ]

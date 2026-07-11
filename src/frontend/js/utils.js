@@ -154,7 +154,21 @@
     var el = document.getElementById(viewId);
     if (!el) return;
     var scroll = el.querySelector('.main-scroll') || el;
-    scroll.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;padding:80px 0;color:var(--muted);font-size:13px"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--groove);border-top-color:var(--koke);border-radius:50%;animation:spin .6s linear infinite;margin-right:10px"></span>加载中...</div>';
+    scroll.innerHTML = '<div data-view-loading style="display:flex;justify-content:center;align-items:center;padding:80px 0;color:var(--muted);font-size:13px"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--groove);border-top-color:var(--koke);border-radius:50%;animation:spin .6s linear infinite;margin-right:10px"></span>加载中...</div>';
+  };
+
+  /**
+   * Hide loading state in a view (bug-044).
+   * tasks-view/sessions-runtime/tools-skills/token-factory 的 load* 函数首行都调用
+   * hideViewLoading()，但该函数此前从未被定义——ReferenceError 中断渲染，
+   * 表现为「并发任务等列表永远空白（连占位行都没有）」。
+   * 安全语义：只移除 showViewLoading 注入的 spinner（若存在），其余 DOM 不动。
+   */
+  utils.hideViewLoading = function (viewId) {
+    var el = document.getElementById(viewId);
+    if (!el) return;
+    var spin = el.querySelector('[data-view-loading]');
+    if (spin && spin.parentNode) spin.parentNode.removeChild(spin);
   };
 
   // ── Legacy aliases for backward compatibility ──
@@ -170,6 +184,7 @@
   window.closeModal = utils.closeModal;
   window.showInfoModal = utils.showInfoModal;
   window.showViewLoading = utils.showViewLoading;
+  window.hideViewLoading = utils.hideViewLoading;
 
   /**
    * Show an inline error message in a view.
@@ -200,6 +215,29 @@
     if (!container) return;
     var existing = container.querySelector('.ag-error-banner');
     if (existing) existing.style.display = 'none';
+  };
+
+  /**
+   * Show a confirmation dialog (modal overlay) with OK / Cancel buttons.
+   * Used by deleteTeam and other destructive actions.
+   * Self-contained — no external CSS dependencies.
+   */
+  window.showConfirm = function (msg, onOk) {
+    var existing = document.getElementById('confirm-overlay');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'confirm-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center';
+    overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = '<div style="background:var(--bg,#1a1d23);border:1px solid var(--line,#333);border-radius:8px;padding:16px;max-width:360px;width:90%;color:var(--text,#e0e0e0);font-size:13px;text-align:center">' +
+      '<div style="margin-bottom:12px">' + msg + '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:center">' +
+      '<button id="confirm-cancel" style="padding:6px 16px;background:var(--panel2,#2a2e35);border:none;border-radius:4px;color:var(--muted,#888);cursor:pointer">取消</button>' +
+      '<button id="confirm-ok" style="padding:6px 16px;background:var(--red,#e04040);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:600">确认</button></div></div>';
+    document.body.appendChild(overlay);
+    document.getElementById('confirm-cancel').onclick = function () { overlay.remove(); };
+    document.getElementById('confirm-ok').onclick = function () { overlay.remove(); if (typeof onOk === 'function') onOk(); };
+    document.getElementById('confirm-ok').focus();
   };
 
 })();

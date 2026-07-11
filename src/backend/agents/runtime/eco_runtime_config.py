@@ -49,6 +49,26 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
         "exploration_half_life": 50,    # 探索率半衰期 tick 数
         "solidify_min_uses": 5,         # 触发特征抽象的最小使用次数
         "solidify_min_gain": 0.0,       # 触发特征抽象的最小净收益
+        # 物竞天择 v2（eco_drill 盲目学习，plan §3.2）
+        "blind_learning_rate": 0.1,     # REST 时随机习得 skill 的概率（学习是盲目的）
+        "genome_carry_cost": 0.05,      # 每携带 1 个 skill 的每 tick 额外代谢（惩罚技能囤积）
+    },
+    # 物竞天择 v2 生境环境（eco_drill.EnvState，plan §3.3：环境必须流动）
+    "habitat": {
+        "drift_prob": 0.3,          # 每世代生态位漂移概率（随机替换 1 个需求 skill）
+        "predator_pressure": 0.08,  # 每 tick 捕食事件概率（0=关闭）
+        "abundance": 1.0,           # 丰饶度：觅食收益倍率（0.5 艰难 ~ 2.0 富足）
+        "niche_capacity": 3,        # 「物竞」：每 tick 生态位可供成功觅食的名额（0=不限；v2.3 平衡实验定档）
+    },
+    # 物竞天择 v2 觅食/协作经济学（eco_drill 常量的可调化，用户 2026-07-11 要求）
+    "drill_economics": {
+        "forage_gain": 8.0,          # 觅食命中获得的能量（×abundance；v2.3 平衡实验定档）
+        "forage_miss_penalty": 2.0,  # 觅食未命中的额外代谢惩罚
+        "avoid_cost": 0.5,           # 避险动作代谢
+        "signal_cost": 0.3,          # 发一次信号的代谢成本（协作有代价才会被选择）
+        "share_fraction": 0.4,       # 分享时让渡给求助者的收益比例
+        "follow_bonus": 0.15,        # 跟随 FOOD 信号的觅食成功率加成
+        "help_hunger": 0.75,         # 饥饿超过此值才发 HELP 信号
     },
     # 物竞天择选择状态机（skill_library.evaluate_selection_state）
     "selection": {

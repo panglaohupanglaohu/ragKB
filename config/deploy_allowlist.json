@@ -1,0 +1,45 @@
+{
+  "_comment": "XC-3.2: deploy_exec 白名单命令模板——可编辑、热加载",
+  "commands": [
+    {
+      "name": "start.sh",
+      "pattern": "./start.sh",
+      "description": "启动后端+前端开发服务器"
+    },
+    {
+      "name": "scripts/*.sh",
+      "pattern": "scripts/*.sh",
+      "description": "项目 scripts/ 目录下的脚本"
+    },
+    {
+      "name": "kubectl_apply",
+      "pattern": "kubectl apply -f {file}",
+      "description": "应用 Kubernetes 配置"
+    },
+    {
+      "name": "kubectl_rollout",
+      "pattern": "kubectl rollout status deployment/{name}",
+      "description": "检查部署滚动状态"
+    },
+    {
+      "name": "docker_build",
+      "pattern": "docker build -t {tag} {context}",
+      "description": "构建 Docker 镜像"
+    },
+    {
+      "name": "docker_push",
+      "pattern": "docker push {tag}",
+      "description": "推送 Docker 镜像"
+    },
+    {
+      "name": "terraform_plan",
+      "pattern": "terraform plan",
+      "description": "Terraform 计划预览"
+    },
+    {
+      "name": "terraform_apply",
+      "pattern": "terraform apply -auto-approve",
+      "description": "Terraform 应用变更"
+    }
+  ]
+}

@@ -142,6 +142,26 @@ export class PetEcosystem {
     return { petId, pet: this.pets[petId], config: this.pets[petId].config };
   }
 
+  // bug-050: 猫台词净化——后端 LLM 降级时会返回大段中文系统文案
+  // （"我是 AgentsGroup2026 智能体…收到您的消息…LLM 未连接"），
+  // 旧版后端会把它原样传回。无论后端新旧，前端一律拦截并换 Mei Ling 风格短句，
+  // 保证气泡与 TTS 永远是"一句台词"而不是系统日志。
+  static sanitizeCatReply(reply, fallback) {
+    const text = String(reply || '').trim();
+    const degraded = !text
+      || /收到您的消息|LLM 未连接|AgentsGroup2026 智能体|快速配置|DEEPSEEK_API_KEY/.test(text)
+      || text.length > 120;
+    if (!degraded) return text;
+    const proverbs = [
+      'A journey of a thousand miles begins with a single step.',
+      'Even the smallest light can pierce the darkness.',
+      'A bird does not sing because it has an answer. It sings because it has a song.',
+      'Fall seven times, stand up eight.',
+      'Still waters run deep.',
+    ];
+    return fallback || proverbs[Math.floor(Math.random() * proverbs.length)];
+  }
+
   async _onPetDetect(detectingPet, target, opts = {}) {
     const config = detectingPet.config;
     const speak = config.speak || {};
@@ -180,7 +200,8 @@ export class PetEcosystem {
         });
       }
       const d = await r.json();
-      const reply = (d && d.reply) ? d.reply : (speak.fallback || '喵~');
+      // bug-050: 无论后端新旧，降级文案一律拦截净化
+      const reply = PetEcosystem.sanitizeCatReply(d && d.reply, speak.fallback);
       this._catBubbleHold = Date.now() + 10000;
       detectingPet.drawBubble('🐱 ' + reply);
       speakAloud(reply);
