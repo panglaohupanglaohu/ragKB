@@ -436,6 +436,11 @@ export function reduce(prev, event) {
         const a = state.agents[k];
         if (a.ecoNewborn) { delete state.agents[k]; continue; }
         a.health = 100; a.survivalTicks = 0; a.ecoAlive = true; a.ecoIntent = '';
+        a.activity = 'working';   // 强制回到工位（打断咖啡/厕所/跑步机）
+      }
+      // 清空所有设施占用和排队——防止 agent 继续往设施跑
+      for (const f of Object.values(state.facilities)) {
+        f.occupant = null; f.queue = []; f.until = 0;
       }
       state.edges = state.edges.filter((e) => state.agents[e.from] && (e.to === '*' || state.agents[e.to]));
       break;

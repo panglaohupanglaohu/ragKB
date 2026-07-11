@@ -441,6 +441,7 @@ body {
 /* Utility */
 .btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--panel2); color: var(--text2); border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.2s; }
 .btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.eco2-scenario-active { border-color: var(--cyan) !important; color: var(--cyan) !important; background: rgba(34,211,238,0.12) !important; font-weight:600; }
 .btn-primary { background: var(--cyan); color: #000; border-color: var(--cyan); font-weight: 600; }
 .btn-primary:hover { background: #4de8fa; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease-out; }
@@ -1221,10 +1222,10 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     <!-- 环境剧本：一键组合选择压力（物竞×天择的预设强度） -->
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
       <span style="font-size:9px;color:var(--dim);align-self:center">环境剧本:</span>
-      <button class="btn" onclick="eco2ApplyScenario('mild')" style="font-size:9px;padding:3px 8px" title="丰饶1.5 捕食0.02 漂移0.1 名额∞——协作是负担，独行者胜">🌿 温和</button>
-      <button class="btn" onclick="eco2ApplyScenario('harsh')" style="font-size:9px;padding:3px 8px" title="丰饶0.7 捕食0.15 漂移0.3 名额2——利他与信号开始救命">🏜 严酷</button>
-      <button class="btn" onclick="eco2ApplyScenario('upheaval')" style="font-size:9px;padding:3px 8px" title="丰饶1.0 捕食0.10 漂移0.8 名额3——生态位剧变，盲目学习者才有明天">🌋 剧变</button>
-      <button class="btn" onclick="eco2ApplyScenario('armsrace')" style="font-size:9px;padding:3px 8px" title="丰饶0.9 捕食0.25 漂移0.5 名额1——极限军备竞赛">⚔️ 军备竞赛</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('mild', this)" style="font-size:9px;padding:3px 8px" title="丰饶1.5 捕食0.02 漂移0.1 名额∞——协作是负担，独行者胜">🌿 温和</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('harsh', this)" style="font-size:9px;padding:3px 8px" title="丰饶0.7 捕食0.15 漂移0.3 名额2——利他与信号开始救命">🏜 严酷</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('upheaval', this)" style="font-size:9px;padding:3px 8px" title="丰饶1.0 捕食0.10 漂移0.8 名额3——生态位剧变，盲目学习者才有明天">🌋 剧变</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('armsrace', this)" style="font-size:9px;padding:3px 8px" title="丰饶0.9 捕食0.25 漂移0.5 名额1——极限军备竞赛">⚔️ 军备竞赛</button>
     </div>
     <div style="display:flex;gap:6px;margin-top:6px">
       <button class="btn" onclick="eco2SaveEnv()" style="font-size:10px;padding:4px 10px;color:var(--green)">💾 写回生境配置</button>

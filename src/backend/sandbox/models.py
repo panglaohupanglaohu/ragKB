@@ -459,6 +459,8 @@ class Trial:
     max_steps: int = 100
     acceleration: int = 1       # 加速倍率
     parallel_branches: int = 1
+    # 物竞天择: 自然选择生境的世代数（前端 eco2-run-gens 控制）
+    max_generations: int = 3
 
     # 分支列表
     branches: List[str] = field(default_factory=list)  # branch_id 列表

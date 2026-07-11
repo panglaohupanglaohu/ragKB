@@ -723,6 +723,7 @@ async def _generate_cat_commentary(gen_rec: Dict[str, Any]) -> str:
     """XB-3.1: 猫解说——ChatHarness 可用时 LLM 生成 ≤30 字拟态播报；否则降级模板.
 
     降级模板：`第N代·存活X·最佳Y ticks·新生Z·棘轮↑/=`
+    LLM 调用限制 5 秒超时，超时直接用降级模板，不阻塞演练流程。
     """
     fallback = "第{g}代·存活{l}·最佳{b} ticks·新生{n}·棘轮{r}".format(
         g=gen_rec.get("generation", 0), l=gen_rec.get("living", 0),
@@ -736,7 +737,7 @@ async def _generate_cat_commentary(gen_rec: Dict[str, Any]) -> str:
             "你是数字办公室里的猫解说员小虎。用不超过30个汉字、拟猫语气播报这段自然选择世代摘要，"
             "不要标点堆砌：" + fallback
         )
-        reply = await harness.chat(prompt)  # type: ignore[misc]
+        reply = await asyncio.wait_for(harness.chat(prompt), timeout=5.0)  # type: ignore[misc]
         text = (reply or "").strip() if isinstance(reply, str) else ""
         return text[:60] if text else fallback
     except Exception:
@@ -827,7 +828,16 @@ async def run_drill_via_trial(
             continue
         loaded_teams.append(tid)
         # 收集生态位需求：优先团队级 skill，不足时从 agent skill 汇总
-        team_skills = list(team.skills.keys()) if team.skills else []
+        # 按技能名去重（不同 ID 可能同名——如旧技能迁移后的重复条目），
+        # 否则同名不同 ID 会导致 agent skill_genome 匹配失败而误饿死。
+        team_skills = []
+        if team.skills:
+            seen_names = set()
+            for sid, sd in team.skills.items():
+                nm = (getattr(sd, 'name', '') or getattr(sd, 'slug', '') or '') or sid
+                if nm not in seen_names:
+                    seen_names.add(nm)
+                    team_skills.append(sid)
         agents = team.agents.values() if isinstance(team.agents, dict) else (team.agents or [])
         for agent in agents:
             if not team_skills:

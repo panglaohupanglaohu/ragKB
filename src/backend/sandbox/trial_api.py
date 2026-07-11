@@ -96,6 +96,8 @@ class CreateTrialRequest(BaseModel):
     max_steps: int = Field(default=150, ge=10, le=500)
     acceleration: int = Field(default=1, ge=1, le=100)
     parallel_branches: int = Field(default=1, ge=1, le=8)
+    # 物竞天择: 自然选择生境的世代数（前端 eco2-run-gens 控制）
+    max_generations: int = Field(default=3, ge=1, le=10)
     # v4 B-2.1: 场景化 + 代际
     scenario_id: str = ""
     generation: int = Field(default=0, ge=0)
@@ -466,6 +468,7 @@ async def create_trial(req: CreateTrialRequest) -> Dict[str, Any]:
         max_steps=req.max_steps,
         acceleration=req.acceleration,
         parallel_branches=req.parallel_branches,
+        max_generations=req.max_generations,
         status=TrialStatus.CREATING,
         drill_kind=drill_kind,
     )
@@ -858,7 +861,7 @@ async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
                 session_id=branch.current_session_id,
                 team_id=trial.team_id,
                 max_steps=trial.max_steps,
-                max_generations=getattr(trial, "max_generations", 3) or 3,
+                max_generations=trial.max_generations,
                 on_step=_on_step,
                 on_epoch=_on_epoch,
                 # v2.3 多种群同场竞争：对比种群经 task_goal 透传（前端「＋添加对比种群」）

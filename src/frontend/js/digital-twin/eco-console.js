@@ -114,7 +114,7 @@
     upheaval: { predator: 10, abundance: 100, drift: 80, capacity: 3 },
     armsrace: { predator: 25, abundance: 90,  drift: 50, capacity: 1 },
   };
-  window.eco2ApplyScenario = function (name) {
+  window.eco2ApplyScenario = function (name, btn) {
     var s = ECO_SCENARIOS[name];
     if (!s) return;
     _setSlider('eco2-env-predator', s.predator, 100);
@@ -123,6 +123,12 @@
     _setSlider('eco2-env-capacity', s.capacity, 1);
     window.eco2SaveEnv();
     setText('eco2-env-status', '· 剧本已应用并写回');
+    // 选中态持久化（不受 :focus 丢失影响）
+    if (btn) {
+      var prev = btn.parentElement.querySelectorAll('.eco2-scenario-active');
+      prev.forEach(function (el) { el.classList.remove('eco2-scenario-active'); });
+      btn.classList.add('eco2-scenario-active');
+    }
   };
 
   // 环境压力台 → 写回 habitat 配置
@@ -163,6 +169,9 @@
         d.agents.forEach(function (a) { (a.skills || []).forEach(function (s) { set[s] = 1; }); });
         names = Object.keys(set).map(_sk);
       }
+      // 按名称去重（不同 skill ID 可能同名——如旧技能迁移后的重复条目）
+      var seen = {};
+      names = names.filter(function (n) { if (seen[n]) return false; seen[n] = 1; return true; });
       box.innerHTML = names.length
         ? names.slice(0, 16).map(function (n) { return '<span class="eco2-chip">' + esc(n) + '</span>'; }).join(' ')
         : '<span style="color:var(--dim);font-size:10px">该团队暂无 skill——生境将以 generic 生态位运行</span>';
@@ -247,7 +256,7 @@
       : '各队独立进同一环境演练，各出黄金适者，最后裁决冠军团队');
   };
 
-  function _createAndRunDrill(teamId, extraIds, maxSteps) {
+  function _createAndRunDrill(teamId, extraIds, maxSteps, maxGens) {
     return _fetch('/api/v1/twin-trials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -255,6 +264,7 @@
         team_id: teamId,
         mode: 'evolutionary',
         max_steps: maxSteps,
+        max_generations: maxGens || 3,
         drill_kind: 'natural_selection',
         task_goal: {
           name: '物竞天择-' + Date.now().toString(36),
@@ -307,11 +317,13 @@
       return;
     }
     var maxSteps = parseInt(($('eco2-run-steps') || {}).value || '150', 10);
+    var maxGens = parseInt(($('eco2-run-gens') || {}).value || '3', 10);
     var btn = $('eco2-run-launch');
     if (btn) { btn.disabled = true; btn.textContent = '🧬 环境正在选择…'; }
     _tournament = null;
 
     var finish = function () {
+      if (_safetyTimer) { clearTimeout(_safetyTimer); _safetyTimer = null; }
       if (btn) { btn.disabled = false; btn.textContent = '🧬 开始物竞天择'; }
     };
     var fail = function (err) {
@@ -319,22 +331,34 @@
       setText('eco2-run-status', '❌ 演练失败: ' + (err.message || err));
       finish();
     };
+    // 安全超时：120 秒后强制恢复按钮（防止后端卡死时前端永久等待）
+    var _safetyTimer = setTimeout(function () {
+      setText('eco2-run-status', '❌ 演练超时（120s）— 请检查后端服务');
+      finish();
+    }, 120000);
 
     // ── ⚔️ 同场混战 ──
     if (_raceMode === 'melee' || !_rivalTeams.length) {
-      setText('eco2-run-status', '生境运行中：代谢红线 · 受限感知 · 信号协议 · 世代繁衍');
+      setText('eco2-run-status', '🧬 生境运行中：代谢红线 · 受限感知 · 信号协议 · 世代繁衍');
+      var _drillStart = Date.now();
       _createAndRunDrill(window._selectedTeamId,
         _raceMode === 'melee' ? _rivalTeams.map(function (t) { return t.id; }) : [],
-        maxSteps
+        maxSteps, maxGens
       ).then(function (result) {
-        if (_raceMode === 'melee' && _rivalTeams.length
-            && (!result.populations || result.populations.length < 2)) {
-          setText('eco2-run-status', '⚠ 对比种群未进入生境——请重启后端（./start.sh）加载多种群演练代码后重试');
-        } else {
-          setText('eco2-run-status', '演练完成 — 拖动回放条观看自然选择全程');
-        }
-        finish();
-        return _playResultAndWait(result, false);
+        // 最小展示 600ms，让用户看到"运行中"状态（演练太快会误以为没跑）
+        var _elapsed = Date.now() - _drillStart;
+        var _delay = _elapsed < 600 ? 600 - _elapsed : 0;
+        setTimeout(function () {
+          var tid = (result.trial_id || '').slice(0, 8);
+          if (_raceMode === 'melee' && _rivalTeams.length
+              && (!result.populations || result.populations.length < 2)) {
+            setText('eco2-run-status', '⚠ 对比种群未进入生境——请重启后端（./start.sh）加载多种群演练代码后重试');
+          } else {
+            setText('eco2-run-status', '✅ 新演练完成 (#' + tid + ') — 回放中，拖动进度条可回顾');
+          }
+          finish();
+          _playResultAndWait(result, false);
+        }, _delay);
       }).catch(fail);
       return;
     }
@@ -356,7 +380,7 @@
       var t = teams[idx];
       setText('eco2-run-status', '🏟 锦标赛 第 ' + (idx + 1) + '/' + teams.length + ' 场 — 种群「' + t.name + '」入场演练…');
       _loadTeamSkills(t.id).then(function () {
-        return _createAndRunDrill(t.id, [], maxSteps);
+        return _createAndRunDrill(t.id, [], maxSteps, maxGens);
       }).then(function (result) {
         _tournament.entries.push({ id: t.id, name: t.name, result: result });
         setText('eco2-run-status', '🏟 第 ' + (idx + 1) + '/' + teams.length + ' 场回放中 — 种群「' + t.name + '」');
@@ -364,7 +388,24 @@
       }).then(function () {
         idx += 1;
         nextTeam();
-      }).catch(fail);
+      }).catch(function (err) {
+        // 单场失败不中断整个锦标赛——记录错误，跳到下一队
+        console.error('[eco2] 第' + (idx + 1) + '场失败:', err);
+        _tournament.entries.push({ id: t.id, name: t.name, error: err.message || String(err) });
+        idx += 1;
+        if (idx < teams.length) {
+          setText('eco2-run-status', '⚠ 第' + idx + '场失败已跳过—继续第' + (idx + 1) + '场');
+          nextTeam();
+        } else {
+          // 全部跑完（含失败场次）
+          _tournament.done = true;
+          var okCount = _tournament.entries.filter(function (e) { return !e.error; }).length;
+          setText('eco2-run-status', '🏟 锦标赛结束 — ' + okCount + '/' + teams.length + ' 场成功');
+          finish();
+          _reportShown = true;
+          try { window.eco2ShowReport(); } catch (e) {}
+        }
+      });
     }
     nextTeam();
   };
@@ -392,7 +433,11 @@
     if (result.env && result.env.demanded_skills) {
       var nb = $('eco2-env-niches');
       if (nb) {
-        nb.innerHTML = result.env.demanded_skills.slice(0, 16).map(function (n) {
+        var _seen = {};
+        var _names = result.env.demanded_skills.map(_sk).filter(function (n) {
+          if (_seen[n]) return false; _seen[n] = 1; return true;
+        });
+        nb.innerHTML = _names.slice(0, 16).map(function (n) {
           return '<span class="eco2-chip">' + esc(n) + '</span>';
         }).join(' ');
       }
@@ -613,8 +658,11 @@
     try { window.OfficeAPI.dispatch({ type: 'eco_reset' }); } catch (e) {}
     var gen0 = ranking.filter(function (r) { return !r.generation; });
     var roster = (gen0.length ? gen0 : ranking).map(function (r) {
-      return { id: r.agent_id, name: r.agent_id, role: 'creature',
-               team: r.population || 'eco_habitat' };   // v2.3 按种群分组
+      // 用 agent_id 的可读部分作名称（build_architect → architect）
+      var shortName = r.agent_id.replace(/^(build|aws|pet|ai|energy)_/, '');
+      return { id: r.agent_id, name: shortName, role: r.role || 'creature',
+               team: r.population || 'eco_habitat',
+               skills: r.skill_genome || [] };   // v2.3 按种群分组 + 技能标签
     });
     try {
       window.__ECO_REPLAY_ACTIVE__ = true;   // 暂停 office-boot 团队轮询（保护后代/死亡状态）
@@ -634,7 +682,7 @@
 
   // ═══ v2.4 🏟 锦标赛裁决（各队黄金适者对决 → 冠军团队） ═══
   function _tournamentReportHtml() {
-    var entries = _tournament.entries.map(function (e) {
+    var entries = _tournament.entries.filter(function (e) { return !e.error; }).map(function (e) {
       var ranking = (e.result && e.result.final_ranking) || [];
       var champ = ranking[0] || null;
       var alive = ranking.filter(function (x) { return x.alive; }).length;
@@ -644,11 +692,16 @@
                avg: avg, best: (e.result && e.result.best_survival_ticks) || (champ && champ.survival_ticks) || 0,
                gens: (e.result && e.result.total_generations) || 0 };
     }).sort(function (a, b) { return b.avg - a.avg; });
+    var failedEntries = _tournament.entries.filter(function (e) { return e.error; });
 
     var html = '<div style="font-size:12px;color:#8b9ab5;margin-bottom:12px;line-height:1.8">'
       + '🏟 分场锦标赛：' + entries.length + ' 个种群在<b>同一环境配置</b>下各自独立演练——'
       + '同样的生态位规则、代谢红线与选择压力，唯一的差别是各队自己的技能结构与协作基因。'
       + '<b style="color:#f59e0b">平均生存时长 = 团队协作竞争力</b>。</div>';
+    if (failedEntries.length) {
+      html += '<div style="font-size:11px;color:#f87171;margin-bottom:10px">⚠ ' + failedEntries.length + ' 场失败已跳过：'
+        + failedEntries.map(function (e) { return esc(e.name); }).join('、') + '</div>';
+    }
 
     html += '<div style="margin-bottom:14px"><b style="color:#22d3ee;font-size:13px">👑 冠军团队裁决</b>'
       + '<table style="width:100%;font-size:11px;margin-top:6px;border-collapse:collapse">'
@@ -680,9 +733,76 @@
           + '</div>';
       }).join('') + '</div>';
 
+    // 世代演化曲线对比（各队并排）
+    var allGens = entries.map(function (e) {
+      return { name: e.name, gens: (e.result && e.result.generations) || [] };
+    });
+    var maxGenLen = Math.max.apply(null, allGens.map(function (t) { return t.gens.length; }).concat([1]));
+    var maxBest = Math.max.apply(null, allGens.flatMap(function (t) { return t.gens.map(function (g) { return g.best_survival_ticks || 0; }); }).concat([1]));
+    var teamColors = ['#f59e0b', '#22d3ee', '#a78bfa', '#22c55e'];
+    html += '<div style="margin-bottom:14px"><b style="color:#22d3ee;font-size:13px">📊 世代演化对比</b>'
+      + '<div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">';
+    allGens.forEach(function (t, ti) {
+      var color = teamColors[ti % teamColors.length];
+      html += '<div style="flex:1;min-width:200px">'
+        + '<div style="font-size:10px;color:' + color + ';margin-bottom:4px;font-weight:600">🏳 ' + esc(t.name) + '</div>'
+        + '<div style="display:flex;align-items:flex-end;gap:3px;height:70px">';
+      for (var gi = 0; gi < maxGenLen; gi++) {
+        var g = t.gens[gi];
+        if (!g) { html += '<div style="width:20px"></div>'; continue; }
+        var h = Math.max(8, Math.round((g.best_survival_ticks || 0) / maxBest * 60));
+        var ha = Math.max(4, Math.round((g.avg_survival_ticks || 0) / maxBest * 60));
+        html += '<div style="width:24px;height:' + h + 'px;background:' + color + ';border-radius:3px 3px 0 0;position:relative" title="G' + g.generation + ' 最长' + g.best_survival_ticks + 't / 平均' + g.avg_survival_ticks + 't">'
+          + '<div style="position:absolute;bottom:0;left:0;right:0;height:' + ha + 'px;background:rgba(255,255,255,.3);border-radius:3px"></div>'
+          + '<span style="position:absolute;top:-14px;left:0;right:0;text-align:center;font-size:8px;color:#8b9ab5">' + (g.best_survival_ticks || 0) + '</span>'
+          + '</div>';
+      }
+      html += '</div><div style="display:flex;gap:3px;margin-top:2px">';
+      for (var gi2 = 0; gi2 < maxGenLen; gi2++) { html += '<div style="width:24px;text-align:center;font-size:8px;color:#8b9ab5">G' + gi2 + '</div>'; }
+      html += '</div></div>';
+    });
+    html += '</div>'
+      + '<div style="font-size:9px;color:#8b9ab5;margin-top:4px">柱高=最长生存，内层浅色=平均生存。对比各队在同一环境下的世代走势。</div>'
+      + '</div>';
+
     html += '<div style="font-size:10px;color:#8b9ab5">读法：冠军团队不是被打分打出来的——同一个环境，谁的种群整体活得久，谁就是适者。'
       + '想看单场细节：先切到该队再点回放条 📜。</div>';
     return html;
+  }
+
+  // ═══ LLM 深度分析（异步加载，不阻塞报告显示） ═══
+  function _loadLlmAnalysis() {
+    var box = document.getElementById('eco2-llm-analysis');
+    if (!box) return;
+    var body;
+    if (_tournament && _tournament.done && _tournament.entries.length) {
+      var entries = _tournament.entries.map(function (e) {
+        var ranking = (e.result && e.result.final_ranking) || [];
+        var champ = ranking[0] || {};
+        return {
+          name: e.name, avg: e.avg, best: e.best, alive: e.alive, total: e.total, gens: e.gens,
+          champ: { agent_id: champ.agent_id, survival_ticks: champ.survival_ticks, alive: champ.alive,
+                   skill_genome: champ.skill_genome, collab_genome: champ.collab_genome },
+        };
+      });
+      body = { entries: entries, env: (_tournament.entries[0].result || {}).env || {} };
+    } else if (_lastResult) {
+      body = { entries: [], single_result: _lastResult, env: _lastResult.env || {} };
+    } else { return; }
+
+    _fetch('/api/v1/eco-runtime/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json ? r.json() : r; }).then(function (d) {
+      var text = (d && d.analysis) || '（分析失败）';
+      var ok = d && d.ok;
+      box.innerHTML = '<b style="color:#22d3ee;font-size:13px">🔍 LLM 深度分析</b>'
+        + (ok ? '' : '<span style="color:#8b9ab5;font-size:9px;margin-left:6px">（降级）</span>')
+        + '<div style="font-size:12px;line-height:1.8;margin-top:8px;white-space:pre-wrap;color:#d1d5db">' + esc(text) + '</div>';
+    }).catch(function (e) {
+      box.innerHTML = '<b style="color:#22d3ee;font-size:13px">🔍 LLM 深度分析</b>'
+        + '<div style="color:#f87171;font-size:11px;margin-top:6px">分析请求失败：' + esc(e.message || e) + '</div>';
+    });
   }
 
   // ═══ 📜 生境报告（v2.3：演练结束的裁决书） ═══
@@ -694,8 +814,9 @@
     // v2.4：锦标赛结束 → 冠军裁决报告
     if (_tournament && _tournament.done && _tournament.entries.length) {
       if (title) title.textContent = '🏟 物竞天择 · 锦标赛冠军裁决';
-      content.innerHTML = _tournamentReportHtml();
+      content.innerHTML = _tournamentReportHtml() + '<div id="eco2-llm-analysis" style="margin-top:14px;padding:12px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:8px"><b style="color:#22d3ee;font-size:13px">🔍 LLM 深度分析</b><div style="color:#8b9ab5;font-size:11px;margin-top:6px">分析中…</div></div>';
       modal.style.display = 'flex';
+      _loadLlmAnalysis();
       return;
     }
     var r = _lastResult;
@@ -798,8 +919,9 @@
         + '<br><span style="color:#8b9ab5">读法：数值是被环境选择后的种群均值——它们不是设计出来的，是活下来的。</span></div>';
     }
 
-    content.innerHTML = html;
+    content.innerHTML = html + '<div id="eco2-llm-analysis" style="margin-top:14px;padding:12px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:8px"><b style="color:#22d3ee;font-size:13px">🔍 LLM 深度分析</b><div style="color:#8b9ab5;font-size:11px;margin-top:6px">分析中…</div></div>';
     modal.style.display = 'flex';
+    _loadLlmAnalysis();
   };
 
   // ═══ 剧场回放（XT-5 接线；onDone=回放结束回调，锦标赛逐队上场用） ═══

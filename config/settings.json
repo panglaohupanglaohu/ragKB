@@ -17,7 +17,8 @@
     "thinking": {
       "type": "enabled"
     },
-    "reasoning_effort": "high"
+    "reasoning_effort": "high",
+    "api_key": ""
   },
   "openclaw": {
     "enabled": true,
