@@ -737,6 +737,70 @@ def _sync_default_model_to_harness(team) -> None:
     cfg.temperature = default_model.temperature
 
 
+@router.post(
+    "/teams/{team_id}/models/{model_id}/set-global-default",
+    summary="Promote a team model to the GLOBAL default provider (key included)",
+)
+def set_global_default_model(team_id: str, model_id: str) -> Dict[str, Any]:
+    """把某团队模型（连同其已存密钥）提升为全局默认 provider。
+
+    bug-053 后续/用户需求（2026-07-11）：恢复「设为全局默认」能力，且改为服务端一键提升——
+    直接用服务端已存的模型密钥（get_resolved_api_key 解析 env: 引用），
+    不依赖浏览器是否记住 key。全局默认驱动 cat-speak/广场/萃取/任务执行等一切默认调用。
+    复用 update_llm_provider 的完整持久化链（harness 运行时 + secret store __default__ + settings.json）。
+    """
+    team = _get_team_or_404(team_id)
+    model = team.get_model(model_id)
+    if model is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Model not found")
+    resolved_key = model.get_resolved_api_key()
+    if not resolved_key:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="该模型没有可用的 API Key——请先在「编辑模型」里保存密钥（或 env: 引用），再提升为全局默认",
+        )
+    req = LLMProviderConfigRequest(
+        provider=model.provider,
+        api_key=resolved_key,
+        api_base_url=model.api_base_url or "",
+        model=model.name,
+        max_tokens=max(100, min(int(model.max_tokens or 4096), 128000)),
+        temperature=max(0.0, min(float(model.temperature if model.temperature is not None else 0.7), 2.0)),
+    )
+    update_llm_provider(req)
+    # 同步设置 harness global override + 持久化 global_model 选择
+    # 这样 GET /llm/global-model 才能返回正确状态，前端模型列表才能显示「🌐 全局默认」
+    try:
+        from .chat_harness import get_chat_harness
+        from .chat_harness import ProviderConfig, LLMProvider
+        try:
+            _provider = LLMProvider(model.provider)
+        except ValueError:
+            _provider = LLMProvider.DEEPSEEK
+        _cfg = ProviderConfig(
+            provider=_provider,
+            api_key=resolved_key,
+            api_base_url=model.api_base_url or "",
+            model=model.name,
+            max_tokens=max(100, min(int(model.max_tokens or 4096), 128000)),
+            temperature=max(0.0, min(float(model.temperature if model.temperature is not None else 0.7), 2.0)),
+        )
+        get_chat_harness().set_global_override(_cfg, {
+            "team_id": team_id, "model_id": model_id, "name": model.name,
+        })
+    except Exception:
+        pass
+    _persist_global_model({"team_id": team_id, "model_id": model_id})
+    return {
+        "promoted": True,
+        "team_id": team_id,
+        "model_id": model_id,
+        "provider": model.provider,
+        "model": model.name,
+        "api_key_tail": resolved_key[-4:] if len(resolved_key) >= 4 else "****",
+    }
+
+
 @router.delete(
     "/teams/{team_id}/models/{model_id}",
     summary="Remove model from team",
@@ -8257,13 +8321,43 @@ async def cat_speak(req: CatSpeakRequest) -> Dict[str, Any]:
             except Exception:
                 pass
 
-    result = await harness.chat(
-        _user_msg,
-        agent_id="xiaohu_cat",
-        session_id=f"cat_speak_{_seed}",   # 每次新 session，无历史
-        system_prompt=system,
-        config_override=config_override,
-    )
+    # bug-051 硬化：harness.chat 任何异常不再冒泡成 500——500 会让前端拿不到
+    # reply 字段而落到"硕鼠硕鼠"兜底，且错误信息完全丢失。转成可诊断 JSON。
+    try:
+        result = await harness.chat(
+            _user_msg,
+            agent_id="xiaohu_cat",
+            session_id=f"cat_speak_{_seed}",   # 每次新 session，无历史
+            system_prompt=system,
+            config_override=config_override,
+        )
+    except Exception as _chat_exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("cat_speak harness.chat 异常", exc_info=True)
+        return {"success": False,
+                "reply": "Even the smallest light can pierce the darkness.",
+                "error": f"chat_exception: {type(_chat_exc).__name__}: {str(_chat_exc)[:200]}"}
+
+    # bug-053: 三级回退第①级（pet_squad 模型 key）鉴权失败时自动降级——
+    # 团队模型里残留的失效旧 key 不应挡住有效的全局默认 key。
+    _err_l = str(result.error or "").lower() + str(result.response or "")[:200].lower()
+    if ("authentication" in _err_l or "invalid" in _err_l and "api key" in _err_l)             and config_override is not None:
+        _default_cfg2 = harness.get_provider_config()
+        if _default_cfg2.api_key and _default_cfg2.api_key != config_override.api_key:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "cat_speak: 团队模型 key 鉴权失败(%s)，降级重试全局默认 provider(%s)",
+                config_override.provider, _default_cfg2.provider)
+            try:
+                result = await harness.chat(
+                    _user_msg,
+                    agent_id="xiaohu_cat",
+                    session_id=f"cat_speak_{_seed}_retry",
+                    system_prompt=system,
+                    config_override=_default_cfg2,
+                )
+            except Exception:
+                pass
     # 去掉引号和首尾空白
     reply = (result.response or "").strip().strip('"').strip("'").strip()[:100]
     # bug-045: LLM 未连接时 harness 返回大段中文降级文案（"我是 AgentsGroup2026 智能体…LLM 未连接"），
@@ -8633,6 +8727,25 @@ async def search_tools_endpoint(q: str = "") -> List[Dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════
 
 
+# ── bug-052: 进程代龄快照（启动时一次性求值，/health 用）──
+_PROCESS_STARTED_AT = datetime.now(timezone.utc).isoformat()
+_GIT_REV_AT_BOOT = ""
+_GIT_BRANCH_AT_BOOT = ""
+try:
+    import subprocess as _sp_boot
+    _repo_root_boot = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    _GIT_REV_AT_BOOT = _sp_boot.check_output(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_repo_root_boot, stderr=_sp_boot.DEVNULL, timeout=3,
+    ).decode().strip()
+    _GIT_BRANCH_AT_BOOT = _sp_boot.check_output(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=_repo_root_boot, stderr=_sp_boot.DEVNULL, timeout=3,
+    ).decode().strip()
+except Exception:
+    pass
+
+
 @router.get("/health", summary="System health check")
 async def agent_health_check() -> Dict[str, Any]:
     """Comprehensive health check for the agent subsystem."""
@@ -8646,28 +8759,17 @@ async def agent_health_check() -> Dict[str, Any]:
     skill_reg = SkillRegistry()
     skill_reg.load_defaults()
 
-    # XC-6.1: 加 git rev 到 health 响应——一眼可判后端代码代龄
-    _git_rev = ""
-    _git_branch = ""
-    try:
-        import subprocess as _sp
-        _repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-        _git_rev = _sp.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=_repo_root, stderr=_sp.DEVNULL, timeout=3,
-        ).decode().strip()
-        _git_branch = _sp.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=_repo_root, stderr=_sp.DEVNULL, timeout=3,
-        ).decode().strip()
-    except Exception:
-        pass
-
+    # XC-6.1 / bug-052: git rev 必须用「进程启动时缓存」的值——
+    # 每次请求现场跑 git rev-parse 报告的是磁盘仓库 HEAD，不是进程加载的代码。
+    # 用户 commit 后未重启时，旧实现会谎报新 rev，制造"已是新代码"假象
+    # （2026-07-11 实锤：/health 显示 1935ea1，但演练结果无 populations/无世代号，
+    # 证明进程仍是旧代码——代龄检测本身失真）。
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "git_rev": _git_rev,
-        "git_branch": _git_branch,
+        "git_rev": _GIT_REV_AT_BOOT,
+        "git_branch": _GIT_BRANCH_AT_BOOT,
+        "process_started_at": _PROCESS_STARTED_AT,
         "llm": {
             "provider": harness_status["provider"],
             "model": harness_status["model"],

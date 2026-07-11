@@ -200,6 +200,8 @@ export class PetEcosystem {
         });
       }
       const d = await r.json();
+      // bug-051 诊断：HTTP 状态与服务端 error 一律进 console，猫哑巴时看这里
+      if (!r.ok || (d && d.error)) console.warn('[cat-speak] HTTP', r.status, 'error:', d && (d.error || d.detail));
       // bug-050: 无论后端新旧，降级文案一律拦截净化
       const reply = PetEcosystem.sanitizeCatReply(d && d.reply, speak.fallback);
       this._catBubbleHold = Date.now() + 10000;

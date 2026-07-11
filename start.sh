@@ -244,7 +244,14 @@ fi
 # Start backend
 echo "🔧 Starting backend on port 8080..."
 cd src/backend
-"${RUNTIME_PY}" main.py --port 8080 &
+# 开发热重载（bug-055 根治"改了后端没生效"）：默认开启 uvicorn --reload，
+# 后端代码一落盘自动重启，与 vite 前端热更对齐。AG_NO_RELOAD=1 可关闭（生产/性能场景）。
+if [ "${AG_NO_RELOAD:-}" = "1" ]; then
+    "${RUNTIME_PY}" main.py --port 8080 &
+else
+    echo "♻️  后端热重载已开启 (uvicorn --reload)——改完后端代码无需手动重启；AG_NO_RELOAD=1 可关闭"
+    "${RUNTIME_PY}" main.py --port 8080 --reload &
+fi
 BACKEND_PID=$!
 cd ../..
 

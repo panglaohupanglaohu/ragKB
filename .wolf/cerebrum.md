@@ -27,6 +27,10 @@
 
 ## Do-Not-Repeat
 
+- [2026-07-11] 给用户交付后端改动时必须显式说明『此改动在 XX:XX 落盘，需要在此之后的重启』；更好的做法已落地——start.sh 默认 uvicorn --reload，后端与前端一样热更（AG_NO_RELOAD=1 关闭）。连环后端修复期间不要让用户手动追重启。
+
+- [2026-07-11] 代码代龄指标必须在进程启动时缓存（git rev + process_started_at）；请求时现查 git 报告的是磁盘 HEAD 不是进程代码——commit 后未重启会谎报新版本（bug-052 实锤误导了一轮排查）。判断'改了没生效'一律看 process_started_at 是否晚于最后一次代码落盘。
+
 - [2026-07-11] 拆分前端模块时（如 tasks-view.js 从 agent-team-config.js 抽出），新文件引用的每个助手函数（hideViewLoading 等）必须确认在 utils.js/全局已定义；且同名函数导出 window 会覆盖旧文件的可用实现——列表『完全空白连占位行都没有』九成是 load 函数首行 ReferenceError（bug-044）。排查先看 console 而不是后端数据。
 
 - [2026-07-11] 加密密钥库(.api_keys.json)必须合并式写入：teams.json 反序列化按设计丢明文 key，任何“按内存全集整体重写”的持久化都会在内存缺 key 的时机把磁盘 key 连锅端（bug-043，症状=重启后密钥全丢要求重输）。删除 key 只能走显式 delete_model_api_key。

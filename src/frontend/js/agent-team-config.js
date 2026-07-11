@@ -384,12 +384,66 @@ async function testLLM(){
 
 // ── Models ──
 let _editModelId='';
-async function loadModels(){const d=await api(`${A}/teams/${tid}/models`);const tb=el('models-tb');if(!d||!d.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';return}tb.innerHTML=d.map(m=>{const mid=m.model_id;return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${m.max_tokens.toLocaleString()}</td><td>${m.temperature}</td><td>${m.is_default?'<span style="color:var(--lime)">✓ 默认</span>':`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`}).join('')}
+async function loadModels(){
+  const [d,gm] = await Promise.all([
+    api(`${A}/teams/${tid}/models`),
+    api(`${A}/llm/global-model`)
+  ]);
+  const tb=el('models-tb');
+  // 全局模型信息
+  const gmMeta = (gm && gm.enabled && gm.current) ? gm.current : null;
+  const gmTeamId = gmMeta ? gmMeta.team_id : '';
+  const gmModelId = gmMeta ? gmMeta.model_id : '';
+  const gmName = gmMeta ? (gmMeta.name || gmModelId) : '';
+  // 判断全局模型是否属于当前团队
+  const gmInThisTeam = gmMeta && gmTeamId === tid;
+
+  let rows = (d||[]).map(m=>{
+    const mid=m.model_id;
+    const isGlobal = gmInThisTeam && gmModelId === mid;
+    const defaultBadge = isGlobal
+      ? '<span style="color:var(--cyan-s,#22d3ee)">🌐 全局默认</span>'
+      : m.is_default
+        ? '<span style="color:var(--lime)">✓ 团队默认</span>'
+        : `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="setModelDefault('${mid}')">设为默认</button>`;
+    const globalBtn = isGlobal
+      ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:var(--amber,#f59e0b)" onclick="clearGlobalDefault()" title="取消全局默认">🌐 取消全局</button>`
+      : `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:var(--cyan-s,#22d3ee)" onclick="setModelGlobalDefault('${mid}')" title="提升为全局默认 provider">🌐 全局默认</button>`;
+    return `<tr><td><b>${escapeHtml(mid)}</b></td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.provider)}</td><td>${m.max_tokens.toLocaleString()}</td><td>${m.temperature}</td><td>${defaultBadge}</td><td style="display:flex;gap:6px">${globalBtn}<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="openEditModel('${mid}')">编辑</button><button class="btn btn-danger btn-sm" onclick="delModel('${mid}')">删除</button></td></tr>`;
+  });
+
+  // 如果全局模型属于其他团队，追加一行展示
+  if (gmMeta && !gmInThisTeam) {
+    rows.push(
+      `<tr style="background:rgba(34,211,238,0.04)"><td><b style="color:var(--cyan-s,#22d3ee)">${escapeHtml(gmModelId)}</b> <span style="font-size:9px;color:var(--dim)">(${escapeHtml(gmTeamId)})</span></td><td>${escapeHtml(gmName)}</td><td colspan="2" style="color:var(--dim)">— 来自其他团队 —</td><td>—</td><td><span style="color:var(--cyan-s,#22d3ee)">🌐 全局默认</span></td><td><button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:var(--amber,#f59e0b)" onclick="clearGlobalDefault()" title="取消全局默认">🌐 取消全局</button></td></tr>`
+    );
+  }
+
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="7" style="color:var(--dim)">暂无模型 — 点击右上角「+ 添加模型」</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.join('');
+}
 async function delModel(mid){if(!confirm('删除此模型？'))return;await fetch(`${A}/teams/${tid}/models/${mid}`,{method:'DELETE'});toast('已删除');loadModels()}
 async function setModelDefault(mid){
   const r=await api(`${A}/teams/${tid}/models/${mid}/default`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
   if(r){toast(`模型 ${mid} 已设为默认，所有智能体已同步`);loadModels();loadSbAgents();if(aid)loadAgent()}else toast('设置失败')
 }
+async function setModelGlobalDefault(mid){
+  if(!confirm('将此模型（连同服务端已存密钥）提升为【全局默认 provider】？\n小虎/广场/萃取/任务执行等全部默认 LLM 调用都会切到它。'))return;
+  const r=await api(`${A}/teams/${tid}/models/${mid}/set-global-default`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  if(r&&r.promoted){toast(`🌐 全局默认已切换: ${r.provider}/${r.model}（key 尾号 ${r.api_key_tail}）`);loadModels()}
+  else{const d=window.api?._lastError?.message||'';toast('提升失败'+(d?'：'+d:''))}
+}
+window.setModelGlobalDefault=setModelGlobalDefault;
+async function clearGlobalDefault(){
+  if(!confirm('取消全局默认模型？\n取消后各团队将回退到自己的默认模型。'))return;
+  const r=await api(`${A}/llm/global-model`,{method:'DELETE'});
+  if(r&&!r.enabled){toast('已取消全局默认模型');loadModels()}
+  else{toast('取消失败')}
+}
+window.clearGlobalDefault=clearGlobalDefault;
 async function openEditModel(mid){
   _editModelId=mid;
   const models=await api(`${A}/teams/${tid}/models`);

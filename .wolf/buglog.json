@@ -2106,5 +2106,105 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-07-11T11:47:54.490138"
+  },
+  {
+    "id": "bug-051-cat-speak-request-fails-shuoshu-fallback",
+    "timestamp": "2026-07-11T11:56:52.061896",
+    "error_message": "新代码+has_api_key:true 后小虎仍说兜底『硕鼠硕鼠』——说明 /llm/cat-speak 本次请求未成功返回（响应无 reply 字段），非台词逻辑问题",
+    "file": "src/backend/agents/api.py (cat_speak), src/frontend/js/office/pet-ecosystem.js",
+    "root_cause": "待证：候选① harness.chat 运行时异常冒泡成 500（响应只有 detail 无 reply）；候选② CSRF 403 且 _csrfReset 重试失败。已加双端诊断：服务端 chat 异常转 JSON(error=chat_exception:...)+logging，前端 console.warn HTTP 状态与 error 字段",
+    "fix": "硬化后重启复测：气泡若变英文谚语→看 console 的 [cat-speak] error 定位真因；total_calls 是否增长区分'没到 harness'还是'harness 失败'",
+    "tags": [
+      "cat-speak",
+      "500",
+      "diagnosis",
+      "harness"
+    ],
+    "related_bugs": [
+      "bug-045",
+      "bug-049",
+      "bug-050"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T11:56:52.061896"
+  },
+  {
+    "id": "bug-052-health-git-rev-lies-about-process-age",
+    "timestamp": "2026-07-11T12:02:10.051309",
+    "error_message": "/health 显示 git_rev=1935ea1（新提交）但演练结果无 populations/无世代号、小虎仍走旧回显——进程实际在跑旧代码",
+    "file": "src/backend/agents/api.py (agent_health_check)",
+    "root_cause": "XC-6.1 的 git rev 实现为每次请求现场执行 git rev-parse——报告的是磁盘仓库 HEAD 而非进程加载的代码。commit 后未重启进程时谎报新 rev，代龄检测完全失真",
+    "fix": "改为模块导入时一次性缓存 _GIT_REV_AT_BOOT/_GIT_BRANCH_AT_BOOT，并新增 process_started_at 字段（重启是否发生一眼可判）",
+    "tags": [
+      "health",
+      "git-rev",
+      "process-age",
+      "observability"
+    ],
+    "related_bugs": [
+      "bug-050",
+      "bug-051"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T12:02:10.051309"
+  },
+  {
+    "id": "bug-053-cat-speak-stale-team-key-shadows-valid-default",
+    "timestamp": "2026-07-11T12:03:09.548873",
+    "error_message": "console 实锤：cat-speak 上游返回 authentication_error（api key ****pLhQ invalid）——全局默认 codebuddy key 有效，但被三级回退第①级(pet_squad 模型残留旧 key)抢占",
+    "file": "src/backend/agents/api.py (cat_speak)",
+    "root_cause": "XB-8 三级回退按『团队模型→全局默认→env』取第一个非空 key，不校验有效性；pet_squad 默认模型里残留失效 key 时，有效的全局默认永远轮不上",
+    "fix": "鉴权失败特征(authentication/invalid api key)且用了 config_override 时，自动降级用全局默认 provider 重试一次；用户侧根治=清掉或更新 pet_squad 默认模型的 API key",
+    "tags": [
+      "cat-speak",
+      "auth",
+      "key-precedence",
+      "fallback"
+    ],
+    "related_bugs": [
+      "bug-043",
+      "bug-051"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T12:03:09.548873"
+  },
+  {
+    "id": "bug-054-global-default-button-missing",
+    "timestamp": "2026-07-11T12:10:30.273408",
+    "error_message": "用户：以前有『设为全局默认』按钮，现在看不到了；宠物团队无默认模型导致 cat-speak 无从取有效 key",
+    "file": "src/frontend/js/agent-team-config.js, src/backend/agents/api.py",
+    "root_cause": "模型行操作历次重构后只剩『设为默认(团队级)/编辑/删除』，全局默认只能靠单独的 provider 表单手输 key；团队模型已存的服务端密钥无法一键提升",
+    "fix": "新端点 POST /teams/{tid}/models/{mid}/set-global-default（get_resolved_api_key→update_llm_provider 全链持久化）+ 模型行『🌐 全局默认』按钮（confirm+尾号回显）",
+    "tags": [
+      "ui-regression",
+      "global-default",
+      "provider",
+      "model-pool"
+    ],
+    "related_bugs": [
+      "bug-053",
+      "bug-043"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T12:10:30.273408"
+  },
+  {
+    "id": "bug-055-backend-no-hot-reload-restart-fatigue",
+    "timestamp": "2026-07-11T12:24:06.459399",
+    "error_message": "用户重启疲劳：一天内多次『改了后端没生效』——vite 前端即时热更但后端需手动重启，双 AI 持续写入后端时用户重启永远追不上代码",
+    "file": "start.sh, src/backend/main.py",
+    "root_cause": "main.py 本就支持 --reload（uvicorn import-string 模式），但 start.sh 从未传递；开发期后端无热重载",
+    "fix": "start.sh 默认传 --port 8080 --reload（AG_NO_RELOAD=1 退出热重载）；本次 set-global-default 404 实为时序错位：用户重启(≈03:53UTC)早于端点落盘(04:10UTC)，非用户操作问题",
+    "tags": [
+      "dx",
+      "hot-reload",
+      "start.sh",
+      "restart"
+    ],
+    "related_bugs": [
+      "bug-052"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-11T12:24:06.459399"
   }
 ]

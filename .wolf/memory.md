@@ -184,3 +184,28 @@
 | 11:17 | v2.4：分场锦标赛赛制(前端编排,旧后端可跑)+锦标赛冠军裁决报告+赛制radio；取证#2(小虎断在默认provider密钥槽,skill链路通)+#3(回退CLI日志来自旧进程,源码已无该分支)；todos 增 XT-10/XB-8/XC-6 彻查作业单 | eco-console.js Agent-digital-twin.html docs/物竞天择* docs/任务执行去CLI化todos.md | node--check PASS | ~25k |
 | 11:44 | 复查 CodeBuddy XB-8/XC-6：9/10 项合格；发现并修复 bug-049（cat_speak env 兜底 NameError 静默失效）；确认 _run_claude_cli 已删/health 带 git rev/test_cli_deprecation 覆盖 XC-6.4 | api.py buglog | py_compile PASS | ~8k |
 | 11:47 | bug-050 前端猫台词净化护栏（气泡+TTS 双路径），不依赖后端重启即止血 | pet-ecosystem.js office-boot.js | node --check PASS | ~6k |
+| 11:56 | bug-051 诊断硬化：cat_speak chat 异常转 JSON+日志，前端 console 打印 HTTP/error | api.py pet-ecosystem.js | compile+node PASS | ~5k |
+| 12:02 | bug-052：/health git_rev 改进程启动时缓存+process_started_at；沙箱 e2e 证明多种群函数层 PASS，问题=进程未真正重启 | api.py | compile PASS | ~10k |
+| 12:03 | bug-053：cat_speak 团队旧 key 鉴权失败自动降级全局默认重试；用户 console 实锤 authentication_error | api.py | compile PASS | ~5k |
+| 12:10 | 恢复『设为全局默认』：新端点 set-global-default（服务端一键提升模型+密钥到全局默认 provider，复用 update_llm_provider 全链持久化）+ 模型行 🌐 按钮 | api.py agent-team-config.js | compile+node PASS | ~6k |
+| 12:24 | bug-055：start.sh 默认开 uvicorn --reload 根治重启疲劳；404 定性=时序错位(重启03:53<端点落盘04:10) | start.sh | bash -n PASS | ~4k |
+
+## Session: 2026-07-11 12:38
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-07-11 12:38
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-07-11 12:45
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-07-11 12:58
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
