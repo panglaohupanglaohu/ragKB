@@ -79,6 +79,19 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
     "mating": {
         "saturation_threshold": 0.7,    # 允许交配的 Health 占比门槛
     },
+    # 物竞天择 v3 混合竞争——纪元嵌套（plan V3-1.3：螺旋上升 · 大小迭代）
+    "era": {
+        "era_count": 3,                 # 纪元数（大迭代次数；1=退化为单纪元零回归）
+        "epochs_per_era": 3,            # 每纪元内的世代数（小迭代）
+        "cross_pop_mating": True,       # 跨队交配开关（混合竞争=基因流开启）
+        # 环境阶跃加压：每跨一个纪元，环境参数按此增量调整
+        "env_ramp": {
+            "abundance": -0.15,         # 丰饶度递减（资源越来越稀缺）
+            "predator_pressure": 0.05,  # 捕食压力递增
+            "drift_prob": 0.05,         # 漂移概率递增（生态位变换加速）
+            "niche_capacity": -1,       # 竞争名额递减（从 3→2→1…0=不限）
+        },
+    },
 }
 
 

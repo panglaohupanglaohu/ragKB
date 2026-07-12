@@ -209,3 +209,17 @@
 
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
+| 00:31 | Edited src/frontend/js/office/office-state.js | 5→9 lines | ~141 |
+| 00:31 | Edited src/frontend/js/digital-twin/eco-console.js | added error handling | ~184 |
+| 00:32 | Edited src/frontend/js/digital-twin/eco-console.js | modified function() | ~133 |
+| 13:21 | eco 重跑修复: team_reset noBreaks 对留任 agent 生效(排队跑出镜头) + eco2RunDrill 重跑先停旧回放(误认 replay) | office-state.js, eco-console.js | node --check 通过, bug-056 | ~4k |
+
+## Session: 2026-07-12 13:44
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-07-12 13:45
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|

@@ -247,6 +247,8 @@ class EcoDrill:
         self._signal_board: List[Dict[str, Any]] = []
         # 求偶登记：agent_id -> 最近一次 COURT 的 step（epoch 配对时用）
         self._court_log: Dict[str, int] = {}
+        # v3 混合竞争：跨队交配开关（False=只同 population 交配，True=允许跨队）
+        self._allow_cross_pop_mating: bool = False
         # 分享转移缓冲：recipient -> 下一 tick 结算的额外回血（避免对同一 tick 双重代谢）
         self._pending_rewards: Dict[str, float] = {}
 
@@ -478,6 +480,168 @@ class EcoDrill:
             "ranking": self.survival_ranking(),
         }
 
+    # ── v3 混合竞争：纪元嵌套编排（plan V3-1.3） ──
+    def run_eras(
+        self,
+        max_steps_per_epoch: int = 100,
+        era_count: int = 3,
+        epochs_per_era: int = 3,
+        env_ramp: Optional[Dict[str, float]] = None,
+        cross_pop_mating: bool = True,
+        reproduce_top_k: int = 2,
+        mutation_rate: float = 0.1,
+    ) -> Dict[str, Any]:
+        """纪元嵌套编排：era_count 个纪元，每纪元 epochs_per_era 个世代。
+
+        - 每跨一个纪元，环境按 env_ramp 阶跃加压（丰饶↓/捕食↑/漂移↑/名额↓）
+        - 跨纪元用棘轮把上一纪元最优基因带入下一纪元初始种群
+        - cross_pop_mating=True 时 COURT 配对允许跨 population（打上 hybrid 标记）
+
+        硬约束：不改 step/epoch 内核，只在其上编排；era_count=1 时退化为现有单纪元（零回归）。
+        """
+        env_ramp = env_ramp or {
+            "abundance": -0.15, "predator_pressure": 0.05,
+            "drift_prob": 0.05, "niche_capacity": -1,
+        }
+        eras: List[Dict[str, Any]] = []
+        initial_diversity = len(set(
+            s for c in self._creatures.values() for s in c.skill_genome
+        )) or 1
+        _prev_cross_pop = self._allow_cross_pop_mating
+        self._allow_cross_pop_mating = cross_pop_mating
+
+        for era in range(era_count):
+            if era > 0:
+                # 环境阶跃加压
+                self.env.abundance = max(0.1, self.env.abundance + env_ramp.get("abundance", 0))
+                self.env.predator_pressure = max(0, self.env.predator_pressure + env_ramp.get("predator_pressure", 0))
+                self.env.drift_prob = min(1.0, self.env.drift_prob + env_ramp.get("drift_prob", 0))
+                cap_delta = env_ramp.get("niche_capacity", 0)
+                if cap_delta != 0:
+                    new_cap = max(0, (self.env.niche_capacity or 10) + cap_delta)
+                    self.env.niche_capacity = new_cap if new_cap >= 1 else 0
+                logger.info("🌍 纪元 %d 环境加压: abundance=%.2f predator=%.2f drift=%.2f capacity=%s",
+                            era, self.env.abundance, self.env.predator_pressure,
+                            self.env.drift_prob, self.env.niche_capacity)
+
+            # 纪元内跑 epochs_per_era 个世代
+            era_best = 0
+            era_avg = 0
+            era_total_ticks = 0
+            era_count_creatures = 0
+            hybrid_count = 0
+            for _ in range(epochs_per_era):
+                if self.is_extinct():
+                    break
+                # 跑 max_steps_per_epoch 步
+                for _ in range(max_steps_per_epoch):
+                    if self.is_extinct():
+                        break
+                    self.step()
+                ep = self.run_epoch(reproduce_top_k, mutation_rate)
+                # 在 timeline 的 epoch 记录上盖 era 号
+                if self._record_timeline and self.timeline["epochs"]:
+                    self.timeline["epochs"][-1]["era"] = era
+                # 统计
+                ranking = self.survival_ranking()
+                if ranking:
+                    era_best = max(era_best, ranking[0]["survival_ticks"])
+                    era_total_ticks += sum(r["survival_ticks"] for r in ranking)
+                    era_count_creatures += len(ranking)
+                    # 杂种优势统计：父母来自不同 population 的后代
+                    for r in ranking:
+                        cid = r["agent_id"]
+                        if "x" in cid and "_g" in cid:
+                            # 后代 ID 格式 p1prefixxp2prefix_gN_xxx
+                            creature = self._creatures.get(cid)
+                            if creature and creature.parent_ids:
+                                p1c = self._creatures.get(creature.parent_ids[0]) if len(creature.parent_ids) > 0 else None
+                                p2c = self._creatures.get(creature.parent_ids[1]) if len(creature.parent_ids) > 1 else None
+                                if p1c and p2c and p1c.population != p2c.population:
+                                    hybrid_count += 1
+
+            era_avg = round(era_total_ticks / max(era_count_creatures, 1), 1)
+            # 棘轮跨纪元
+            ratchet_best = 0
+            try:
+                from agents.ratchet_ledger import get_ratchet_ledger
+                # 读取当前棘轮值（不写入——写入在 run_drill_via_trial 统一做）
+                rl = get_ratchet_ledger()
+                ratchet_best = int(rl.get_value("eco_survival:era") or 0)
+            except Exception:
+                pass
+
+            eras.append({
+                "era": era,
+                "best": era_best,
+                "avg": era_avg,
+                "ratchet_best": ratchet_best,
+                "hybrid_count": hybrid_count,
+                "env": {
+                    "abundance": round(self.env.abundance, 3),
+                    "predator_pressure": round(self.env.predator_pressure, 3),
+                    "drift_prob": round(self.env.drift_prob, 3),
+                    "niche_capacity": self.env.niche_capacity,
+                },
+            })
+
+        self._allow_cross_pop_mating = _prev_cross_pop
+
+        # 杂种优势对照：跨队后代 vs 队内后代
+        heterosis = self._compute_heterosis()
+
+        return {
+            "eras": eras,
+            "heterosis": heterosis,
+            "era_count": era_count,
+        }
+
+    def _compute_heterosis(self) -> Optional[Dict[str, Any]]:
+        """杂种优势：跨队后代 avg survival vs 队内后代 avg survival 对照。"""
+        hybrid_ticks = []
+        inbred_ticks = []
+        for c in self._creatures.values():
+            if not c.parent_ids or len(c.parent_ids) < 2:
+                continue
+            p1 = self._creatures.get(c.parent_ids[0])
+            p2 = self._creatures.get(c.parent_ids[1])
+            if not p1 or not p2:
+                continue
+            hs = self._ledger.get(c.agent_id)
+            ticks = hs.survival_ticks if hs else 0
+            if p1.population != p2.population:
+                hybrid_ticks.append(ticks)
+            else:
+                inbred_ticks.append(ticks)
+        if not hybrid_ticks and not inbred_ticks:
+            return None
+        hybrid_avg = round(sum(hybrid_ticks) / len(hybrid_ticks), 1) if hybrid_ticks else 0
+        inbred_avg = round(sum(inbred_ticks) / len(inbred_ticks), 1) if inbred_ticks else 0
+        return {
+            "hybrid_count": len(hybrid_ticks),
+            "inbred_count": len(inbred_ticks),
+            "hybrid_avg_survival": hybrid_avg,
+            "inbred_avg_survival": inbred_avg,
+            "heterosis_delta": round(hybrid_avg - inbred_avg, 1),
+        }
+
+    def _diversity_index(self) -> float:
+        """当前种群多样性指数 = 存活个体不同 skill 数 / 初代不同 skill 数。"""
+        living = self.living()
+        if not living:
+            return 0.0
+        living_skills = set()
+        for c in living:
+            living_skills.update(c.skill_genome)
+        # 初代 skill 集合（generation=0）
+        gen0_skills = set()
+        for c in self._creatures.values():
+            if c.generation == 0:
+                gen0_skills.update(c.skill_genome)
+        if not gen0_skills:
+            return 1.0
+        return round(len(living_skills) / len(gen0_skills), 3)
+
     def survival_ranking(self) -> List[Dict[str, Any]]:
         """按生存时长（隐式适应度）降序排名——唯一的适者标准。"""
         rows = []
@@ -544,8 +708,14 @@ class EcoDrill:
 
         choosiness 高 → 倾向选池内生存排名最高的异体；低 → 池内随机。
         COURT 登记者优先（求偶展示是有代价的诚实信号）。
+        v3 混合竞争：_allow_cross_pop_mating=True 时允许跨 population 配对（基因流）。
         """
         others = [p for p in parents if p["agent_id"] != p1.agent_id]
+        # v3: 跨队交配关闭时只选同 population
+        if not self._allow_cross_pop_mating and p1.population:
+            same_pop = [p for p in others if p.get("population") == p1.population]
+            if same_pop:
+                others = same_pop
         if not others:
             return p1
         courted = [p for p in others if p["agent_id"] in self._court_log]
@@ -926,6 +1096,10 @@ async def run_drill_via_trial(
         }
         # v2.3 多种群：每代记录各种群统计（前端世代曲线做种群对比）
         gen_rec["population_stats"] = drill.population_stats()
+        # XV-5.1: 逐代派生字段——diversity / fitness_rate / era
+        gen_rec["diversity"] = drill._diversity_index()
+        gen_rec["fitness_rate"] = round(best_survival / max(max_steps, 1), 3)   # 0~1 适应率
+        gen_rec["era"] = 0   # 单纪元模式固定为 0；混合竞争 run_eras 会覆盖
         # XB-3.1: 猫解说（LLM 可用时拟态播报，否则降级模板）
         gen_rec["cat_commentary"] = await _generate_cat_commentary(gen_rec)
         generations.append(gen_rec)

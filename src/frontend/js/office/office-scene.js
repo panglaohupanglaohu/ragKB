@@ -612,6 +612,11 @@ export function createOfficeScene(canvas, container) {
     }
     for (const e of state.edges) {
       if (e.kind === 'broadcast') continue;
+      // v2.4: eco 生境边（信号/求偶/捕食）只画弧线，不触发递文件动画——
+      // 否则回放时每个 creature 发信号都会真的走过去"递文件"，全员朝信号目标跑，
+      // 看起来像"集体向一个方向跑"（用户 2026-07-11 反馈，根因不是演练数据而是 edge→courier 联动）。
+      if (e.kind === 'signal_food' || e.kind === 'signal_help' || e.kind === 'signal_court'
+          || e.kind === 'mate' || e.kind === 'predator') continue;
       const key = e.from + '|' + e.to + '|' + Math.ceil(e.ttl);
       const routeKey = e.from + '|' + e.to;
       if (processedEdges.has(routeKey)) continue;
@@ -670,17 +675,21 @@ export function createOfficeScene(canvas, container) {
       const p2 = fb.group.position.clone().setY(1.8);
       const mid = p0.clone().add(p2).multiplyScalar(0.5).setY(3.6);
       const curve = new THREE.QuadraticBezierCurve3(p0, mid, p2);
-      // 物竞天择 v2 XT-5.3: 信号协议/求偶配色 — FOOD 淡金 / HELP 红 / COURT·mate 粉
-      const edgeColor = e.kind === 'help' ? 0x2bb8a8
-        : e.kind === 'delegate' ? 0xf59e0b
-        : e.kind === 'signal_food' ? 0xd4af37
-        : e.kind === 'signal_help' ? 0xef4444
-        : (e.kind === 'signal_court' || e.kind === 'mate') ? 0xec4899
-        : 0x4d9de0;
+      // 连线配色（v3 高区分度）：协作=冷色系，eco 信号=暖色系，互不混淆
+      //   help(青绿) delegate(橙) comm(蓝) ← 协作
+      //   food(亮黄) help_signal(红) court/mate(紫红) ← eco 信号
+      //   predator(白红竖线，单独处理不在此)
+      const edgeColor = e.kind === 'help' ? 0x00e676        // 协作帮助：亮绿
+        : e.kind === 'delegate' ? 0xff6d00                   // 委派：亮橙
+        : e.kind === 'comm' ? 0x00b0ff                       // 沟通：亮蓝
+        : e.kind === 'signal_food' ? 0xffeb3b                // 觅食信号：亮黄
+        : e.kind === 'signal_help' ? 0xff1744                // 求助信号：亮红
+        : (e.kind === 'signal_court' || e.kind === 'mate') ? 0xd500f9  // 求偶/交配：亮紫
+        : 0x4d9de0;                                          // 默认：蓝
       if (!mesh) {
         mesh = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, 20, 0.045, 6, false),
-          new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.8 })
+          new THREE.TubeGeometry(curve, 20, 0.06, 8, false),
+          new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.85 })
         );
         edgesGroup.add(mesh); edgeMeshes.set(key, mesh);
         if (e.kind === 'delegate') {                       // M2-3: 委派有向箭头
@@ -692,7 +701,7 @@ export function createOfficeScene(canvas, container) {
         }
       } else {
         mesh.geometry.dispose();
-        mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.045, 6, false);
+        mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.06, 8, false);
       }
       const arrow = mesh.getObjectByName && mesh.getObjectByName('arrow');
       if (arrow) {                                          // 箭头指向下游末端

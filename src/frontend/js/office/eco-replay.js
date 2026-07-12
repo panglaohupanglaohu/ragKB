@@ -75,9 +75,8 @@
           if (peer) dispatch({ type: 'eco_signal', signal: kind, from: id, to: peer, ttl: 2 });
         }
         // 分享 → 用既有 help 协作边呈现（利他行为进入协作热度统计）
-        if (a.shared_to) dispatch({ type: 'step', agentActions: (function (o) {
-          var m = {}; m[id] = { action: 'offer_help', target: o }; return m;
-        })(a.shared_to) });
+        // v2.4: 用专用 kind 'signal_help' 代替 'help'，避免触发递文件动画（courier 只跑 help/delegate/comm，不跑 signal_*）
+        if (a.shared_to) dispatch({ type: 'eco_signal', signal: 'help', from: id, to: a.shared_to, ttl: 2 });
       }
       dispatch({ type: 'eco_health', updates: healthUpdates });
       dispatch({ type: 'eco_intent', updates: intentUpdates });
@@ -96,8 +95,14 @@
     }
 
     function pickPeer(ids, self) {
-      for (var i = 0; i < ids.length; i++) if (ids[i] !== self) return ids[i];
-      return null;
+      if (!ids || !ids.length) return null;
+      // v2.4: 随机挑一个同伴（之前固定返回 ids[0]，导致所有信号线视觉上全部汇到同一个 agent，
+      // 用户反馈"全员朝一个方向跑"的视觉错觉其实来自此处的视觉聚合）。
+      // 协议本身是广播，挑不同 peer 仅作可视化目标，语义不变。
+      const pool = [];
+      for (let i = 0; i < ids.length; i++) if (ids[i] !== self) pool.push(ids[i]);
+      if (!pool.length) return null;
+      return pool[Math.floor(Math.random() * pool.length)];
     }
 
     /** 世代边界：eco_mate 派发 + 猫播报 */

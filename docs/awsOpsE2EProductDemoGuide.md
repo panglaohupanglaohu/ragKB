@@ -9,23 +9,6 @@
 
 ---
 
-## 最新验证状态（2026-06-16）
-
-- 自动化命令：`rtk venv/bin/python scripts/aws_ops_e2e_test.py --base-url http://127.0.0.1:8080 --skill-wait-seconds 90 --plaza-wait-seconds 180 --llm-timeout 120 --timeout 60 --verbose`
-- 最新报告：`docs/reports/aws-ops-e2e-report.md`、`docs/reports/aws-ops-e2e-report.json`
-- 最新 run_id：`aws_ops_e2e_1781561509_9467`
-- 最新结果：`PASS=14 / FAIL=0 / WARN=0 / SKIP=0`
-- 当前团队：唯一复用 `AWS 运维团队`，team_id `a7c36670`
-- 模型配置：AWS team 默认模型 `0f136344`；6 个成员均已绑定模型。
-- 议事厅：Plaza `696d69237aff`，Discussion `c86d7ab6a194`，已生成 6 项结构化计划并派发 6 个任务。
-- 技能：已完成 public / trait / reserve 三类审批，并通过 verify/evolve/publish 相关链路。
-- Agent Loop RI 语义验证：成本优化成员 `cda86797` 的能力画像已显示 `云成本治理与 RI 购买建议`；输入 `如何RI` 后回复明确解释为 AWS Reserved Instance / 预留实例，未误判为编程/数据库语境。
-- 数字孪生：Build System 工作坊 session `c6d0a6cd-fa70-4fe1-9b2c-b8b0ce3e2ec8` 单步 2 次成功；AWS trial `bea6c509-0a48-466d-9edd-be58fd1501ab` 覆盖 6 类故障注入。
-- 浏览器冒烟：已检查团队配置、技能赋予、议事厅、数字孪生 3D、成本治理；`/sandbox-twin.html` 已修复为本地 Three.js 模块加载。
-- 降级说明：如果真实 LLM 运行时返回 provider fallback/无效 key，系统会标注并生成确定性 6 项计划、可审核技能候选和沙箱规则动作；这属于可演示的韧性路径，不再导致流程中断。
-
----
-
 ## 0. 演示故事设定
 
 ### 0.1 场景
@@ -118,7 +101,7 @@
 - 成员：运维 Leader、上云架构师、运维操作员、巡检监控员、成本优化成员、北美 AI 项目运维员
 - Demo ID：只放在议事厅、讨论、任务、技能萃取标题、报告里
 
-如果页面里已经有历史测试团队，例如 `AWS 运维团队 aws_ops_e2e_...`，应先删除这些历史团队，只保留一支正式演示团队。自动化脚本已经改为默认清理这些历史团队，并复用单个 `AWS 运维团队`。
+如果页面里已经有历史测试团队，例如 `AWS 运维团队 aws_ops_e2e_...`，应先删除这些历史团队，只保留一支正式演示团队。自动化脚本已经改为默认清理这些历史团队，并复用单个 `AWS 运维团队 E2E Demo`。
 
 ---
 
@@ -130,7 +113,7 @@
 
 操作：
 
-1. 先在团队下拉框中查找是否已有 `AWS 运维团队`。
+1. 先在团队下拉框中查找是否已有 `AWS 运维团队` 或 `AWS 运维团队 E2E Demo`。
 2. 如果已有，直接选择它，不要新建第二支 AWS 运维团队。
 3. 如果没有，再点击“创建新团队”。
 4. 团队名称填写：`AWS 运维团队`
@@ -482,119 +465,28 @@ AWS-DEMO ElasticSearch/OpenSearch 伸缩复盘材料：
 
 ### 5.4 演示 SkillRouter 赋予
 
-推荐入口：
-
-```text
-http://127.0.0.1:8080/skill-extract.html?team_id=a7c36670
-```
-
-如果你是手工演示，不要只打开 `/skill-extract.html`，要带上 `team_id`，否则页面可能默认展示 AI 编程团队或上一次本地存储中的团队。
-
-#### 页面展示顺序
-
-按观众视线从上到下、从左到右讲：
-
-1. 顶部上下文栏：模式徽记“萃/赋”、标题、`萃取/赋予` 切换、全局导航、团队 chip、当前用户。
-2. 左侧管线条：`Retrieve → Rerank → Assign`，用于解释一次技能路由如何从召回、重排进入注入。
-3. 左侧查询区：能力需求输入框、Top-K、`路由`、`赋予/注入`。
-4. 左侧技能池仪表盘：技能总数、类别数、路由次数、注入次数、Top-1、平均延迟、成功率、评分和类别分布。
-5. 左侧路由日志：展示每次查询、耗时、最佳结果、注入结果和 Inject Prompt。
-6. 中央 3D 视图：目标智能体与候选技能节点，用来表现“技能向人注入”的过程。
-7. 右侧目标智能体列表：AWS 运维团队应显示 6 个成员：运维 Leader、上云架构师、运维操作员、巡检监控员、成本优化成员、北美 AI 项目运维员。
-8. 右侧技能画像：选中成员后显示雷达图和已有技能列表。
-9. 右侧路由结果：展示候选技能、匹配原因、R1/R2 分数；点击条目表示显式勾选。
-10. 右下注入栏：显示“已选 N 项”，点击 `注入` 后出现 Injected Skills 标签，并支持评分/撤销。
-
-#### 实测路径 A：给上云架构师注入 ES 伸缩技能
+操作：
 
 1. 切换到“赋予”模式。
-2. 在右侧目标智能体中选择“上云架构师”。
-3. 查询：
+2. 查询：
 
 ```text
-ElasticSearch/OpenSearch 资源伸缩：容量评估、变更窗口、Terraform 执行、监控回滚、成本和北美合规，需要选出可注入给上云架构师的技能
+我要让北美 AI 项目运维员在 OpenSearch 扩容时自动检查 region、数据驻留、CloudTrail 审计和合规审批证据。
 ```
 
-4. Top-K 设置为 `5`，点击“路由”。
-5. 观察管线：Retrieve/Rerank 变成 done，Assign 激活。
-6. 勾选 3 个技能，例如 `pattern_selection`、`architecture_design`、`新技能 - ElasticSearch实例扩缩容`。
-7. 点击右下角 `注入`。
-8. 观察右侧结果卡变为 assigned，Injected Skills 区域出现 3 个标签。
-9. 重新选择“上云架构师”，检查技能画像中是否出现刚注入的技能。
-
-实测结果：
-
-- 页面路由返回 5 个候选，注入 3 个成功。
-- 后端复核：上云架构师 `model_id=0f136344`，技能数从 4 增至 7。
-
-#### 实测路径 B：验证 dashboard 真实刷新
-
-1. 重载页面并带 `team_id=a7c36670`。
-2. 切换到“赋予”模式。
-3. 选择“成本优化成员”。
-4. 查询：
-
-```text
-ElasticSearch/OpenSearch 扩容成本治理：识别 Token 与云资源成本最重服务，形成 RI/Savings Plan 与预算治理建议
-```
-
-5. Top-K 设置为 `3`，点击“路由”。
-6. 确认 dashboard 中 `路由次数` 从 `0` 刷新为 `1`。
-7. 勾选一个结果，例如 `container_management`，点击 `注入`。
-8. 确认 dashboard 显示 `routes=1 / assigns=1 / success=100%`。
-9. 后端 API 复核 `/api/v1/skill-router/dashboard/a7c36670` 的 `total_routes=1`、`total_assigns=1`、`success_rate=1.0`。
+3. 选择 Top-K 技能。
+4. 点击“赋予/注入”。
+5. 回到 agent 配置页，检查北美成员技能是否增加。
 
 通过标准：
 
 - 路由结果能解释为什么选中技能。
 - 注入后目标 agent 的技能列表变化。
-- 技能池仪表盘数量同步更新，而且刷新页面后仍能由后端恢复。
-- 注入时必须传回最近一次路由的 `session_id`，否则 dashboard 的 `total_assigns/success_rate` 不会真实更新。
-
-已修复项和后续观察：
-
-- LLM 运行时不可用不再中断演示主链路：Plaza、技能萃取、Sandbox 都会进入有标注的确定性降级路径；真实 DeepSeek key 仍建议维护，用于获得真实 AI 讨论内容。
-- 路由结果同名技能重复展示已按 `skill_id` 去重，并展示来源/版本，避免观众误以为是多条相同技能。
-- 未登录或访客态访问技能页会先跳登录，不再进页后产生批量 401。
-- 后续建议补 Playwright UI 回归，把这里的手工浏览器冒烟固化为自动截图证据。
+- 技能池仪表盘数量同步更新。
 
 创意演示点：
 
 - 技能不只是“总结”，而是让团队下一次处理同类变更时变得更像有经验的组织。
-
-### 5.5 演示成本优化成员的 RI 特质技能与 Agent Loop
-
-这个步骤用于避免 RI 被模型误解成编程、数据库或需求工程里的缩写。现场要把它当成一个产品能力点演示：系统不是只把 prompt 发给模型，而是会带上当前团队、当前成员、成员角色和已绑定技能。
-
-操作：
-
-1. 打开 `http://127.0.0.1:8080/agent-team-config.html`。
-2. 选择团队 `AWS 运维团队`。
-3. 打开成员详情，选择 `成本优化成员`。
-4. 检查能力画像或技能列表中存在 `云成本治理与 RI 购买建议`。
-5. 点击 `Agent Loop`。
-6. 输入：
-
-```text
-如何RI
-```
-
-7. 等待回复完成。
-
-通过标准：
-
-- 回复第一屏必须把 RI 明确解释为 `AWS Reserved Instance` 或 `预留实例`。
-- 回复内容应围绕账单基线、覆盖率、利用率、购买期限、Savings Plan、预算门禁、OpenSearch/ElasticSearch 扩容成本展开。
-- 回复不应解释为 `Referential Integrity`、数据库完整性、需求工程、代码 review 缩写或其他编程语境。
-- 能力画像接口 `/api/v1/agent-config/teams/a7c36670/agents/cda86797/capability-profile` 返回 200，并且 `skills` 中能看到 `云成本治理与 RI 购买建议`。
-
-已实测结果：
-
-- `profile_status_code=200`
-- `profile_has_ri_trait_skill=true`
-- `loop_status_code=200`
-- `loop_contains_reserved_instance=true`
-- `loop_contains_programming_ri=false`
 
 ---
 
@@ -904,13 +796,12 @@ ElasticSearch/OpenSearch 扩容成本治理：识别 Token 与云资源成本最
 手工演示前后，可以用自动化脚本做一次基线对照：
 
 ```bash
-rtk env PYTHONUNBUFFERED=1 venv/bin/python scripts/aws_ops_e2e_test.py \
+rtk env PYTHONUNBUFFERED=1 python3 scripts/aws_ops_e2e_test.py \
   --base-url http://127.0.0.1:8080 \
   --report-md docs/reports/aws-ops-e2e-report.md \
   --report-json docs/reports/aws-ops-e2e-report.json \
   --verbose \
   --skill-wait-seconds 90 \
-  --plaza-wait-seconds 180 \
   --llm-timeout 180
 ```
 
@@ -934,7 +825,7 @@ rtk env PYTHONUNBUFFERED=1 venv/bin/python scripts/aws_ops_e2e_test.py \
 - 增加分支对比和六类故障注入，让演练从顺风流程变成压力测试。
 - 把系统演进定位为“系统记忆”，要求议事、任务、试炼的证据最终进入棘轮。
 - 把成本治理扩展为 FinOps + token sustainability + 团队效率治理。
-- 保留失败路径演示，把 LLM key 无效、计划为空、派发失败、候选不足、sandbox step 异常都当成可观察、可治理的问题；当前主链路已经补齐兜底，不应再变成演示中断。
+- 保留失败路径演示，把 LLM key 无效、计划为空、派发失败、候选不足、sandbox step 500 都当成可观察、可治理的问题，而不是演示事故。
 
 ---
 

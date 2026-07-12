@@ -266,6 +266,8 @@ function bootOffice() {
     if (state.mirror || state.meeting.active) return;   // 孪生演练/开会时不摸鱼
     const now = Date.now();
     for (const agent of Object.values(state.agents)) {
+      // v2.4: eco 种群（演练生物）— 不参与作息调度（演练后留在工位观察数据）
+      if (agent.noBreaks) continue;
       if (!nextBreakAt[agent.id] || agent.activity !== 'working') continue;
       for (const fac of Object.keys(BREAK_MEAN)) {
         if (now < nextBreakAt[agent.id][fac]) continue;

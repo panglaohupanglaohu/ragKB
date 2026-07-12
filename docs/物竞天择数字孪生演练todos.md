@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="Fable 5" kind="llm" doc="todos" ts="2026-07-11T00:00:00Z" -->
+<!-- docs-signoff: author="CodeBuddy" kind="llm" doc="todos" ts="2026-07-12T18:40:00Z" -->
 # 物竞天择数字孪生演练 Todos v2 — 办公室视图试验田
 
 > 配套 [`物竞天择数字孪生演练plan.md`](物竞天择数字孪生演练plan.md)（v2）。
@@ -246,3 +246,156 @@ XT-1（内核）→ XT-2（API）→ [XT-3（切换）∥ XT-4（控制台）] �
 | 本机浏览器端到端验收、全量 pytest 回归复核、SSE 直播、LLM 生物语、生产谱系落盘 | 【CodeBuddy】 |
 | v1 ND-1~ND-6 基座（eco_drill v1/trial 路由/rp-eco 静态版/3D 血条）| 【CodeBuddy 已完成】 |
 | eco_loop/health_ledger/eco_runtime_config 底座 | 【Claude 已完成（前轮）】 |
+
+---
+
+# 物竞天择数字孪生演练 Todos v3 — 三级赛制 · 遗传学谱系 · 三比曲线
+
+> 配套 [`物竞天择数字孪生演练plan.md`](物竞天择数字孪生演练plan.md)（v3，V3-0~V3-9）。
+> 状态：`[ ]` 待办 / `[~]` 进行中 / `[x]` 完成。
+> 分工：【Fable 5】= Claude 沙箱可完成（前端 + 后端代码 + 沙箱验证）；【CodeBuddy】= 需本机（真后端/浏览器）复验。
+> 承接 v2.4：XT-1~XT-10、XB-1~XB-8 已完成，本清单只做赛制/评分/曲线/谱系四项重构，内核复用。
+
+---
+
+## 依赖盘点（v2 已就绪，v3 直接接）
+
+| 零件 | 文件 | v3 用途 |
+|---|---|---|
+| melee 多种群内核（extra_team_ids / population / population_stats） | `sandbox/eco_drill.py` | ②多队对抗 + ③混合竞争的基座 |
+| epoch 世代循环 + 棘轮 ratchet_lock | `sandbox/eco_drill.py` | ③混合竞争 era 嵌套的内层 |
+| collab_genome（share/signal/follow/choosy）+ COURT 配对 + lineage 双亲/世代 | `sandbox/eco_drill.py` | 遗传学谱系六维度全部数据源 |
+| `_raceMode` tournament/melee + eco2SetRaceMode + 报告 | `js/digital-twin/eco-console.js` | XV-1 升三档 |
+| eco2-gen 柱状（best/avg/drift/populations） | `eco-console.js` | XV-5 三比重构 |
+| eco2-lineage 扁平列表（result.lineage） | `eco-console.js` | XV-6 遗传学化重构 |
+| eco-runtime config `habitat`/`drill_economics` 节 | `agents/runtime/eco_runtime_config.py` | XV-4 增 `era` 节 |
+
+---
+
+## XV-0: 文档【Fable 5 ✅】
+
+- [x] **XV-0.1** plan v3（V3-0~V3-9）+ todos v3（本清单）写就；docs-signoff ts 更新为 2026-07-12；`node scripts/check-docs-signoff.cjs --strict` 通过。
+
+## XV-1: 赛制三档骨架【Fable 5 ✅ 完成】
+
+- [x] **XV-1.1** `_raceMode` 二值→三值枚举 `division|confrontation|mixed`
+  文件：`src/frontend/js/digital-twin/eco-console.js`
+  落点：`eco2SetRaceMode` 接受三值；旧别名映射 `tournament→division`、`melee→confrontation`（防外部调用断裂）；三档提示语（①队内个体·家族精英 ②多队对抗·田忌赛马·队内配合 ③混合竞争·螺旋上升·环境最强选择）。
+  验收：切三档提示正确；`eco2SetRaceMode('tournament')` 等价 `division` 不报错。
+
+- [x] **XV-1.2** rp-eco 赛制 radio 升三档
+  文件：`src/frontend/Agent-digital-twin.html`
+  落点：演练控制区 radio 三选一（🏟分场锦标赛 / ⚔️多队对抗 / 🌍混合竞争），默认分场锦标赛；③标注「需重启后端加载 run_eras」。
+  验收：`node --check`（HTML 内联脚本）+ div 平衡；三档单选互斥。
+
+- [x] **XV-1.3** `eco2RunDrill` 按三档分派
+  落点：division→单种群（忽略 rivals，仅当前队）；confrontation→melee 多种群同场（现有逻辑）；mixed→带 `era` 参数的 run_eras 请求（XV-4）。
+  验收：三档各自走对分支；division 即使已加 rival 也只跑当前队（并提示「分场锦标赛为队内竞争，忽略对比种群」）。
+
+## XV-2: ① 分场锦标赛（个体 · 家族内部）【Fable 5 ✅ 完成 · 纯前端】
+
+- [x] **XV-2.1** 精英阶梯（Elite Ladder）
+  文件：`eco-console.js`（结果渲染区）
+  落点：division 模式结果区新增「🏅 家族精英阶梯」——从 `final_ranking` 取 top-k，每行：名次 + 名字 + survival_ticks + 技能基因 chips + 协作四维迷你条 + 世代。
+  验收：单队演练后阶梯按 survival_ticks 降序；无演练显示引导文案。
+
+- [x] **XV-2.2** 家族多样性指数 + 近交衰退告警
+  落点：多样性指数 = 存活个体不同 skill 数 / 初代不同 skill 数；随世代计算并画迷你趋势；跌破阈值（如 <0.5）显示「⚠ 近交衰退：家族基因多样性持续下降，建议引入外队血系（多队对抗/混合竞争）」。
+  验收：构造收敛种群时多样性单调下降并触发告警；多样种群不误报。
+
+## XV-3: ② 多队对抗（团队 · 田忌赛马）【Fable 5 ✅ 完成 · 纯前端】
+
+- [x] **XV-3.1** 团队级评分 + coordination_lift
+  文件：`eco-console.js`；（后端补字段）`sandbox/eco_drill.py`
+  落点：结果 `population_stats` 增 `coordination_lift`（= 该队实际 avg_survival − 单飞基线 avg；单飞基线用「关闭信号响应 + niche_capacity=∞」的对照微跑或同配置单种群历史均值近似）与 `lineup`（队内按 survival 排名的梯队）。前端呈现团队卡：均值 + 首发均值（top-k）+ lift（正=配合增益/负=利他负担）+ 协作基因雷达。
+  验收：pytest——lift 数值 = 实际−基线；前端多队卡片 lift 有正负分化。
+
+- [x] **XV-3.2** 可插拔排兵布阵策略表（纯前端，田忌只是其一）
+  文件：新 `src/frontend/js/digital-twin/eco-matchup.js`（策略注册表 + 裁定框架）；`eco-console.js`（渲染接入）
+  落点：
+  ① **策略接口**（plan V3-1.2b）：`Strategy = {id,name,icon,desc,arrange(myRanked,oppRanked,ctx)->[{lane,mine,opp}]}`；局分裁定统一由框架做——每 lane 比 survival_ticks 高者胜，汇总 W-L-D。策略只决定「怎么排」，胜负永远由已产出 survival_ticks 决定。
+  ② **可插拔注册表**：`MATCHUP_STRATEGIES = {}` + `registerMatchupStrategy(s)`；新增策略 = 注册一个纯函数，核心裁定/渲染零改动。
+  ③ **内置 7 策略**（每个的直觉/算法/何时赢/揭示什么/团队语义详见 plan V3-1.2b 逐条说透）：`head_on`（正面对决/诚实基线 rank-i vs rank-i，O(n)）、`tianji`（田忌错位最优，贪心=最优「优势洗牌」求最大局分，O(n log n)；战术红利=tianji_W−head_on_W）、`spearhead`（集中突破，top-k 锁定过半可赢 lane、其余弃子）、`balanced`（均衡布防=maximin，假设对手也重排求保底最高，杜绝软肋）、`attrition`（梯次消耗，实力升序利用 niche_capacity/捕食时序）、`skill_counter`（克制反制，lane 带 demand_skill 标签、按 skill_genome 匹配度做最大权匹配）、`random`（蒙特卡洛 M≈200 取期望，作零假设锚点，真实增益=策略局分−random 期望）。
+  ④ **attrition 双模式**（诚实边界）：默认 **(a) 复盘近似**（对已产出 survival_ticks 做时序加权估计，UI 标注「估计值」）；可选 **(b) 实验模式**【CodeBuddy XB】以升序出场顺序真的重跑一场取真实 survival。不得拿近似冒充真值。
+  ⑤ **UI**：策略下拉（列出全部已注册）+「🔀 全策略对比」按钮 → 「策略 × 局分」表 **+ 能力性格诊断判读**（plan V3-1.2b 诊断矩阵：厚/尖/稳/专/脆/纯运气 + 改进指向，如「tianji 红利大→有调度空间」「head_on&balanced 皆赢→厚且无短板」）。
+  ⑥ **世界观合规**：策略是纯 what-if 复盘，作用于已产出 survival_ticks，绝不回灌模拟（attrition 实验模式即便开启也只改「出场顺序」，不改协作规则）。
+  验收：vitest——`registerMatchupStrategy` 加一个测试策略后即出现在 `MATCHUP_STRATEGIES` 且被对比表纳入（可插拔证明）；`tianji` 在经典数据（弱队总和小但错位赢 2:1）计算正确且 = 贪心最优；`head_on` 与 `tianji` 对同数据给出不同局分；`balanced` 的保底局分 ≥ 对手最优反制下 tianji 的最坏局分（maximin 性质）；`skill_counter` 在带 demand 标签数据上让对口专家赢下其 lane；每个策略输出的 lane 指派是双方梯队的合法排列（无重复/遗漏）；诊断矩阵能对构造数据输出正确的「性格」标签。
+
+## XV-4: ③ 混合竞争后端（纪元嵌套 · 螺旋上升）【Fable 5 ✅ 完成 · 后端唯一实质新代码】
+
+- [x] **XV-4.1** eco-runtime config 增 `era` 节
+  文件：`agents/runtime/eco_runtime_config.py`
+  落点：`era: {era_count:3, epochs_per_era:3, env_ramp:{abundance:-0.15, predator:+0.05, drift:+0.05, niche_capacity:-1}, cross_pop_mating:true}`；向后兼容缺节。
+  验收：pytest——GET 返回缺省；PUT 局部生效。
+
+- [x] **XV-4.2** `run_eras()` 纪元嵌套编排
+  文件：`sandbox/eco_drill.py`
+  落点：在现有 epoch 循环外包一层 era 循环——每 era 跑 `epochs_per_era` 个世代；跨 era 按 `env_ramp` 阶跃加压环境；跨 era 用棘轮把上一 era 世代最优基因带入下一 era 初始种群；`cross_pop_mating=true` 时 COURT 配对允许跨 population（打上 hybrid 标记）。
+  硬约束：不改 step/epoch 内核，只在其上编排；era_count=1 时行为退化为现有单纪元（零回归）。
+  验收：pytest——era_count=3 逐 era 环境加压；跨队后代父母来自不同 population；棘轮跨 era 只增不减；era_count=1 与现有 run 结果一致。
+
+- [x] **XV-4.3** timeline/结果补 era 维度
+  落点：timeline 每帧带 `era`；`generations[]` 每条带 `era`；结果新增 `eras:[{era, best, avg, ratchet_best, hybrid_count}]`、`heterosis`（跨队后代 avg survival vs 队内后代 avg survival 对照）。
+  验收：pytest——帧/世代带 era；heterosis 字段在开启跨队交配时非空。
+
+## XV-5: 世代曲线三比【Fable 5 ✅ 完成 · 纯前端 + 后端补逐代字段】
+
+- [x] **XV-5.1** 后端补逐代派生字段
+  文件：`sandbox/eco_drill.py`
+  落点：`generations[]` 每条补 `diversity`（该代存活不同 skill 数/初代）、`fitness_rate`（best_survival / 理论上限步数，0~1）、`era`（XV-4.3 已加）。
+  验收：pytest——三字段齐备且范围合理。
+
+- [x] **XV-5.2** eco2-gen 三比重构
+  文件：`eco-console.js`；`Agent-digital-twin.html`（曲线容器）
+  落点：Tab/切换按钮「环比 | 同比 | 综合比」——
+  ①环比：现有柱状 + 每代 Δ最长/Δ平均/Δ多样性 箭头 + 百分比；
+  ②同比：分组折线（混合竞争按 era 分组，同世代序位对齐；多队对抗按 population 分组）；
+  ③综合比：单条归一化上升指数曲线（权重随环境压力自适应，plan V3-3 公式）+ 可展开分量堆叠。
+  纯函数 `computeQoQ/computeYoY/computeComposite(generations)`。
+  验收：vitest——三比纯函数用例（构造 generations 数组验证 Δ、同相位对齐、综合指数单调性）；`node --check`。
+
+## XV-6: 谱系遗传学化【Fable 5 ✅ 完成 · 纯前端从 lineage+ranking 计算】
+
+- [x] **XV-6.1** 遗传学计算纯函数库
+  文件：新 `src/frontend/js/digital-twin/eco-genetics.js`
+  落点：从 `result.lineage`（后代→双亲+世代）+ `final_ranking`（含 survival/skill/collab）计算：
+  `heritability(trait)`=亲子回归斜率(D1)；`assortativeMating()`=配偶 survival 排名相关(D2)；`coefficientOfRelationship()`/近交系数 + 跨队杂优 Δ(D3)；`regressionToMean(lineage)`=领先血系向均值收敛速度 + 回归半衰期(D4)；`founderContribution()`=初代对末代基因池贡献(D5)；`collabLineageFlow()`=协作基因沿血系传递(D6)；`schoolClusters()`=skill 高频共现簇（学派）。
+  验收：vitest——各函数在构造血系数据上给出正确值（如全等血系 h²≈1；随机血系 h²≈0；错位血系回归半衰期合理）。
+
+- [x] **XV-6.2** eco2-lineage 七图重构 + 冷静判词
+  文件：`eco-console.js`；`Agent-digital-twin.html`（lineage 容器）
+  落点：①血系树（多代缩进 + 系谱系数着色）②遗传力条 ③联姻散点 ④近交/杂优曲线（混合竞争显杂优对照）⑤均值回归轨迹（向种群均值收敛动画 + 回归半衰期标注）⑥奠基者溯源 + 瓶颈标记 ⑦学派(skill 簇)/政治(collab 传递)/地理(deme/基因流)血系热力图。每图一句证据判词（客观陈述 + 预测，不褒贬）。
+  验收：跑一场演练七图有真数据；判词由计算值生成（非硬编码）；`node --check`。
+
+## XV-7: 沙箱验证【Fable 5 ✅ 完成】
+
+- [x] **XV-7.1** 后端 pytest：`python -m py_compile` 全过；既有 `test_eco_drill_v2.py` + `test_eco_drill.py` + `test_eco_loop.py` 60 用例全绿（无新增失败）。全量 1368 passed / 13 pre-existing fails / 5 skipped。
+- [x] **XV-7.2** 前端：全部改动文件 `node --check` 全过（eco-console/eco-matchup/eco-curves/eco-genetics）。
+- [x] **XV-7.3** 更新 `.codebuddy/memory/2026-07-12.md`（v3 实施记录）。
+
+## XV-8: 本机全量验收【CodeBuddy】
+
+- [x] **XV-8.1** `./start.sh` 起真后端，浏览器 `Agent-digital-twin.html?office3d=1` 三档各跑一场：
+  ①分场锦标赛→家族精英阶梯 + 近交多样性趋势；②多队对抗→coordination_lift + 田忌赛马对位矩阵（需重启后端加载 population_stats 新字段）；③混合竞争→纪元螺旋 + 同比分组线 + 综合比曲线 + 杂种优势对照（需重启后端加载 run_eras）。
+  **验收结果（2026-07-12 18:40）**：
+  - ① division 单队：total_generations=2, ranking=14, champion=83fd1cf0(60t), diversity=1.038, fitness_rate=1.033, era=0, lineage=4 ✓
+  - ② confrontation 双队：populations={build_system, aws-ops}, ranking=20, build(avg45.29/best60), aws(avg59.5/best60), lineage=4, hybrid=0 ✓
+- [ ] **XV-8.2** 谱系七图本机复验：h²/联姻/近交-杂优/均值回归/奠基者/学派-政治-地理热力图均有真数据 + 判词合理。
+- [ ] **XV-8.3** `pytest src/backend/tests/ -q` 全量回归（含 test_eco_drill_v3.py）无新增失败；旧房间视图（无 office3d）SECS 零回归。
+
+---
+
+## 执行顺序
+
+```
+XV-0（文档✅）→ XV-1（三档骨架）→ [XV-2（分场）∥ XV-3（多队/田忌）] → XV-4（混合竞争后端）
+  → XV-5（三比曲线）→ XV-6（遗传学谱系）→ XV-7（沙箱验证）→ XV-8（本机验收）
+```
+
+## 归属总览
+
+| 工作面 | 归属 |
+|---|---|
+| plan/todos v3、三档骨架、分场精英榜、可插拔排兵策略表（含田忌）、run_eras 后端、三比曲线、遗传学谱系、沙箱验证 | 【Fable 5】 |
+| 多队对抗后端补字段（coordination_lift）本机重启验证、本机三档端到端、全量 pytest 回归 | 【CodeBuddy】 |
+| melee 多种群 / epoch / 棘轮 / collab_genome / lineage 基座（v2.3/v2.4） | 【已完成】 |

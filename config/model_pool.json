@@ -37,54 +37,54 @@
   "aws-ops": {
     "deepseek": {
       "model_id": "deepseek",
-      "provider": "codebuddy",
-      "name": "glm-5.1",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
   "pet_squad": {},
   "d083a568": {
     "deepseek": {
       "model_id": "deepseek",
-      "provider": "codebuddy",
-      "name": "glm-5.1",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
   "ai_coding": {
     "deepseek": {
       "model_id": "deepseek",
-      "provider": "codebuddy",
-      "name": "glm-5.1",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
+      "api_base_url": "https://api.deepseek.com"
     }
   },
   "energy_first_principle": {
     "deepseek": {
       "model_id": "deepseek",
-      "provider": "codebuddy",
-      "name": "glm-5.1",
+      "provider": "deepseek",
+      "name": "deepseek-v4-pro",
       "max_tokens": 4096,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
+      "api_base_url": "https://api.deepseek.com"
     },
     "copilot": {
       "model_id": "copilot",
@@ -97,5 +97,7 @@
       "api_key": "",
       "api_base_url": ""
     }
-  }
+  },
+  "42a930eb": {},
+  "8c1de363": {}
 }

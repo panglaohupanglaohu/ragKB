@@ -139,11 +139,17 @@ export function reduce(prev, event) {
           ? {
               ...prev, name: a.name || prev.name, role: a.role || prev.role,
               team: a.team || prev.team, deskIndex: deskMap[a.id],
+              // v2.4 修复: noBreaks 此前只对新建 agent 生效，重跑 eco 演练时 roster 已存在，
+              // noBreaks:true 被 ...prev 的旧值(false)覆盖 → 演练结束作息欠账放行 → 全员涌向设施排成一列跑出镜头。
+              // 事件显式携带 noBreaks 时对留任 agent 也应用之。
+              noBreaks: event.noBreaks != null ? !!event.noBreaks : prev.noBreaks,
             }
           : {
               id: a.id, name: a.name || a.id, role: a.role || '', team: a.team || '',
               collar: COLLARS[i % COLLARS.length], activity: 'working',
               deskIndex: nextFree++, layer: state.mirror ? 'mirror' : 'prod',
+              // v2.4: 默认允许作息调度；eco 种群由 _seedSceneRoster 显式置 true 跳过设施排队
+              noBreaks: !!event.noBreaks,
             };
       });
       state.agents = roster;

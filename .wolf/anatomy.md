@@ -1,30 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-12T14:58:00.000Z
-> Files: 508 tracked | Anatomy hits: 0 | Misses: 0
-> Manual note (2026-06-16): updated `src/frontend/plaza.html` CSP (connect-src/media-src) and modal confirm shell; updated `src/frontend/js/plaza.js` for Three.js deprecation compatibility and delete-confirm/audio-unlock behavior; updated `src/frontend/js/digital-twin/secs-core.js` runtime bootstrap timing and runtime-status timeout handling; removed dead `lucide.min.css` dependency from `src/frontend/Agent-digital-twin.html`.
-> Manual note (2026-06-17): updated `src/frontend/js/agent-team-config.js` model row action handlers to URL-encode/decode `model_id` and harden edit-model lookup fallback, fixing the “CodeBuddy 编辑不弹窗” issue in 模型与连接页.
-> Manual note (2026-06-17): updated `src/frontend/js/wizard.js` to export missing inline-onclick handlers (`addExp`, `addPerm`, `rmPerm`, `togWzChan`, `wzFinish`) onto `window`, fixing “ReferenceError: addExp is not defined” in 新建智能体→人格设定→专长领域.
-> Manual note (2026-06-17): updated `src/frontend/js/agent-detail.js` to resolve skill IDs into labels in 人格→关注点 and prefer relationship `name` over `target` ID in 关系 tab; updated `src/backend/agents/api.py` + `src/backend/agents/chat_harness.py` to improve CodeBuddy chat compatibility (skip tool-schema injection for CodeBuddy turns, compact CodeBuddy prompt path, and add 11133 parameter-error fallback retries), restoring real LLM replies in session chat.
-> Manual note (2026-06-17): updated `src/frontend/js/agent-detail.js` skill-row actions in 智能体详情→技能 so delete is available for both bound and unbound skills (not only bound rows), matching pages that already expose 解绑定/删除 controls.
-> Manual note (2026-06-17): fixed non-working delete in `src/frontend/js/agent-detail.js` by passing URL-encoded `skill_id`/`skill_name` in inline onclick and decoding in `deleteSkillWithContext`, plus encoding the DELETE endpoint path segment.
-> Manual note (2026-06-17): fixed `src/frontend/plaza.html` `.layout` overflow — removed stale `margin-top:56px` (left over from a fixed-topbar era) because the shared `.topbar-ws` topbar is now in normal flow (position:relative, 56px); the double 56px offset plus `height:calc(100vh-56px)` pushed the bottom `+ 新建广场` and `开始` buttons out of the viewport. Browser-verified buttons back in view (bug-021).
-> Manual note (2026-06-17): hardened `src/frontend/js/plaza.js` against repeated `plaza/escalations` 404 noise by adding per-discussion circuit-breaker (`escalationFetchBlocked`) and in-flight dedupe (`escalationFetchInFlight`), plus context self-healing from DOM/localStorage for escalation refresh and safer deep-link discussion selection (bug-022).
-> Manual note (2026-06-18): fixed `src/frontend/js/plaza.js` plan-card rerender state loss in ASSIGN select (`#assign-team`) by preserving previous selection / AGCtx team when rebuilding options, preventing Build System from being reset to the first option on rerender (bug-023).
-> Manual note (2026-06-18): fixed deploy QA-gate false positives in `src/backend/agents/api.py` by prioritizing structured test verdict (`test._summary.verdict`) and skipping markdown regex fallback when verdict is PASS/OK; this prevents erroneous deploy blocks that previously exhausted rewind cap (bug-024). Also added resume hardening: `_real_task_executor` now ensures harness monitor is reattached when workflow already has sessions, and `start_task_endpoint` can coerce terminal task status back to running for manual resume attempts.
-> Manual note (2026-06-18): fixed task delete UX for stale task IDs by making frontend delete path in `src/frontend/js/tasks-view.js` treat `DELETE .../tasks/{task_id}/remove` 404 `Task not found` as idempotent success (toast as already removed), including batch cleanup path; this prevents noisy delete failures for already-removed tasks (bug-025). Also updated backend `src/backend/agents/api.py` remove endpoint to be idempotent for missing task IDs (returns `already_absent`) once service reloads.
-> Manual note (2026-06-18): fixed missing end-state action buttons in `src/frontend/js/plaza.js`/`src/frontend/plaza.html` discussion cards. For `closed` discussions, moved `重新讨论/萃取/网页` actions into a dedicated `.disc-actions` row below metadata and updated card styles (`.tp` min-width/word-break + `.disc-actions` wrap + `.disc-act` nowrap) so long topics no longer squeeze/hide action buttons (bug-026).
-> Manual note (2026-06-18): removed noisy plaza escalations 404 warning surface in `src/frontend/js/plaza.js` by replacing `api(...)` call in `refreshEscalationState` with scoped `fetch` + local status handling. Known 404 context errors (`广场不存在/讨论不存在`) are now circuit-broken without triggering global API warning logs from `src/frontend/js/api.js` (bug-027).
-> Manual note (2026-07-04): updated `src/frontend/js/office/office-scene.js` so `office3d=1` Agent figures reuse the plaza-style head ring + U-body + glow ring model language instead of the previous capsule/sphere/cone stand-in; animation now bobs `group.userData.bobRoot` instead of assuming child[0] is a capsule body.
-> Manual note (2026-07-05): updated `src/frontend/js/office/office-scene.js` cat interaction loop: each frame selects the nearest non-courier Agent, turns its body toward the cat, and pulses/scales that Agent's ground glow ring while resetting other rings.
-> Manual note (2026-07-05): updated office skill-aware cat behavior across `src/frontend/js/office/office-state.js`, `office-boot.js`, and `office-scene.js`: roster now carries skills/effectiveSkillCount, reducer preserves it, and the cat jumps onto the desk of the nearest Agent when effective skill count is high enough.
-> Manual note (2026-07-05): reverted the skill-driven cat desk-jump logic per user request — removed skills/effectiveSkillCount plumbing from `office-state.js`/`office-boot.js`, the desk-jump code + threshold from `office-scene.js`, and the related tests; kept only the nearest-Agent turn + glow-ring lure.
-> Manual note (2026-07-05): 数字办公室协作演练闭环起步 — 新增 `src/backend/sandbox/plan_scenario_bridge.py`(M1-3: ExecutionPlan→ScenarioSpec, source=plan, 每步→房间(stage=index)+任务, 依赖只连更早步骤保无环, origin 暂存 tags) + `tests/test_plan_scenario_bridge.py`(5/5); 扩展 `src/frontend/js/office/office-state.js` step reducer 覆盖 twin 动作词表(claim_task/work_on_task/execute_skill/offer_help/delegate/communicate+broadcast/idle), agent 增 lastAction/skillUsed/task(M2-1), office-state 17/17; 规划 `docs/数字办公室协作演练plan.md`+`todos.md`(GLM/F5 分层)。
-> Manual note (2026-07-05): 续做 F5 项 — 新增 `src/backend/sandbox/twin_consistency.py`(M5-2: PICon 式孪生一致率 compare_decision/consistency_report + 阈值可信度判定); `src/backend/sandbox/world_state.py` to_dict 透出 workflow_edges_detail(M2-4) + room_stages(M2-5)(非破坏, 保留原计数键); `tests/test_twin_consistency.py`(6/6)。M2-4/M2-5 后端契约完成、3D 前端待浏览器; M3-1(大件3D)/M4-1(被 P3-2 阻塞)留待。
-> Manual note (2026-07-05): M2-4/M2-5 office 3D 前端接入 — office-state 加 workflow_sync/stages_sync reducer + state.workflow/stages 字段; office-scene 加阶段地面分区带(renderStageBands)+递文件传递内容标签(attachFileLabel); office-boot 暴露 OfficeAPI.syncWorkflow/syncStages + 从 _sx.scenarioSpec.world.rooms[].stage 派发阶段带。office-state 19/19, node --check + vitest 188 + build 全过(视觉需浏览器冒烟)。
-> Manual note (2026-07-11): 物竞天择 v2（Fable 5）— 重写 docs/物竞天择数字孪生演练plan.md+todos.md(v2)；`src/backend/sandbox/eco_drill.py` v2 内核(CollabGenome 协作基因/FOOD-HELP-COURT 信号协议/盲目学习+基因携带成本/EnvState 漂移-捕食-丰饶/timeline≤600帧/基因池语义化/修复重复方法 bug-042/恢复 on_step-on_epoch/cat_commentary/mate_fn-write_lineage 契约)；`eco_runtime_config.py` 增 habitat+drill_economics 节；`trial_api.py` CreateTrialRequest.drill_kind 显式覆盖；前端：`Agent-digital-twin.html` rp-eco 八区块生境控制台全量重写+移除内嵌 eco-habitat-console+修复 rp-eco 布局错位(bug-028)+eco2 CSS；新增 `js/digital-twin/eco-console.js`(控制台逻辑) 与 `js/office/eco-replay.js`(剧场回放引擎)；`office-state.js` 增 eco_intent/eco_signal/eco_mate/eco_reset reducer；`office-scene.js` 意图emoji+信号配色+新生长大动画；`office-boot.js` __ECO_FIELD__ 旗标+回放期轮询保护；`pet-config.html` 参数页新增 habitat/drill_economics/盲目学习字段(18→30 可调)；新增 tests/test_eco_drill_v2.py。
-> Manual note (2026-07-11b): v2.2 物竞做实 — eco_drill step() 两阶段重构+EnvState.niche_capacity 容量竞争(败者不入恐惧窗口)+habitat.niche_capacity 配置；eco-console 环境剧本预设/竞争名额滑杆/创建试炼返回形状兼容(bug-046)/开演归位；cat_speak Mei Ling 兜底(bug-045)；utils.js 补 hideViewLoading(bug-044)；secret_store 合并式写入(bug-043)；新增 docs/任务执行去CLI化plan.md+todos.md(实施归 CodeBuddy：去本地 Claude CLI、工作区目录交换契约、deployer 差异化 deploy_exec)。
-> Manual note (2026-07-11c): v2.3 第二批（Fable 5 自主优化轮）— 多种群同场竞争(Creature.population/extra_team_ids/population_stats/报告裁决表)；恐惧永锁修复(bug-047, AVOID 期恐惧消退)；timeline 事件保真采样+帧盖世代号(bug-048)；平衡定档 forage_gain=8/niche_capacity=3；📜 生境报告(自动弹出/个体排行/种群裁决/猫解说)；技能名可读化 _sk()；演练后退场修复(作息冻结+错峰重置)；死亡淡出可逆。TestFearDecay/TestNicheCompetition 用例固化。
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T16:32:13.139Z
+> Files: 511 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -335,14 +312,14 @@
 
 ## docs/
 
-- `全局优化计划.md` — AgentsGroup2026 全局优化计划（Global Optimization Plan v1.0） (~1836 tok)
-- `全局优化todos.md` — AgentsGroup2026 全局优化 TODOS（v1.0） (~1835 tok)
-- `Agent数字孪生场景演练与技能进化plan.md` — Agent 数字孪生 v4 — 场景化演练 × 技能进化闭环 Plan (~1829 tok)
-- `Agent数字孪生场景演练与技能进化todos.md` — Agent 数字孪生 v4 — 场景化演练 × 技能进化 TODOS（代码对齐版） (~4710 tok)
 - `Agent数字孪生优化plan.md` — Agent 数字孪生优化计划 (~5452 tok)
 - `Agent数字孪生优化todos.md` — Agent 数字孪生 — 按钮级功能 TODO（代码对齐版） (~2430 tok)
+- `Agent数字孪生场景演练与技能进化plan.md` — Agent 数字孪生 v4 — 场景化演练 × 技能进化闭环 Plan (~1829 tok)
+- `Agent数字孪生场景演练与技能进化todos.md` — Agent 数字孪生 v4 — 场景化演练 × 技能进化 TODOS（代码对齐版） (~4710 tok)
 - `EVOLUTION_PLAN.md` — AgentsGroup 系统演进 — 自我进化优化管线 (~4994 tok)
 - `NIGHTLY_0000_4H_PLAN.md` — Nightly 00:00-04:00 Optimization Plan (~782 tok)
+- `全局优化todos.md` — AgentsGroup2026 全局优化 TODOS（v1.0） (~1835 tok)
+- `全局优化计划.md` — AgentsGroup2026 全局优化计划（Global Optimization Plan v1.0） (~1836 tok)
 
 ## k8s/
 
@@ -360,8 +337,8 @@
 - `frontend_build.sh` (~157 tok)
 - `frontend_test.sh` (~150 tok)
 - `nightly_4h_optimize.sh` (~3507 tok)
-- `verify_v4_local.sh` — 本机一键复核 v4 接口通路门+全程回归，全绿回写 [~]→[x] (~700 tok)
 - `start_tts.sh` — Start GPT-SoVITS TTS API server (~266 tok)
+- `verify_v4_local.sh` — 本机一键复核 v4 接口通路门+全程回归，全绿回写 [~]→[x] (~700 tok)
 
 ## src/
 
@@ -748,62 +725,37 @@
 - `1ebf4f3a-24b_test_FAILED_20260611T094324.md` — Agent Handoff — test_FAILED (~121 tok)
 - `1f0da2f7-522_architecture_20260510T111515.md` — Agent Handoff — architecture (~135 tok)
 
-## 本轮改动(2026-06-13, system-evolution 实时更新修复)
+## src/frontend/js/digital-twin/
 
-- `docs/system-evolution优化plan.md` — system-evolution 优化 plan(现状=已v2优化;头号缺陷=SSE实时更新整条死)(新增)
-- `docs/system-evolution优化todos.md` — system-evolution 事无巨细 todos(Claude/Reasonix 分派,含伪代码)(新增)
-- `src/backend/agent_team_api.py` — 新增 `GET /api/v1/agent-teams/evolution/stream`(SSE,只读快照推 stats_update/trail_update,不改引擎)
-- `src/frontend/js/system-evolution.js` — 修复 SSE 断线→30s 轮询降级死逻辑(onerror 直接 `_fallbackPoll()`)
-- `src/frontend/system-evolution.html` — 顶部主导航补「成本监控 → /cost-dashboard.html」
+- `eco-console.js` — eco-console.js — 物竞天择生境控制台逻辑层 (v2 XT-4.2) (~14168 tok)
+
+## src/frontend/js/office/
+
+- `office-state.js` — office-state.js — 统一办公室场景的单一数据源 (P7-1) (~5165 tok)
 
 ## 本轮改动(2026-06-13, plaza 优化 plan+todos)
 
-- `docs/plaza优化plan.md` — plaza 前后端优化 plan(头号缺陷=SSE 客户端零容错+Three.js GPU 泄漏)(新增)
-- `docs/plaza优化todos.md` — plaza 事无巨细 todos(带伪代码,Claude/Reasonix 分派)(新增)
-- 注:plan/todos 产出后,按用户「把能做的都做了」落地 Claude 项:
-- `src/frontend/js/plaza.js` — SSE onerror+指数退避重连+teardownSSE 统一收口;_seenMsgKeys 去重(去 init 门控);disposeObject3D/disposeSceneAgents 释放 GPU;live 消息 esc→mdLite;beforeunload 清理。7 个 plaza vitest 全绿
-- 待本机/Reasonix:A-2.3/C-1.2 新增 vitest、B-1.3 内存回归、F-1 SSE 断点续传(引擎加 seq)、F-2 escalation 稳定 id(引擎改造)
 
 ## 本轮改动(2026-06-13, skill-extract 优化 + 技能闭环)
 
-- `docs/skill-extract优化plan.md` — skill-extract 前后端优化 plan(头号 bug=HTML 重复 id;旗舰=技能闭环)(新增)
-- `docs/skill-extract优化todos.md` — 事无巨细 todos(带伪代码,Claude/Reasonix 标注,含萃取过程步骤)(新增)
-- `storage/skills/c0de7a11.json` — 「结构化代码评审」skill 产物(闭环演示用,target_skill=code_review)(新增)
-- `scripts/skill_closed_loop_demo.py` — 技能闭环离线验证脚本(真 TwinLoop+真场景,30 seeds,code_review 成功率 72.1%→90.4%)(新增)
-- `README.md` — 新增「技能闭环演示」章节(萃取链路+twin_loop 机理+复跑命令+实测数字)
-- 关键系统认知:twin_loop 任务成功率 success_p=clamp(0.3+0.6×proficiency,0.2,0.95);场景五维评分 task_completion 0.3/collaboration 0.25/resilience 0.2/cost 0.15/extractability 0.1;trial_api._compute_evaluation;离线引擎纯 sandbox.* 不需 fastapi/LLM,沙箱可跑
+
+## 本轮改动(2026-06-13, system-evolution 实时更新修复)
+
 
 ## 本轮改动(2026-06-18, docs 签名治理规则)
 
-- `docs/SIGNING_RULE.md` — 总规则:写入 docs/ 的 plan/todos 第一行非空须为签名块 `<!-- docs-signoff: author kind doc ts -->`(新增,自身已签)
-- `scripts/check-docs-signoff.cjs` — 可验证校验器:--selftest(5/5) / 默认(格式错=FAIL,缺签名=WARN) / --strict(缺签名也 FAIL)
-- `.github/copilot-instructions.md` L19 + `AGENTS.md ## 5` — ponytail 常驻注入一行精简规则(省 token,覆盖多 Agent)
-- 用户决定:暂只告警不严格(default 模式),不挂 pre-commit/CI/ponytail hook。存量 29 份未签名按「下次编辑补签名」
-
-## 本轮改动(2026-06-18, skill-extract 跨议题误去重)
-
-- `src/backend/agents/skill_extractor.py` — 去重从“前 2000 字符”改为“来源签名(source_meta) + 全文 SHA-256”；不同 discussion/output 不再误判同源。`SkillReviewItem` 持久化新增 `source_meta`。
-- `src/backend/agents/api.py` — `POST /teams/{team_id}/skill-extract/start` 支持 `source_meta` 透传给引擎。
-- `src/frontend/js/skill-extract.js` — Plaza 跳转萃取时提交 `source_meta(source_plaza_id/source_discussion_id/source_output_id)`，避免跨议题 dedup 碰撞。
-- 结果: 不同议题即使文本前缀相同，也不会再直接命中旧 item 返回“该文本已萃取过”；仅同源+同全文内容才去重。
-
-## 本轮改动(2026-06-18, skill-extract 删除后复活)
-
-- `src/backend/agents/skill_extractor.py` — 新增 deleted source tombstone：删除队列项时记录来源指纹(`source_type/plaza/discussion/output + 全文sha256`)并持久化到队列文件。
-- `src/backend/agents/skill_extractor.py` — `start_extraction` 在入队前先查 tombstone，命中则返回 `dedup_skipped`（状态 rejected）且不入队，避免“删了又出现”。
-- 结果: 用户手动删除的同来源候选不会在再次点击萃取时自动复活；需变更来源内容/上下文才会重新生成。
 
 ## 本轮改动(2026-06-18, skill-extract fallback 议题化)
 
-- `src/backend/agents/skill_extractor.py` — 将 LLM 不可用时的固定兜底模板改为 topic-aware 生成：基于 `source_title + source_text` 提取关键词，动态构造 3 条候选（需求拆解/实施路径/验收闭环）。
-- 结果: 不同议题在 LLM 不可用场景下不再产出同名固定技能，减少“萃取到其他议题”的错觉。
 
-## 本轮改动(2026-06-18, skill-extract 队列来源隔离)
+## 本轮改动(2026-06-18, skill-extract 删除后复活)
 
-- `src/frontend/js/skill-extract.js` — 当从议事厅跳转并携带 `currentExtractSourceMeta` 时，右侧审核队列仅渲染匹配该来源(`source_meta`)的项目，不再默认混入团队历史旧议题。
-- 空列表文案改为“当前讨论来源暂无…”，避免误判为“萃取出来还是其他议题”。
 
 ## 本轮改动(2026-06-18, skill-extract 弹窗按钮可见性)
 
-- `src/frontend/skill-extract.html` — 为详情弹窗 tab 条与“效果”页动作区增加稳定 class（`modal-tabs-bar` / `usage-top-bar` / `usage-top-actions` / `usage-chat-head` / `usage-chat-quick-actions`），避免后续继续依赖内联样式定位。
-- `src/frontend/css/skill-extract.css` — 新增响应式可见性规则：tab 条支持换行+横向滚动，usage 头部动作区和快捷按钮支持换行；`max-width:960px` 下动作区占满并左对齐，确保“展示对比/刷新/快捷建议”按钮不再被裁切。
+
+## 本轮改动(2026-06-18, skill-extract 跨议题误去重)
+
+
+## 本轮改动(2026-06-18, skill-extract 队列来源隔离)
+

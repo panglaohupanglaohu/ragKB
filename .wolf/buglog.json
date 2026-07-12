@@ -2206,5 +2206,27 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-07-11T12:24:06.459399"
+  },
+  {
+    "id": "bug-056-eco-rerun-replay-and-facility-stampede",
+    "timestamp": "2026-07-12T00:37:41.910059",
+    "error_message": "办公室视图再次点击『开始物竞天择』：①看起来只是 replay 没有重新演练 ②点击后 Agent 排成一列跑出镜头",
+    "file": "src/frontend/js/office/office-state.js, src/frontend/js/digital-twin/eco-console.js",
+    "root_cause": "①eco2RunDrill 重跑时未先停掉上一场 _replay，后端计算的数秒内旧回放仍在播放，用户误以为没重跑（后端 seed=None 实际每次都是新演练）。②office-state team_reset 的 noBreaks 只对新建 agent 生效；重跑时 roster 已存在，走留任分支 ...prev 保留旧值 noBreaks=false → eco 生物仍参与作息调度 → 回放结束 __ECO_REPLAY_ACTIVE__ 释放后攒了一整场的作息欠账一次性放行 → 全员涌向设施沿 queueDir 排成一列(1+slot 间距无上限)跑出镜头。",
+    "fix": "①eco2RunDrill 开头 destroy 旧 _replay 并隐藏回放条、计算期间保持 __ECO_REPLAY_ACTIVE__=true 冻结作息，fail/超时路径释放该旗标。②team_reset 留任分支改为 noBreaks: event.noBreaks!=null?!!event.noBreaks:prev.noBreaks，使 _seedSceneRoster 的 noBreaks:true 对已存在的 eco 生物也生效。",
+    "tags": [
+      "eco-drill",
+      "office-3d",
+      "replay",
+      "team_reset",
+      "noBreaks",
+      "facility-stampede",
+      "rerun"
+    ],
+    "related_bugs": [
+      "bug-028"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-12T00:37:41.910059"
   }
 ]
