@@ -315,6 +315,101 @@
       .sort(function (a, b) { return b.size - a.size; });
   }
 
+  // ═══ v4 XG-9: 计划技能覆盖热力 ═══
+  // rows = agents, cols = plan steps/skills; cell 1 if agent holds skill
+  function planCoverageHeatmap(ranking, contract) {
+    if (!ranking || !ranking.length) return { agents: [], skills: [], matrix: [], coverage: 0 };
+    var niches = (contract && contract.niches) || [];
+    var skills = [];
+    niches.forEach(function (n) {
+      (n.demanded_skills || []).forEach(function (s) {
+        if (skills.indexOf(s) < 0) skills.push(s);
+      });
+    });
+    if (!skills.length && contract && contract.skill_universe) {
+      skills = (contract.skill_universe || []).slice();
+    }
+    var agents = ranking.map(function (r) {
+      return {
+        agent_id: r.agent_id,
+        alive: !!r.alive,
+        survival_ticks: r.survival_ticks || 0,
+        skills: r.skill_genome || []
+      };
+    });
+    var matrix = agents.map(function (a) {
+      var set = {};
+      (a.skills || []).forEach(function (s) { set[s] = 1; });
+      return skills.map(function (sk) { return set[sk] ? 1 : 0; });
+    });
+    var total = agents.length * Math.max(skills.length, 1);
+    var hits = 0;
+    matrix.forEach(function (row) { row.forEach(function (v) { hits += v; }); });
+    return {
+      agents: agents.map(function (a) { return a.agent_id; }),
+      skills: skills,
+      matrix: matrix,
+      coverage: total ? Math.round(hits / total * 1000) / 1000 : 0,
+      niches: niches.map(function (n) { return { title: n.title, skills: n.demanded_skills || [] }; })
+    };
+  }
+
+  // ═══ v4: 分 skill 遗传力（亲代是否持有 → 子代是否持有，回归近似）═══
+  function perSkillHeritability(lineage, ranking, skill) {
+    if (!lineage || !lineage.length || !ranking || !skill) return null;
+    var rankMap = {};
+    ranking.forEach(function (r) { rankMap[r.agent_id] = r; });
+    var pairs = [];
+    lineage.forEach(function (rec) {
+      var child = rankMap[rec.child];
+      if (!child) return;
+      var parents = (rec.parents || []).map(function (pid) { return rankMap[pid]; }).filter(Boolean);
+      if (!parents.length) return;
+      var pHas = parents.filter(function (p) {
+        return (p.skill_genome || []).indexOf(skill) >= 0;
+      }).length / parents.length;
+      var cHas = (child.skill_genome || []).indexOf(skill) >= 0 ? 1 : 0;
+      pairs.push({ parent: pHas, child: cHas });
+    });
+    if (pairs.length < 2) return null;
+    var n = pairs.length;
+    var sumX = pairs.reduce(function (s, p) { return s + p.parent; }, 0);
+    var sumY = pairs.reduce(function (s, p) { return s + p.child; }, 0);
+    var sumXY = pairs.reduce(function (s, p) { return s + p.parent * p.child; }, 0);
+    var sumXX = pairs.reduce(function (s, p) { return s + p.parent * p.parent; }, 0);
+    var denom = n * sumXX - sumX * sumX;
+    if (Math.abs(denom) < 1e-10) return { h2: 0, pairs: n, skill: skill };
+    var slope = (n * sumXY - sumX * sumY) / denom;
+    return { h2: Math.round(slope * 1000) / 1000, pairs: n, skill: skill };
+  }
+
+  // ═══ v4: 垂直(遗传) vs 水平(学习) 传递比 ═══
+  // timeline.steps[].skill_origins: [{agent_id, skill, origin: learn|inherit|mutate}]
+  function verticalVsHorizontalTransfer(timeline) {
+    var steps = (timeline && timeline.steps) || [];
+    var counts = { learn: 0, inherit: 0, mutate: 0, other: 0 };
+    steps.forEach(function (fr) {
+      (fr.skill_origins || []).forEach(function (ev) {
+        var o = (ev && ev.origin) || 'other';
+        if (counts[o] != null) counts[o] += 1;
+        else counts.other += 1;
+      });
+    });
+    // lineage 作为垂直传递的代理计数（若 timeline 无 inherit 事件）
+    var vertical = counts.inherit;
+    var horizontal = counts.learn;
+    var total = vertical + horizontal + counts.mutate + counts.other;
+    return {
+      learn: counts.learn,
+      inherit: counts.inherit,
+      mutate: counts.mutate,
+      other: counts.other,
+      vertical_ratio: total ? Math.round(vertical / total * 1000) / 1000 : 0,
+      horizontal_ratio: total ? Math.round(horizontal / total * 1000) / 1000 : 0,
+      total: total
+    };
+  }
+
   // ═══ 导出 ═══
   root.heritability = heritability;
   root.assortativeMating = assortativeMating;
@@ -323,13 +418,19 @@
   root.founderContribution = founderContribution;
   root.collabLineageFlow = collabLineageFlow;
   root.schoolClusters = schoolClusters;
+  root.planCoverageHeatmap = planCoverageHeatmap;
+  root.perSkillHeritability = perSkillHeritability;
+  root.verticalVsHorizontalTransfer = verticalVsHorizontalTransfer;
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       heritability: heritability, assortativeMating: assortativeMating,
       coefficientOfRelationship: coefficientOfRelationship, regressionToMean: regressionToMean,
       founderContribution: founderContribution, collabLineageFlow: collabLineageFlow,
-      schoolClusters: schoolClusters
+      schoolClusters: schoolClusters,
+      planCoverageHeatmap: planCoverageHeatmap,
+      perSkillHeritability: perSkillHeritability,
+      verticalVsHorizontalTransfer: verticalVsHorizontalTransfer
     };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

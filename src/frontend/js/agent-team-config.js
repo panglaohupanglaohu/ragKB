@@ -1423,18 +1423,19 @@ async function loadTasks(){
     const hasWf=t.metadata&&t.metadata.workflow&&t.metadata.workflow.length>0;
     const wfAllDone=hasWf&&t.metadata.workflow.every(s=>s.status==='completed'||s.status==='skipped');
     const delBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:oklch(0.55 0.005 110)" onclick="taskAction('${t.task_id}','delete')" title="删除任务">🗑</button>`;
-    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button> <button class="btn btn-danger btn-sm" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
+    const ecoBtn=` <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(167,139,250,0.12);color:var(--purple)" onclick="sendTaskToEcoField('${t.task_id}')" title="带本团队+任务进入办公室物竞试验田">🧬 物竞</button>`;
+    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button>${ecoBtn} <button class="btn btn-danger btn-sm" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
     else if(t.status==='running'){
       if(hasWf&&!wfAllDone){
         // Workflow in progress — only show fail button, no manual complete
-        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>`;
+        actions=`<span style="font-size:11px;color:var(--dim)">流程进行中</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>${ecoBtn}`;
       } else {
-        actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>`;
+        actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button>${ecoBtn}`;
       }
     }
-    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span> ${delBtn}`;
-    else if(t.status==='cancelled'||t.status==='failed') actions=delBtn;
-    else actions='—';
+    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span>${ecoBtn} ${delBtn}`;
+    else if(t.status==='cancelled'||t.status==='failed') actions=`${ecoBtn} ${delBtn}`;
+    else actions=ecoBtn;
     const src=t.metadata&&t.metadata.cross_team?`<span class="chip" style="font-size:9px;background:rgba(245,158,11,0.1);color:oklch(0.56 0.05 70)">跨团队 ← ${t.metadata.source_agent||t.metadata.source_team||''}</span>`:'';
     const wfHtml=renderWorkflow(t);
     const wfProgress=t.metadata&&t.metadata.workflow?(() => {const w=t.metadata.workflow;const done=w.filter(s=>s.status==='completed').length;return `<span style="font-size:10px;color:var(--dim);margin-left:6px">${done}/${w.length}</span>`})():'';

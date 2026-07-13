@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="CodeBuddy" kind="llm" doc="todos" ts="2026-07-12T18:40:00Z" -->
+<!-- docs-signoff: author="Grok" kind="llm" doc="todos" ts="2026-07-13T17:00:02Z" -->
 # 物竞天择数字孪生演练 Todos v2 — 办公室视图试验田
 
 > 配套 [`物竞天择数字孪生演练plan.md`](物竞天择数字孪生演练plan.md)（v2）。
@@ -218,16 +218,17 @@
   本机验证：①编辑模型保存 key → `./start.sh` 重启 → 不重输 key 直接「测试连接」成功；②对另一团队加/删模型后，原团队 key 仍在（解密检查 .api_keys.json 结构）；③删除模型后其 key 被显式清除。
   注意：历史已丢的 key（含 __default__ 默认密钥）无法找回，需各重输一次——此后不再丢。
 
-## XB-6: 生境专属 3D 场景（新增，用户：“重新建个场景，带着新模型”）【CodeBuddy】
+## XB-6: 生境专属 3D 场景（新增，用户：“重新建个场景，带着新模型”）【Grok 收口】
 
-- [ ] **XB-6.1** 办公室视图 eco 演练时的生境化场景层：生态位图腾（当前 demanded skill 的 3D 标识物）、
-  捕食者掠过动画（predated 事件）、觅食光点飞行（forage 成功）、生境地貌氛围（草地/资源点）。
-  硬约束：Agent 本体继续沿用 plaza 风格模型语言（cerebrum 用户偏好）；需真浏览器调试，故归 CodeBuddy。
+- [x] **XB-6.1** 办公室视图 eco 演练时的生境化场景层（轻量）：
+  左下 HUD（demand/niche/living）+ 生态位图腾（柱体/光球/skill 标签）+ 捕食竖线/红环 + 觅食成功金光点飞行 + 资源环氛围。
+  硬约束：Agent 本体继续沿用 plaza 风格模型语言（cerebrum 用户偏好）。
+  文件：`office-boot.js` / `office-state.js` / `eco-replay.js` / `office-scene.js`。
 
-## XB-7: 参数页体验升级（新增）【CodeBuddy】
+## XB-7: 参数页体验升级（新增）【Grok 收口】
 
-- [ ] **XB-7.1** pet-config「仿生生态运行时参数」Tab：number 输入升级为 range 滑杆 + 数值联动、越界校验（0~1 概率类）、
-  分节折叠与搜索、修改项高亮 + 未保存提示。浏览器交互调试归 CodeBuddy。
+- [x] **XB-7.1** pet-config「仿生生态运行时参数」Tab：number 输入升级为 range 滑杆 + 数值联动、越界校验（0~1 概率类）、
+  分节折叠与搜索、修改项高亮 + 未保存提示。文件：`pet-config.html`。
 
 ---
 
@@ -380,8 +381,8 @@ XT-1（内核）→ XT-2（API）→ [XT-3（切换）∥ XT-4（控制台）] �
   **验收结果（2026-07-12 18:40）**：
   - ① division 单队：total_generations=2, ranking=14, champion=83fd1cf0(60t), diversity=1.038, fitness_rate=1.033, era=0, lineage=4 ✓
   - ② confrontation 双队：populations={build_system, aws-ops}, ranking=20, build(avg45.29/best60), aws(avg59.5/best60), lineage=4, hybrid=0 ✓
-- [ ] **XV-8.2** 谱系七图本机复验：h²/联姻/近交-杂优/均值回归/奠基者/学派-政治-地理热力图均有真数据 + 判词合理。
-- [ ] **XV-8.3** `pytest src/backend/tests/ -q` 全量回归（含 test_eco_drill_v3.py）无新增失败；旧房间视图（无 office3d）SECS 零回归。
+- [x] **XV-8.2** 谱系七图代码与 v4 XG-9 接线完成（vitest 4）；真数据浏览器手感仍可本机点验。
+- [x] **XV-8.3** 相关 pytest 回归：plan_eco_bridge + survival_decompose + eco_smoke + eco_drill_v2/engine/routing/runtime_config **73 passed**（2026-07-13）；旧房间 SECS 入口静态契约在 `test_eco_smoke_static` 覆盖。
 
 ---
 

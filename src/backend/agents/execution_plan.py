@@ -50,11 +50,116 @@ def is_valid_task_title(title: str) -> bool:
     return True
 
 
+# 角色 → 默认技能（计划表无技能列时的推断源，v4 XG-1）
+# 含 AWS 运维 / Build 域真实 skill_id，使生境 demand 能对上 agent genome（否则 skill 选择压力=0）
+ROLE_DEFAULT_SKILLS: Dict[str, List[str]] = {
+    "开发": ["coding", "code_review"],
+    "developer": ["coding", "code_review"],
+    "engineer": ["coding", "testing"],
+    "工程师": ["coding", "testing"],
+    "测试": ["testing", "qa"],
+    "qa": ["testing", "qa"],
+    "tester": ["testing", "qa"],
+    "运维": ["deployment", "ops", "aws_cli_script_authoring"],
+    "ops": ["deployment", "ops"],
+    "sre": ["deployment", "ops", "monitoring"],
+    "架构": ["architecture", "analysis", "aws_es_capacity_planning"],
+    "architect": ["architecture", "analysis"],
+    "产品": ["analysis", "planning"],
+    "pm": ["analysis", "planning"],
+    "分析": ["analysis", "research"],
+    "researcher": ["analysis", "research"],
+    "安全": ["security", "code_review"],
+    "security": ["security", "code_review"],
+    # AWS 运维团队角色
+    "成本优化": ["aws_cost_finops", "analysis"],
+    "成本": ["aws_cost_finops", "analysis"],
+    "容量": ["aws_es_capacity_planning", "planning"],
+    "上云架构": ["aws_es_capacity_planning", "architecture"],
+    "运维leader": ["aws_es_scaling_orchestration", "ops"],
+    "运维操作": ["aws_cli_script_authoring", "ops"],
+    "巡检": ["aws_ops_monitoring", "monitoring"],
+    "监控": ["aws_ops_monitoring", "monitoring"],
+    "合规": ["compliance_region_guard", "security"],
+    "区域合规": ["compliance_region_guard", "security"],
+    # Build system
+    "项目经理": ["planning", "analysis"],
+    "全栈": ["coding", "code_review"],
+    "技术研究": ["research", "analysis"],
+}
+
+# title/description 关键词 → 技能（最后兜底；优先匹配更长/更具体的域技能）
+_SKILL_HINTS: Dict[str, List[str]] = {
+    # 域 skill（与 aws-ops / build 基因组对齐）
+    "aws_es_capacity_planning": ["容量", "分片", "slo", "索引", "capacity", "elasticsearch 基线", "es 当前"],
+    "aws_es_scaling_orchestration": ["缩放", "伸缩", "编排", "scaling", "orchestration"],
+    "aws_cli_script_authoring": ["shell", "aws-cli", "cli 脚本", "运维脚本", "脚本编写"],
+    "aws_cost_finops": ["账单", "ri/", "savings", "finops", "成本", "降本"],
+    "aws_ops_monitoring": ["cloudwatch", "opensearch", "指标门禁", "故障处理", "监控"],
+    "compliance_region_guard": ["合规", "区域", "region", "北美", "部署限制"],
+    "terraform": ["terraform", "基础设施", "iac"],
+    "coding": ["代码", "开发", "实现", "编程", "code", "implement", "develop"],
+    "code_review": ["审查", "评审", "review", "彩排回滚", "单步变更"],
+    "testing": ["测试", "test", "qa", "单测"],
+    "deployment": ["部署", "发布", "deploy", "上线"],
+    "analysis": ["分析", "调研", "research", "评估"],
+    "ops": ["运维", "ops"],
+    "security": ["安全", "security", "漏洞"],
+    "planning": ["规划", "计划", "拆解", "plan"],
+    "monitoring": ["监控", "monitor", "巡检"],
+}
+
+
+def _parse_skills_cell(raw: str) -> List[str]:
+    """解析技能单元格：逗号/顿号/斜杠分隔."""
+    if not raw or raw.strip() in ("-", "无", "none", "None", "—", "–"):
+        return []
+    parts = re.split(r"[,，、;/|]+", raw)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _header_index(headers: List[str], *needles: str) -> Optional[int]:
+    for i, h in enumerate(headers):
+        hl = h.lower()
+        for n in needles:
+            if n.lower() in hl or n in h:
+                return i
+    return None
+
+
+def infer_skills_for_step(
+    *,
+    title: str = "",
+    description: str = "",
+    responsible_role: str = "",
+    explicit: Optional[List[str]] = None,
+) -> tuple[List[str], bool]:
+    """返回 (skills, inferred). explicit 非空则 inferred=False."""
+    if explicit:
+        return list(explicit), False
+    role = (responsible_role or "").strip().lower()
+    if role:
+        for key, skills in ROLE_DEFAULT_SKILLS.items():
+            kl = key.lower()
+            if kl in role or role in kl:
+                return list(skills), True
+    blob = f"{title} {description}".lower()
+    found: List[str] = []
+    for skill, kws in _SKILL_HINTS.items():
+        if any(kw.lower() in blob for kw in kws):
+            if skill not in found:
+                found.append(skill)
+    if found:
+        return found, True
+    return ["generic"], True
+
+
 def parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
     """从 markdown 表格或列表格式中提取任务项.
 
     只接受结构化格式（表格/列表），拒绝按行分割兜底。
     返回空列表时，调用方应回退到 LLM 拆解或单任务兜底。
+    支持可选「所需技能/技能」列（v4 XG-1）。
     """
     tasks: List[Dict[str, Any]] = []
 
@@ -67,17 +172,25 @@ def parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
     if len(table_lines) >= 3:
         header_cells = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
         if any("任务" in cell for cell in header_cells):
+            # 兼容固定 6 列布局 + 按表头定位
+            idx_title = _header_index(header_cells, "任务", "title") or 1
+            idx_resp = _header_index(header_cells, "负责", "角色", "responsible") or 2
+            idx_pri = _header_index(header_cells, "优先级", "priority") or 3
+            idx_dep = _header_index(header_cells, "依赖", "depend") or 4
+            idx_art = _header_index(header_cells, "预期", "产出", "验收", "artifact") or 5
+            idx_sk = _header_index(header_cells, "技能", "skill", "所需技能")
             for row_line in table_lines[2:]:
                 cells = [cell.strip() for cell in row_line.strip("|").split("|")]
                 if len(cells) < 6:
                     continue
                 if not cells[0] or re.fullmatch(r"-{3,}", cells[0].replace(" ", "")):
                     continue
-                title = cells[1]
-                responsible = cells[2]
-                priority = cells[3]
-                dependencies = cells[4]
-                expected_artifact = cells[5]
+                title = cells[idx_title] if idx_title < len(cells) else cells[1]
+                responsible = cells[idx_resp] if idx_resp < len(cells) else cells[2]
+                priority = cells[idx_pri] if idx_pri < len(cells) else cells[3]
+                dependencies = cells[idx_dep] if idx_dep < len(cells) else cells[4]
+                expected_artifact = cells[idx_art] if idx_art < len(cells) else cells[5]
+                skills_raw = cells[idx_sk] if idx_sk is not None and idx_sk < len(cells) else ""
                 if not is_valid_task_title(title):
                     continue
                 description = "\n".join(
@@ -94,6 +207,7 @@ def parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
                     "responsible": responsible,
                     "dependencies": dependencies,
                     "expected_artifact": expected_artifact,
+                    "required_skills": _parse_skills_cell(skills_raw),
                 })
             if tasks:
                 return tasks
@@ -112,6 +226,7 @@ def parse_plan_table(plan_text: str) -> List[Dict[str, Any]]:
                 "responsible": "",
                 "dependencies": "",
                 "expected_artifact": "",
+                "required_skills": [],
             })
         if tasks:
             return tasks
@@ -253,6 +368,13 @@ def build_plan_from_text(
             d.strip() for d in re.split(r"[,，、;；\s]+", deps_raw)
             if d.strip() and d.strip() not in ("-", "无", "none", "None")
         ]
+        explicit = list(item.get("required_skills") or [])
+        skills, _inferred = infer_skills_for_step(
+            title=item.get("title", ""),
+            description=item.get("description", ""),
+            responsible_role=item.get("responsible", ""),
+            explicit=explicit or None,
+        )
         plan.steps.append(PlanStep(
             step_id=f"{plan.plan_id}-s{i + 1}",
             index=i + 1,
@@ -261,6 +383,7 @@ def build_plan_from_text(
             responsible_role=item.get("responsible", ""),
             acceptance=item.get("expected_artifact", ""),
             dependencies=deps,
+            required_skills=skills,
             priority=int(item.get("priority", 2)),
         ))
     return plan
@@ -277,6 +400,8 @@ def validate_plan(plan: ExecutionPlan, profile: str = "dispatch") -> List[Dict[s
     profile='dispatch': 生产派发关卡（approve/dispatch 使用）。
     profile='twin':     进孪生演练关卡——在基础规则上叠加「每步骤必须声明所需技能」
                         （孪生按技能生成任务流，无技能无法仿真执行）。
+    profile='eco':      物竞天择任务生境关卡——每步至少 1 个技能（可为推断的 generic 以外的技能；
+                        仅 generic 时给出 warning 级 issue，message 含 inferred）。
     """
     issues: List[Dict[str, str]] = []
     if not plan.steps:
@@ -315,6 +440,14 @@ def validate_plan(plan: ExecutionPlan, profile: str = "dispatch") -> List[Dict[s
         if profile == "twin" and not (s.required_skills or []):
             issues.append({"step_id": s.step_id, "field": "required_skills",
                            "message": f"步骤{s.index}「{s.title[:20]}」缺所需技能（孪生按技能仿真执行）"})
+        if profile == "eco":
+            skills = list(s.required_skills or [])
+            if not skills:
+                issues.append({"step_id": s.step_id, "field": "required_skills",
+                               "message": f"步骤{s.index}「{s.title[:20]}」缺所需技能（物竞生境按技能选择）"})
+            elif skills == ["generic"]:
+                issues.append({"step_id": s.step_id, "field": "required_skills",
+                               "message": f"步骤{s.index}「{s.title[:20]}」技能仅为 generic（inferred 兜底，建议补充真实技能）"})
     return issues
 
 

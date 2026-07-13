@@ -289,7 +289,9 @@ async function loadTasks(){hideViewLoading("view-tasks");
     const hasWf=t.metadata&&t.metadata.workflow&&t.metadata.workflow.length>0;
     const wfAllDone=hasWf&&t.metadata.workflow.every(s=>s.status==='completed'||s.status==='skipped');
     const delBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;color:oklch(0.55 0.005 110)" onclick="taskAction('${t.task_id}','delete')" title="删除任务">🗑</button>`;
-    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
+    // XG-11: pending 起即可进物竞（沙箱竞标，不替代「开始」）
+    const ecoBtn=` <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(167,139,250,0.12);color:var(--purple)" onclick="sendTaskToEcoField('${t.task_id}')" title="带本团队+任务进入办公室物竞试验田">🧬 物竞</button>`;
+    if(t.status==='pending') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.1);color:var(--cyan-s)" onclick="taskAction('${t.task_id}','start')">▶ 开始</button>${ecoBtn} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">取消</button> ${delBtn}`;
     else if(t.status==='running'){
       const cancelBtn=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="taskAction('${t.task_id}','cancel')">⏹ 取消</button>`;
       // T3.2: Step-level retry/skip/terminate for stuck running tasks
@@ -305,9 +307,11 @@ async function loadTasks(){hideViewLoading("view-tasks");
         actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(152,245,167,0.15);color:var(--lime)" onclick="taskAction('${t.task_id}','complete')">✓ 完成</button> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(224,27,36,0.1);color:var(--red)" onclick="taskAction('${t.task_id}','fail')">✗ 失败</button> ${cancelBtn} ${delBtn}`;
       }
     }
-    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span> <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
-    else if(t.status==='cancelled'||t.status==='failed') actions=`<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
-    else actions='—';
+    else if(t.status==='completed') actions=`<span style="color:var(--lime)">✓</span>${ecoBtn} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
+    else if(t.status==='cancelled'||t.status==='failed') actions=`${ecoBtn} <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(53,200,255,0.08);color:var(--cyan-s)" onclick="rerunTask('${t.task_id}')" title="重跑任务">🔄 重跑</button> ${delBtn}`;
+    else actions=ecoBtn||'—';
+    // running 行也挂物竞（可边跑边做孪生对照）
+    if(t.status==='running') actions=actions+ecoBtn;
     const src=t.metadata&&t.metadata.cross_team?`<span class="chip" style="font-size:9px;background:rgba(245,158,11,0.1);color:oklch(0.56 0.05 70)">跨团队 ← ${t.metadata.source_agent||t.metadata.source_team||''}</span>`:'';
     const wfHtml=renderWorkflow(t);
     const wfProgress=t.metadata&&t.metadata.workflow?(() => {const w=t.metadata.workflow;const done=w.filter(s=>s.status==='completed').length;return `<span style="font-size:10px;color:var(--dim);margin-left:6px">${done}/${w.length}</span>`})():'';
@@ -494,6 +498,40 @@ window.rerunTask = async function(taskId){
   }catch(e){
     toast('❌ 重跑失败: '+e.message,'error');
   }
+};
+/** XG-11: 团队任务 → 物竞试验田（带 team_id + task_id） */
+window.sendTaskToEcoField = async function(taskId){
+  if(!tid){toast('请先选择团队');return;}
+  if(!taskId){toast('无任务 ID');return;}
+  let task=null;
+  try{
+    const tasks=await listTasks();
+    task=(tasks||[]).find(x=>x.task_id===taskId)||null;
+  }catch(e){/* ignore */}
+  let teamName=tid;
+  try{
+    const tm=await api(`${A}/teams/${tid}`);
+    if(tm&&tm.name) teamName=tm.name;
+  }catch(e){/* ignore */}
+  try{
+    sessionStorage.setItem('eco_bound_team',JSON.stringify({id:tid,name:teamName}));
+    if(task) sessionStorage.setItem('eco_bound_task',JSON.stringify(task));
+    // 若任务带 plan 元数据，尽量附带 plan 壳（无 steps 时孪生会走 from-tasks）
+    if(task&&task.metadata&&task.metadata.plan_id){
+      const meta=task.metadata;
+      sessionStorage.setItem('eco_bound_plan_meta',JSON.stringify({
+        plan_id:meta.plan_id||'',
+        plaza_id:meta.plaza_id||'',
+        discussion_id:meta.discussion_id||'',
+        team_id:tid,
+        task_id:taskId,
+      }));
+    }
+  }catch(e){/* ignore */}
+  const url=`/Agent-digital-twin.html?office3d=1&team_id=${encodeURIComponent(tid)}&team_name=${encodeURIComponent(teamName)}&task_id=${encodeURIComponent(taskId)}`+
+    (task&&task.metadata&&task.metadata.plan_id?`&plan_id=${encodeURIComponent(task.metadata.plan_id)}`:'');
+  window.open(url,'_blank');
+  toast('已打开物竞试验田（团队+任务已绑定）');
 };
 window.taskAction = taskAction;
 window.startClaudeForTask = startClaudeForTask;

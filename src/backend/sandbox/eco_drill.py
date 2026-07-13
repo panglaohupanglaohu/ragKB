@@ -203,6 +203,9 @@ class EcoDrill:
         learning_pool: Optional[List[str]] = None,
         record_timeline: bool = True,
         economics: Optional[Dict[str, float]] = None,
+        niches: Optional[List[Dict[str, Any]]] = None,
+        role_affinity: float = 1.1,
+        niche_loop: bool = True,
     ) -> None:
         self._creatures: Dict[str, Creature] = {c.agent_id: c for c in creatures}
         self._rng = random.Random(seed)
@@ -227,8 +230,25 @@ class EcoDrill:
                     except (TypeError, ValueError):
                         pass
 
+        # v4 任务生境：有序 niches（计划步骤）；空则走 v3 循环 demand
+        self._niches: List[Dict[str, Any]] = list(niches or [])
+        self._niche_index = 0
+        self._niche_ticks = 0
+        self._niche_loop = niche_loop
+        self._role_affinity = float(role_affinity) if role_affinity else 1.0
+
+        flat_demand = list(demanded_skills) or ["generic"]
+        if self._niches:
+            flat_demand = []
+            for n in self._niches:
+                for s in n.get("demanded_skills") or []:
+                    if s not in flat_demand:
+                        flat_demand.append(s)
+            if not flat_demand:
+                flat_demand = ["generic"]
+
         self.env = EnvState(
-            demanded_skills=list(demanded_skills) or ["generic"],
+            demanded_skills=flat_demand,
             drift_prob=drift_prob,
             predator_pressure=predator_pressure,
             abundance=abundance,
@@ -287,6 +307,31 @@ class EcoDrill:
     def is_extinct(self) -> bool:
         return len(self.living()) == 0
 
+    def _current_demand(self) -> str:
+        """当前生态位 demand skill（任务契约 niches 优先）."""
+        if self._niches:
+            n = self._niches[self._niche_index % len(self._niches)]
+            skills = list(n.get("demanded_skills") or [])
+            if skills:
+                # 窗口内按 tick 轮换该步骤的 skills（同一步骤多技能）
+                return skills[self._niche_ticks % len(skills)]
+        skills = self.env.demanded_skills or ["generic"]
+        return skills[self._step_index % len(skills)]
+
+    def _advance_niche_window(self) -> None:
+        if not self._niches:
+            return
+        self._niche_ticks += 1
+        n = self._niches[self._niche_index % len(self._niches)]
+        base = int(n.get("base_ticks") or 12)
+        if self._niche_ticks >= max(1, base):
+            self._niche_ticks = 0
+            nxt = self._niche_index + 1
+            if nxt >= len(self._niches):
+                self._niche_index = 0 if self._niche_loop else len(self._niches) - 1
+            else:
+                self._niche_index = nxt
+
     # ── 单步生境 tick ──
     def step(self) -> Dict[str, Any]:
         """一个生境 tick：受限感知（含信号板）→ H/F/L 意图 → 行为表达 → 代谢结算 → 死亡淘汰."""
@@ -295,11 +340,19 @@ class EcoDrill:
             compute_hunger, compute_fear, compute_libido, generate_intention,
         )
 
-        demand = self.env.demanded_skills[self._step_index % len(self.env.demanded_skills)]
+        demand = self._current_demand()
+        niche_title = ""
+        niche_role = ""
+        if self._niches:
+            n = self._niches[self._niche_index % len(self._niches)]
+            niche_title = str(n.get("title") or "")
+            niche_role = str(n.get("responsible_role") or "")
         deaths: List[str] = []
         new_signals: List[Dict[str, Any]] = []
         step_summary: Dict[str, Any] = {
             "step": self._step_index, "demand": demand, "actions": {},
+            "niche_index": self._niche_index if self._niches else None,
+            "niche_title": niche_title or None,
         }
         board = self._signal_board  # 上一 tick 的信号（受限感知窗口）
         food_signals = [s for s in board if s["type"] == "food"]
@@ -316,7 +369,12 @@ class EcoDrill:
             libido = compute_libido(hunger, sustained)
             state = MentalState(hunger=hunger, fear=fear, libido=libido)
 
+            # 可服务：当前 demand 命中 genome，或本生态位窗口内任一 demanded skill 命中
+            # （否则多 skill 步骤里 agent 只在 1/N tick 有选择压力，skill 进化观测被稀释）
             can_serve = demand in c.skill_genome
+            if not can_serve and self._niches:
+                _ns = list((self._niches[self._niche_index % len(self._niches)].get("demanded_skills") or []))
+                can_serve = any(s in c.skill_genome for s in _ns)
             view = WorldView(
                 agent_id=c.agent_id,
                 own_backlog=1,
@@ -358,6 +416,7 @@ class EcoDrill:
             outcome: Optional[bool] = None  # None=非觅食步(不计入恐惧窗口)
 
             # ── 行为表达（意图 → 概率化动作，无协作规则分支）──
+            followed = False
             if intention.type == IntentionType.FORAGE:
                 followed = (not can_serve or self._rng.random() < c.collab_genome.follow_tendency) \
                     and any(s["from"] != c.agent_id for s in food_signals)
@@ -368,11 +427,14 @@ class EcoDrill:
                     action_cost += self._econ["forage_miss_penalty"] * 0.75
                 elif can_serve:
                     prof = c.skill_proficiency.get(demand, 0.5)
+                    # v4 角色亲和：与计划步骤 responsible_role 匹配时熟练度表型略增益
+                    if niche_role and c.role and niche_role.strip().lower() in str(c.role).lower():
+                        prof = min(0.98, prof * self._role_affinity)
                     p_ok = 0.3 + 0.6 * prof + (self._econ["follow_bonus"] if followed else 0.0)
                     if self._rng.random() < max(0.25, min(0.97, p_ok)):
                         reward += self._econ["forage_gain"] * self.env.abundance
                         outcome = True
-                        c.skill_proficiency[demand] = min(0.98, prof + 0.02)  # session 内练熟
+                        c.skill_proficiency[demand] = min(0.98, c.skill_proficiency.get(demand, 0.5) + 0.02)
                     else:
                         action_cost += self._econ["forage_miss_penalty"]
                         outcome = False
@@ -403,6 +465,9 @@ class EcoDrill:
                         c.skill_genome.append(learned)
                         c.skill_proficiency.setdefault(learned, 0.2)
                         emitted.append(f"LEARN@{learned}")
+                        step_summary.setdefault("skill_origins", []).append({
+                            "agent_id": c.agent_id, "skill": learned, "origin": "learn",
+                        })
 
             # ── 信号阶段（倾向概率表达，发信号有成本）──
             if can_serve and self._rng.random() < c.collab_genome.signal_tendency:
@@ -437,11 +502,15 @@ class EcoDrill:
             step_summary["actions"][c.agent_id] = {
                 "intention": intention.type.value,
                 "can_serve": can_serve,
-                "outcome": "outcompeted" if p["outcompeted"] else ("success" if outcome else "miss/idle"),
+                "outcome": "outcompeted" if p["outcompeted"] else (
+                    "success" if outcome is True else ("miss" if outcome is False else "idle")
+                ),
                 "health": round(result.health_after, 2),
                 "survival_ticks": result.survival_ticks,
                 "signals": emitted,
                 "shared_to": shared_to,
+                "followed": bool(followed),
+                "reward": round(reward, 3),
             }
             if result.became_dormant:
                 c.alive = False
@@ -460,6 +529,7 @@ class EcoDrill:
 
         self._signal_board = new_signals
         self._step_index += 1
+        self._advance_niche_window()
         step_summary["deaths"] = deaths
         step_summary["predated"] = predated
         step_summary["living"] = len(self.living())
@@ -762,15 +832,43 @@ class EcoDrill:
         return [target.agent_id]
 
     # ── 棘轮锁定世代最优（只进不退）──
-    def ratchet_lock(self, team_id: str, best_survival: int, gen: int) -> Dict[str, Any]:
-        """把世代最优生存时长写入全局棘轮账本（只进不退）."""
+    def ratchet_lock(
+        self,
+        team_id: str,
+        best_survival: int,
+        gen: int,
+        *,
+        plan_fingerprint: str = "",
+    ) -> Dict[str, Any]:
+        """把世代最优生存时长写入全局棘轮账本（只进不退）.
+
+        v4: 若有 plan_fingerprint，额外 advance eco_plan:{fp}，用于同计划类型最优构型锁定。
+        """
+        out: Dict[str, Any] = {"advanced": False, "current": 0.0}
         try:
             from agents.ratchet_ledger import get_ratchet_ledger
-            return get_ratchet_ledger().advance(
+            rl = get_ratchet_ledger()
+            out = rl.advance(
                 metric_key=f"eco_survival:{team_id}",
                 value=float(best_survival),
                 evidence={"generation": gen, "source": "eco_drill"},
             )
+            if plan_fingerprint:
+                try:
+                    out_plan = rl.advance(
+                        metric_key=f"eco_plan:{plan_fingerprint}",
+                        value=float(best_survival),
+                        evidence={
+                            "generation": gen,
+                            "source": "eco_drill",
+                            "team_id": team_id,
+                            "fingerprint": plan_fingerprint,
+                        },
+                    )
+                    out["plan_ratchet"] = out_plan
+                except Exception as e2:
+                    logger.debug("plan ratchet skip: %s", e2)
+            return out
         except Exception as e:  # pragma: no cover - 账本不可用时不阻断
             logger.warning("棘轮锁定失败: %s", e)
             return {"advanced": False, "current": 0.0, "reason": str(e)}
@@ -957,6 +1055,9 @@ async def run_drill_via_trial(
     mate_fn: Optional[Callable[[Creature, Creature, int], Creature]] = None,
     write_lineage: bool = False,
     extra_team_ids: Optional[List[str]] = None,
+    contract: Optional[Dict[str, Any]] = None,
+    use_eras: bool = False,
+    task_goal: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """trial_api.branch_run 调用的入口：从团队构建 creatures → 跑多代生境 → 返回结果 + timeline.
 
@@ -965,6 +1066,7 @@ async def run_drill_via_trial(
     mate_fn/write_lineage（XB-4.1）：可注入 team_manager.mate 作繁衍实现；
     write_lineage=True 时后代谱系写回 AgentProfile.metadata.lineage（source="eco_drill"），
     默认 False——演练不动真身。
+    contract/use_eras（v4）：任务生境契约 + 混合竞争纪元。
     """
     import asyncio
 
@@ -976,6 +1078,12 @@ async def run_drill_via_trial(
         except Exception as e:  # pragma: no cover - 观测层不阻塞业务
             logger.debug("eco_drill 事件回调失败: %s", e)
 
+    tg = task_goal or {}
+    if contract is None and isinstance(tg.get("contract"), dict):
+        contract = tg["contract"]
+    if not use_eras:
+        use_eras = bool(tg.get("era") is True or tg.get("race_mode") == "mixed")
+
     # 从团队构建 creatures
     try:
         from agents.api import _team_manager
@@ -984,11 +1092,15 @@ async def run_drill_via_trial(
     if _team_manager is None:
         return {"error": "team_manager_not_ready", "trial_id": trial_id}
 
+    from .skill_identity import build_catalog, canonicalize_list
+
     # v2.3 多种群同场竞争：主团队 + 对比种群共同入场（同一生境、同一生态位、同一淘汰规则）
     team_ids: List[str] = [team_id] + [t for t in (extra_team_ids or []) if t and t != team_id]
     creatures: List[Creature] = []
     all_skills: List[str] = []
     loaded_teams: List[str] = []
+    catalog_entries: List[Any] = []
+
     for tid in team_ids:
         team = _team_manager.get_team(tid)
         if team is None:
@@ -997,14 +1109,12 @@ async def run_drill_via_trial(
             logger.warning("对比种群 %s 不存在，跳过", tid)
             continue
         loaded_teams.append(tid)
-        # 收集生态位需求：优先团队级 skill，不足时从 agent skill 汇总
-        # 按技能名去重（不同 ID 可能同名——如旧技能迁移后的重复条目），
-        # 否则同名不同 ID 会导致 agent skill_genome 匹配失败而误饿死。
         team_skills = []
         if team.skills:
             seen_names = set()
             for sid, sd in team.skills.items():
                 nm = (getattr(sd, 'name', '') or getattr(sd, 'slug', '') or '') or sid
+                catalog_entries.append((sid, nm))
                 if nm not in seen_names:
                     seen_names.add(nm)
                     team_skills.append(sid)
@@ -1012,19 +1122,68 @@ async def run_drill_via_trial(
         for agent in agents:
             if not team_skills:
                 all_skills.extend(agent.skills or [])
+            raw_skills = list(agent.skills) if agent.skills else []
             creatures.append(Creature(
                 agent_id=agent.agent_id,
                 role=agent.role,
                 population=tid,
-                skill_genome=list(agent.skills) if agent.skills else [],
-                skill_proficiency={s: 0.5 for s in (agent.skills or [])},
+                skill_genome=raw_skills,
+                skill_proficiency={s: 0.5 for s in raw_skills},
             ))
+            for s in raw_skills:
+                catalog_entries.append(s)
         all_skills.extend(team_skills)
-    all_skills = list(set(all_skills)) or ["generic"]
+
+    catalog = build_catalog(catalog_entries)
+    # 归一 genome + demand
+    for c in creatures:
+        old_prof = dict(c.skill_proficiency or {})
+        c.skill_genome = canonicalize_list(c.skill_genome, catalog)
+        new_prof: Dict[str, float] = {}
+        for s in c.skill_genome:
+            new_prof[s] = float(old_prof.get(s, 0.5))
+        c.skill_proficiency = new_prof
+
+    all_skills = canonicalize_list(list(set(all_skills)), catalog) or ["generic"]
+
+    # contract niches 归一
+    niches_arg: Optional[List[Dict[str, Any]]] = None
+    learning_extra: List[str] = []
+    if contract:
+        niches_arg = []
+        for n in contract.get("niches") or []:
+            nd = dict(n)
+            nd["demanded_skills"] = canonicalize_list(nd.get("demanded_skills") or [], catalog)
+            niches_arg.append(nd)
+            learning_extra.extend(nd["demanded_skills"])
+        for s in contract.get("skill_universe") or []:
+            learning_extra.append(s)
+        learning_extra = canonicalize_list(learning_extra, catalog)
+        # 有 contract 时 demand 以计划技能为主
+        if learning_extra:
+            all_skills = list(dict.fromkeys(learning_extra + all_skills))
+        # 预算：trial 显式 max_steps 仍优先；contract 可作默认（调用方已填）
+        sb = contract.get("step_budget") or {}
+        if max_steps == 150 and sb.get("max_steps_per_generation"):
+            try:
+                max_steps = int(sb["max_steps_per_generation"])
+            except (TypeError, ValueError):
+                pass
+        if max_generations == 3 and sb.get("max_generations"):
+            try:
+                max_generations = int(sb["max_generations"])
+            except (TypeError, ValueError):
+                pass
+
     if not creatures:
         return {"error": "no_creatures", "trial_id": trial_id}
 
     hp = _habitat_params()
+    drift = hp["drift_prob"]
+    # 绑定计划后默认降低漂移（任务耦合，仍可被严酷剧本覆盖）
+    if contract and niches_arg:
+        drift = min(drift, 0.1)
+
     drill = EcoDrill(
         creatures=creatures,
         demanded_skills=all_skills,
@@ -1032,96 +1191,190 @@ async def run_drill_via_trial(
         metabolic_rate=hp["metabolic_rate"],
         blind_learning_rate=hp["blind_learning_rate"],
         genome_carry_cost=hp["genome_carry_cost"],
-        drift_prob=hp["drift_prob"],
+        drift_prob=drift,
         predator_pressure=hp["predator_pressure"],
         abundance=hp["abundance"],
         niche_capacity=int(hp.get("niche_capacity", 0)),
         economics=hp.get("economics") or None,
         mate_fn=mate_fn,
+        niches=niches_arg,
+        learning_pool=list(set(all_skills) | set(learning_extra)),
     )
 
-    # 多代演化
     generations: List[Dict[str, Any]] = []
     prev_best = -1
+    eras_payload: Optional[Dict[str, Any]] = None
 
-    for gen in range(max_generations):
-        # 逐步推进（每步回调 SSE；每 10 步让出事件循环）
-        steps_executed = 0
-        for i in range(max_steps):
-            if drill.is_extinct():
-                break
-            step_summary = drill.step()
-            # v2.3: 世代号直接盖在帧上（step() 返回的是 timeline 中同一 dict 对象，
-            # 因此 timeline 帧也带上 generation——回放的世代边界不再靠均分猜测）
-            step_summary["generation"] = gen
-            steps_executed += 1
-            _safe(on_step, step_summary)
-            if i % 10 == 9:
-                await asyncio.sleep(0)
-        run_result = {
-            "steps_executed": steps_executed,
-            "extinct": drill.is_extinct(),
-            "ranking": drill.survival_ranking(),
-        }
-        ranking = run_result.get("ranking", [])
+    # ── v4 混合竞争：run_eras 纪元嵌套 ──
+    if use_eras:
+        era_cfg: Dict[str, Any] = {}
+        try:
+            from agents.runtime.eco_runtime_config import get_eco_runtime_config
+            era_cfg = dict(get_eco_runtime_config().get_section("era") or {})
+        except Exception:
+            era_cfg = {}
+        if contract and isinstance((contract.get("step_budget") or {}).get("era"), dict):
+            era_cfg.update(contract["step_budget"]["era"])
+        era_count = int(era_cfg.get("era_count", 3) or 3)
+        epochs_per_era = int(era_cfg.get("epochs_per_era", max_generations) or max_generations)
+        env_ramp = era_cfg.get("env_ramp") if isinstance(era_cfg.get("env_ramp"), dict) else None
+        cross_pop = bool(era_cfg.get("cross_pop_mating", True))
 
-        if ranking:
-            best_survival = ranking[0].get("survival_ticks", 0)
-            avg_survival = sum(r.get("survival_ticks", 0) for r in ranking) / len(ranking)
-        else:
-            best_survival = 0
-            avg_survival = 0.0
-
-        ratchet_result = drill.ratchet_lock(team_id, best_survival, gen)
-
-        births = 0
-        drift = None
-        if not drill.is_extinct() and len(drill.living()) >= 2:
-            epoch_result = drill.run_epoch(reproduce_top_k=2, mutation_rate=0.15)
-            births = len(epoch_result.get("offspring", []))
-            drift = epoch_result.get("drift")
-            _safe(on_epoch, {**epoch_result, "gen_index": gen})
-
-        gen_rec = {
-            "generation": gen,
-            "steps_executed": run_result.get("steps_executed", 0),
-            "extinct": run_result.get("extinct", False),
-            "living": len(drill.living()),
-            "avg_survival_ticks": round(avg_survival, 2),
-            "best_survival_ticks": best_survival,
-            "births": births,
-            "drift": drift,
-            "ratchet_advanced": ratchet_result.get("advanced", False),
-            "ratchet_value": ratchet_result.get("current", 0.0),
-        }
-        # v2.3 多种群：每代记录各种群统计（前端世代曲线做种群对比）
-        gen_rec["population_stats"] = drill.population_stats()
-        # XV-5.1: 逐代派生字段——diversity / fitness_rate / era
-        gen_rec["diversity"] = drill._diversity_index()
-        gen_rec["fitness_rate"] = round(best_survival / max(max_steps, 1), 3)   # 0~1 适应率
-        gen_rec["era"] = 0   # 单纪元模式固定为 0；混合竞争 run_eras 会覆盖
-        # XB-3.1: 猫解说（LLM 可用时拟态播报，否则降级模板）
-        gen_rec["cat_commentary"] = await _generate_cat_commentary(gen_rec)
-        generations.append(gen_rec)
-        logger.info(
-            "🧬 gen%d: living=%d best=%d avg=%.1f births=%d ratchet=%s",
-            gen, gen_rec["living"], best_survival, avg_survival,
-            births, "↑" if ratchet_result.get("advanced") else "=",
+        eras_payload = drill.run_eras(
+            max_steps_per_epoch=max_steps,
+            era_count=era_count,
+            epochs_per_era=epochs_per_era,
+            env_ramp=env_ramp,
+            cross_pop_mating=cross_pop,
+            reproduce_top_k=2,
+            mutation_rate=0.15,
         )
+        # 从 timeline epochs 合成 generations 摘要（供前端三比/报告）
+        for i, ep in enumerate(drill.timeline.get("epochs") or []):
+            ranking_snap = drill.survival_ranking()
+            best_survival = ranking_snap[0]["survival_ticks"] if ranking_snap else 0
+            avg_survival = (
+                sum(r["survival_ticks"] for r in ranking_snap) / len(ranking_snap)
+                if ranking_snap else 0.0
+            )
+            gen_rec = {
+                "generation": i,
+                "steps_executed": max_steps,
+                "extinct": drill.is_extinct(),
+                "living": len(drill.living()),
+                "avg_survival_ticks": round(avg_survival, 2),
+                "best_survival_ticks": best_survival,
+                "births": len(ep.get("offspring") or ep.get("births") or []),
+                "drift": ep.get("drift"),
+                "ratchet_advanced": False,
+                "ratchet_value": 0,
+                "population_stats": drill.population_stats(),
+                "diversity": drill._diversity_index(),
+                "fitness_rate": round(best_survival / max(max_steps, 1), 3),
+                "era": ep.get("era", 0),
+            }
+            gen_rec["cat_commentary"] = await _generate_cat_commentary(gen_rec)
+            generations.append(gen_rec)
+            _safe(on_epoch, {**ep, "gen_index": i})
+            prev_best = max(prev_best, best_survival)
+        if not generations:
+            ranking_snap = drill.survival_ranking()
+            best_survival = ranking_snap[0]["survival_ticks"] if ranking_snap else 0
+            prev_best = best_survival
+            generations.append({
+                "generation": 0,
+                "steps_executed": max_steps * max(era_count, 1),
+                "extinct": drill.is_extinct(),
+                "living": len(drill.living()),
+                "avg_survival_ticks": 0,
+                "best_survival_ticks": best_survival,
+                "births": 0,
+                "drift": None,
+                "population_stats": drill.population_stats(),
+                "diversity": drill._diversity_index(),
+                "fitness_rate": round(best_survival / max(max_steps, 1), 3),
+                "era": 0,
+                "cat_commentary": await _generate_cat_commentary({
+                    "generation": 0, "living": len(drill.living()),
+                    "best_survival_ticks": best_survival, "births": 0,
+                    "ratchet_advanced": False,
+                }),
+            })
+        # 纪元结束后按最优 survival 做一次 plan/team 棘轮
+        try:
+            ranking_final = drill.survival_ranking()
+            best_final = ranking_final[0]["survival_ticks"] if ranking_final else prev_best
+            _fp = str((contract or {}).get("provenance", {}).get("fingerprint") or "") if contract else ""
+            drill.ratchet_lock(team_id, int(best_final or 0), len(generations), plan_fingerprint=_fp)
+            prev_best = max(prev_best, int(best_final or 0))
+        except Exception:
+            pass
+        # 盖 timeline 帧 generation/era（run_eras 内 step 未写 gen）
+        for i, fr in enumerate(drill.timeline.get("steps") or []):
+            fr.setdefault("generation", 0)
+            fr.setdefault("era", 0)
+            _safe(on_step, fr)
+            if i % 20 == 19:
+                await asyncio.sleep(0)
+    else:
+        # 多代演化（v2/v3 默认路径）
+        for gen in range(max_generations):
+            steps_executed = 0
+            for i in range(max_steps):
+                if drill.is_extinct():
+                    break
+                step_summary = drill.step()
+                step_summary["generation"] = gen
+                steps_executed += 1
+                _safe(on_step, step_summary)
+                if i % 10 == 9:
+                    await asyncio.sleep(0)
+            run_result = {
+                "steps_executed": steps_executed,
+                "extinct": drill.is_extinct(),
+                "ranking": drill.survival_ranking(),
+            }
+            ranking = run_result.get("ranking", [])
 
-        # 棘轮未推进且非首代 → 停止
-        if gen > 0 and not ratchet_result.get("advanced", False):
-            if best_survival <= prev_best:
-                logger.info("🔒 棘轮锁定: gen%d best=%d <= prev=%d", gen, best_survival, prev_best)
+            if ranking:
+                best_survival = ranking[0].get("survival_ticks", 0)
+                avg_survival = sum(r.get("survival_ticks", 0) for r in ranking) / len(ranking)
+            else:
+                best_survival = 0
+                avg_survival = 0.0
+
+            _fp = ""
+            if contract:
+                _fp = str((contract.get("provenance") or {}).get("fingerprint") or "")
+            ratchet_result = drill.ratchet_lock(
+                team_id, best_survival, gen, plan_fingerprint=_fp,
+            )
+
+            births = 0
+            drift_evt = None
+            if not drill.is_extinct() and len(drill.living()) >= 2:
+                epoch_result = drill.run_epoch(reproduce_top_k=2, mutation_rate=0.15)
+                births = len(epoch_result.get("offspring", []))
+                drift_evt = epoch_result.get("drift")
+                _safe(on_epoch, {**epoch_result, "gen_index": gen})
+
+            gen_rec = {
+                "generation": gen,
+                "steps_executed": run_result.get("steps_executed", 0),
+                "extinct": run_result.get("extinct", False),
+                "living": len(drill.living()),
+                "avg_survival_ticks": round(avg_survival, 2),
+                "best_survival_ticks": best_survival,
+                "births": births,
+                "drift": drift_evt,
+                "ratchet_advanced": ratchet_result.get("advanced", False),
+                "ratchet_value": ratchet_result.get("current", 0.0),
+                "plan_fingerprint": _fp or None,
+            }
+            gen_rec["population_stats"] = drill.population_stats()
+            gen_rec["diversity"] = drill._diversity_index()
+            gen_rec["fitness_rate"] = round(best_survival / max(max_steps, 1), 3)
+            gen_rec["era"] = 0
+            gen_rec["cat_commentary"] = await _generate_cat_commentary(gen_rec)
+            generations.append(gen_rec)
+            logger.info(
+                "🧬 gen%d: living=%d best=%d avg=%.1f births=%d ratchet=%s",
+                gen, gen_rec["living"], best_survival, avg_survival,
+                births, "↑" if ratchet_result.get("advanced") else "=",
+            )
+
+            if gen > 0 and not ratchet_result.get("advanced", False):
+                if best_survival <= prev_best:
+                    logger.info("🔒 棘轮锁定: gen%d best=%d <= prev=%d", gen, best_survival, prev_best)
+                    break
+
+            prev_best = best_survival
+
+            if drill.is_extinct():
+                logger.info("💀 种群全灭于 gen%d", gen)
                 break
 
-        prev_best = best_survival
-
-        if drill.is_extinct():
-            logger.info("💀 种群全灭于 gen%d", gen)
-            break
-
-        await asyncio.sleep(0)  # 让出事件循环
+            await asyncio.sleep(0)
 
     # XB-4.1: 谱系落盘（默认关闭——演练不动真身）
     lineage_records: List[Dict[str, Any]] = []
@@ -1147,11 +1400,25 @@ async def run_drill_via_trial(
         except Exception as e:  # pragma: no cover
             logger.warning("lineage 写回失败（不阻断）: %s", e)
 
-    return {
+    ranking = drill.survival_ranking()
+    # T_i 分解：用完整 timeline（采样前）以提高归因覆盖
+    attribution: Dict[str, Any] = {}
+    try:
+        from .survival_decompose import (
+            attach_attribution_to_ranking,
+            decompose_survival_from_timeline,
+        )
+        attribution = decompose_survival_from_timeline(drill.timeline, ranking)
+        ranking = attach_attribution_to_ranking(ranking, attribution)
+    except Exception as e:  # pragma: no cover
+        logger.debug("survival decompose failed: %s", e)
+        attribution = {}
+
+    out: Dict[str, Any] = {
         "trial_id": trial_id,
         "drill_kind": "natural_selection",
         "generations": generations,
-        "final_ranking": drill.survival_ranking(),
+        "final_ranking": ranking,
         "gene_pool": drill.gene_pool_snapshot(),
         "collab_profile": drill.collab_profile(),
         "env": drill.env.to_dict(),
@@ -1162,7 +1429,27 @@ async def run_drill_via_trial(
         "lineage_written": bool(write_lineage and lineage_records),
         "best_survival_ticks": prev_best if prev_best > 0 else 0,
         "total_generations": len(generations),
+        "contract": contract,
+        "survival_attribution": attribution,
+        "survival_attribution_note": (
+            "T_i=survival_ticks 唯一根；skill/collab/residual 为存活 tick 主因分解，"
+            "skill_share+collab_share+residual_share=1"
+        ),
     }
+    if eras_payload:
+        out["eras"] = eras_payload.get("eras") or []
+        out["heterosis"] = eras_payload.get("heterosis")
+        out["era_count"] = eras_payload.get("era_count")
+    if contract:
+        try:
+            from .skill_integration import build_integration_report
+            out["integration"] = build_integration_report(out, contract)
+        except Exception as e:  # pragma: no cover
+            logger.debug("integration report failed: %s", e)
+            out["integration"] = None
+    else:
+        out["integration"] = None
+    return out
 
 
 # ── 单例适配（trial_api.branch_run 通过 get_eco_drill().run_drill 调用）──

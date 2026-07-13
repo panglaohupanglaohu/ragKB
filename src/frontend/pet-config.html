@@ -108,6 +108,12 @@ h1 { font-size: 20px; margin: 20px 0; }
     <button class="btn btn-danger" onclick="resetRuntime()">↺ 恢复默认</button>
     <span style="font-size:12px;color:#718096">这些参数来自「物竞天择驱动的非人演化生态」plan/todos，驱动 H/F/L 意图仲裁 · Health 代谢 · 盲目学习 · 选择淘汰 · 交配门禁</span>
   </div>
+  <div class="add-pet-bar" style="gap:10px">
+    <input id="runtime-search" type="search" placeholder="搜索参数名/说明…" oninput="runtimeSearchFilter(this.value)"
+      style="flex:1;min-width:180px;max-width:320px;padding:7px 10px;border:1px solid #d1d9e6;border-radius:6px;font-size:12px">
+    <button class="btn" type="button" onclick="runtimeToggleAll(true)" style="background:#e2e5e9">全部展开</button>
+    <button class="btn" type="button" onclick="runtimeToggleAll(false)" style="background:#e2e5e9">全部折叠</button>
+  </div>
   <div id="runtime-sections"></div>
 </div>
 
@@ -559,6 +565,40 @@ let _runtimeConfig = {};
 let _runtimeLoaded = false;
 
 // section/字段的中文标签 + 说明（来自 plan/todos）
+// XB-7.1: range 滑杆 + 数值联动 + 0~1 概率越界钳位 + 修改高亮
+const RUNTIME_FIELD_CTRL = {
+  // 概率/比例类 → range 0~1
+  fear_escape: { min: 0, max: 1, step: 0.01, unit: '0~1' },
+  fear_calm: { min: 0, max: 1, step: 0.01, unit: '0~1' },
+  hunger_threshold: { min: 0, max: 1, step: 0.01, unit: '0~1' },
+  libido_threshold: { min: 0, max: 1, step: 0.01, unit: '0~1' },
+  revive_ratio: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  saturation_threshold: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  exploration_base_rate: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  blind_learning_rate: { min: 0, max: 1, step: 0.01, unit: '0~1' },
+  drift_prob: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  predator_pressure: { min: 0, max: 0.5, step: 0.01, unit: '0~0.5' },
+  abundance: { min: 0.2, max: 2.5, step: 0.05, unit: '×' },
+  niche_capacity: { min: 0, max: 20, step: 1, unit: '名额' },
+  share_fraction: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  follow_bonus: { min: 0, max: 0.5, step: 0.01, unit: '' },
+  help_hunger: { min: 0, max: 1, step: 0.05, unit: '0~1' },
+  genome_carry_cost: { min: 0, max: 0.5, step: 0.01, unit: '' },
+  metabolic_rate: { min: 0, max: 5, step: 0.1, unit: '' },
+  health_max: { min: 10, max: 500, step: 10, unit: '' },
+  forage_gain: { min: 0, max: 30, step: 0.5, unit: '' },
+  forage_miss_penalty: { min: 0, max: 20, step: 0.5, unit: '' },
+  avoid_cost: { min: 0, max: 5, step: 0.1, unit: '' },
+  signal_cost: { min: 0, max: 5, step: 0.05, unit: '' },
+  exploration_half_life: { min: 1, max: 200, step: 1, unit: 't' },
+  solidify_min_uses: { min: 1, max: 50, step: 1, unit: '' },
+  solidify_min_gain: { min: -10, max: 10, step: 0.1, unit: '' },
+  dominant_min_streak: { min: 1, max: 20, step: 1, unit: '' },
+  dominant_usage_threshold: { min: 1, max: 100, step: 1, unit: '' },
+  era_count: { min: 1, max: 10, step: 1, unit: '' },
+  epochs_per_era: { min: 1, max: 20, step: 1, unit: '' },
+};
+
 const RUNTIME_META = {
   mental_state: { title: '🧠 H/F/L 意图仲裁阈值', desc: '感知→意图仲裁：avoid > forage > mate > rest（plan §2）', fields: {
     fear_escape: '恐惧逃逸阈值（F 超此值→avoid）',
@@ -580,12 +620,13 @@ const RUNTIME_META = {
     blind_learning_rate: '生境演练：REST 时随机习得 skill 的概率（0~1）',
     genome_carry_cost: '生境演练：每携带 1 个 skill 的每 tick 额外代谢（惩罚技能囤积）',
   }},
-  habitat: { title: '🌍 生境环境（物竞天择 v2）', desc: '环境必须流动：生态位漂移 + 捕食压力 + 丰饶度（plan v2 §3.3）——静态环境不产生持续选择', fields: {
+  habitat: { title: '🌍 生境环境（物竞天择）', desc: '客观环境：丰饶度≈token 松紧；捕食≈突发事故；漂移≈需求变更', fields: {
     drift_prob: '每世代生态位漂移概率（随机替换 1 个需求 skill，0~1）',
     predator_pressure: '每 tick 捕食事件概率（0=关闭，建议 0.05~0.2）',
-    abundance: '丰饶度：觅食收益倍率（0.5 艰难 ~ 2.0 富足）',
+    abundance: '丰饶度：觅食收益倍率（≈token/算力松紧，0.5 艰难 ~ 2.0 富足）',
+    niche_capacity: '生态位容量：每 tick 成功觅食名额（0=不限）',
   }},
-  drill_economics: { title: '🍖 觅食/协作经济学（物竞天择 v2）', desc: '生境演练的能量经济——协作有代价才可能被选择或淘汰（plan v2 §3.1）', fields: {
+  drill_economics: { title: '🍖 觅食/协作经济学（物竞天择）', desc: '生境演练的能量经济——协作有代价才可能被选择或淘汰（plan v2 §3.1）', fields: {
     forage_gain: '觅食命中获得的能量（×丰饶度）',
     forage_miss_penalty: '觅食未命中的额外代谢惩罚',
     avoid_cost: '避险动作代谢',
@@ -601,42 +642,177 @@ const RUNTIME_META = {
   mating: { title: '🧬 交配门禁', desc: '只有跨过「饱暖」门槛的个体才能繁殖', fields: {
     saturation_threshold: '允许交配的 Health 占比门槛（0~1）',
   }},
+  era: { title: '🌍 混合竞争·纪元', desc: '大迭代：纪元数 × 每纪元世代；跨纪元环境加压', fields: {
+    era_count: '纪元数（1=单纪元零回归）',
+    epochs_per_era: '每纪元内的世代数',
+  }},
 };
+
+let _runtimeDirty = false;
+let _runtimeBaseline = {};
+let _runtimeCollapsed = {}; // section -> bool
+let _runtimeSearch = '';
+
+function _clampRuntimeVal(key, num) {
+  const c = RUNTIME_FIELD_CTRL[key];
+  if (!c || isNaN(num)) return num;
+  let v = num;
+  if (c.min != null) v = Math.max(c.min, v);
+  if (c.max != null) v = Math.min(c.max, v);
+  return v;
+}
+
+function _runtimeInputHtml(section, key, val) {
+  const c = RUNTIME_FIELD_CTRL[key];
+  const v = val != null && val !== '' ? val : (c && c.min != null ? c.min : 0);
+  const dirtyMark = 'data-section="' + section + '" data-key="' + key + '"';
+  if (!c) {
+    return `<input type="number" step="any" value="${v}" ${dirtyMark} style="max-width:120px"
+      oninput="runtimeFieldChanged(this)">`;
+  }
+  return `<input type="range" min="${c.min}" max="${c.max}" step="${c.step}" value="${v}" ${dirtyMark}
+      style="flex:1;min-width:100px;max-width:180px;accent-color:#22d3ee"
+      oninput="runtimeRangeSync(this)">
+    <input type="number" min="${c.min}" max="${c.max}" step="${c.step}" value="${v}" ${dirtyMark}
+      data-pair="1" style="width:72px"
+      oninput="runtimeNumberSync(this)">
+    <span class="hint" style="min-width:36px">${esc(c.unit || '')}</span>`;
+}
 
 async function loadRuntime() {
   const data = await api.get('/api/v1/eco-runtime/config');
   if (!data) { toast('❌ 加载失败: ' + (api._lastError ? api._lastError.message : '无响应')); return; }
   _runtimeConfig = data;
+  _runtimeBaseline = JSON.parse(JSON.stringify(data));
   _runtimeLoaded = true;
+  _runtimeDirty = false;
   renderRuntime();
   toast('✅ 运行时参数已加载');
 }
 
+function runtimeRangeSync(rangeEl) {
+  const key = rangeEl.dataset.key;
+  let v = parseFloat(rangeEl.value);
+  v = _clampRuntimeVal(key, v);
+  rangeEl.value = v;
+  const row = rangeEl.closest('.form-row');
+  const num = row && row.querySelector('input[type=number][data-pair]');
+  if (num) num.value = v;
+  runtimeFieldChanged(rangeEl);
+}
+
+function runtimeNumberSync(numEl) {
+  const key = numEl.dataset.key;
+  let v = parseFloat(numEl.value);
+  if (isNaN(v)) return;
+  v = _clampRuntimeVal(key, v);
+  numEl.value = v;
+  const row = numEl.closest('.form-row');
+  const range = row && row.querySelector('input[type=range]');
+  if (range) range.value = v;
+  runtimeFieldChanged(numEl);
+}
+
+function runtimeFieldChanged(el) {
+  _runtimeDirty = true;
+  el.style.outline = '1px solid #f59e0b';
+  const badge = document.getElementById('runtime-dirty-badge');
+  if (badge) badge.style.display = 'inline';
+}
+
+function runtimeSearchFilter(q) {
+  _runtimeSearch = String(q || '').trim().toLowerCase();
+  // 有搜索时自动展开全部，便于命中行可见
+  if (_runtimeSearch) {
+    Object.keys(RUNTIME_META).forEach(s => { _runtimeCollapsed[s] = false; });
+  }
+  renderRuntime();
+  const el = document.getElementById('runtime-search');
+  if (el && el.value !== q) el.value = q;
+  // 保持光标：重渲后恢复 search 值
+  const searchEl = document.getElementById('runtime-search');
+  if (searchEl) {
+    searchEl.value = q;
+    try { searchEl.focus(); searchEl.setSelectionRange(q.length, q.length); } catch (e) { /* ignore */ }
+  }
+}
+
+function runtimeToggleSection(section) {
+  _runtimeCollapsed[section] = !_runtimeCollapsed[section];
+  renderRuntime();
+  const searchEl = document.getElementById('runtime-search');
+  if (searchEl && _runtimeSearch) searchEl.value = _runtimeSearch;
+}
+
+function runtimeToggleAll(expand) {
+  Object.keys(RUNTIME_META).forEach(s => { _runtimeCollapsed[s] = !expand; });
+  renderRuntime();
+  const searchEl = document.getElementById('runtime-search');
+  if (searchEl && _runtimeSearch) searchEl.value = _runtimeSearch;
+}
+
 function renderRuntime() {
   const box = document.getElementById('runtime-sections');
-  box.innerHTML = Object.keys(RUNTIME_META).map(section => {
+  if (!box) return;
+  const q = _runtimeSearch;
+  box.innerHTML = `<div style="margin-bottom:10px;font-size:12px">
+      <span id="runtime-dirty-badge" style="display:${_runtimeDirty ? 'inline' : 'none'};color:#f59e0b;font-weight:600">● 有未保存修改</span>
+      <span style="color:#a0aec0;margin-left:8px">概率类字段已钳位；滑杆与数字双向联动；支持分节折叠与搜索</span>
+    </div>` + Object.keys(RUNTIME_META).map(section => {
     const meta = RUNTIME_META[section];
     const vals = _runtimeConfig[section] || {};
-    const rows = Object.keys(meta.fields).map(key => `
-      <div class="form-row">
-        <label style="width:220px" title="${esc(meta.fields[key])}">${esc(key)}</label>
-        <input type="number" step="any" value="${vals[key]??''}" data-section="${section}" data-key="${key}" style="max-width:160px">
-        <span class="hint">${esc(meta.fields[key])}</span>
-      </div>`).join('');
-    return `<div class="eco-section"><h2 style="font-size:15px;margin:0 0 4px">${meta.title}</h2>
-      <p style="font-size:11px;color:#a0aec0;margin:0 0 10px">${esc(meta.desc)}</p>${rows}</div>`;
+    const fieldKeys = Object.keys(meta.fields).filter(key => {
+      if (!q) return true;
+      const hay = (key + ' ' + meta.fields[key] + ' ' + meta.title + ' ' + section).toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+    if (q && !fieldKeys.length && meta.title.toLowerCase().indexOf(q) < 0 && section.indexOf(q) < 0) {
+      return ''; // 整节无匹配则隐藏
+    }
+    const collapsed = !!_runtimeCollapsed[section] && !q;
+    const rows = fieldKeys.map(key => {
+      const dirty = _runtimeBaseline[section] && _runtimeBaseline[section][key] !== vals[key]
+        && vals[key] != null;
+      return `
+      <div class="form-row" data-runtime-row="1" style="align-items:center;gap:8px;flex-wrap:wrap${dirty ? ';background:rgba(245,158,11,.08);border-radius:6px;padding:4px' : ''}">
+        <label style="width:200px;flex-shrink:0" title="${esc(meta.fields[key])}">${esc(key)}${dirty ? ' <span style="color:#f59e0b">●</span>' : ''}</label>
+        ${_runtimeInputHtml(section, key, vals[key])}
+        <span class="hint" style="flex:1;min-width:120px">${esc(meta.fields[key])}</span>
+      </div>`;
+    }).join('');
+    const chevron = collapsed ? '▸' : '▾';
+    return `<div class="eco-section" data-section-id="${esc(section)}" style="margin-bottom:16px">
+      <h2 style="font-size:15px;margin:0 0 4px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px"
+        onclick="runtimeToggleSection('${esc(section)}')">
+        <span style="color:#718096;width:14px">${chevron}</span>${meta.title}
+        <span style="font-size:10px;color:#a0aec0;font-weight:400">(${fieldKeys.length} 项)</span>
+      </h2>
+      <p style="font-size:11px;color:#a0aec0;margin:0 0 10px;display:${collapsed ? 'none' : ''}">${esc(meta.desc)}</p>
+      <div style="display:${collapsed ? 'none' : ''}">${rows || '<div class="hint">（无匹配字段）</div>'}</div>
+    </div>`;
   }).join('');
 }
 
 function _collectRuntime() {
   const out = {};
-  document.querySelectorAll('#runtime-sections input[data-section]').forEach(inp => {
+  // 只采 number 输入（每个字段一个权威值；range 与 number 同步）
+  document.querySelectorAll('#runtime-sections input[type=number][data-section]').forEach(inp => {
     const s = inp.dataset.section, k = inp.dataset.key;
     if (inp.value === '') return;
-    const num = parseFloat(inp.value);
+    let num = parseFloat(inp.value);
     if (isNaN(num)) return;
+    num = _clampRuntimeVal(k, num);
     out[s] = out[s] || {};
     out[s][k] = num;
+  });
+  // 仅有 range 无 number 的兜底
+  document.querySelectorAll('#runtime-sections input[type=range][data-section]').forEach(inp => {
+    const s = inp.dataset.section, k = inp.dataset.key;
+    if (out[s] && out[s][k] != null) return;
+    let num = parseFloat(inp.value);
+    if (isNaN(num)) return;
+    out[s] = out[s] || {};
+    out[s][k] = _clampRuntimeVal(k, num);
   });
   return out;
 }
@@ -644,8 +820,13 @@ function _collectRuntime() {
 async function saveRuntime() {
   const payload = _collectRuntime();
   const d = await api.put('/api/v1/eco-runtime/config', payload);
-  if (d) { _runtimeConfig = d; renderRuntime(); toast('✅ 运行时参数已保存'); }
-  else { toast('❌ 保存失败: ' + (api._lastError ? api._lastError.message : '未知错误')); }
+  if (d) {
+    _runtimeConfig = d;
+    _runtimeBaseline = JSON.parse(JSON.stringify(d));
+    _runtimeDirty = false;
+    renderRuntime();
+    toast('✅ 运行时参数已保存');
+  } else { toast('❌ 保存失败: ' + (api._lastError ? api._lastError.message : '未知错误')); }
 }
 
 async function resetRuntime() {

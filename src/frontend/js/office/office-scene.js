@@ -69,6 +69,9 @@ export function createOfficeScene(canvas, container) {
   const edgesGroup = new THREE.Group(); scene.add(edgesGroup);
   const stageBandsGroup = new THREE.Group(); scene.add(stageBandsGroup);   // M2-5 阶段分区带
   const fxGroup = new THREE.Group(); scene.add(fxGroup);                    // M2-2/M2-3 波纹/脉冲特效
+  // XB-6.1 生境轻量层：生态位图腾 + 觅食光点
+  const habitatLayer = new THREE.Group(); habitatLayer.name = 'habitatLayer'; scene.add(habitatLayer);
+  const forageParticles = []; // {mesh, t, life, vx, vy, vz}
   let workflowMap = {};          // M2-4: "from|to" -> 传递内容
   let workflowOrder = {};        // M2-4: "from|to" -> 递交顺序序号
   let stageBandsKey = '';        // M2-5: 阶段映射签名，避免重复重建
@@ -507,6 +510,104 @@ export function createOfficeScene(canvas, container) {
   const processedEdges = new Set();
   let mirrorOn = false;
   let _catBubbleHold = 0;   // 事件气泡(遇鼠/评分/问答)保持时间戳，期间不被 catNote 解说覆盖
+  let _nicheTotem = null;   // XB-6.1 {group, labelMat, lastDemand}
+  const _forageSeen = new Set();
+
+  /** XB-6.1 生态位图腾：中央柱体 + 需求 skill 文字精灵 */
+  function ensureNicheTotem() {
+    if (_nicheTotem) return _nicheTotem;
+    const g = new THREE.Group();
+    g.position.set(8.5, 0, -8);
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.18, 2.2, 10),
+      new THREE.MeshStandardMaterial({ color: 0x0e7490, emissive: 0x164e63, emissiveIntensity: 0.35, roughness: 0.55 })
+    );
+    pole.position.y = 1.1;
+    g.add(pole);
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 0.55, roughness: 0.3 })
+    );
+    orb.position.y = 2.35;
+    orb.name = 'nicheOrb';
+    g.add(orb);
+    // 地面资源点氛围（小环）
+    const pad = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 1.1, 24),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+    );
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.02;
+    g.add(pad);
+    // skill 标签
+    const cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 64;
+    const ctx = cv.getContext('2d');
+    const tex = new THREE.CanvasTexture(cv);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    spr.scale.set(3.2, 0.8, 1);
+    spr.position.set(0, 2.95, 0);
+    g.add(spr);
+    habitatLayer.add(g);
+    _nicheTotem = { group: g, canvas: cv, ctx, tex, spr, lastDemand: '' };
+    return _nicheTotem;
+  }
+
+  function updateNicheTotem(env) {
+    if (!env || !(env.demand || env.niche_title)) {
+      if (_nicheTotem) _nicheTotem.group.visible = false;
+      return;
+    }
+    const t = ensureNicheTotem();
+    t.group.visible = true;
+    const demand = String(env.demand || '—');
+    if (demand !== t.lastDemand) {
+      t.lastDemand = demand;
+      const ctx = t.ctx;
+      ctx.clearRect(0, 0, 256, 64);
+      ctx.fillStyle = 'rgba(15,23,42,0.82)';
+      ctx.fillRect(0, 0, 256, 64);
+      ctx.fillStyle = '#22d3ee';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('🌍 当前需求', 12, 24);
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 18px sans-serif';
+      const label = demand.length > 18 ? demand.slice(0, 17) + '…' : demand;
+      ctx.fillText(label, 12, 50);
+      t.tex.needsUpdate = true;
+    }
+    const orb = t.group.getObjectByName('nicheOrb');
+    if (orb && orb.material) {
+      // 捕食帧时偏红闪烁
+      const pred = env.predated > 0;
+      orb.material.color.setHex(pred ? 0xff3030 : 0xf59e0b);
+      orb.material.emissive.setHex(pred ? 0xff3030 : 0xf59e0b);
+    }
+  }
+
+  /** 觅食成功：金光点飞向 Agent 头顶 */
+  function spawnForageSpark(agentId) {
+    const f = figures[agentId];
+    if (!f) return;
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffeb3b, transparent: true, opacity: 0.95 })
+    );
+    // 从生态位图腾 / 房间中心飞出
+    const origin = _nicheTotem && _nicheTotem.group.visible
+      ? _nicheTotem.group.position.clone().setY(2.2)
+      : new THREE.Vector3(0, 2.5, -6);
+    mesh.position.copy(origin);
+    habitatLayer.add(mesh);
+    const target = f.group.position.clone().setY(2.0);
+    forageParticles.push({
+      mesh,
+      life: 0.85,
+      t: 0,
+      from: origin.clone(),
+      to: target,
+    });
+  }
 
   function targetFor(agent, idxInMeeting, meetingCount, facilities) {
     if (agent.activity === 'meeting') {
@@ -539,6 +640,24 @@ export function createOfficeScene(canvas, container) {
       workflowOrder[w.from + '|' + w.to] = w.order;
     });
     renderStageBands(state.stages || {});
+    // XB-6.1 生境层：生态位图腾 + 觅食光点
+    updateNicheTotem(state.ecoEnv || null);
+    const forageHits = (state.ecoEnv && state.ecoEnv.forage_hits) || [];
+    for (let i = 0; i < forageHits.length; i++) {
+      const aid = forageHits[i];
+      const key = (state.ecoEnv && state.ecoEnv.step != null ? state.ecoEnv.step : 'x') + '|' + aid;
+      if (_forageSeen.has(key)) continue;
+      _forageSeen.add(key);
+      if (_forageSeen.size > 200) {
+        // 简单裁剪：清空旧 key（回放步数通常 < 600）
+        _forageSeen.clear();
+        _forageSeen.add(key);
+      }
+      spawnForageSpark(aid);
+    }
+    if (!state.ecoEnv) {
+      if (_nicheTotem) _nicheTotem.group.visible = false;
+    }
     const meetingIds = Object.values(state.agents)
       .filter((a) => a.activity === 'meeting').map((a) => a.id);
     for (const agent of Object.values(state.agents)) {
@@ -911,6 +1030,32 @@ export function createOfficeScene(canvas, container) {
     // Predator/Prey 生态：小虎(捕食者) + 吱吱(猎物) 的模型/行为/台词全部由 PetEcosystem 驱动
     petEco.step(dt, t);
     _stepFx(dt);
+    // XB-6.1 觅食光点飞行
+    for (let i = forageParticles.length - 1; i >= 0; i--) {
+      const p = forageParticles[i];
+      p.t += dt;
+      const u = Math.min(1, p.t / p.life);
+      // ease-out 抛物线
+      const yBoost = Math.sin(u * Math.PI) * 1.2;
+      p.mesh.position.lerpVectors(p.from, p.to, u);
+      p.mesh.position.y += yBoost;
+      p.mesh.material.opacity = 0.95 * (1 - u);
+      p.mesh.scale.setScalar(1 + u * 0.6);
+      if (u >= 1) {
+        habitatLayer.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        forageParticles.splice(i, 1);
+      }
+    }
+    // 图腾光球缓动
+    if (_nicheTotem && _nicheTotem.group.visible) {
+      const orb = _nicheTotem.group.getObjectByName('nicheOrb');
+      if (orb) {
+        orb.position.y = 2.35 + Math.sin(t * 2.4) * 0.08;
+        orb.scale.setScalar(1 + Math.sin(t * 3.1) * 0.06);
+      }
+    }
     // Agent 气泡倒计时
     for (const [aid, b] of Object.entries(agentBubbles)) {
       if (b.visible) {

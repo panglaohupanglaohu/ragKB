@@ -1242,15 +1242,25 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     <div class="rp-title" style="margin-bottom:6px">▶ 演练控制</div>
     <button class="btn" id="eco2-run-team" onclick="sexyPickTeam()"
       style="width:100%;padding:8px 0;font-size:12px;margin-bottom:4px">👥 选择投放种群（团队）</button>
+    <!-- XG-11: 已挂接任务（从团队任务菜单/Plaza 深链带入） -->
+    <div id="eco2-run-task-wrap" style="display:none;margin-bottom:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;border:1px solid rgba(167,139,250,.35)">
+      <div style="font-size:9px;color:var(--dim);margin-bottom:2px">📋 已挂接任务（生境需求来源）</div>
+      <div id="eco2-run-task" style="font-size:11px;font-weight:600;color:var(--purple);word-break:break-all">—</div>
+      <div id="eco2-run-task-meta" style="font-size:9px;color:var(--dim);margin-top:2px"></div>
+    </div>
     <!-- v3: 主队排兵策略选择器（多队对抗模式可见） -->
     <div id="eco2-primary-strategy-row" style="display:none;gap:6px;align-items:center;margin-bottom:4px;font-size:10px">
       <span style="color:var(--dim)">主队策略:</span>
       <span id="eco2-primary-strategy"></span>
     </div>
-    <!-- v2.3 多种群多队竞争：不同团队=不同种群 -->
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
-      <button class="btn" onclick="eco2AddRivalTeam()" style="font-size:10px;padding:3px 8px">＋ 添加对比种群</button>
-      <span id="eco2-rival-chips" style="display:flex;gap:4px;flex-wrap:wrap"></span>
+    <!-- v2.3/XG-12 多种群：对比队可选相同/相似任务 → Apple-to-apple；不选=随机比较 -->
+    <div style="margin-bottom:6px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <button class="btn" onclick="eco2AddRivalTeam()" style="font-size:10px;padding:3px 8px">＋ 添加对比种群</button>
+        <span style="font-size:9px;color:var(--dim)">为对比队选择与主任务相同/相似的执行计划任务 → 共用考卷比 skill/协作；不选 → 随机生境</span>
+      </div>
+      <div id="eco2-rival-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div id="eco2-compare-banner" style="display:none;margin-top:4px;font-size:9px;color:var(--amber);line-height:1.4"></div>
     </div>
     <!-- v3 赛制三档（XV-1.2）：①分场锦标赛(个体·家族精英) / ②多队对抗(团队·田忌赛马) / ③混合竞争(生态·螺旋上升) -->
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;font-size:10px;flex-wrap:wrap">
@@ -1261,7 +1271,7 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
         onchange="eco2SetRaceMode(this.value)"> ⚔️ ②多队对抗</label>
       <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="mixed"
         onchange="eco2SetRaceMode(this.value)"> 🌍 ③混合竞争</label>
-      <span id="eco2-race-hint" style="color:var(--dim);font-size:9px;width:100%">① 队内个体·家族精英——强调个人能力</span>
+      <span id="eco2-race-hint" style="color:var(--dim);font-size:9px;width:100%">① 分场·球星评比——各队 Agent 比个体 skill；②球队协作；③世界杯=球星+协作（奖杯只有一座）</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:11px">
       <label>每代步数</label>
@@ -1325,12 +1335,17 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
   </div>
 
   <!-- ⑧ 棘轮 -->
-  <div class="rp-section" style="padding:8px 12px;border-bottom:none">
+  <div class="rp-section" style="padding:8px 12px">
     <div class="rp-title" style="margin-bottom:6px">🔒 棘轮（只进不退）</div>
     <div style="font-size:11px">历代最优生存时长：
       <span id="eco2-ratchet-best" style="color:var(--amber);font-weight:700">—</span> ticks
       <span id="eco2-ratchet-note" style="font-size:9px;color:var(--dim);margin-left:6px"></span>
     </div>
+  </div>
+
+  <!-- ⑨ Skill 集成（v4，绑定计划演练后填充） -->
+  <div class="rp-section" style="padding:8px 12px;border-bottom:none">
+    <div id="eco2-integration" style="display:none;font-size:10px;line-height:1.45"></div>
   </div>
 </div>
 </div>

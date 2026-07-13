@@ -28,7 +28,12 @@ class TestDefaultsAndMerge:
 
     def test_all_sections_present(self, tmp_cfg):
         cfg = tmp_cfg.get_config()
-        assert set(cfg.keys()) == {"mental_state", "metabolism", "learning", "selection", "mating"}
+        # 核心节 + 生境/经济学/纪元/任务耦合（v2~v4 扩展）
+        required = {
+            "mental_state", "metabolism", "learning", "selection", "mating",
+            "habitat", "drill_economics", "era", "task_coupling",
+        }
+        assert required.issubset(set(cfg.keys()))
 
 
 class TestUpdate:

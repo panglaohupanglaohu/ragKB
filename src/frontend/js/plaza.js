@@ -2482,20 +2482,94 @@ function renderExecutionPlan(r) {
     ? `<div style="font-size:10px;color:#ef4444;margin-bottom:6px">落地性审查未通过：${issues.length} 处缺项，补齐后可批准（或强制批准保留人的最终决定权）。</div>`
     : `<div style="font-size:10px;color:#34d399;margin-bottom:6px">✅ 落地性审查通过，可批准派发。</div>`;
 
+  // v4: 缓存计划供「送入物竞试验田」深链
+  try {
+    window.__LAST_EXECUTION_PLAN__ = plan;
+    sessionStorage.setItem('eco_bound_plan', JSON.stringify(plan));
+    sessionStorage.setItem('eco_bound_plan_meta', JSON.stringify({
+      plaza_id: curPlaza || plan.plaza_id || '',
+      discussion_id: curDisc || plan.discussion_id || '',
+      plan_id: plan.plan_id || '',
+    }));
+  } catch (e) { /* ignore quota */ }
+
   body.innerHTML = `<div class="exec-plan" style="border-top:1px dashed var(--line);padding-top:8px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <b style="font-size:11px">📋 结构化执行计划 <span style="font-size:9px;color:var(--dim)">rev.${plan.revision || 1} · ${esc(plan.status || 'draft')}</span></b>
     </div>
     ${gate}
     ${stepsHtml}
-    <div class="plan-actions" style="margin-top:6px">
+    <div class="plan-actions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
       ${approved
         ? '<span style="font-size:10px;color:#34d399">已批准 ✓</span>'
         : `<button class="plan-btn primary" onclick="approveExecutionPlan(false)">✅ 批准</button>${issues.length ? '<button class="plan-btn" onclick="approveExecutionPlan(true)" title="保留人的最终决定权，跳过审查">强制批准</button>' : ''}`}
       <button class="plan-btn" onclick="rejectExecutionPlan()" title="驳回并让议事长重新梳理计划（重议）">✖ 驳回·重议</button>
+      <button class="plan-btn primary" onclick="sendPlanToEcoField()" title="先选团队并派发任务，再打开物竞（推荐从团队任务菜单进入）">🧬 派发并送入物竞</button>
     </div>
   </div>`;
 }
+
+/**
+ * XG-11: Plaza → 先确保团队 + 智能拆解 → 带 team_id 打开物竞试验田
+ * 推荐心智：拆解后也可在「团队任务」行点 🧬 物竞试验田。
+ */
+window.sendPlanToEcoField = async function () {
+  const plan = window.__LAST_EXECUTION_PLAN__;
+  if (!plan || !(plan.steps && plan.steps.length)) {
+    toast('暂无结构化计划步骤，请先生成/批准执行计划');
+    return;
+  }
+  const teamId = $('assign-team')?.value;
+  if (!teamId) {
+    toast('请先在上方选择要派发的智能体团队，再送入物竞');
+    return;
+  }
+  const teamName = ($('assign-team')?.selectedOptions?.[0]?.textContent || teamId).trim();
+
+  // 若计划尚未拆解出任务，先智能拆解（不 auto_start）
+  let taskIds = Array.isArray(plan.task_ids) ? plan.task_ids.filter(Boolean) : [];
+  if (!taskIds.length && plan.steps?.some(s => s.task_id)) {
+    taskIds = plan.steps.map(s => s.task_id).filter(Boolean);
+  }
+  if (!taskIds.length) {
+    toast('正在智能拆解并派发到团队…');
+    const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_id: teamId }),
+    });
+    if (r && r.task_count) {
+      taskIds = (r.tasks || []).map(t => t.task_id || t.id).filter(Boolean);
+      renderDispatchedTasks(r.tasks);
+      toast(`已拆解 ${r.task_count} 个任务 → 打开物竞试验田`);
+    } else if (r) {
+      toast('未拆解出任务：将仅带计划与团队进入物竞');
+    } else {
+      const detail = window.api?._lastError?.message || '';
+      toast('拆解失败' + (detail ? '：' + detail : '') + '；仍将带团队进入物竞');
+    }
+  }
+
+  try {
+    sessionStorage.setItem('eco_bound_plan', JSON.stringify(plan));
+    sessionStorage.setItem('eco_bound_plan_meta', JSON.stringify({
+      plaza_id: curPlaza || plan.plaza_id || '',
+      discussion_id: curDisc || plan.discussion_id || '',
+      plan_id: plan.plan_id || '',
+      team_id: teamId,
+    }));
+    sessionStorage.setItem('eco_bound_team', JSON.stringify({ id: teamId, name: teamName }));
+  } catch (e) { /* ignore */ }
+
+  const pid = encodeURIComponent(plan.plan_id || '');
+  const plz = encodeURIComponent(curPlaza || plan.plaza_id || '');
+  const disc = encodeURIComponent(curDisc || plan.discussion_id || '');
+  const tid = encodeURIComponent(teamId);
+  const tname = encodeURIComponent(teamName);
+  const firstTask = taskIds[0] ? `&task_id=${encodeURIComponent(taskIds[0])}` : '';
+  const url = `/Agent-digital-twin.html?office3d=1&team_id=${tid}&team_name=${tname}&plan_id=${pid}&plaza_id=${plz}&discussion_id=${disc}${firstTask}`;
+  window.open(url, '_blank');
+  toast('已打开物竞试验田（团队已绑定' + (taskIds[0] ? '，首任务已带入' : '') + '）。也可在团队「任务」菜单对单行点 🧬');
+};
 
 window.approveExecutionPlan = async function(force = false) {
   if (!curPlaza || !curDisc) return;

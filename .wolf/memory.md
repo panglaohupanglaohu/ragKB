@@ -223,3 +223,15 @@
 
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
+
+| 14:34 | 落盘物竞天择v4 plan+todos | docs/物竞天择任务闭环与Skill遗传{plan,todos}.md | XG-0 docs written | ~8k |
+| 14:50 | v4 XG1-8 实现任务闭环+Skill遗传 | execution_plan,plan_eco_bridge,skill_*,eco_drill,trial_api,eco-console | 30 pytest pass | ~20k |
+| 15:01 | v4 全量收口 XG1-10 Plaza深链/集成API/遗传UI/棘轮派发 | plaza,eco-*,eco_runtime_routes,eco_drill | pytest32+vitest4 green | ~25k |
+| 15:30 | XG-11 物竞入口：先派发团队任务再进试验田 | plaza,tasks-view,eco-console | team_id deep link + 物竞按钮 | ~8k |
+| 16:00 | XG-12 对比种群可选任务·同计划apple-to-apple | eco-console,Agent-digital-twin.html | rival task select | ~6k |
+| 16:20 | 双队对比：有rival自动多队对抗+预览两队agent | eco-console.js | 种群面板应见两队 | ~4k |
+| 16:40 | 赛制语义校准：分场=多队比skill；取消加rival自动切对抗 | eco-console | user correction | ~3k |
+| 16:45 | 撤销加对比自动切对抗；分场=多队比skill | eco-console | user correction | ~2k |
+| 09:00 | T_i 分解 skill/协作/残差 | survival_decompose.py,eco_drill,eco-console | 份额和为1 | ~8k |
+| 01:00 | v4 todos 全量收口：XG-12/13 + XB-6.1/7.1 + 测试修复 | pet-config,office-scene,survival_*,todos | 73 pytest + 4 vitest green | ~12k |
+| 01:25 | 闭环LOOP: aws×build 9跑次+分析改造+can_serve扩窗 | eco_runtime_routes,eco_drill,scripts/eco_closed_loop_eval | skill弱→能 collab弱 报告已写 | ~30k |

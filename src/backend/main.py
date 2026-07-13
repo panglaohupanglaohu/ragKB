@@ -212,6 +212,7 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/v1/ratchet",                # 全局 P0: 正向棘轮账本
     "/api/v1/sustainability",         # 全局 P0: 可持续性评估
     "/api/v1/agent-employee",         # AgentsGroupConfig: 数字员工档案
+    "/api/v1/eco-runtime",            # 物竞生境参数/契约/分析/集成（试验田闭环）
 )
 # 只读元数据端点 — 前端页面加载时可能先于登录被调用，仅豁免安全方法(GET/HEAD/OPTIONS)。
 # 写操作(POST/PUT/DELETE/PATCH)一律要求认证：曾经的全前缀豁免让未登录请求可以

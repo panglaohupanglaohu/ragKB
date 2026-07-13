@@ -92,6 +92,12 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
             "niche_capacity": -1,       # 竞争名额递减（从 3→2→1…0=不限）
         },
     },
+    # 物竞天择 v4 任务闭环（plan 物竞天择任务闭环与Skill遗传）
+    "task_coupling": {
+        "reduce_drift_when_bound": True,  # 绑定计划后降低漂移
+        "role_affinity": 1.1,             # 角色匹配熟练度系数
+        "write_policy": "suggest_only",   # Skill 集成默认只建议
+    },
 }
 
 

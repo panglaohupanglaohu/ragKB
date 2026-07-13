@@ -61,7 +61,7 @@ class TestEpochReproduction:
         drill.run(max_steps=5)
         epoch = drill.run_epoch(reproduce_top_k=2)
         assert len(epoch["offspring"]) >= 1
-        pool = set(p1.skill_genome) | set(p2.skill_genome) | set(drill._demanded)
+        pool = set(p1.skill_genome) | set(p2.skill_genome) | set(drill.env.demanded_skills)
         for genome in epoch["offspring_genomes"].values():
             assert set(genome).issubset(pool)
 

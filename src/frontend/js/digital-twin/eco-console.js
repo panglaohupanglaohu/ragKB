@@ -23,6 +23,36 @@
   var _lastResult = null;
   var _inited = false;
   var _reportShown = false;   // v2.3：每场演练自动弹一次生境报告
+  var _boundContract = null;  // v4 TaskHabitatContract
+  var _boundTask = null;      // XG-11 已挂接任务 {task_id, title, ...}
+  var _budgetOverridden = false;
+
+  function _renderBoundTaskUi(task) {
+    _boundTask = task || null;
+    var wrap = $('eco2-run-task-wrap');
+    var elTitle = $('eco2-run-task');
+    var elMeta = $('eco2-run-task-meta');
+    if (!wrap) return;
+    if (!_boundTask) {
+      wrap.style.display = 'none';
+      if (elTitle) elTitle.textContent = '—';
+      if (elMeta) elMeta.textContent = '';
+      return;
+    }
+    wrap.style.display = 'block';
+    var title = _boundTask.title || _boundTask.name || _boundTask.task_id || '（无标题）';
+    var tid = _boundTask.task_id || _boundTask.id || '';
+    if (elTitle) elTitle.textContent = title;
+    var bits = [];
+    if (tid) bits.push('id=' + tid);
+    if (_boundTask.status) bits.push('状态=' + _boundTask.status);
+    var meta = _boundTask.metadata || {};
+    if (meta.plan_id) bits.push('plan=' + meta.plan_id);
+    if (meta.source) bits.push('来源=' + meta.source);
+    var skills = meta.required_skills || meta.skills_used || [];
+    if (skills.length) bits.push('技能=' + skills.slice(0, 6).join(','));
+    if (elMeta) elMeta.textContent = bits.join(' · ');
+  }
 
   function _fetch(url, opts) {
     var f = (typeof window._af === 'function') ? window._af : (window._agFetch || fetch);
@@ -59,6 +89,177 @@
       }).catch(function () { return null; });
   }
 
+  function _setTeamUi(teamId, teamName) {
+    window._selectedTeamId = teamId;
+    window._selectedTeamName = teamName || teamId;
+    var btn = $('eco2-run-team');
+    if (btn) {
+      btn.textContent = '👥 种群：' + (teamName || teamId);
+      btn.style.color = 'var(--cyan)';
+    }
+    var secsBtn = document.getElementById('secs-team-btn');
+    if (secsBtn && teamName) {
+      secsBtn.textContent = '👥 ' + teamName;
+      secsBtn.style.color = 'var(--cyan)';
+    }
+    try {
+      sessionStorage.setItem('eco_bound_team', JSON.stringify({ id: teamId, name: teamName || teamId }));
+    } catch (e) { /* ignore */ }
+  }
+
+  /** XG-11: 从 URL/session 自动选中投放种群 */
+  window.eco2ApplyTeamFromUrl = function () {
+    var qs = new URLSearchParams(window.location.search || '');
+    var teamId = qs.get('team_id') || '';
+    var teamName = qs.get('team_name') || '';
+    if (!teamId) {
+      try {
+        var raw = sessionStorage.getItem('eco_bound_team');
+        if (raw) {
+          var t = JSON.parse(raw);
+          teamId = t.id || '';
+          teamName = t.name || '';
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (!teamId) return Promise.resolve(null);
+    if (typeof window.sexySelectTeam === 'function') {
+      window.sexySelectTeam(teamId, teamName || teamId);
+      _setTeamUi(teamId, teamName || teamId);
+      return Promise.resolve({ id: teamId, name: teamName || teamId });
+    }
+    return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId))
+      .then(function (r) { return r.json ? r.json() : r; })
+      .then(function (d) {
+        var nm = (d && (d.name || d.team_name)) || teamName || teamId;
+        if (typeof window.sexySelectTeam === 'function') {
+          window.sexySelectTeam(teamId, nm);
+        }
+        _setTeamUi(teamId, nm);
+        _loadTeamSkills(teamId);
+        return { id: teamId, name: nm };
+      })
+      .catch(function () {
+        _setTeamUi(teamId, teamName || teamId);
+        return { id: teamId, name: teamName || teamId };
+      });
+  };
+
+  /** XG-11: 从任务编译/绑定生境契约（同时刷新「已挂接任务」UI） */
+  window.eco2BindTask = function (taskObj, teamId) {
+    if (!taskObj) return Promise.resolve(null);
+    var task = Array.isArray(taskObj) ? taskObj[0] : taskObj;
+    var tasks = Array.isArray(taskObj) ? taskObj : [taskObj];
+    // 先立刻显示挂接任务（即使契约编译慢/失败，用户也能看到）
+    _renderBoundTaskUi(task);
+    try { sessionStorage.setItem('eco_bound_task', JSON.stringify(task)); } catch (e) { /* ignore */ }
+    return _fetch('/api/v1/eco-runtime/habitat-contract/from-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks: tasks }),
+    }).then(function (r) { return r.json ? r.json() : r; })
+      .then(function (d) {
+        if (!d || !d.ok || !d.contract) {
+          setText('eco2-run-status',
+            '📋 任务已挂接「' + esc(task.title || task.task_id || '') + '」但契约编译失败: ' +
+            ((d && d.error) || 'unknown') + ' — 仍可用团队技能做生境演练');
+          return { contract: null, task: task };
+        }
+        _boundContract = d.contract;
+        _budgetOverridden = false;
+        var sb = _boundContract.step_budget || {};
+        var stepsEl = $('eco2-run-steps');
+        var gensEl = $('eco2-run-gens');
+        if (stepsEl && sb.max_steps_per_generation) stepsEl.value = sb.max_steps_per_generation;
+        if (gensEl && sb.max_generations) gensEl.value = sb.max_generations;
+        var nb = $('eco2-env-niches');
+        if (nb) {
+          nb.innerHTML = (_boundContract.niches || []).map(function (n) {
+            var sk = (n.demanded_skills || []).map(function (s) { return _sk(s); }).join(', ');
+            return '<span class="eco2-chip" title="' + esc(sk) + '">' + esc(n.index + '. ' + (n.title || n.step_id)) + '</span>';
+          }).join(' ') || '<span style="color:var(--dim)">（无生态位）</span>';
+        }
+        var tid = teamId || window._selectedTeamId || '';
+        setText('eco2-run-status',
+          '🧬 团队 ' + esc(window._selectedTeamName || tid) +
+          ' · 任务「' + esc(task.title || task.task_id || '') + '」' +
+          ' · 契约 ' + (_boundContract.niches || []).length + ' 步 · 预算 ' +
+          (sb.max_steps_per_generation || '?') + '步×' + (sb.max_generations || '?') + '代 — 可直接开始');
+        // 主任务变化后，尝试给对比队预选同 plan 任务
+        try {
+          var pPlan = _taskPlanId(task) || (_boundContract && _boundContract.plan_id) || '';
+          if (pPlan && _rivalTeams.length) {
+            _rivalTeams.forEach(function (r) {
+              if (r.task_id) return;
+              var same = (r.tasks || []).find(function (x) { return x.plan_id === pPlan; });
+              if (same) {
+                r.task_id = same.task_id;
+                r.task_title = same.title;
+                r.plan_id = same.plan_id;
+              }
+            });
+            _renderRivalChips();
+          }
+          _syncComparisonBanner();
+        } catch (eSync) { /* ignore */ }
+        return { contract: _boundContract, task: task };
+      }).catch(function (err) {
+        setText('eco2-run-status',
+          '📋 任务已挂接「' + esc((task && (task.title || task.task_id)) || '') +
+          '」· 契约请求失败: ' + (err.message || err));
+        return { contract: null, task: task };
+      });
+  };
+
+  window.eco2BindTaskById = function (teamId, taskId) {
+    if (!teamId || !taskId) return Promise.resolve(null);
+    // 优先 session 缓存（从任务菜单深链时已写入）
+    try {
+      var cached = sessionStorage.getItem('eco_bound_task');
+      if (cached) {
+        var ct = JSON.parse(cached);
+        if (ct && (ct.task_id === taskId || ct.id === taskId)) {
+          return window.eco2BindTask(ct, teamId);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    // 先用 URL 中的 id 占位显示，避免「没挂上」的空白感
+    _renderBoundTaskUi({ task_id: taskId, title: '加载中… ' + taskId, status: '…' });
+    return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId) + '/tasks/' + encodeURIComponent(taskId))
+      .then(function (r) {
+        if (r && typeof r.ok === 'boolean' && !r.ok) {
+          return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId) + '/tasks')
+            .then(function (r2) { return r2.json ? r2.json() : r2; })
+            .then(function (list) {
+              var arr = Array.isArray(list) ? list : (list && (list.tasks || list.items || list.data)) || [];
+              var found = arr.find(function (t) { return (t.task_id || t.id) === taskId; });
+              if (!found) throw new Error('task not found in list');
+              return found;
+            });
+        }
+        return r.json ? r.json() : r;
+      })
+      .then(function (task) {
+        if (!task || !(task.task_id || task.id || task.title)) {
+          throw new Error('empty task payload');
+        }
+        // 规范化 id 字段
+        if (!task.task_id && task.id) task.task_id = task.id;
+        try { sessionStorage.setItem('eco_bound_task', JSON.stringify(task)); } catch (e) { /* ignore */ }
+        return window.eco2BindTask(task, teamId);
+      })
+      .catch(function (err) {
+        _renderBoundTaskUi({
+          task_id: taskId,
+          title: '（未能拉取详情）' + taskId,
+          status: 'error',
+          metadata: {},
+        });
+        setText('eco2-run-status', '⚠ 拉取任务失败: ' + (err.message || err) + ' — 任务 id 已显示，请检查任务是否仍存在');
+        return null;
+      });
+  };
+
   // ═══ 初始化：读生境配置 → 滑杆/生态位 ═══
   window.eco2Init = function () {
     if (_inited) return;
@@ -66,6 +267,196 @@
     _bindSliders();
     window.ecoLoadConfig();
     _loadNichesFromTeam();
+    // XG-11: 先团队，再 plan/task 契约
+    try {
+      var qs = new URLSearchParams(window.location.search || '');
+      var planId = qs.get('plan_id') || '';
+      var taskId = qs.get('task_id') || '';
+      var teamId = qs.get('team_id') || '';
+      window.eco2ApplyTeamFromUrl().then(function (team) {
+        var tid = (team && team.id) || teamId || window._selectedTeamId || '';
+        // URL 无 task_id 时尝试 session 任务缓存
+        if (!taskId) {
+          try {
+            var ct = JSON.parse(sessionStorage.getItem('eco_bound_task') || 'null');
+            if (ct && (ct.task_id || ct.id)) taskId = ct.task_id || ct.id;
+          } catch (e3) { /* ignore */ }
+        }
+        if (taskId && tid) {
+          return window.eco2BindTaskById(tid, taskId).then(function (res) {
+            // res 可能是 {contract, task} 或 null；有 task UI 即算挂接成功
+            if (res && (res.task || res.contract || res.niches)) return res;
+            if (_boundTask) return { task: _boundTask };
+            return null;
+          });
+        }
+        return null;
+      }).then(function (bound) {
+        if (bound) return;
+        var planObj = null;
+        if (window.__ECO_PLAN__ && window.__ECO_PLAN__.steps) {
+          planObj = window.__ECO_PLAN__;
+        } else {
+          try {
+            var raw = sessionStorage.getItem('eco_bound_plan');
+            if (raw) planObj = JSON.parse(raw);
+          } catch (e2) { planObj = null; }
+        }
+        if (planObj && planObj.steps && planObj.steps.length) {
+          return window.eco2BindPlan(planObj).then(function () {
+            if (window._selectedTeamId) {
+              setText('eco2-run-status',
+                '🧬 团队 ' + esc(window._selectedTeamName || window._selectedTeamId) +
+                ' · 计划已绑定 — 可直接开始物竞天择');
+            }
+          });
+        }
+        if (planId && !window._selectedTeamId) {
+          setText('eco2-run-status', '📋 有 plan_id 但未选团队：请从团队任务菜单「🧬 物竞试验田」进入，或点「选择投放种群」');
+        } else if (!window._selectedTeamId) {
+          setText('eco2-run-status', '投放种群后，点「开始物竞天择」。推荐路径：Plaza 拆解 → 团队任务 → 🧬 物竞试验田');
+        }
+      }).catch(function () { /* ignore */ });
+    } catch (e) { /* ignore */ }
+  };
+
+  /** v4: 绑定 ExecutionPlan → 编译 TaskHabitatContract 并填步数/世代 */
+  window.eco2BindPlan = function (plan) {
+    if (!plan || !plan.steps || !plan.steps.length) {
+      setText('eco2-run-status', '⚠ 计划无步骤，无法绑定');
+      return Promise.resolve(null);
+    }
+    return _fetch('/api/v1/eco-runtime/habitat-contract/from-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: plan }),
+    }).then(function (r) { return r.json ? r.json() : r; })
+      .then(function (d) {
+        if (!d || !d.ok || !d.contract) {
+          setText('eco2-run-status', '⚠ 契约编译失败: ' + ((d && d.error) || 'unknown'));
+          return null;
+        }
+        _boundContract = d.contract;
+        _budgetOverridden = false;
+        var sb = _boundContract.step_budget || {};
+        var stepsEl = $('eco2-run-steps');
+        var gensEl = $('eco2-run-gens');
+        if (stepsEl && sb.max_steps_per_generation) stepsEl.value = sb.max_steps_per_generation;
+        if (gensEl && sb.max_generations) gensEl.value = sb.max_generations;
+        // 计划生态位 chips
+        var nb = $('eco2-env-niches');
+        if (nb) {
+          nb.innerHTML = (_boundContract.niches || []).map(function (n) {
+            var sk = (n.demanded_skills || []).map(function (s) { return _sk(s); }).join(', ');
+            return '<span class="eco2-chip" title="' + esc(sk) + '">' + esc(n.index + '. ' + (n.title || n.step_id)) + '</span>';
+          }).join(' ') || '<span style="color:var(--dim)">（无生态位）</span>';
+        }
+        setText('eco2-run-status',
+          '📋 已绑定计划 ' + esc(_boundContract.plan_id || '') +
+          ' · ' + (_boundContract.niches || []).length + ' 步骤 · 预算 ' +
+          (sb.max_steps_per_generation || '?') + '步×' + (sb.max_generations || '?') + '代');
+        try { _syncComparisonBanner(); } catch (eB) { /* ignore */ }
+        return _boundContract;
+      }).catch(function (err) {
+        setText('eco2-run-status', '⚠ 绑定计划失败: ' + (err.message || err));
+        return null;
+      });
+  };
+  window.eco2ClearPlan = function () {
+    _boundContract = null;
+    _renderBoundTaskUi(null);
+    try {
+      sessionStorage.removeItem('eco_bound_task');
+    } catch (e) { /* ignore */ }
+    setText('eco2-run-status', '已解除计划/任务绑定（回退 v3 手填预算）');
+  };
+
+  window.eco2CopyIntegration = function () {
+    var integ = window.__LAST_INTEGRATION__;
+    if (!integ) return;
+    var text = JSON.stringify(integ.recommended_bindings || integ, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        setText('eco2-run-status', '📋 已复制集成建议 JSON');
+      }).catch(function () { window.prompt('复制：', text); });
+    } else {
+      window.prompt('复制：', text);
+    }
+  };
+
+  window.eco2ApplyIntegration = function (confirm) {
+    var integ = window.__LAST_INTEGRATION__;
+    var teamId = window._selectedTeamId;
+    if (!integ || !teamId) {
+      setText('eco2-run-status', '⚠ 无集成建议或未选团队');
+      return;
+    }
+    _fetch('/api/v1/eco-runtime/skill-integration/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        team_id: teamId,
+        confirm: !!confirm,
+        report: integ,
+        feedback_router: false,
+      }),
+    }).then(function (r) { return r.json ? r.json() : r; })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          setText('eco2-run-status', '⚠ apply: ' + ((d && d.error) || 'failed') + (d && d.hint ? ' — ' + d.hint : ''));
+          return;
+        }
+        if (!confirm) {
+          setText('eco2-run-status', '预览: 将写回 ' + (d.would_apply || 0) + ' 处绑定（需 confirm=true）');
+        } else {
+          setText('eco2-run-status', '✅ 已写回 ' + (d.applied || 0) + ' 处技能绑定');
+        }
+      }).catch(function (e) {
+        setText('eco2-run-status', '⚠ apply 失败: ' + (e.message || e));
+      });
+  };
+
+  /** XG-10: 按黄金适者技能集合创建一条溯源任务（可选，默认仅创建元数据草稿） */
+  window.eco2DispatchWinner = function () {
+    var result = window.__LAST_ECO_RESULT__;
+    var teamId = window._selectedTeamId;
+    if (!result || !teamId) {
+      setText('eco2-run-status', '⚠ 无演练结果或未选团队');
+      return;
+    }
+    var ranking = result.final_ranking || [];
+    var champ = ranking.slice().sort(function (a, b) {
+      return (b.survival_ticks || 0) - (a.survival_ticks || 0);
+    })[0];
+    if (!champ) {
+      setText('eco2-run-status', '⚠ 无适者');
+      return;
+    }
+    var contract = result.contract || _boundContract || {};
+    var title = '物竞适者执行: ' + (contract.topic || contract.plan_id || teamId).slice(0, 40);
+    _fetch('/api/v1/eco-runtime/skill-integration/dispatch-winner', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        team_id: teamId,
+        agent_id: champ.agent_id,
+        skill_genome: champ.skill_genome || [],
+        plan_id: contract.plan_id || '',
+        topic: contract.topic || '',
+        fingerprint: (contract.provenance || {}).fingerprint || '',
+        survival_ticks: champ.survival_ticks || 0,
+        create_task: true,
+      }),
+    }).then(function (r) { return r.json ? r.json() : r; })
+      .then(function (d) {
+        if (d && d.ok) {
+          setText('eco2-run-status', '🏷 已创建适者任务 ' + (d.task_id || '') + '（溯源 plan/eco）');
+        } else {
+          setText('eco2-run-status', '⚠ 派发失败: ' + ((d && d.error) || 'unknown'));
+        }
+      }).catch(function (e) {
+        setText('eco2-run-status', '⚠ 派发失败: ' + (e.message || e));
+      });
   };
 
   // 覆盖旧版：读配置 → 滑杆与状态条
@@ -202,8 +593,9 @@
     }
   }, 1500);
 
-  // ═══ v2.3 多种群同场竞争：对比种群选择 ═══
-  var _rivalTeams = [];        // [{id,name}]
+  // ═══ v2.3/XG-12 多种群：对比种群 + 可选挂接任务（同计划=apple-to-apple） ═══
+  // [{id,name,task_id,task_title,plan_id,tasks:[{task_id,title,plan_id}]}]
+  var _rivalTeams = [];
   var _pickingRival = false;
   var _prevPrimary = null;
   // v3: 每队排兵策略选择（team_id -> strategy_id，默认 head_on）
@@ -229,6 +621,94 @@
     _setTeamStrategy(tid, sid);
   };
 
+  function _taskPlanId(t) {
+    if (!t) return '';
+    var m = t.metadata || {};
+    return m.plan_id || t.plan_id || '';
+  }
+
+  function _loadRivalTasks(teamId) {
+    return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId) + '/tasks')
+      .then(function (r) { return r.json ? r.json() : r; })
+      .then(function (list) {
+        var arr = Array.isArray(list) ? list : (list && (list.tasks || list.items || list.data)) || [];
+        return arr.map(function (t) {
+          return {
+            task_id: t.task_id || t.id,
+            title: t.title || t.name || (t.task_id || t.id),
+            plan_id: _taskPlanId(t),
+            status: t.status || '',
+            raw: t,
+          };
+        }).filter(function (t) { return t.task_id; });
+      })
+      .catch(function () { return []; });
+  }
+
+  /** 用户为对比种群选任务：不选=随机比较；选相同/相似 plan=apple-to-apple */
+  window.eco2SetRivalTask = function (teamId, taskId) {
+    var rival = _rivalTeams.find(function (t) { return t.id === teamId; });
+    if (!rival) return;
+    if (!taskId) {
+      rival.task_id = '';
+      rival.task_title = '';
+      rival.plan_id = '';
+      _syncComparisonBanner();
+      _renderRivalChips();
+      return;
+    }
+    var hit = (rival.tasks || []).find(function (x) { return x.task_id === taskId; });
+    rival.task_id = taskId;
+    rival.task_title = hit ? hit.title : taskId;
+    rival.plan_id = hit ? (hit.plan_id || '') : '';
+    // 若主队尚未挂任务，且对比队选了任务 → 可提示 apple-to-apple
+    _syncComparisonBanner();
+    _renderRivalChips();
+    // 尝试自动对齐主任务：对比任务与主任务同 plan 时刷新状态
+    if (hit && hit.plan_id && _boundTask && _taskPlanId(_boundTask) === hit.plan_id) {
+      setText('eco2-run-status',
+        '🍎 Apple-to-apple：主队与「' + esc(rival.name) + '」挂接同一执行计划 ' + esc(hit.plan_id) +
+        ' — 共用考卷，比 skill/协作');
+    } else if (hit && !_boundTask) {
+      setText('eco2-run-status',
+        '对比队「' + esc(rival.name) + '」已选任务「' + esc(rival.task_title) +
+        '」。建议主种群也挂接相同/相似任务以便公平比较');
+    }
+  };
+
+  function _primaryPlanId() {
+    if (_boundContract && _boundContract.plan_id) return _boundContract.plan_id;
+    if (_boundTask) return _taskPlanId(_boundTask);
+    return '';
+  }
+
+  function _syncComparisonBanner() {
+    var el = $('eco2-compare-banner');
+    if (!el) return;
+    if (!_rivalTeams.length) {
+      el.style.display = 'none';
+      el.textContent = '';
+      return;
+    }
+    var pPlan = _primaryPlanId();
+    var withTask = _rivalTeams.filter(function (r) { return r.task_id; });
+    var samePlan = pPlan && withTask.filter(function (r) { return r.plan_id && r.plan_id === pPlan; });
+    var parts = [];
+    parts.push('对比 ' + _rivalTeams.length + ' 队');
+    if (!_boundTask && !withTask.length) {
+      parts.push('未挂任务 → 随机生境比较（仅比队内基因，无统一考卷）');
+    } else if (samePlan && samePlan.length === withTask.length && withTask.length) {
+      parts.push('🍎 同计划 ' + pPlan + ' → Apple-to-apple（共用步数/生态位，比 skill+协作）');
+    } else if (withTask.length) {
+      parts.push('已选任务 ' + withTask.length + '/' + _rivalTeams.length +
+        '（同 plan 才算严格公平；否则用主任务考卷或技能并集）');
+    } else {
+      parts.push('对比队未选任务 → 共用主任务考卷' + (pPlan ? ' plan=' + pPlan : ''));
+    }
+    el.style.display = 'block';
+    el.textContent = parts.join(' · ');
+  }
+
   // 包装 sexySelectTeam：处于"选对比种群"模式时截获选择，不改主种群
   var _wrapTimer = setInterval(function () {
     if (typeof window.sexySelectTeam !== 'function' || window.sexySelectTeam.__ecoWrapped) return;
@@ -238,11 +718,38 @@
         _pickingRival = false;
         if (teamId && teamId !== window._selectedTeamId
             && !_rivalTeams.some(function (t) { return t.id === teamId; })) {
-          _rivalTeams.push({ id: teamId, name: teamName || teamId });
-          _loadTeamSkills(teamId);   // R5: 对比种群的技能目录也进名称解析缓存
+          var entry = {
+            id: teamId,
+            name: teamName || teamId,
+            task_id: '',
+            task_title: '',
+            plan_id: '',
+            tasks: [],
+          };
+          _rivalTeams.push(entry);
+          _loadTeamSkills(teamId);
+          // 不自动改赛制：分场也可多队比 skill；多队对抗比协作策略——由用户自选
+          // 拉取该队任务列表，供下拉选择（同计划任务 → 同一客观环境）
+          _loadRivalTasks(teamId).then(function (tasks) {
+            entry.tasks = tasks || [];
+            // 若主任务有 plan_id，自动预选同 plan 的首个任务
+            var pPlan = _primaryPlanId();
+            if (pPlan) {
+              var same = entry.tasks.find(function (x) { return x.plan_id === pPlan; });
+              if (same) {
+                entry.task_id = same.task_id;
+                entry.task_title = same.title;
+                entry.plan_id = same.plan_id;
+              }
+            }
+            _renderRivalChips();
+            _syncComparisonBanner();
+            _previewMultiPopRoster();
+          });
         }
         _renderRivalChips();
-        // 恢复主种群选择，关闭弹窗
+        _syncComparisonBanner();
+        _previewMultiPopRoster();
         if (_prevPrimary) {
           window._selectedTeamId = _prevPrimary.id;
           window._selectedTeamName = _prevPrimary.name;
@@ -267,30 +774,74 @@
   window.eco2RemoveRival = function (tid) {
     _rivalTeams = _rivalTeams.filter(function (t) { return t.id !== tid; });
     _renderRivalChips();
+    _syncComparisonBanner();
+    if (_rivalTeams.length) _previewMultiPopRoster();
+    else {
+      var box = $('eco2-pop-list');
+      if (box) box.innerHTML = '<div class="eco2-empty">投放种群后，这里将显示每个生物的血量、意图与双基因（技能 + 协作倾向）。</div>';
+      setText('eco2-pop-status', '');
+    }
   };
+
+  function _rivalTaskSelectHtml(t) {
+    var opts = '<option value="">（不选=随机比较）</option>';
+    (t.tasks || []).forEach(function (tk) {
+      var label = tk.title + (tk.plan_id ? ' · plan:' + String(tk.plan_id).slice(0, 8) : '');
+      if (tk.status) label += ' [' + tk.status + ']';
+      opts += '<option value="' + esc(tk.task_id) + '"' +
+        (tk.task_id === t.task_id ? ' selected' : '') + '>' + esc(label) + '</option>';
+    });
+    if (!(t.tasks || []).length) {
+      opts += '<option value="" disabled>该队暂无任务</option>';
+    }
+    return '<select onchange="eco2SetRivalTask(\'' + esc(t.id) + '\', this.value)" '
+      + 'title="选相同/相似执行计划任务 → 公平比 skill/协作；不选 → 随机生境"'
+      + ' style="max-width:200px;font-size:9px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text)">'
+      + opts + '</select>';
+  }
+
   function _renderRivalChips() {
     var box = $('eco2-rival-chips');
     if (!box) return;
+    if (!_rivalTeams.length) {
+      box.innerHTML = '<span style="color:var(--dim);font-size:9px">（单种群——加入对比种群后可为每队选择相同/相似任务做 Apple-to-apple）</span>';
+      return;
+    }
     box.innerHTML = _rivalTeams.map(function (t) {
-      return '<span class="eco2-chip" style="display:inline-flex;align-items:center;gap:4px">' + esc(t.name)
+      var taskHint = t.task_id
+        ? '<span style="color:var(--purple);font-size:9px">📋 ' + esc((t.task_title || t.task_id).slice(0, 28)) + '</span>'
+        : '<span style="color:var(--dim);font-size:9px">🎲 未选任务</span>';
+      var apple = '';
+      var pPlan = _primaryPlanId();
+      if (t.task_id && pPlan && t.plan_id === pPlan) {
+        apple = ' <span style="color:var(--amber);font-size:9px" title="与主任务同执行计划">🍎</span>';
+      }
+      return '<div class="eco2-chip" style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:6px 8px;min-width:180px">'
+        + '<div style="display:flex;align-items:center;gap:6px;width:100%">'
+        + '<b style="font-size:11px">' + esc(t.name) + '</b>' + apple
         + ' ' + _strategySelectHtml(t.id)
-        + ' <a href="javascript:void(0)" onclick="eco2RemoveRival(\'' + esc(t.id) + '\')" style="color:#f87171;text-decoration:none">✕</a></span>';
-    }).join(' ') || '<span style="color:var(--dim);font-size:9px">（单种群演练——加入对比种群才能比出协作竞争力）</span>';
+        + ' <a href="javascript:void(0)" onclick="eco2RemoveRival(\'' + esc(t.id) + '\')" style="color:#f87171;text-decoration:none;margin-left:auto">✕</a>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:4px;width:100%">'
+        + '<span style="font-size:9px;color:var(--dim);flex-shrink:0">任务</span>'
+        + _rivalTaskSelectHtml(t)
+        + '</div>'
+        + taskHint
+        + '</div>';
+    }).join('');
   }
 
   // ═══ 开始物竞天择（覆盖旧版 ecoRunDrill） ═══
-  // ═══ v3 赛制三档（XV-1.1） ═══
-  // division（①分场锦标赛，默认）：单团队队内个体竞争——家族内部精英识别，强调个人能力
-  // confrontation（②多队对抗）：多团队作为离散单元同场——田忌赛马，强调队内配合
-  // mixed（③混合竞争）：全部种群混合+跨队交配+纪元嵌套——螺旋上升，环境选择最强
-  // 旧别名兼容：tournament→division, melee→confrontation
+  // 赛制（用户校准）：①分场=多队Agent比个体skill；②多队对抗=协作+策略；③混合=个体+团队
+  // 加对比种群不自动改赛制。旧别名 tournament→division, melee→confrontation
   var _raceMode = 'division';
   var _tournament = null;   // {entries:[{id,name,result}], done:bool}
   var _genView = 'qoq';     // XV-5: 世代曲线视图 qoq|yoy|composite
+  // 世界杯隐喻：①球星评比 ②球队协作对决 ③世界杯（球星+协作，奖杯只有一座=客观环境）
   var _RACE_HINTS = {
-    division: '① 队内个体·家族精英——强调个人能力',
-    confrontation: '② 多队对抗·田忌赛马——强调队内配合',
-    mixed: '③ 混合竞争·螺旋上升——环境最强选择（需重启后端加载 run_eras）',
+    division: '① 分场·球星评比——各队 Agent 比个体 skill（同一任务环境过滤谁更合适）',
+    confrontation: '② 多队·球队对决——比团队协作与排兵策略（需对比种群）',
+    mixed: '③ 混合·世界杯——球星 skill + 球队协作一起经受客观环境（奖杯只有一座）',
   };
   window.eco2SetRaceMode = function (m) {
     // 旧别名映射（防外部调用断裂）
@@ -298,10 +849,83 @@
     else if (m === 'melee') m = 'confrontation';
     _raceMode = (m === 'confrontation' || m === 'mixed') ? m : 'division';
     setText('eco2-race-hint', _RACE_HINTS[_raceMode] || _RACE_HINTS.division);
+    // 同步 radio UI
+    try {
+      var radios = document.querySelectorAll('input[name="eco2-race-mode"]');
+      radios.forEach(function (r) { r.checked = (r.value === _raceMode); });
+    } catch (e) { /* ignore */ }
     // v3: 多队对抗模式才显示策略选择器
     var psRow = $('eco2-primary-strategy-row');
     if (psRow) psRow.style.display = (_raceMode === 'confrontation') ? 'flex' : 'none';
+    _previewMultiPopRoster();
   };
+
+  /** 分场/多队/混合：有对比队时预览各方 Agent（分场也是多队比 skill） */
+  function _previewMultiPopRoster() {
+    if (!window._selectedTeamId) return;
+    var ids = [window._selectedTeamId];
+    var names = [window._selectedTeamName || window._selectedTeamId];
+    _rivalTeams.forEach(function (r) {
+      ids.push(r.id);
+      names.push(r.name);
+    });
+    _loadTeamAgentsPreview(ids, names);
+  }
+
+  function _loadTeamAgentsPreview(teamIds, teamNames) {
+    var box = $('eco2-pop-list');
+    if (!box) return;
+    var status = $('eco2-pop-status');
+    if (status) status.textContent = '· 预览入场名单（开跑后按生存刷新）';
+    box.innerHTML = '<div class="eco2-empty">加载两队 Agent…</div>';
+    var fetches = teamIds.map(function (tid) {
+      return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(tid))
+        .then(function (r) { return r.json ? r.json() : r; })
+        .then(function (d) {
+          var agents = [];
+          if (d && d.agents) {
+            agents = Array.isArray(d.agents) ? d.agents : Object.values(d.agents);
+          }
+          return { teamId: tid, agents: agents };
+        })
+        .catch(function () { return { teamId: tid, agents: [] }; });
+    });
+    Promise.all(fetches).then(function (groups) {
+      var html = '';
+      var total = 0;
+      groups.forEach(function (g, i) {
+        var label = teamNames[i] || g.teamId;
+        var agents = g.agents || [];
+        total += agents.length;
+        html += '<div style="padding:4px 2px;margin-top:4px;font-size:10px;font-weight:700;color:var(--cyan);border-bottom:1px solid var(--border)">'
+          + '🏳️ ' + esc(label) + ' <span style="font-weight:400;color:var(--dim)">(' + esc(g.teamId) + ') · ' + agents.length + ' 人</span></div>';
+        if (!agents.length) {
+          html += '<div class="eco2-empty" style="padding:4px">（该队无 Agent）</div>';
+          return;
+        }
+        agents.forEach(function (a) {
+          var aid = a.agent_id || a.id || '';
+          var nm = a.name || aid;
+          var skills = (a.skills || []).slice(0, 4).map(function (s) {
+            return '<span class="eco2-chip">' + esc(_sk(String(s)).slice(0, 12)) + '</span>';
+          }).join(' ');
+          html += '<div class="eco2-pop-row">'
+            + '<span style="width:14px;text-align:center">·</span>'
+            + '<span class="eco2-pop-name" title="' + esc(aid) + '">' + esc(nm) + '</span>'
+            + '<span style="flex:1;overflow:hidden;font-size:9px;color:var(--dim)">' + (skills || '—') + '</span>'
+            + '</div>';
+        });
+      });
+      box.innerHTML = html || '<div class="eco2-empty">（无 Agent）</div>';
+      if (status) {
+        var modeHint = _raceMode === 'division' ? '分场：比个体 skill'
+          : _raceMode === 'confrontation' ? '多队对抗：比协作/策略'
+          : '混合：个体+团队';
+        status.textContent = '· 预览 ' + groups.length + ' 队 / ' + total + ' 人 · ' + modeHint
+          + (groups.length > 1 ? '（开跑后各方 Agent 均入场）' : '');
+      }
+    });
+  }
 
   // XV-5: 世代曲线三比切换
   window.eco2SetGenView = function (v) {
@@ -320,8 +944,52 @@
     if (_lastResult) _renderGenerations(_lastResult.generations || []);
   };
 
+  /**
+   * 解析多队任务对齐：
+   * - 有主任务/同 plan 对比任务 → 共用一份考卷（步数/生态位），比 skill+协作
+   * - 全不选任务 → 无 contract，随机生境
+   */
+  function _resolveSharedExam() {
+    var pPlan = _primaryPlanId();
+    var rivalsWithTask = _rivalTeams.filter(function (r) { return r.task_id; });
+    var apple = [];
+    if (pPlan) {
+      apple = rivalsWithTask.filter(function (r) { return r.plan_id === pPlan; });
+    }
+    return {
+      mode: (!_boundTask && !rivalsWithTask.length) ? 'random'
+        : (pPlan && apple.length === rivalsWithTask.length && (_boundTask || apple.length)) ? 'apple'
+        : (_boundContract || _boundTask) ? 'primary_exam'
+        : 'random',
+      plan_id: pPlan,
+      apple_rivals: apple,
+      rival_bindings: _rivalTeams.map(function (r) {
+        return {
+          team_id: r.id,
+          team_name: r.name,
+          task_id: r.task_id || '',
+          task_title: r.task_title || '',
+          plan_id: r.plan_id || '',
+        };
+      }),
+    };
+  }
+
   function _createAndRunDrill(teamId, extraIds, maxSteps, maxGens, opts) {
     opts = opts || {};
+    var exam = _resolveSharedExam();
+    var goalName = '物竞天择-' + Date.now().toString(36);
+    if (_boundContract && _boundContract.plan_id) {
+      goalName = '物竞-' + (_boundContract.topic || _boundContract.plan_id).slice(0, 40);
+    } else if (_boundTask) {
+      goalName = '物竞·' + (_boundTask.title || _boundTask.task_id || '').slice(0, 40);
+    }
+    // 步数/世代：有统一考卷时优先契约预算（用户未手改时）
+    if (!_budgetOverridden && _boundContract && _boundContract.step_budget) {
+      var sb = _boundContract.step_budget;
+      if (sb.max_steps_per_generation) maxSteps = sb.max_steps_per_generation;
+      if (sb.max_generations) maxGens = sb.max_generations;
+    }
     var body = {
         team_id: teamId,
         mode: 'evolutionary',
@@ -329,13 +997,29 @@
         max_generations: maxGens || 3,
         drill_kind: 'natural_selection',
         task_goal: {
-          name: '物竞天择-' + Date.now().toString(36),
+          name: goalName,
           extra_team_ids: extraIds || [],
+          comparison_mode: exam.mode,
+          rival_task_bindings: exam.rival_bindings,
         },
     };
-    // v3 混合竞争：带 era 参数（后端 run_eras 识别）
+    // 有考卷（主任务或 apple）→ 带 contract；纯随机不带
+    if (exam.mode !== 'random' && _boundContract) {
+      body.task_goal.contract = _boundContract;
+      body.task_goal.plan_id = _boundContract.plan_id || exam.plan_id || '';
+    } else if (exam.mode === 'random') {
+      // 明确不带 contract，后端走团队技能并集随机生境
+      body.task_goal.random_habitat = true;
+    }
+    // XG-11: 溯源已挂接任务
+    if (_boundTask) {
+      body.task_goal.task_id = _boundTask.task_id || _boundTask.id || '';
+      body.task_goal.task_title = _boundTask.title || '';
+    }
+    // v3/v4 混合竞争：带 era 参数（后端 run_eras 识别）
     if (opts.mode === 'mixed') {
-      body.task_goal.era = true;   // 后端据此走 run_eras 纪元嵌套
+      body.task_goal.era = true;
+      body.task_goal.race_mode = 'mixed';
     }
     return _fetch('/api/v1/twin-trials', {
       method: 'POST',
@@ -442,20 +1126,30 @@
       return;
     }
 
-    // ── ② 多队对抗：多团队同场直接竞争（melee 内核） ──
-    if (_raceMode === 'confrontation' && _rivalTeams.length) {
-      setText('eco2-run-status', '⚔️ 多队对抗：种群同场 · 田忌赛马 · 队内配合度量');
-      var _drillStart = Date.now();
+    // ── ② 多队对抗：强调团队协作 + 排兵策略（需对比种群） ──
+    if (_raceMode === 'confrontation') {
+      if (!_rivalTeams.length) {
+        setText('eco2-run-status', '⚠ 多队对抗需要至少 1 个对比种群——请点「＋添加对比种群」');
+        window.__ECO_REPLAY_ACTIVE__ = false;
+        finish();
+        return;
+      }
+      var examC = _resolveSharedExam();
+      var examLabel = examC.mode === 'apple' ? '同一任务环境'
+        : examC.mode === 'primary_exam' ? '主任务环境'
+        : '随机生境';
+      setText('eco2-run-status', '⚔️ 多队对抗 · ' + examLabel + ' · 比团队协作与排兵策略');
+      var _drillStartC = Date.now();
       _createAndRunDrill(window._selectedTeamId,
         _rivalTeams.map(function (t) { return t.id; }),
         maxSteps, maxGens
       ).then(function (result) {
-        var _elapsed = Date.now() - _drillStart;
+        var _elapsed = Date.now() - _drillStartC;
         var _delay = _elapsed < 600 ? 600 - _elapsed : 0;
         setTimeout(function () {
           var tid = (result.trial_id || '').slice(0, 8);
           if (!result.populations || result.populations.length < 2) {
-            setText('eco2-run-status', '⚠ 对比种群未进入生境——请重启后端（./start.sh）加载多种群演练代码后重试');
+            setText('eco2-run-status', '⚠ 对比种群未进入生境——请重启后端（./start.sh）后重试');
           } else {
             setText('eco2-run-status', '✅ 多队对抗完成 (#' + tid + ') — 回放中，拖动进度条可回顾');
           }
@@ -466,27 +1160,33 @@
       return;
     }
 
-    // ── ① 分场锦标赛：单团队队内个体竞争 ──
-    // v3 语义修正：division = 单种群（家族内部精英识别），忽略对比种群
-    // 若有对比种群则走旧 tournament 逻辑（各队独立上场→冠军裁决），保留向后兼容
-    if (_raceMode === 'division' && _rivalTeams.length) {
-      // 有对比种群时走分场锦标赛（各队独立上场→冠军裁决）
-      setText('eco2-run-status', '🏟 分场锦标赛：各队独立进同一环境，依次上场演练');
-    } else {
-      // 无对比种群 = 纯队内个体竞争
-      setText('eco2-run-status', '🧬 分场锦标赛：队内个体竞争 · 家族精英识别 · 代谢红线 · 信号协议 · 世代繁衍');
-    }
+    // ── ① 分场锦标赛：比个体 skill（可单队，也可多队同场——各方 Agent 都入场）──
     {
+      var examD = _resolveSharedExam();
+      var extraDiv = _rivalTeams.map(function (t) { return t.id; });
+      var examHint = examD.mode === 'apple' ? ' · 同一任务环境'
+        : examD.mode === 'primary_exam' ? ' · 主任务环境'
+        : ' · 随机生境';
+      if (extraDiv.length) {
+        setText('eco2-run-status', '🏟 分场锦标赛：多队 Agent 同场 · 比个体 skill' + examHint + ' · 客观过滤');
+      } else {
+        setText('eco2-run-status', '🏟 分场锦标赛：队内个体 skill · 家族精英' + examHint);
+      }
       var _drillStart = Date.now();
-      // division 无对比种群时只跑当前队（忽略 rivals）
-      var _extraIds = _rivalTeams.length ? _rivalTeams.map(function (t) { return t.id; }) : [];
-      _createAndRunDrill(window._selectedTeamId, _extraIds, maxSteps, maxGens
-      ).then(function (result) {
+      _createAndRunDrill(window._selectedTeamId, extraDiv, maxSteps, maxGens)
+      .then(function (result) {
         var _elapsed = Date.now() - _drillStart;
         var _delay = _elapsed < 600 ? 600 - _elapsed : 0;
         setTimeout(function () {
           var tid = (result.trial_id || '').slice(0, 8);
-          setText('eco2-run-status', '✅ 分场锦标赛完成 (#' + tid + ') — 回放中，拖动进度条可回顾');
+          var pops = result.populations || [];
+          var msg = '✅ 分场锦标赛完成 (#' + tid + ')';
+          if (pops.length > 1) msg += ' · ' + pops.length + ' 队 Agent 已入场 · ' + pops.join(' + ');
+          msg += ' — 回放中';
+          if (extraDiv.length && pops.length < 2) {
+            msg = '⚠ 对比队未进入生境——请重启后端确认多种群路径';
+          }
+          setText('eco2-run-status', msg);
           finish();
           _playResultAndWait(result, false);
         }, _delay);
@@ -513,6 +1213,39 @@
     setText('eco2-kpi-alive', aliveN + ' / ' + ranking.length);
     setText('eco2-kpi-best', String(result.best_survival_ticks || (ranking[0] && ranking[0].survival_ticks) || 0));
     setText('eco2-kpi-diversity', String(Object.keys(skillSet).length));
+
+    // v4 ⑧+ Skill 集成建议
+    try {
+      var integ = result.integration;
+      var integBox = $('eco2-integration');
+      if (integBox) {
+        if (integ && (integ.recommended_bindings || integ.dominant_skills)) {
+          var lines = [];
+          lines.push('<div style="font-size:10px;margin-bottom:4px">🧩 Skill 集成 <span style="color:var(--dim)">(' + esc(integ.write_policy || 'suggest_only') + ')</span></div>');
+          if (integ.dominant_skills && integ.dominant_skills.length) {
+            lines.push('<div>dominant: ' + integ.dominant_skills.map(function (s) { return esc(_sk(s)); }).join(', ') + '</div>');
+          }
+          if (integ.missing_plan_skills && integ.missing_plan_skills.length) {
+            lines.push('<div style="color:#f87171">missing: ' + integ.missing_plan_skills.map(function (s) { return esc(_sk(s)); }).join(', ') + '</div>');
+          }
+          (integ.recommended_bindings || []).slice(0, 5).forEach(function (b) {
+            lines.push('<div>+ ' + esc(b.agent_id) + ' ← ' + (b.add_skills || []).map(function (s) { return esc(_sk(s)); }).join(', ') + '</div>');
+          });
+          lines.push('<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
+            + '<button type="button" class="btn" style="font-size:10px;padding:2px 8px" onclick="eco2CopyIntegration()">📋 复制建议 JSON</button>'
+            + '<button type="button" class="btn" style="font-size:10px;padding:2px 8px" onclick="eco2ApplyIntegration(false)">建议预览 apply</button>'
+            + '<button type="button" class="btn btn-primary" style="font-size:10px;padding:2px 8px" onclick="eco2ApplyIntegration(true)">✅ 确认写回绑定</button>'
+            + '<button type="button" class="btn" style="font-size:10px;padding:2px 8px" onclick="eco2DispatchWinner()">🏷 按适者派发（可选）</button>'
+            + '</div>');
+          integBox.innerHTML = lines.join('');
+          integBox.style.display = 'block';
+          window.__LAST_INTEGRATION__ = integ;
+          window.__LAST_ECO_RESULT__ = result;
+        } else {
+          integBox.style.display = 'none';
+        }
+      }
+    } catch (e) { /* ignore */ }
 
     // ② 生态位（演练后环境可能已漂移 → 用 result.env 刷新）
     if (result.env && result.env.demanded_skills) {
@@ -593,11 +1326,26 @@
         + esc(_sk(s).slice(0, 14)) + '</span>';
     }).join(' ') + ((r.skill_genome || []).length > 4 ? ' <span style="color:var(--dim)">+' + (r.skill_genome.length - 4) + '</span>' : '');
     var icon = !alive ? '💀' : (act.outcome === 'outcompeted' ? '🥊' : (INTENT_ICON[intent] || '·'));
+    // 显示短名，title 带全 id + 种群
+    var shortNm = (r.name || r.agent_id || '').replace(/^(build|aws|pet|ai|energy)_/, '');
+    var nameTitle = esc(r.agent_id) + (r.population ? ' @ ' + r.population : '');
+    // T_i 分解条（skill/协作/残差）
+    var attrBar = '';
+    if (r.attr_skill_share != null) {
+      attrBar = '<span title="' + esc(r.attr_explain || '') + ' | skill '
+        + Math.round(r.attr_skill_share * 100) + '% 协作 ' + Math.round(r.attr_collab_share * 100)
+        + '% 残差 ' + Math.round(r.attr_residual_share * 100) + '%" '
+        + 'style="display:inline-flex;width:40px;height:6px;border-radius:2px;overflow:hidden;flex-shrink:0">'
+        + '<i style="width:' + Math.round(r.attr_skill_share * 100) + '%;background:#22d3ee"></i>'
+        + '<i style="width:' + Math.round(r.attr_collab_share * 100) + '%;background:#a78bfa"></i>'
+        + '<i style="width:' + Math.round(r.attr_residual_share * 100) + '%;background:#64748b"></i></span>';
+    }
     return '<div class="eco2-pop-row' + (alive ? '' : ' dead') + '">'
       + '<span style="width:14px;text-align:center" title="' + (act.outcome === 'outcompeted' ? '竞争失败：有能力但没抢到生态位名额' : '') + '">' + icon + '</span>'
-      + '<span class="eco2-pop-name" title="' + esc(r.agent_id) + '">' + esc(r.agent_id) + '</span>'
+      + '<span class="eco2-pop-name" title="' + nameTitle + '">' + esc(shortNm) + '</span>'
       + '<span class="eco2-hpbar"><i style="width:' + Math.round(ratio * 100) + '%;background:' + hpColor + '"></i></span>'
       + '<span style="min-width:38px;color:var(--amber);font-weight:600">' + ticks + 't</span>'
+      + attrBar
       + '<span class="eco2-collab-mini" style="height:14px" title="协作基因 分享/信号/跟随/择偶">' + collabBars + '</span>'
       + '<span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">' + genome + '</span>'
       + '</div>';
@@ -777,6 +1525,54 @@
       collabFlow: window.collabLineageFlow(lineage, ranking),
       schools: window.schoolClusters(ranking)
     } : {};
+    var contract = result.contract || _boundContract || null;
+    var heat = (window.planCoverageHeatmap && contract)
+      ? window.planCoverageHeatmap(ranking, contract) : null;
+    var xfer = window.verticalVsHorizontalTransfer
+      ? window.verticalVsHorizontalTransfer(result.timeline || {}) : null;
+
+    // ⓪ v4 计划技能覆盖热力
+    if (heat && heat.skills && heat.skills.length) {
+      html += '<div style="margin-bottom:8px"><b style="color:#a78bfa;font-size:11px">🗺 计划技能覆盖热力</b>'
+        + ' <span style="color:var(--dim);font-size:9px">coverage=' + heat.coverage + '</span>';
+      html += '<div style="overflow-x:auto;margin-top:4px"><table style="border-collapse:collapse;font-size:9px"><tr><th></th>';
+      heat.skills.forEach(function (sk) {
+        html += '<th style="padding:1px 3px;color:var(--dim)">' + esc(_sk(sk)).slice(0, 8) + '</th>';
+      });
+      html += '</tr>';
+      (heat.matrix || []).slice(0, 12).forEach(function (row, ri) {
+        html += '<tr><td style="padding:1px 3px;color:var(--dim)">' + esc(String(heat.agents[ri] || '').slice(0, 8)) + '</td>';
+        row.forEach(function (v) {
+          html += '<td style="width:14px;height:12px;background:' + (v ? 'rgba(34,197,94,.7)' : 'rgba(148,163,184,.15)') + '"></td>';
+        });
+        html += '</tr>';
+      });
+      html += '</table></div>';
+      html += '<div style="font-size:9px;color:var(--dim);margin-top:2px">判词：覆盖率 ' + Math.round((heat.coverage || 0) * 100)
+        + '%——绿格=持有计划技能；低覆盖意味着该队基因组与任务需求错配</div></div>';
+    }
+    if (xfer && xfer.total > 0) {
+      html += '<div style="margin-bottom:8px"><b style="color:#22d3ee;font-size:11px">↕ 垂直 vs 水平传递</b>'
+        + '<div style="font-size:10px">垂直(遗传) ' + xfer.inherit + ' · 水平(学习) ' + xfer.learn
+        + ' · 变异 ' + xfer.mutate + '</div>'
+        + '<div style="font-size:9px;color:var(--dim)">判词：水平比 '
+        + Math.round((xfer.horizontal_ratio || 0) * 100) + '%——盲目学习贡献了多少新 skill</div></div>';
+    }
+    // 分 skill h²（取计划技能前 4）
+    if (window.perSkillHeritability && heat && heat.skills) {
+      var h2rows = [];
+      heat.skills.slice(0, 4).forEach(function (sk) {
+        var h = window.perSkillHeritability(lineage, ranking, sk);
+        if (h) h2rows.push(h);
+      });
+      if (h2rows.length) {
+        html += '<div style="margin-bottom:8px"><b style="color:#22d3ee;font-size:11px">🧬 分 skill 遗传力</b>';
+        h2rows.forEach(function (h) {
+          html += '<div style="font-size:10px">' + esc(_sk(h.skill)) + ' h²=<b>' + h.h2 + '</b> <span style="color:var(--dim)">(' + h.pairs + '对)</span></div>';
+        });
+        html += '</div>';
+      }
+    }
 
     // ① 血系树（保留原有缩进树 + 系谱系数着色）
     html += '<div style="margin-bottom:8px"><b style="color:#a78bfa;font-size:11px">🌳 血系树</b>';
@@ -1048,24 +1844,33 @@
     // 精英阶梯 top-k（最多 10）
     var ladder = ranking.slice().sort(function (a, b) { return b.survival_ticks - a.survival_ticks; }).slice(0, 10);
     html += '<table style="width:100%;font-size:11px;border-collapse:collapse">'
-      + '<tr style="color:#8b9ab5;text-align:left"><th style="padding:3px">名次</th><th>精英</th><th>生存</th><th>世代</th><th>技能基因</th><th>协作四维</th></tr>'
+      + '<tr style="color:#8b9ab5;text-align:left"><th style="padding:3px">名次</th><th>精英</th><th>Tᵢ</th><th>skill|协作|残差</th><th>技能基因</th><th>判读</th></tr>'
       + ladder.map(function (x, i) {
-        var cg = x.collab_genome || {};
-        var collabMini = COLLAB_DIMS.map(function (d) {
-          var v = cg[d[0]] != null ? cg[d[0]] : 0.5;
-          return d[1] + '<span class="eco2-hpbar" style="display:inline-block;width:30px;vertical-align:middle;margin:0 2px"><i style="width:'
-            + Math.round(v * 100) + '%;background:var(--cyan)"></i></span>';
-        }).join(' ');
+        var sk = x.attr_skill_share != null ? x.attr_skill_share : null;
+        var co = x.attr_collab_share != null ? x.attr_collab_share : null;
+        var re = x.attr_residual_share != null ? x.attr_residual_share : null;
+        var bar = '';
+        if (sk != null) {
+          bar = '<span title="skill ' + Math.round(sk * 100) + '% / 协作 ' + Math.round(co * 100)
+            + '% / 残差 ' + Math.round(re * 100) + '%" style="display:inline-flex;width:72px;height:8px;border-radius:2px;overflow:hidden;vertical-align:middle">'
+            + '<i style="width:' + Math.round(sk * 100) + '%;background:#22d3ee"></i>'
+            + '<i style="width:' + Math.round(co * 100) + '%;background:#a78bfa"></i>'
+            + '<i style="width:' + Math.round(re * 100) + '%;background:#64748b"></i></span>'
+            + ' <span style="font-size:9px;color:#8b9ab5">' + Math.round(sk * 100) + '/' + Math.round(co * 100) + '/' + Math.round(re * 100) + '</span>';
+        } else {
+          bar = '<span style="color:#8b9ab5;font-size:9px">—</span>';
+        }
         return '<tr style="border-top:1px solid rgba(255,255,255,.08)' + (i === 0 ? ';color:#f59e0b;font-weight:700' : '') + '">'
           + '<td style="padding:4px 3px">' + (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1)) + '</td>'
           + '<td>' + esc(x.agent_id.replace(/^(build|aws|pet|ai|energy)_/, '')) + '</td>'
           + '<td style="color:#f59e0b;font-weight:600">' + x.survival_ticks + 't</td>'
-          + '<td style="color:#8b9ab5">G' + (x.generation != null ? x.generation : '—') + '</td>'
+          + '<td style="font-size:9px">' + bar + '</td>'
           + '<td style="color:#8b9ab5">' + (x.skill_genome || []).slice(0, 4).map(function (s) { return esc(_sk(s)); }).join('、')
           + ((x.skill_genome || []).length > 4 ? '…' : '') + '</td>'
-          + '<td style="font-size:9px">' + collabMini + '</td></tr>';
+          + '<td style="font-size:9px;color:#8b9ab5;max-width:160px">' + esc(x.attr_explain || '') + '</td></tr>';
       }).join('')
-      + '</table>';
+      + '</table>'
+      + '<div style="font-size:9px;color:#8b9ab5;margin-top:4px">青=skill 主因 · 紫=协作主因 · 灰=残差；三者对 Tᵢ 归一（skill+协作+残差=100%）</div>';
 
     // 家族多样性指数（随世代变化）
     if (gens && gens.length) {
@@ -1432,6 +2237,31 @@
           return d[1] + ' <b style="color:#22d3ee">' + (means[d[0]] != null ? means[d[0]] : '—') + '</b>';
         }).join(' · ')
         + '<br><span style="color:#8b9ab5">读法：数值是被环境选择后的种群均值——它们不是设计出来的，是活下来的。</span></div>';
+    }
+
+    // T_i 分解：skill / 协作 / 残差（以 survival_ticks 为根）
+    var attMap = r.survival_attribution || {};
+    var attRows = ranking.filter(function (x) { return x.attr_skill_share != null || attMap[x.agent_id]; }).slice(0, 12);
+    if (attRows.length) {
+      html += '<div style="margin-top:14px"><b style="color:#22d3ee;font-size:13px">🔬 存活归因（Tᵢ 分解）</b>'
+        + '<div style="font-size:10px;color:#8b9ab5;margin:4px 0">唯一根 Tᵢ=生存 ticks；青=skill 主因 · 紫=协作主因 · 灰=残差；三份额之和=100%</div>'
+        + '<table style="width:100%;font-size:11px;border-collapse:collapse">'
+        + '<tr style="color:#8b9ab5;text-align:left"><th>Agent</th><th>Tᵢ</th><th>skill</th><th>协作</th><th>残差</th><th>判读</th></tr>';
+      attRows.forEach(function (x) {
+        var a = attMap[x.agent_id] || {};
+        var sk = x.attr_skill_share != null ? x.attr_skill_share : a.skill_share;
+        var co = x.attr_collab_share != null ? x.attr_collab_share : a.collab_share;
+        var re = x.attr_residual_share != null ? x.attr_residual_share : a.residual_share;
+        var ex = x.attr_explain || a.explain || '';
+        html += '<tr style="border-top:1px solid rgba(255,255,255,.08)">'
+          + '<td style="padding:3px">' + esc((x.agent_id || '').replace(/^(build|aws|pet|ai|energy)_/, '')) + '</td>'
+          + '<td style="color:#f59e0b;font-weight:600">' + (x.survival_ticks || a.T_i || 0) + 't</td>'
+          + '<td style="color:#22d3ee">' + (sk != null ? Math.round(sk * 100) + '%' : '—') + '</td>'
+          + '<td style="color:#a78bfa">' + (co != null ? Math.round(co * 100) + '%' : '—') + '</td>'
+          + '<td style="color:#94a3b8">' + (re != null ? Math.round(re * 100) + '%' : '—') + '</td>'
+          + '<td style="font-size:9px;color:#8b9ab5">' + esc(ex) + '</td></tr>';
+      });
+      html += '</table></div>';
     }
 
     content.innerHTML = html + '<div id="eco2-llm-analysis" style="margin-top:14px;padding:12px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:8px"><b style="color:#22d3ee;font-size:13px">🔍 LLM 深度分析</b><div style="color:#8b9ab5;font-size:11px;margin-top:6px">分析中…</div></div>';

@@ -50,6 +50,7 @@ export function initialState() {
       treadmill: { occupant: null, until: 0, queue: [] },
       toilet: { occupant: null, until: 0, queue: [] },
     },
+    ecoEnv: null,      // XB-6.1 生境 HUD：{demand, niche_title, living, ...}
     seq: 0,
   };
 }
@@ -397,6 +398,20 @@ export function reduce(prev, event) {
       }
       break;
     }
+    case 'eco_env': {
+      // XB-6.1: 生境客观环境 HUD + 3D 图腾（当前需求 skill / 生态位 / 存活 / 觅食命中）
+      state.ecoEnv = {
+        demand: event.demand || '',
+        niche_index: event.niche_index,
+        niche_title: event.niche_title || '',
+        living: event.living,
+        deaths: event.deaths || 0,
+        predated: event.predated || 0,
+        step: event.step,
+        forage_hits: Array.isArray(event.forage_hits) ? event.forage_hits.slice() : [],
+      };
+      break;
+    }
     case 'eco_intent': {
       // 物竞天择 v2 XT-5.2: 回放帧的意图 → 头顶意图符号（🍖觅食/🛡避险/💕求偶/💤静息）
       const updates = event.updates || {};
@@ -438,6 +453,7 @@ export function reduce(prev, event) {
     }
     case 'eco_reset': {
       // 物竞天择 v2: 回放重播前重置生境字段（血量/意图/存活），移除演练期新生个体
+      state.ecoEnv = null;
       for (const k of Object.keys(state.agents)) {
         const a = state.agents[k];
         if (a.ecoNewborn) { delete state.agents[k]; continue; }

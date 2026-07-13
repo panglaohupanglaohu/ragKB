@@ -855,6 +855,7 @@ async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
                 _trial_events.setdefault(trial_id, []).append(evt)
 
             drill = get_eco_drill()
+            _tg = trial.task_goal or {}
             result = await drill.run_drill(
                 trial_id=trial_id,
                 branch_id=branch_id,
@@ -865,7 +866,11 @@ async def branch_run(trial_id: str, branch_id: str) -> Dict[str, Any]:
                 on_step=_on_step,
                 on_epoch=_on_epoch,
                 # v2.3 多种群同场竞争：对比种群经 task_goal 透传（前端「＋添加对比种群」）
-                extra_team_ids=list((trial.task_goal or {}).get("extra_team_ids") or []),
+                extra_team_ids=list(_tg.get("extra_team_ids") or []),
+                # v4 任务闭环：contract + mixed 纪元
+                contract=_tg.get("contract") if isinstance(_tg.get("contract"), dict) else None,
+                use_eras=bool(_tg.get("era") is True or _tg.get("race_mode") == "mixed"),
+                task_goal=_tg,
             )
             branch.status = BranchStatus.COMPLETED
             trial.status = TrialStatus.COMPLETED  # type: ignore

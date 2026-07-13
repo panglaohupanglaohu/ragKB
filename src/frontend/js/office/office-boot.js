@@ -38,12 +38,34 @@ function bootOffice() {
   container.appendChild(badge);
   container.appendChild(panel);
 
+  // XB-6.1 生境 HUD（左下）：当前生态位需求 skill / 存活 — 物竞回放时可见
+  const habitatHud = document.createElement('div');
+  habitatHud.id = 'office-habitat-hud';
+  habitatHud.style.cssText = 'position:absolute;bottom:12px;left:12px;min-width:180px;max-width:280px;padding:8px 10px;background:rgba(15,23,42,.82);border:1px solid rgba(34,211,238,.35);border-radius:6px;font:11px/1.6 sans-serif;color:#e2e8f0;z-index:5;display:none;pointer-events:none';
+  container.appendChild(habitatHud);
+
   function renderPanel(state) {
     badge.style.display = state.mirror ? 'block' : 'none';
     const stats = collabStats(state, 5);
     panel.innerHTML = '<b style="font-size:11px">协作热度 TOP5</b>' + (stats.length
       ? stats.map((s) => '<div>' + esc(s.pair) + ' <b>×' + s.count + '</b></div>').join('')
       : '<div style="color:#9aa1ab">演练开始后显示 Agent 协作</div>');
+    // 生境 HUD
+    const env = state.ecoEnv || null;
+    if (env && (env.demand || env.niche_title)) {
+      habitatHud.style.display = 'block';
+      habitatHud.innerHTML = '<b style="color:#22d3ee;font-size:11px">🌍 生境（客观环境）</b>'
+        + '<div style="margin-top:4px">需求 skill：<b style="color:#f59e0b">' + esc(env.demand || '—') + '</b></div>'
+        + (env.niche_title ? '<div style="color:#94a3b8;font-size:10px">步骤：' + esc(env.niche_title) + '</div>' : '')
+        + '<div style="color:#94a3b8;font-size:10px">存活 ' + (env.living != null ? env.living : '—')
+        + (env.deaths ? ' · 本帧死亡 ' + env.deaths : '')
+        + (env.predated ? ' · 捕食 ' + env.predated : '')
+        + (env.step != null ? ' · tick ' + env.step : '')
+        + '</div>'
+        + '<div style="font-size:9px;color:#64748b;margin-top:2px">奖杯只有一座：环境过滤 skill/协作是否适合</div>';
+    } else if (!env) {
+      // 保持上次显示，除非显式清空
+    }
   }
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

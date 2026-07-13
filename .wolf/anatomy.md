@@ -759,3 +759,15 @@
 
 ## 本轮改动(2026-06-18, skill-extract 队列来源隔离)
 
+
+## Manual note 2026-07-13
+- `docs/物竞天择任务闭环与Skill遗传plan.md` — v4 task-loop + skill inheritance plan
+- `docs/物竞天择任务闭环与Skill遗传todos.md` — v4 XG/XR checklist (XG-0..13, XR-1 全勾)
+- `src/backend/sandbox/plan_eco_bridge.py` — TaskHabitatContract compiler (v4)
+- `src/backend/sandbox/skill_identity.py` — skill canonicalize (v4)
+- `src/backend/sandbox/skill_integration.py` — integration report (v4)
+- `src/backend/sandbox/survival_decompose.py` — T_i → skill/collab/residual attribution (v4 XG-13)
+- `tests/test_plan_eco_bridge.py` — v4 unit tests
+- `tests/test_survival_decompose.py` — T_i decomposition unit tests
+- `tests/test_eco_smoke_static.py` — XR-1.5 static smoke (no browser)
+- `src/frontend/__tests__/eco-genetics-v4.test.js` — genetics skill UI vitest

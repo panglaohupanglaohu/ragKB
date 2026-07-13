@@ -80,6 +80,27 @@
       }
       dispatch({ type: 'eco_health', updates: healthUpdates });
       dispatch({ type: 'eco_intent', updates: intentUpdates });
+      // XB-6.1：生境 HUD + 3D 图腾 + 觅食成功光点
+      try {
+        var forageHits = [];
+        for (var fi = 0; fi < ids.length; fi++) {
+          var fa = actions[ids[fi]] || {};
+          if (fa.outcome === 'success' && (fa.intention === 'forage' || fa.intention === 'FORAGE')) {
+            forageHits.push(ids[fi]);
+          }
+        }
+        dispatch({
+          type: 'eco_env',
+          demand: step.demand || '',
+          niche_index: step.niche_index,
+          niche_title: step.niche_title || '',
+          living: step.living != null ? step.living : Object.keys(actions).length,
+          deaths: (step.deaths || []).length,
+          predated: (step.predated || []).length,
+          step: step.step,
+          forage_hits: forageHits,
+        });
+      } catch (eEnv) { /* ignore */ }
       // 死亡帧：标记不再存活
       var deaths = step.deaths || [];
       if (deaths.length) {

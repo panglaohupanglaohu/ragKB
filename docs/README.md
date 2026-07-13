@@ -10,6 +10,8 @@
 | [DOCUMENTATION_AUDIT.md](DOCUMENTATION_AUDIT.md) | 文档重复、过期、冲突和归档记录 | 当前审计 |
 | [全仓库分阶段重构路线.md](全仓库分阶段重构路线.md) | 分阶段重构路线 | 当前路线，执行前仍需按 [VALIDATION.md](VALIDATION.md) 复核 |
 | [SIGNING_RULE.md](SIGNING_RULE.md) | docs 下 plan/todos 签名规则 | 规则文档 |
+| [物竞天择任务闭环与Skill遗传plan.md](物竞天择任务闭环与Skill遗传plan.md) | v4：Plaza 计划→任务生境→三级赛制→Skill 遗传/集成 | current |
+| [物竞天择任务闭环与Skill遗传todos.md](物竞天择任务闭环与Skill遗传todos.md) | v4 执行清单 XG-0…XG-10 / XR-1 | current |
 
 ## 需要验证的历史文档
 
