@@ -106,10 +106,12 @@ h1 { font-size: 20px; margin: 20px 0; }
     <button class="btn btn-primary" onclick="saveRuntime()">💾 保存参数</button>
     <button class="btn" onclick="loadRuntime()" style="background:#e2e5e9">🔄 重新加载</button>
     <button class="btn btn-danger" onclick="resetRuntime()">↺ 恢复默认</button>
-    <span style="font-size:12px;color:#718096">这些参数来自「物竞天择驱动的非人演化生态」plan/todos，驱动 H/F/L 意图仲裁 · Health 代谢 · 盲目学习 · 选择淘汰 · 交配门禁</span>
+    <button class="btn btn-success" type="button" onclick="applyEvolutionPressurePreset()" title="丰饶↓ 事故↑ 闲置税 + 无技偏压（与孪生页左侧音量旋钮同口径）">🎛 一键加压（同步孪生旋钮）</button>
+    <button class="btn" type="button" onclick="applyLooseHabitatPreset()" style="background:#e2e5e9" title="宽松生境（易苟活，适合演示）">🍃 宽松生境</button>
+    <span style="font-size:12px;color:#718096">H/F/L · 代谢 · 生境 · 演化加压 · <b>LLM 分析提示词</b>均可编辑</span>
   </div>
   <div class="add-pet-bar" style="gap:10px">
-    <input id="runtime-search" type="search" placeholder="搜索参数名/说明…" oninput="runtimeSearchFilter(this.value)"
+    <input id="runtime-search" type="search" placeholder="搜索参数名/说明…（如 llm / skill_idle）" oninput="runtimeSearchFilter(this.value)"
       style="flex:1;min-width:180px;max-width:320px;padding:7px 10px;border:1px solid #d1d9e6;border-radius:6px;font-size:12px">
     <button class="btn" type="button" onclick="runtimeToggleAll(true)" style="background:#e2e5e9">全部展开</button>
     <button class="btn" type="button" onclick="runtimeToggleAll(false)" style="background:#e2e5e9">全部折叠</button>
@@ -597,6 +599,23 @@ const RUNTIME_FIELD_CTRL = {
   dominant_usage_threshold: { min: 1, max: 100, step: 1, unit: '' },
   era_count: { min: 1, max: 10, step: 1, unit: '' },
   epochs_per_era: { min: 1, max: 20, step: 1, unit: '' },
+  skill_idle_penalty: { min: 0, max: 5, step: 0.1, unit: '' },
+  min_steps_when_contract: { min: 0, max: 500, step: 8, unit: '步' },
+  min_gens_when_contract: { min: 0, max: 20, step: 1, unit: '代' },
+  prefer_forage_when_can_serve: { min: 0, max: 1, step: 1, unit: '0/1' },
+  predator_bias_unskilled: { min: 0, max: 8, step: 0.1, unit: '' },
+  scarce_share_boost: { min: 0, max: 4, step: 0.1, unit: '' },
+  same_pop_share_bias: { min: 0, max: 1, step: 0.05, unit: '' },
+  timeout_s: { min: 15, max: 180, step: 5, unit: 's' },
+  max_chars: { min: 200, max: 4000, step: 50, unit: '字' },
+};
+
+// 文本型字段（textarea）—— LLM 提示词等
+const RUNTIME_TEXT_FIELDS = {
+  system_preamble: 1,
+  hard_constraints: 1,
+  output_structure: 1,
+  data_header: 1,
 };
 
 const RUNTIME_META = {
@@ -620,13 +639,13 @@ const RUNTIME_META = {
     blind_learning_rate: '生境演练：REST 时随机习得 skill 的概率（0~1）',
     genome_carry_cost: '生境演练：每携带 1 个 skill 的每 tick 额外代谢（惩罚技能囤积）',
   }},
-  habitat: { title: '🌍 生境环境（物竞天择）', desc: '客观环境：丰饶度≈token 松紧；捕食≈突发事故；漂移≈需求变更', fields: {
+  habitat: { title: '🌍 生境环境（物竞天择）', desc: '客观环境：丰饶度≈token 松紧；捕食≈突发事故；漂移≈需求变更。压低 abundance / 提高 predator 可逼出 skill 选择', fields: {
     drift_prob: '每世代生态位漂移概率（随机替换 1 个需求 skill，0~1）',
-    predator_pressure: '每 tick 捕食事件概率（0=关闭，建议 0.05~0.2）',
-    abundance: '丰饶度：觅食收益倍率（≈token/算力松紧，0.5 艰难 ~ 2.0 富足）',
-    niche_capacity: '生态位容量：每 tick 成功觅食名额（0=不限）',
+    predator_pressure: '每 tick 捕食事件概率（0=关闭，加压建议 0.1~0.2）',
+    abundance: '丰饶度：觅食收益倍率（≈token 松紧；加压建议 0.55~0.75）',
+    niche_capacity: '生态位容量：每 tick 成功觅食名额（0=不限；越小竞争越烈）',
   }},
-  drill_economics: { title: '🍖 觅食/协作经济学（物竞天择）', desc: '生境演练的能量经济——协作有代价才可能被选择或淘汰（plan v2 §3.1）', fields: {
+  drill_economics: { title: '🍖 觅食/协作经济学（物竞天择）', desc: '协作有代价才可能被选择；skill_idle_penalty=能 serve 却 REST 的额外代谢', fields: {
     forage_gain: '觅食命中获得的能量（×丰饶度）',
     forage_miss_penalty: '觅食未命中的额外代谢惩罚',
     avoid_cost: '避险动作代谢',
@@ -634,6 +653,17 @@ const RUNTIME_META = {
     share_fraction: '分享时让渡给求助者的收益比例（0~1）',
     follow_bonus: '跟随 FOOD 信号的觅食成功率加成',
     help_hunger: '饥饿超过此值才发 HELP 信号（0~1）',
+    skill_idle_penalty: '能匹配 demand 却 REST 的额外代谢（抬高 skill% 的关键旋钮）',
+  }},
+  evolution_pressure: { title: '🎛 演化加压（深参）', desc: '日常请在数字孪生左侧「生境旋钮」调节；本页为全量深参。idle 税 / 捕食偏无技能 / 稀缺分享 / 同队分享', fields: {
+    skill_idle_penalty: '同 drill_economics：能 serve 却 REST 的惩罚（生产路径优先读本节）',
+    genome_carry_cost: '每携带 1 个 skill 的每 tick 额外代谢（覆盖 learning 节）',
+    min_steps_when_contract: '绑定任务契约时至少步数/代（避免 2 代残差主导）',
+    min_gens_when_contract: '绑定任务契约时至少世代数',
+    prefer_forage_when_can_serve: '1=能 serve 且略饿时把 REST 抬成 FORAGE',
+    predator_bias_unskilled: '捕食加权偏向无法 serve 当前 demand 的个体（抬 Skill 选择压）',
+    scarce_share_boost: 'abundance<1 时分享让渡放大系数（抬协作对生存的贡献）',
+    same_pop_share_bias: '0~1 优先同队分享概率（团队边界可被选择）',
   }},
   selection: { title: '⚖️ 物竞天择选择状态机', desc: 'skill dominant/deprecated 判定（防单次波动误杀）', fields: {
     dominant_min_streak: '连续正/负净收益判定长度（越大越稳）',
@@ -645,6 +675,14 @@ const RUNTIME_META = {
   era: { title: '🌍 混合竞争·纪元', desc: '大迭代：纪元数 × 每纪元世代；跨纪元环境加压', fields: {
     era_count: '纪元数（1=单纪元零回归）',
     epochs_per_era: '每纪元内的世代数',
+  }},
+  llm_analysis: { title: '🔍 LLM 演练分析提示词', desc: '物竞报告「深度分析」用的提示词；可直接改文案。结构化数据会自动接在 data_header 之后', fields: {
+    timeout_s: 'LLM 调用超时（秒）',
+    max_chars: '分析正文最大字数（超长截断）',
+    system_preamble: '角色与任务说明（A=Skill 进化 / B=团队演化）',
+    hard_constraints: '硬约束（T_i 唯一适应度、赛制语义、残差主导时的诊断要求）',
+    output_structure: '输出结构模板（因果 / 两判定 / 旋钮 / 一句话）',
+    data_header: '数据区标题（其后自动拼接演练摘要）',
   }},
 };
 
@@ -663,10 +701,23 @@ function _clampRuntimeVal(key, num) {
 }
 
 function _runtimeInputHtml(section, key, val) {
+  const dirtyMark = 'data-section="' + section + '" data-key="' + key + '"';
+  // 文本提示词：大 textarea
+  if (RUNTIME_TEXT_FIELDS[key]) {
+    const text = val != null ? String(val) : '';
+    return `<textarea ${dirtyMark} rows="6" style="flex:1;min-width:280px;min-height:96px;font-size:12px;line-height:1.45;font-family:ui-monospace,Menlo,monospace;padding:8px;border:1px solid #d1d9e6;border-radius:6px;resize:vertical"
+      oninput="runtimeFieldChanged(this)">${esc(text)}</textarea>`;
+  }
   const c = RUNTIME_FIELD_CTRL[key];
   const v = val != null && val !== '' ? val : (c && c.min != null ? c.min : 0);
-  const dirtyMark = 'data-section="' + section + '" data-key="' + key + '"';
   if (!c) {
+    // bool / 未知：number 兜底
+    if (typeof val === 'boolean') {
+      return `<select ${dirtyMark} onchange="runtimeFieldChanged(this)" style="max-width:120px">
+        <option value="true" ${val ? 'selected' : ''}>true</option>
+        <option value="false" ${!val ? 'selected' : ''}>false</option>
+      </select>`;
+    }
     return `<input type="number" step="any" value="${v}" ${dirtyMark} style="max-width:120px"
       oninput="runtimeFieldChanged(this)">`;
   }
@@ -773,11 +824,13 @@ function renderRuntime() {
     const rows = fieldKeys.map(key => {
       const dirty = _runtimeBaseline[section] && _runtimeBaseline[section][key] !== vals[key]
         && vals[key] != null;
+      const isText = !!RUNTIME_TEXT_FIELDS[key];
       return `
-      <div class="form-row" data-runtime-row="1" style="align-items:center;gap:8px;flex-wrap:wrap${dirty ? ';background:rgba(245,158,11,.08);border-radius:6px;padding:4px' : ''}">
-        <label style="width:200px;flex-shrink:0" title="${esc(meta.fields[key])}">${esc(key)}${dirty ? ' <span style="color:#f59e0b">●</span>' : ''}</label>
+      <div class="form-row" data-runtime-row="1" style="align-items:${isText ? 'flex-start' : 'center'};gap:8px;flex-wrap:wrap${dirty ? ';background:rgba(245,158,11,.08);border-radius:6px;padding:4px' : ''}">
+        <label style="width:200px;flex-shrink:0${isText ? ';padding-top:6px' : ''}" title="${esc(meta.fields[key])}">${esc(key)}${dirty ? ' <span style="color:#f59e0b">●</span>' : ''}</label>
         ${_runtimeInputHtml(section, key, vals[key])}
-        <span class="hint" style="flex:1;min-width:120px">${esc(meta.fields[key])}</span>
+        ${isText ? '' : `<span class="hint" style="flex:1;min-width:120px">${esc(meta.fields[key])}</span>`}
+        ${isText ? `<div class="hint" style="width:100%;margin-left:208px">${esc(meta.fields[key])}</div>` : ''}
       </div>`;
     }).join('');
     const chevron = collapsed ? '▸' : '▾';
@@ -795,7 +848,7 @@ function renderRuntime() {
 
 function _collectRuntime() {
   const out = {};
-  // 只采 number 输入（每个字段一个权威值；range 与 number 同步）
+  // number（每个字段一个权威值；range 与 number 同步）
   document.querySelectorAll('#runtime-sections input[type=number][data-section]').forEach(inp => {
     const s = inp.dataset.section, k = inp.dataset.key;
     if (inp.value === '') return;
@@ -805,7 +858,7 @@ function _collectRuntime() {
     out[s] = out[s] || {};
     out[s][k] = num;
   });
-  // 仅有 range 无 number 的兜底
+  // range 兜底
   document.querySelectorAll('#runtime-sections input[type=range][data-section]').forEach(inp => {
     const s = inp.dataset.section, k = inp.dataset.key;
     if (out[s] && out[s][k] != null) return;
@@ -814,7 +867,76 @@ function _collectRuntime() {
     out[s] = out[s] || {};
     out[s][k] = _clampRuntimeVal(k, num);
   });
+  // textarea 提示词
+  document.querySelectorAll('#runtime-sections textarea[data-section]').forEach(ta => {
+    const s = ta.dataset.section, k = ta.dataset.key;
+    out[s] = out[s] || {};
+    out[s][k] = ta.value;
+  });
+  // select bool
+  document.querySelectorAll('#runtime-sections select[data-section]').forEach(sel => {
+    const s = sel.dataset.section, k = sel.dataset.key;
+    out[s] = out[s] || {};
+    out[s][k] = sel.value === 'true';
+  });
   return out;
+}
+
+/** 一键加压：让 Skill/团队演化「变强」的默认旋钮组合 */
+function applyEvolutionPressurePreset() {
+  _runtimeConfig = _runtimeConfig || {};
+  _runtimeConfig.habitat = Object.assign({}, _runtimeConfig.habitat || {}, {
+    abundance: 0.6,
+    predator_pressure: 0.15,
+    drift_prob: 0.18,
+    niche_capacity: 3,
+  });
+  _runtimeConfig.drill_economics = Object.assign({}, _runtimeConfig.drill_economics || {}, {
+    skill_idle_penalty: 1.5,
+    forage_miss_penalty: 2.8,
+    forage_gain: 9,
+    follow_bonus: 0.2,
+    help_hunger: 0.65,
+  });
+  _runtimeConfig.evolution_pressure = Object.assign({}, _runtimeConfig.evolution_pressure || {}, {
+    skill_idle_penalty: 1.5,
+    genome_carry_cost: 0.1,
+    min_steps_when_contract: 72,
+    min_gens_when_contract: 5,
+    prefer_forage_when_can_serve: 1,
+    predator_bias_unskilled: 2.5,
+    scarce_share_boost: 1.5,
+    same_pop_share_bias: 0.75,
+  });
+  _runtimeConfig.learning = Object.assign({}, _runtimeConfig.learning || {}, {
+    genome_carry_cost: 0.1,
+    blind_learning_rate: 0.12,
+  });
+  _runtimeDirty = true;
+  renderRuntime();
+  toast('🎛 已套用加压预设（未保存——点「保存参数」生效；孪生页左侧可拖音量盘）');
+}
+
+function applyLooseHabitatPreset() {
+  _runtimeConfig = _runtimeConfig || {};
+  _runtimeConfig.habitat = Object.assign({}, _runtimeConfig.habitat || {}, {
+    abundance: 1.2,
+    predator_pressure: 0.04,
+    drift_prob: 0.1,
+    niche_capacity: 0,
+  });
+  _runtimeConfig.drill_economics = Object.assign({}, _runtimeConfig.drill_economics || {}, {
+    skill_idle_penalty: 0,
+  });
+  _runtimeConfig.evolution_pressure = Object.assign({}, _runtimeConfig.evolution_pressure || {}, {
+    skill_idle_penalty: 0,
+    prefer_forage_when_can_serve: 0,
+    min_steps_when_contract: 40,
+    min_gens_when_contract: 2,
+  });
+  _runtimeDirty = true;
+  renderRuntime();
+  toast('🍃 已套用宽松生境（未保存）');
 }
 
 async function saveRuntime() {

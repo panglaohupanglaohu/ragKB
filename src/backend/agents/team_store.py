@@ -155,10 +155,16 @@ class TeamStore:
         ]
         channels = [
             AgentChannelConfig(
-                channel_name=c.get("channel_name", ""),
+                channel=c.get("channel") or c.get("channel_name", ""),
+                channel_name=c.get("channel_name") or c.get("channel", ""),
+                endpoint=c.get("endpoint", ""),
+                enabled=c.get("enabled", True),
+                sync_interval_seconds=c.get("sync_interval_seconds", 60),
                 subscribe=c.get("subscribe", True),
                 publish=c.get("publish", False),
                 priority=c.get("priority", 0),
+                source=c.get("source", "") or "",
+                note=c.get("note", "") or "",
             )
             for c in data.get("channels", [])
         ]

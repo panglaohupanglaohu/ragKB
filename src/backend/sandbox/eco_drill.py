@@ -221,14 +221,30 @@ class EcoDrill:
             "share_fraction": SHARE_FRACTION,
             "follow_bonus": FOLLOW_BONUS,
             "help_hunger": HELP_HUNGER,
+            "skill_idle_penalty": 0.0,  # 默认 0：单元测试零回归；生产由 config 注入
+            # 加压旋钮（默认 0=零回归；生产 evolution_pressure 注入）
+            "predator_bias_unskilled": 0.0,  # >0：捕食加权偏向无法 serve 当前 demand 的个体
+            "scarce_share_boost": 0.0,       # abundance<1 时分享让渡 ×(1+boost×(1-ab))
+            "same_pop_share_bias": 0.0,      # 0~1：优先把份额让给同 population（团队演化）
         }
         if economics:
             for k, v in economics.items():
-                if k in self._econ:
+                if k in self._econ or k in (
+                    "skill_idle_penalty",
+                    "predator_bias_unskilled",
+                    "scarce_share_boost",
+                    "same_pop_share_bias",
+                    "prefer_forage_when_can_serve",
+                ):
+                    if k == "prefer_forage_when_can_serve":
+                        continue
                     try:
                         self._econ[k] = float(v)
                     except (TypeError, ValueError):
                         pass
+        self._prefer_forage_when_can_serve = bool(
+            (economics or {}).get("prefer_forage_when_can_serve", 0)
+        )
 
         # v4 任务生境：有序 niches（计划步骤）；空则走 v3 循环 demand
         self._niches: List[Dict[str, Any]] = list(niches or [])
@@ -332,6 +348,53 @@ class EcoDrill:
             else:
                 self._niche_index = nxt
 
+    def _agent_can_serve_now(self, c: "Creature") -> bool:
+        """当前 demand / niche 下是否持有匹配 skill。"""
+        demand = self._current_demand()
+        if self._niches:
+            ns = list((self._niches[self._niche_index % len(self._niches)].get("demanded_skills") or []))
+            if ns:
+                return any(s in c.skill_genome for s in ns)
+        return demand in c.skill_genome
+
+    def _pick_predator_target(self) -> "Creature":
+        """捕食目标：默认均匀；bias>0 时无法 serve 的个体权重更高。"""
+        living = self.living()
+        if not living:
+            raise RuntimeError("no living creatures for predator")
+        bias = float(self._econ.get("predator_bias_unskilled") or 0.0)
+        if bias <= 0 or len(living) == 1:
+            return self._rng.choice(living)
+        weights = []
+        for c in living:
+            w = 1.0
+            if not self._agent_can_serve_now(c):
+                w += bias
+            weights.append(w)
+        total = sum(weights) or 1.0
+        r = self._rng.random() * total
+        acc = 0.0
+        for c, w in zip(living, weights):
+            acc += w
+            if r <= acc:
+                return c
+        return living[-1]
+
+    def _pick_share_recipient(self, donor: "Creature", needy: List[str]) -> str:
+        """分享对象：same_pop_share_bias 优先同队，利于团队协作被选择。"""
+        if not needy:
+            raise ValueError("needy empty")
+        bias = float(self._econ.get("same_pop_share_bias") or 0.0)
+        if bias <= 0 or not donor.population:
+            return self._rng.choice(needy)
+        same = [
+            n for n in needy
+            if (self._creatures.get(n) and self._creatures[n].population == donor.population)
+        ]
+        if same and self._rng.random() < min(1.0, bias):
+            return self._rng.choice(same)
+        return self._rng.choice(needy)
+
     # ── 单步生境 tick ──
     def step(self) -> Dict[str, Any]:
         """一个生境 tick：受限感知（含信号板）→ H/F/L 意图 → 行为表达 → 代谢结算 → 死亡淘汰."""
@@ -384,6 +447,15 @@ class EcoDrill:
                 visible_peer_count=len(self.living()) - 1,
             )
             intention = generate_intention(state, view, self._thresholds)
+            # 加压：能 serve 时把 REST 抬成 FORAGE（仍由 H/F 主导 avoid；只干预「能干活却躺平」）
+            if (
+                self._prefer_forage_when_can_serve
+                and can_serve
+                and intention.type == IntentionType.REST_EXPLORE
+                and hunger >= (self._thresholds.hunger_threshold * 0.55)
+            ):
+                from agents.runtime.eco_loop import Intention as _Intention
+                intention = _Intention(type=IntentionType.FORAGE, priority=max(hunger, 0.35))
             plans.append({"c": c, "hunger": hunger, "can_serve": can_serve,
                           "intention": intention, "outcompeted": False})
 
@@ -458,6 +530,11 @@ class EcoDrill:
                 action_cost += self._econ["signal_cost"]
             else:  # REST_EXPLORE：静息 + 盲目学习掷骰（世界观 §4：学习是盲目的）
                 action_cost += REST_COST
+                # 能 serve 却 REST：额外代谢 → 环境惩罚「有 skill 不用」，抬高 skill 选择压力
+                idle_pen = float(self._econ.get("skill_idle_penalty") or 0.0)
+                if can_serve and idle_pen > 0:
+                    action_cost += idle_pen
+                    emitted.append("IDLE_SKILL_TAX")
                 if self._blind_learning_rate > 0 and self._learning_pool \
                         and self._rng.random() < self._blind_learning_rate:
                     learned = self._rng.choice(self._learning_pool)
@@ -485,8 +562,13 @@ class EcoDrill:
                 needy = [s["from"] for s in help_signals if s["from"] != c.agent_id]
                 needy = [n for n in needy if n in self._creatures and self._creatures[n].alive]
                 if needy:
-                    recipient = self._rng.choice(needy)
-                    donated = reward * self._econ["share_fraction"]
+                    recipient = self._pick_share_recipient(c, needy)
+                    frac = float(self._econ["share_fraction"])
+                    # 稀缺时分享更「值钱」→ 协作对 T_i 边际贡献上升（团队演化选择压）
+                    boost = float(self._econ.get("scarce_share_boost") or 0.0)
+                    if boost > 0 and self.env.abundance < 1.0:
+                        frac = min(0.95, frac * (1.0 + boost * (1.0 - self.env.abundance)))
+                    donated = reward * frac
                     reward -= donated
                     self._pending_rewards[recipient] = self._pending_rewards.get(recipient, 0.0) + donated
                     shared_to = recipient
@@ -517,10 +599,11 @@ class EcoDrill:
                 deaths.append(c.agent_id)
 
         # ── 环境捕食压力（每 tick 概率事件，plan §3.3）──
+        # predator_bias_unskilled>0 时加权偏向无法 serve 当前 demand 的个体 → Skill 选择压
         predated: List[str] = []
         if self.env.predator_pressure > 0 and self.living() \
                 and self._rng.random() < self.env.predator_pressure:
-            target = self._rng.choice(self.living())
+            target = self._pick_predator_target()
             result = self._ledger.tick(target.agent_id, action_cost=20.0, reward=0.0)
             predated.append(target.agent_id)
             if result.became_dormant:
@@ -1020,6 +1103,8 @@ def _habitat_params() -> Dict[str, Any]:
         "drift_prob": 0.3, "predator_pressure": 0.08, "abundance": 1.0,
         "niche_capacity": 3,
         "economics": {},
+        "min_steps_when_contract": 0,
+        "min_gens_when_contract": 0,
     }
     try:
         from agents.runtime.eco_runtime_config import get_eco_runtime_config
@@ -1027,16 +1112,35 @@ def _habitat_params() -> Dict[str, Any]:
         meta = cfg.get_section("metabolism")
         learn = cfg.get_section("learning")
         hab = cfg.get_section("habitat")
+        evo = cfg.get_section("evolution_pressure")
+        econ = dict(cfg.get_section("drill_economics") or {})
+        # evolution_pressure 覆盖：囤积税 / idle 税 / forage 偏向
+        if evo.get("genome_carry_cost") is not None:
+            learn_carry = float(evo.get("genome_carry_cost"))
+        else:
+            learn_carry = float(learn.get("genome_carry_cost", 0.05))
+        if evo.get("skill_idle_penalty") is not None:
+            econ["skill_idle_penalty"] = float(evo["skill_idle_penalty"])
+        if evo.get("prefer_forage_when_can_serve") is not None:
+            econ["prefer_forage_when_can_serve"] = int(evo["prefer_forage_when_can_serve"])
+        for ek in ("predator_bias_unskilled", "scarce_share_boost", "same_pop_share_bias"):
+            if evo.get(ek) is not None:
+                try:
+                    econ[ek] = float(evo[ek])
+                except (TypeError, ValueError):
+                    pass
         params.update({
             "health_max": float(meta.get("health_max", 100.0)),
             "metabolic_rate": float(meta.get("metabolic_rate", 1.0)),
             "blind_learning_rate": float(learn.get("blind_learning_rate", 0.1)),
-            "genome_carry_cost": float(learn.get("genome_carry_cost", 0.05)),
+            "genome_carry_cost": learn_carry,
             "drift_prob": float(hab.get("drift_prob", 0.3)),
             "predator_pressure": float(hab.get("predator_pressure", 0.08)),
             "abundance": float(hab.get("abundance", 1.0)),
             "niche_capacity": int(hab.get("niche_capacity", 2)),
-            "economics": dict(cfg.get_section("drill_economics")),
+            "economics": econ,
+            "min_steps_when_contract": int(evo.get("min_steps_when_contract") or 0),
+            "min_gens_when_contract": int(evo.get("min_gens_when_contract") or 0),
         })
     except Exception as e:  # pragma: no cover - 配置不可用不阻断
         logger.warning("habitat 配置读取失败，用内置默认: %s", e)
@@ -1183,6 +1287,13 @@ async def run_drill_via_trial(
     # 绑定计划后默认降低漂移（任务耦合，仍可被严酷剧本覆盖）
     if contract and niches_arg:
         drift = min(drift, 0.1)
+        # 加压：契约演练至少跑够步数/世代，避免 2 代残差主导
+        ms = int(hp.get("min_steps_when_contract") or 0)
+        mg = int(hp.get("min_gens_when_contract") or 0)
+        if ms > 0:
+            max_steps = max(int(max_steps or 0), ms)
+        if mg > 0:
+            max_generations = max(int(max_generations or 0), mg)
 
     drill = EcoDrill(
         creatures=creatures,

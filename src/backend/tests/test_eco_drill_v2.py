@@ -218,12 +218,16 @@ class TestHabitatConfig:
         from agents.runtime.eco_runtime_config import EcoRuntimeConfig
         cfg = EcoRuntimeConfig(config_path=str(tmp_path / "cfg.json"))
         hab = cfg.get_section("habitat")
-        assert hab["drift_prob"] == pytest.approx(0.3)
-        assert hab["predator_pressure"] == pytest.approx(0.08)
-        assert hab["abundance"] == pytest.approx(1.0)
+        # 2026-07-14 加压默认：略降丰饶、略升捕食，避免「苟活」吸收态
+        assert hab["drift_prob"] == pytest.approx(0.2)
+        assert hab["predator_pressure"] == pytest.approx(0.12)
+        assert hab["abundance"] == pytest.approx(0.7)
         econ = cfg.get_section("drill_economics")
-        assert econ["forage_gain"] == pytest.approx(8.0)  # v2.3 平衡实验定档
+        assert econ["forage_gain"] == pytest.approx(9.0)  # v2.3+ 平衡 + 加压
+        assert "skill_idle_penalty" in econ
         assert cfg.get_section("habitat")["niche_capacity"] == 3
+        evo = cfg.get_section("evolution_pressure")
+        assert evo["predator_bias_unskilled"] >= 0
         learn = cfg.get_section("learning")
         assert learn["blind_learning_rate"] == pytest.approx(0.1)
         assert learn["genome_carry_cost"] == pytest.approx(0.05)
@@ -236,7 +240,7 @@ class TestHabitatConfig:
         again = EcoRuntimeConfig(config_path=p)
         hab = again.get_section("habitat")
         assert hab["abundance"] == pytest.approx(1.6)
-        assert hab["drift_prob"] == pytest.approx(0.3)  # 未动的键保默认
+        assert hab["drift_prob"] == pytest.approx(0.2)  # 未动的键保默认
         assert "bogus" not in hab
 
 

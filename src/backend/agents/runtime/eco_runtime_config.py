@@ -54,21 +54,24 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
         "genome_carry_cost": 0.05,      # 每携带 1 个 skill 的每 tick 额外代谢（惩罚技能囤积）
     },
     # 物竞天择 v2 生境环境（eco_drill.EnvState，plan §3.3：环境必须流动）
+    # 2026-07-14 加压默认：略降丰饶、略升捕食，避免「苟活」吸收态主导 T_i
     "habitat": {
-        "drift_prob": 0.3,          # 每世代生态位漂移概率（随机替换 1 个需求 skill）
-        "predator_pressure": 0.08,  # 每 tick 捕食事件概率（0=关闭）
-        "abundance": 1.0,           # 丰饶度：觅食收益倍率（0.5 艰难 ~ 2.0 富足）
-        "niche_capacity": 3,        # 「物竞」：每 tick 生态位可供成功觅食的名额（0=不限；v2.3 平衡实验定档）
+        "drift_prob": 0.2,          # 每世代生态位漂移概率（随机替换 1 个需求 skill）
+        "predator_pressure": 0.12,  # 每 tick 捕食事件概率（0=关闭）
+        "abundance": 0.7,           # 丰饶度：觅食收益倍率（0.5 艰难 ~ 2.0 富足）
+        "niche_capacity": 3,        # 「物竞」：每 tick 生态位可供成功觅食的名额（0=不限）
     },
     # 物竞天择 v2 觅食/协作经济学（eco_drill 常量的可调化，用户 2026-07-11 要求）
     "drill_economics": {
-        "forage_gain": 8.0,          # 觅食命中获得的能量（×abundance；v2.3 平衡实验定档）
-        "forage_miss_penalty": 2.0,  # 觅食未命中的额外代谢惩罚
+        "forage_gain": 9.0,          # 觅食命中获得的能量（×abundance）
+        "forage_miss_penalty": 2.5,  # 觅食未命中的额外代谢惩罚
         "avoid_cost": 0.5,           # 避险动作代谢
         "signal_cost": 0.3,          # 发一次信号的代谢成本（协作有代价才会被选择）
         "share_fraction": 0.4,       # 分享时让渡给求助者的收益比例
-        "follow_bonus": 0.15,        # 跟随 FOOD 信号的觅食成功率加成
-        "help_hunger": 0.75,         # 饥饿超过此值才发 HELP 信号
+        "follow_bonus": 0.18,        # 跟随 FOOD 信号的觅食成功率加成
+        "help_hunger": 0.7,          # 饥饿超过此值才发 HELP 信号
+        # 能 serve 却 REST：额外代谢（「有 skill 不用」被环境惩罚 → 抬高 skill%）
+        "skill_idle_penalty": 1.2,
     },
     # 物竞天择选择状态机（skill_library.evaluate_selection_state）
     "selection": {
@@ -97,6 +100,48 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
         "reduce_drift_when_bound": True,  # 绑定计划后降低漂移
         "role_affinity": 1.1,             # 角色匹配熟练度系数
         "write_policy": "suggest_only",   # Skill 集成默认只建议
+    },
+    # 演化加压旋钮（下一局「让 Skill/团队变强」）
+    "evolution_pressure": {
+        "skill_idle_penalty": 1.2,        # 与 drill_economics 同步入口；>0 惩罚能 serve 却 REST
+        "genome_carry_cost": 0.08,        # 覆盖 learning.genome_carry_cost（囤积税）
+        "min_steps_when_contract": 64,    # 绑定契约时至少跑这么多步/代
+        "min_gens_when_contract": 4,      # 绑定契约时至少世代数
+        "prefer_forage_when_can_serve": 1,  # 1=意图层对 can_serve 略偏 forage（见 eco_drill）
+        # 捕食/协作选择压（默认>0 生产加压；单元测试 EcoDrill 直构 economics 默认 0）
+        "predator_bias_unskilled": 2.0,   # 无法 serve 的个体被捕食权重 +=bias
+        "scarce_share_boost": 1.2,        # 丰饶不足时分享让渡放大 → 协作更值钱
+        "same_pop_share_bias": 0.7,       # 优先同队分享 → 团队边界可被选择
+    },
+    # LLM 演练分析提示词（pet-config 可编辑；{summary} 注入结构化数据）
+    "llm_analysis": {
+        "timeout_s": 90,
+        "max_chars": 900,
+        "system_preamble": (
+            "你是 AgentsGroup 数字孪生实验室的进化分析师。用户已看到排行榜数字；"
+            "你的任务是判断两件事并写可执行结论：\n"
+            "A) 当前系统是否在让 **Skill 进化**（dominant/deprecated、skill% 归因、契约 demand 是否匹配 genome）？\n"
+            "B) 当前系统是否在找到 **团队演化方式**（协作基因 share/signal/follow、多队对比、混合纪元）？"
+        ),
+        "hard_constraints": (
+            "硬约束：\n"
+            "- 唯一适应度是生存时长 T_i，禁止发明第二评分。\n"
+            "- 任务/契约是客观环境（同一考卷过滤），不是「天选任务」。\n"
+            "- 分场=多队比个体 skill；对抗=比协作策略；混合=个体+团队。\n"
+            "- 若 skill%≈0 且 residual 主导：明确指出「环境 demand 与 agent genome 未对齐」或「选择压力太弱」，"
+            "并给下一步（补 required_skills / 对齐 agent 技能 / 提高步数世代 / 降 abundance 升 predator）。\n"
+            "- 若 dominant 技能与任务生态位一致：说明 Skill 进化闭环有效。\n"
+            "- 若 collab% 高且幸存者 share/signal 偏移：说明团队协作方式被选择。"
+        ),
+        "output_structure": (
+            "输出结构（中文，400~700 字，禁止空话）：\n"
+            "1. **因果**：谁赢了、因为 skill 还是协作还是苟活残差\n"
+            "2. **Skill 进化判定**：能 / 弱 / 不能 + 证据（dominant/deprecated/归因）\n"
+            "3. **团队演化判定**：能 / 弱 / 不能 + 证据（协作基因组、多队差距）\n"
+            "4. **下一局旋钮**：改 abundance/predator/drift 或契约 skills 的 2~3 条具体建议\n"
+            "5. **一句话**：这个环境在选择什么样的 Agent/团队"
+        ),
+        "data_header": "=== 演练结构化数据 ===",
     },
 }
 
@@ -146,13 +191,24 @@ class EcoRuntimeConfig:
         return copy.deepcopy(_DEFAULTS)
 
     def update(self, updates: Dict[str, Any]) -> Dict[str, Any]:
-        """部分更新：只覆盖 _DEFAULTS 里已知的 section/键，忽略未知键（防脏写）。"""
+        """部分更新：只覆盖 _DEFAULTS 里已知的 section/键，忽略未知键（防脏写）。
+
+        支持 str / number / bool / dict（如 era.env_ramp）值。
+        """
         for section, values in (updates or {}).items():
             if section not in _DEFAULTS or not isinstance(values, dict):
                 continue
-            cur = self._config.get(section, {}) or {}
+            cur = dict(self._config.get(section, {}) or {})
+            defaults_sec = _DEFAULTS[section]
             for k, v in values.items():
-                if k in _DEFAULTS[section]:
+                if k not in defaults_sec:
+                    continue
+                # 嵌套 dict：浅合并（保留未提交子键的默认）
+                if isinstance(defaults_sec[k], dict) and isinstance(v, dict):
+                    base = {**defaults_sec[k], **(cur.get(k) if isinstance(cur.get(k), dict) else {})}
+                    base.update(v)
+                    cur[k] = base
+                else:
                     cur[k] = v
             self._config[section] = cur
         self._save()

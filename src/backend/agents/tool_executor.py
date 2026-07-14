@@ -859,23 +859,131 @@ class ToolExecutor:
     # ═══════════════════════════════════════════════════════════════
 
     async def _send_message(self, args: Dict[str, Any]) -> ToolResult:
-        target = args.get("target_agent_id", "")
+        target = str(args.get("target_agent_id") or args.get("to_agent") or args.get("target") or "")
         content = args.get("content", "")
-        return ToolResult(output=f"[send_message] → {target}: {content[:200]}\n消息已投递到内部消息总线")
+        team_id, agent_id, _agent = self._resolve_agent_for_channel(args)
+        if team_id and agent_id and target:
+            try:
+                from agents.agent_relationships import gate_delegate
+                gate = gate_delegate(team_id, agent_id, target)
+                if not gate.get("allowed"):
+                    contacts = ", ".join((gate.get("allowed_contacts") or [])[:12])
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"send_message denied: {gate.get('reason')} "
+                            f"(allowed: {contacts or '无'})"
+                        ),
+                    )
+                warn = gate.get("warning") or ""
+                return ToolResult(output=(
+                    f"[send_message] → {target}: {str(content)[:200]}\n"
+                    f"路径={gate.get('reason')} layers={gate.get('layers')}\n"
+                    f"消息已投递到内部消息总线"
+                    + (f"\n⚠ {warn}" if warn else "")
+                ))
+            except Exception as e:
+                logger.debug("send_message gate: %s", e)
+        return ToolResult(output=f"[send_message] → {target}: {str(content)[:200]}\n消息已投递到内部消息总线")
+
+    def _resolve_agent_for_channel(self, args: Dict[str, Any]):
+        """从 args 解析 team/agent，供通道权限与总线使用."""
+        team_id = str(args.get("team_id") or args.get("teamId") or "")
+        agent_id = str(args.get("agent_id") or args.get("agentId") or args.get("from_agent_id") or "")
+        agent = None
+        if team_id and agent_id:
+            try:
+                from agents.api import _team_manager
+                if _team_manager is not None:
+                    try:
+                        agent = _team_manager.get_agent(team_id, agent_id)
+                    except TypeError:
+                        agent = _team_manager.get_agent(agent_id)  # type: ignore[misc]
+            except Exception:
+                agent = None
+        return team_id, agent_id, agent
 
     async def _broadcast(self, args: Dict[str, Any]) -> ToolResult:
-        content = args.get("content", "")
-        channel = args.get("channel", "default")
-        return ToolResult(output=f"[broadcast] 频道 {channel}: {content[:200]}\n广播已发送")
+        """向通道广播：校验 agent.channels.publish，写入进程内总线."""
+        from agents.agent_channel_bus import agent_can_publish, publish_message
+
+        content = str(args.get("content", "") or "")
+        channel = str(args.get("channel") or args.get("channel_name") or "default")
+        team_id, agent_id, agent = self._resolve_agent_for_channel(args)
+        if agent is not None:
+            ok, reason = agent_can_publish(agent, channel)
+            if not ok:
+                return ToolResult(
+                    success=False,
+                    error=f"broadcast denied on {channel}: {reason}",
+                    output="",
+                )
+        msg = publish_message(
+            team_id or "default",
+            channel,
+            from_agent_id=agent_id or "anonymous",
+            content=content,
+            payload={"via": "tool_broadcast"},
+        )
+        return ToolResult(
+            output=f"[broadcast] 频道 {channel}: {content[:200]}\n"
+            f"已发送 msg_id={msg.get('msg_id')} team={team_id or 'default'}"
+        )
 
     async def _subscribe_channel(self, args: Dict[str, Any]) -> ToolResult:
-        channel = args.get("channel_name", "")
-        return ToolResult(output=f"[subscribe_channel] 已订阅频道: {channel}")
+        """订阅通道：校验 subscribe 权限，并返回该通道近期消息."""
+        from agents.agent_channel_bus import agent_can_subscribe, read_channel
+
+        channel = str(args.get("channel_name") or args.get("channel") or "")
+        if not channel:
+            return ToolResult(success=False, error="channel_name required")
+        team_id, agent_id, agent = self._resolve_agent_for_channel(args)
+        if agent is not None:
+            ok, reason = agent_can_subscribe(agent, channel)
+            if not ok:
+                return ToolResult(
+                    success=False,
+                    error=f"subscribe denied on {channel}: {reason}",
+                )
+        msgs = read_channel(team_id or "default", channel, limit=int(args.get("limit") or 10))
+        return ToolResult(
+            output=f"[subscribe_channel] 已订阅 {channel}（team={team_id or 'default'}）\n"
+            f"近期消息 {len(msgs)} 条: "
+            + "; ".join(
+                f"{m.get('from')}:{str(m.get('content') or '')[:40]}" for m in msgs[-5:]
+            )
+        )
 
     async def _publish_event(self, args: Dict[str, Any]) -> ToolResult:
+        """事件发布：若指定 channel 则走通道总线并校验 publish."""
+        from agents.agent_channel_bus import agent_can_publish, publish_message
+
         event_type = args.get("event_type", "")
         payload = args.get("payload", {})
-        return ToolResult(output=f"[publish_event] 事件 {event_type} 已发布，payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'N/A'}")
+        channel = str(args.get("channel") or args.get("channel_name") or "").strip()
+        team_id, agent_id, agent = self._resolve_agent_for_channel(args)
+        if channel:
+            if agent is not None:
+                ok, reason = agent_can_publish(agent, channel)
+                if not ok:
+                    return ToolResult(
+                        success=False,
+                        error=f"publish_event denied on {channel}: {reason}",
+                    )
+            msg = publish_message(
+                team_id or "default",
+                channel,
+                from_agent_id=agent_id or "anonymous",
+                content=str(event_type),
+                payload=payload if isinstance(payload, dict) else {"payload": payload},
+            )
+            return ToolResult(
+                output=f"[publish_event] 事件 {event_type} → {channel} msg_id={msg.get('msg_id')}"
+            )
+        return ToolResult(
+            output=f"[publish_event] 事件 {event_type} 已发布，payload keys: "
+            f"{list(payload.keys()) if isinstance(payload, dict) else 'N/A'}"
+        )
 
     # ═══════════════════════════════════════════════════════════════
     # Maritime Handlers
@@ -1172,15 +1280,44 @@ class ToolExecutor:
         return ToolResult(output=f"✅ 技能 {name} {action} 操作完成")
 
     async def _delegate_task(self, args: Dict[str, Any]) -> ToolResult:
-        """Delegate task to another agent (like Clawith send_message_to_agent)."""
+        """Delegate task to another agent — 走协作拓扑门禁（门禁边/同队/共总线）."""
         desc = args.get("task_description", args.get("message", ""))
-        target = args.get("target_agent", args.get("agent_name", ""))
+        target = str(
+            args.get("target_agent")
+            or args.get("target_agent_id")
+            or args.get("agent_name")
+            or args.get("to_agent")
+            or ""
+        )
         priority = args.get("priority", "normal")
+        team_id, agent_id, _agent = self._resolve_agent_for_channel(args)
+        path_info = ""
+        if team_id and agent_id and target:
+            try:
+                from agents.agent_relationships import gate_delegate
+                gate = gate_delegate(team_id, agent_id, target)
+                if not gate.get("allowed"):
+                    contacts = ", ".join((gate.get("allowed_contacts") or [])[:12])
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"delegate denied: {gate.get('reason')} "
+                            f"(allowed: {contacts or '无'})"
+                        ),
+                    )
+                path_info = (
+                    f"  协作路径: {gate.get('reason')} layers={gate.get('layers')}\n"
+                    + (f"  ⚠ {gate.get('warning')}\n" if gate.get("warning") else "")
+                )
+            except Exception as e:
+                logger.debug("delegate gate: %s", e)
+                path_info = f"  门禁检查跳过: {e}\n"
         return ToolResult(output=(
             f"✅ 任务已委派\n"
             f"  目标: {target or '自动选择最佳Agent'}\n"
             f"  优先级: {priority}\n"
-            f"  描述: {desc[:300]}\n"
+            f"{path_info}"
+            f"  描述: {str(desc)[:300]}\n"
             f"  状态: 已投递到内部消息总线，等待目标Agent处理"
         ))
 
@@ -1188,17 +1325,55 @@ class ToolExecutor:
         """Multi-agent analysis (like Clawith's multi-round agent collaboration)."""
         question = args.get("question", "")
         count = args.get("agent_count", 3)
-        agents = ["Researcher", "Architect", "Developer", "Tester", "PM", "Doc Writer"][:count]
+        team_id, agent_id, _agent = self._resolve_agent_for_channel(args)
+        agents: List[str] = []
+        if team_id and agent_id:
+            try:
+                from agents.agent_relationships import check_can_communicate
+                path = check_can_communicate(team_id, agent_id, "__none__")
+                agents = list(path.get("allowed_contacts") or [])[: int(count) or 3]
+            except Exception:
+                agents = []
+        if not agents:
+            agents = ["Researcher", "Architect", "Developer", "Tester", "PM", "Doc Writer"][:count]
         return ToolResult(output=(
             f"🤝 多Agent协同分析已启动\n"
-            f"  问题: {question[:200]}\n"
+            f"  问题: {str(question)[:200]}\n"
             f"  参与Agent: {', '.join(agents)}\n"
-            f"  模式: 并行分析 → 综合总结\n"
-            f"  状态: 已分发到 {count} 个Agent，结果将汇总返回"
+            f"  模式: 并行分析 → 综合总结（优先协作拓扑内联系人）\n"
+            f"  状态: 已分发到 {len(agents)} 个Agent，结果将汇总返回"
         ))
 
     async def _list_agents(self, args: Dict[str, Any]) -> ToolResult:
-        """List available agents in the team."""
+        """List available agents in the team + collab layers."""
+        team_id, agent_id, _agent = self._resolve_agent_for_channel(args)
+        if team_id:
+            try:
+                from agents.agent_relationships import (
+                    check_can_communicate,
+                    load_team_collab_context,
+                )
+                ctx = load_team_collab_context(team_id)
+                names = ctx.get("names_by_agent") or {}
+                roles = ctx.get("roles_by_agent") or {}
+                layers_map = {}
+                if agent_id:
+                    path = check_can_communicate(team_id, agent_id, "__none__")
+                    layers_map = path.get("contact_layers") or {}
+                lines = [f"团队Agent列表 team={team_id} ({len(ctx.get('agent_ids') or [])}):\n"]
+                for aid in ctx.get("agent_ids") or []:
+                    ly = layers_map.get(aid) or (["self"] if aid == agent_id else [])
+                    lines.append(
+                        f"  • {names.get(aid) or aid} ({roles.get(aid) or '?'}) "
+                        f"id={aid} layers={ly or ['—']}"
+                    )
+                if agent_id:
+                    lines.append(
+                        "\n协作规则: 可委派/发消息对象须有 layers（同队/共总线/门禁边）"
+                    )
+                return ToolResult(output="\n".join(lines))
+            except Exception as e:
+                logger.debug("list_agents team: %s", e)
         agents = [
             {"name": "PM", "role": "project_manager", "status": "active"},
             {"name": "Researcher", "role": "marine_researcher", "status": "active"},

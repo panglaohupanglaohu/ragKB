@@ -12,6 +12,10 @@
 | [SIGNING_RULE.md](SIGNING_RULE.md) | docs 下 plan/todos 签名规则 | 规则文档 |
 | [物竞天择任务闭环与Skill遗传plan.md](物竞天择任务闭环与Skill遗传plan.md) | v4：Plaza 计划→任务生境→三级赛制→Skill 遗传/集成 | current |
 | [物竞天择任务闭环与Skill遗传todos.md](物竞天择任务闭环与Skill遗传todos.md) | v4 执行清单 XG-0…XG-10 / XR-1 | current |
+| [物竞适者反馈调整台plan.md](物竞适者反馈调整台plan.md) | 物竞→Skill/协作基因/**关系·通道**写回→再进成本；§3.5 真协作拓扑 | current |
+| [物竞适者反馈调整台todos.md](物竞适者反馈调整台todos.md) | 反馈台 XF + 任务挂载 XF-6 + **XF-7 关系/通道** + 生态位可视化待讨论 | current |
+| [物竞与成本优化结合plan.md](物竞与成本优化结合plan.md) | **先适者（活得长）后省钱（token）** 竞标与棘轮设计 | current |
+| [物竞与成本优化结合todos.md](物竞与成本优化结合todos.md) | XC-0…XC-5 物竞×成本结合执行清单 | current |
 
 ## 需要验证的历史文档
 

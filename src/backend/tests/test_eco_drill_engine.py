@@ -38,6 +38,33 @@ class TestMetabolicRedLine:
         drill.run(max_steps=200)
         assert drill.survival_ranking()[0]["agent_id"] == "a"
 
+    def test_predator_bias_prefers_unskilled(self):
+        """predator_bias_unskilled>0 时无法 serve 的个体更易成为捕食目标。"""
+        fit = Creature(agent_id="fit", skill_genome=["coding"], skill_proficiency={"coding": 0.95})
+        unfit = Creature(agent_id="unfit", skill_genome=["paint"], skill_proficiency={"paint": 0.95})
+        drill = EcoDrill(
+            [fit, unfit], demanded_skills=["coding"],
+            health_max=100.0, metabolic_rate=0.01, seed=11, ledger=_ledger(),
+            predator_pressure=0.0,
+            economics={"predator_bias_unskilled": 50.0},
+        )
+        picks = [drill._pick_predator_target().agent_id for _ in range(80)]
+        assert picks.count("unfit") > picks.count("fit")
+
+    def test_same_pop_share_bias(self):
+        a = Creature(agent_id="a1", skill_genome=["coding"], population="teamA")
+        b = Creature(agent_id="b1", skill_genome=["coding"], population="teamB")
+        drill = EcoDrill(
+            [a, b], demanded_skills=["coding"],
+            health_max=100.0, metabolic_rate=0.01, seed=3, ledger=_ledger(),
+            economics={"same_pop_share_bias": 1.0},
+        )
+        # donor a1 总应偏向同队；此处 needy 含 b1 与假想 a2——只测同队优先路径
+        c2 = Creature(agent_id="a2", skill_genome=["coding"], population="teamA")
+        drill._creatures["a2"] = c2
+        picks = [drill._pick_share_recipient(a, ["b1", "a2"]) for _ in range(40)]
+        assert picks.count("a2") >= 30
+
 
 class TestExtinctionAndDeath:
     def test_no_matching_skill_population_goes_extinct(self):

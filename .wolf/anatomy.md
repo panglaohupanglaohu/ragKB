@@ -339,6 +339,7 @@
 - `nightly_4h_optimize.sh` (~3507 tok)
 - `start_tts.sh` — Start GPT-SoVITS TTS API server (~266 tok)
 - `verify_v4_local.sh` — 本机一键复核 v4 接口通路门+全程回归，全绿回写 [~]→[x] (~700 tok)
+- `verify_eco_feedback_xf.py` — 物竞反馈台 XF + 物竞×成本 XC 验收（静态/离线/活后端 BidCandidate lock）(~900 tok)
 
 ## src/
 
@@ -771,3 +772,6 @@
 - `tests/test_survival_decompose.py` — T_i decomposition unit tests
 - `tests/test_eco_smoke_static.py` — XR-1.5 static smoke (no browser)
 - `src/frontend/__tests__/eco-genetics-v4.test.js` — genetics skill UI vitest
+- `src/backend/sandbox/relation_integration.py` — 物竞 timeline→关系边建议（XF-7.1）
+- `tests/test_relation_integration.py` — 关系边 suggest/apply 单测
+- `docs/物竞适者反馈调整台plan.md` / `todos.md` — 适者反馈台（含 XF-7 关系/通道）

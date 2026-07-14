@@ -235,3 +235,47 @@
 | 09:00 | T_i 分解 skill/协作/残差 | survival_decompose.py,eco_drill,eco-console | 份额和为1 | ~8k |
 | 01:00 | v4 todos 全量收口：XG-12/13 + XB-6.1/7.1 + 测试修复 | pet-config,office-scene,survival_*,todos | 73 pytest + 4 vitest green | ~12k |
 | 01:25 | 闭环LOOP: aws×build 9跑次+分析改造+can_serve扩窗 | eco_runtime_routes,eco_drill,scripts/eco_closed_loop_eval | skill弱→能 collab弱 报告已写 | ~30k |
+| 07:00 | LLM分析提示词可配置 + 演化加压旋钮 | eco_runtime_config,pet-config,eco_drill,eco_runtime_routes | llm_analysis textarea + skill_idle 税 | ~8k |
+
+| 10:56 | 继续LOOP: 捕食偏无技能+稀缺分享/同队分享 + 闭环加压复验 | eco_drill.py eco_runtime_config.py pet-config eco_closed_loop_eval | skill/team 弱→能(mixed dominant+对抗collab); pytest 56 passed | ~8k |
+
+| 11:15 | 孪生左栏：树状团队/智能体 + 音量式生境旋钮台 | Agent-digital-twin.html digital-twin-cli.js eco-console.js pet-config | 旋钮与右侧压力台双向同步写回 config；弃用「Skill/团队变强」文案 | ~5k |
+| 11:40 | 旋钮对齐: A生境4 + B加压8 与 pet-config evolution_pressure 同键 | eco-console.js Agent-digital-twin.html | 盘下显示 field key | ~3k |
+| 12:05 | 根 README 写入物竞 T_i/加压8钮公式与 A4+B8 对照表 | README.md | 非 docs/README | ~2k |
+| 13:10 | 设计物竞适者反馈调整台(③面板@孪生页) plan+todos | docs/物竞适者反馈调整台* | 先反馈Skill+协作再进成本页 | ~3k |
+| 13:40 | 适者反馈台P0+精简演练控制描述文案 | Agent-digital-twin.html eco-feedback.js eco-console.js | 步骤条③反馈门禁进成本页 | ~4k |
+| 14:15 | 适者反馈P1协作写回+P2成本候选条 | collab_integration.py eco_runtime_routes eco-feedback cost-dashboard | pytest 12 passed | ~5k |
+| 14:40 | 修 skill apply applied=0 静默: agent解析+audit诊断 | eco_runtime_routes.py eco-feedback.js | 区分 already_present/agent_not_found | ~2k |
+| 15:05 | 修 skill 建议:仅未绑定+优先reserve/plan_demand;UI禁止回退genome | skill_integration.py eco-feedback.js | 解释aws_mon勾已绑定导致0写回 | ~3k |
+| 15:30 | 反馈台 skill 显示名:加载团队库+分类池 name，hex 标未命名 | eco-feedback.js | 回答「数字串看不懂能力」 | ~1k |
+| 15:50 | 适者反馈台 skill 旁 📖 查看描述/指令(对齐团队技能列表) | eco-feedback.js | 用户确认应加问号/书本按钮 | ~1k |
+| 16:20 | 关闭办公室3D生态位图腾/觅食光点(默认) | office-scene.js | 用户:无觅食孪生语义+hex不可读 | ~1k |
+| 17:05 | todos 记入 XF-5 任务型演练生态位可视化待讨论 | docs/物竞适者反馈调整台todos.md | 默认关图腾；任务型可视化需重设计 | ~0.5k |
+| 17:25 | todos XF-6: 选种群后必须任务挂载菜单(任务主闭环) | docs/物竞适者反馈调整台todos.md | 用户明确要求写入 | ~0.8k |
+| 18:00 | XF-6任务挂载+物竞成本结合plan/todos | eco-console.html/js docs/物竞与成本优化结合* | 先适者后省钱 | ~6k |
+
+| 10:33 | 修 3D 左下双蓝信息窗重叠 | office-boot.js Agent-digital-twin.html | habitat 并入 env-3d-bottom-hud | ~1k |
+| 10:57 | 写入物竞协作→关系/通道 plan§3.5 + todos XF-7 | docs/物竞适者反馈调整台{plan,todos}.md docs/README | 用户校准：真协作=关系+通道 | ~2k |
+| 11:07 | XF-7 通道能力全量落地 | agent_channel_bus channel_integration eco-feedback team-config | 5 pytest pass；关系边仍待 | ~8k |
+| 11:07 | XF-7通道全量落地 | agent_channel_bus channel_integration eco-feedback team-config | 5 pytest；关系边仍待 | ~8k |
+
+## Session: 2026-07-14 20:31
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 12:36 | XF-7.1/7.3 关系边 suggest→confirm apply | relation_integration.py eco_runtime_routes eco-feedback agent-team-config | 4 pytest pass；深链关系 tab；通道后补齐关系拓扑 | ~6k |
+| 12:40 | 关系边写回前 Before/After 对照 | eco-feedback.js relation_integration.py | suggest 带 before 快照；反馈台双栏+勾选实时 After | ~2k |
+| 12:48 | 关系边 Before/After 改 SVG 拓扑图 | eco-feedback.js | 椭圆布局+有向箭头；新增虚线青边；勾选实时刷新 | ~2k |
+| 12:55 | 修复关系 Before 空白：通道共总线软边 | relation_integration eco_runtime_routes eco-feedback | aws-ops store=0 但 channel=15；图示紫点线 | ~3k |
+| 13:05 | 校准协作语义：同队/通道=真协作三层 | relation_integration eco-feedback cerebrum | 去掉「软/假」表述；图例改协作三层 | ~1k |
+| 13:20 | 任务执行接入协作三层拓扑 | agent_relationships api tool_executor | peer/channel/store 门禁；handoff+delegate+prompt；18 tests | ~5k |
+| 13:35 | 修复反馈台 Before/After 图不显示 | eco-feedback.js | team 多源解析+本地 peer 兜底+图壳始终渲染+SVG 加固 | ~2k |
+| 13:45 | 修 _renderSkillTable boundMap undefined.length | eco-feedback.js | agent 无 recommend 行时用 [] 兜底 | ~0.5k |
+| 13:55 | 审计并修通道写回总线名分叉 | channel_integration eco-feedback | resolve 优先真身 channel；apply 用 _resolveTeamId | ~2k |
+| 14:05 | 收口 XF todos：eco_collab UI + 空关系 CTA + 验收脚本 | agent-detail agent-team-config verify_eco_feedback_xf.py todos | PASS=29；XF-5 仍待讨论 | ~6k |
+| 14:42 | 落地 XF-5 任务型考卷 2D HUD | eco-task-hud.js eco-console office-boot html | B+右侧chips；仅契约挂接；无蓝柱 | ~4k |
+| 14:46 | 落地物竞×成本 BidCandidate 全链路 | bid_candidate.py eco_runtime_routes eco-feedback cost-dashboard | create/list/patch/lock；③推送；cost 面板；3 tests+live | ~8k |
+| 15:07 | XC-4.4 生产任务注入 locked BidCandidate | bid_candidate.py api.py eco_runtime_routes | submit 注 skill/适者；GET locked；step prompt；4 tests | ~3k |
+| 15:10 | XC-4.4b SkillRouter 静默绑定 locked skill | bid_candidate.py api.py cost-dashboard | lock+任务提交 assign 幂等；5 tests | ~2k |
+| 15:17 | 收口：verify 纳入 XC BidCandidate 全链路 + plan 待建文案 | verify_eco_feedback_xf.py docs/物竞与成本* | PASS=51 FAIL=0；pytest 5 | ~2k |
+| 15:30 | cost 页物竞主轴常驻+双向深链+同task token 条 | cost-dashboard.html eco-feedback Agent-digital-twin | 直接打开也见竞标；④可点 | ~3k |

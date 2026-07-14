@@ -227,21 +227,120 @@ body {
 .main { flex: 1; display: flex; overflow: hidden; }
 
 /* ── Left Panel ── */
-.left-panel { width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
-.lp-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.left-panel { width: 260px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+body.office-mode .left-panel { width: 300px; }
+.lp-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .lp-header h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .lp-header .count { font-size: 11px; color: var(--dim); }
-.agent-list { flex: 1; overflow-y: auto; padding: 8px; }
-.agent-card { padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); margin-bottom: 4px; border: 1px solid transparent; }
+/* 树状：团队 ⊃ 智能体（合并原 team-selector + agent-list） */
+.lp-tree { flex: 1; overflow-y: auto; padding: 6px 8px 10px; min-height: 0; }
+.lp-team { margin-bottom: 4px; border-radius: 8px; border: 1px solid transparent; }
+.lp-team.selected { border-color: rgba(34,211,238,0.28); background: rgba(34,211,238,0.04); }
+.lp-team-row { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; cursor: pointer; user-select: none; }
+.lp-team-row:hover { background: var(--panel2); }
+.lp-team-caret { width: 14px; font-size: 9px; color: var(--dim); flex-shrink: 0; transition: transform .15s; }
+.lp-team.expanded .lp-team-caret { transform: rotate(90deg); }
+.lp-team-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.lp-team-name { font-size: 12px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-team-meta { font-size: 10px; color: var(--dim); }
+.lp-team-check { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: transparent; }
+.lp-team.selected .lp-team-check { border-color: var(--cyan); background: var(--cyan); color: #041018; }
+.lp-agents { display: none; padding: 0 4px 4px 18px; }
+.lp-team.expanded .lp-agents { display: block; }
+.agent-list { /* 兼容旧 id：树内复用 agent-card */ display: contents; }
+.agent-card { padding: 7px 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s cubic-bezier(.4,0,.2,1); margin-bottom: 3px; border: 1px solid transparent; }
 .agent-card:hover { background: var(--panel2); border-color: var(--border); transform: translateX(2px); }
 .agent-card.active { background: var(--cyan-dim); border-color: rgba(34,211,238,0.25); box-shadow: inset 3px 0 0 var(--cyan); }
-.agent-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.agent-card .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
-.agent-card .name { font-size: 13px; font-weight: 500; }
-.agent-card .role { font-size: 11px; color: var(--dim); }
-.agent-card .meta { display: flex; gap: 8px; margin-top: 4px; }
-.agent-card .meta span { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 3px; }
+.agent-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.agent-card .avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.agent-card .name { font-size: 12px; font-weight: 500; }
+.agent-card .role { font-size: 10px; color: var(--dim); }
+.agent-card .meta { display: flex; gap: 6px; margin-top: 2px; }
+.agent-card .meta span { font-size: 9px; color: var(--dim); display: flex; align-items: center; gap: 2px; }
 .agent-card .state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* 生境旋钮台（音量式圆钮）—— 放在孪生页左侧，与 3D 试验田同屏 */
+.lp-knobs {
+  border-top: 1px solid var(--border);
+  padding: 10px 10px 12px;
+  background: linear-gradient(180deg, rgba(34,197,94,.04), transparent 40%);
+  flex-shrink: 0;
+  max-height: 58%;
+  overflow-y: auto;
+}
+.lp-knobs-title { font-size: 11px; font-weight: 700; color: var(--text); display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.lp-knobs-hint { font-size: 9px; color: var(--dim); line-height: 1.45; margin-bottom: 8px; }
+.lp-knobs-sec { margin-bottom: 10px; }
+.lp-knobs-sec-title { font-size: 9px; font-weight: 700; color: var(--cyan); letter-spacing: .3px; margin: 0 0 6px; display: flex; align-items: baseline; gap: 6px; }
+.lp-knobs-sec-title span.meta { font-weight: 400; color: var(--dim); font-size: 8px; }
+.lp-knobs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 6px; justify-items: center; }
+.lp-knobs-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.eco-dial-key { font-size: 7px; color: var(--dim); font-family: ui-monospace, Menlo, monospace; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eco-dial-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 84px; }
+.eco-dial {
+  width: 46px; height: 46px; border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 32%, #4a5568 0%, #2a3344 42%, #141a22 78%),
+    conic-gradient(from 0deg, transparent 0 100%);
+  box-shadow:
+    inset 0 2px 8px rgba(0,0,0,.55),
+    inset 0 -1px 2px rgba(255,255,255,.06),
+    0 3px 8px rgba(0,0,0,.35);
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.eco-dial:active { cursor: grabbing; }
+.eco-dial::before {
+  content: '';
+  position: absolute; inset: 5px; border-radius: 50%;
+  border: 1px dashed rgba(255,255,255,.08);
+  pointer-events: none;
+}
+.eco-dial-ticks {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(
+    from 225deg,
+    rgba(34,211,238,.55) 0deg,
+    rgba(34,211,238,.55) calc(var(--fill, 0.4) * 270deg),
+    transparent calc(var(--fill, 0.4) * 270deg + 0.1deg),
+    transparent 270deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  pointer-events: none;
+}
+.eco-dial-pointer {
+  position: absolute; left: 50%; top: 50%;
+  width: 2.5px; height: 18px; margin-left: -1.25px; margin-top: -18px;
+  background: linear-gradient(180deg, var(--cyan), #67e8f9);
+  border-radius: 2px;
+  transform-origin: center bottom;
+  transform: rotate(var(--angle, -90deg));
+  box-shadow: 0 0 6px rgba(34,211,238,.5);
+  pointer-events: none;
+}
+.eco-dial-cap {
+  position: absolute; left: 50%; top: 50%;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3d4a5c, #0f141c);
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+  pointer-events: none;
+}
+.eco-dial-label { font-size: 9px; color: var(--text2); text-align: center; line-height: 1.2; }
+.eco-dial-val { font-size: 11px; font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
+.lp-knobs-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.lp-knobs-actions .btn { font-size: 10px; padding: 4px 8px; flex: 1; min-width: 0; }
+body.office-mode .lp-knobs { background: linear-gradient(180deg, rgba(34,197,94,.07), rgba(255,255,255,.5)); }
+body.office-mode .eco-dial {
+  background: radial-gradient(circle at 38% 32%, #e8edf4 0%, #c5cdd8 45%, #8b95a5 80%);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.12);
+}
+body.office-mode .eco-dial-cap { background: radial-gradient(circle at 35% 30%, #fff, #b0b8c4); }
+body.office-mode .eco-dial-pointer { background: linear-gradient(180deg, #0e7490, #22d3ee); }
 
 /* ── Center ── */
 .center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -725,6 +824,18 @@ body.office-mode #env-3d-container * {
 .eco2-slider-label { min-width:82px; color:var(--text2); }
 .eco2-slider-val { min-width:34px; text-align:right; color:var(--amber); font-weight:600; }
 .eco2-empty { color:var(--dim); font-size:10px; padding:8px 2px; line-height:1.6; }
+/* XF-5 任务考卷 HUD */
+#env-3d-task-hud .eco-task-hud-title { font-size:11px; font-weight:700; color:#c4b5fd; margin-bottom:4px; letter-spacing:.3px }
+#env-3d-task-hud .eco-task-hud-task { font-size:12px; font-weight:600; color:#f1f5f9; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+#env-3d-task-hud .eco-task-hud-row { font-size:10px; margin-bottom:4px }
+#env-3d-task-hud .eco-task-hud-bar { height:4px; background:rgba(148,163,184,.25); border-radius:2px; overflow:hidden; margin:4px 0 8px }
+#env-3d-task-hud .eco-task-hud-bar i { display:block; height:100%; background:linear-gradient(90deg,#a78bfa,#22d3ee); border-radius:2px }
+#env-3d-task-hud .eco-task-hud-step { font-size:10px; color:#e2e8f0; margin-bottom:4px }
+#env-3d-task-hud .eco-task-hud-skills { font-size:10px; display:flex; flex-wrap:wrap; gap:4px; align-items:center }
+#env-3d-task-hud .eco-task-hud-skill { display:inline-flex; align-items:center; gap:2px; padding:2px 6px; border-radius:6px; background:rgba(34,211,238,.1); border:1px solid rgba(34,211,238,.3); color:#67e8f9 }
+#env-3d-task-hud .eco-task-hud-book { border:none; background:transparent; cursor:pointer; padding:0 2px; font-size:11px; line-height:1; color:var(--cyan) }
+#env-3d-task-hud .eco-task-hud-foot { font-size:9px; color:#64748b; margin-top:8px }
+.eco2-niche-chip { transition: background .15s, border-color .15s, color .15s }
 .eco2-chip { display:inline-block; padding:2px 7px; border-radius:9px; font-size:9px;
   background:rgba(34,197,94,.12); color:var(--green); border:1px solid rgba(34,197,94,.3); }
 .eco2-chip.dead { background:rgba(244,63,94,.10); color:#f87171; border-color:rgba(244,63,94,.3);
@@ -746,6 +857,26 @@ body.office-mode #rp-eco { background: rgba(255,255,255,0.95); }
 body.office-mode #rp-eco .eco2-kpi { background: rgba(0,0,0,0.03); }
 body.office-mode #rp-eco #eco2-replay-bar { background: rgba(0,0,0,0.04); }
 body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94,.10), rgba(245,158,11,.06)); }
+.eco2-step {
+  padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border);
+  color: var(--dim); background: transparent; cursor: default;
+}
+.eco2-step-active {
+  border-color: rgba(34,197,94,.45); color: var(--green);
+  background: rgba(34,197,94,.10); font-weight: 600;
+}
+.eco2-step-done {
+  border-color: rgba(34,211,238,.35); color: var(--cyan);
+}
+.eco-fb-row {
+  display: grid; grid-template-columns: 1fr 44px 1fr; gap: 6px; align-items: start;
+  padding: 6px 4px; border-bottom: 1px dashed var(--border);
+}
+.eco-fb-row label { display: flex; align-items: flex-start; gap: 4px; cursor: pointer; }
+.eco-fb-row .aid { font-weight: 600; color: var(--text); word-break: break-all; }
+.eco-fb-row .meta { color: var(--dim); font-size: 9px; }
+body.office-mode .eco2-step { border-color: rgba(0,0,0,.12); }
+body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
 </style>
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/theme.css">
@@ -767,7 +898,7 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
       <a href="/plaza.html">议事广场</a>
       <a href="/skill-extract.html">技能萃取/赋予</a>
       <span class="cur">数字孪生</span>
-      <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
+      <a id="nav-cost-eco" href="/cost-dashboard.html" title="物竞闭环④：先适者后省钱">物竞×成本</a><a href="/pet-config.html">🐾 仿生生态</a>
     </nav>
     <div class="topbar-ws__right">
       <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
@@ -792,9 +923,42 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
 
 <div class="main">
   <div class="left-panel">
-    <div class="lp-header"><h3>智能体团队</h3><span class="count" id="agent-count">0</span></div>
-    <div id="team-selector" style="padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px"></div>
-    <div class="agent-list" id="agent-list"></div>
+    <div class="lp-header">
+      <h3 id="lp-header-title">种群 · 智能体</h3>
+      <span class="count" id="agent-count">0</span>
+    </div>
+    <!-- 兼容旧脚本：team-selector 隐藏保留 id；树状合并团队+智能体 -->
+    <div id="team-selector" style="display:none" aria-hidden="true"></div>
+    <div class="lp-tree" id="lp-tree" role="tree" aria-label="团队与智能体树">
+      <div class="agent-list" id="agent-list"></div>
+    </div>
+    <!-- 旋钮台：A 生境 habitat(4) + B 加压 evolution_pressure(8) 与 pet-config 同字段 -->
+    <div class="lp-knobs" id="lp-eco-knobs" style="display:none">
+      <div class="lp-knobs-title">
+        <span>🎛 试验田旋钮</span>
+        <span id="lp-knobs-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
+      </div>
+      <div class="lp-knobs-hint">
+        <b>A 生境</b>=客观环境 4 项（右侧压力台同步）；
+        <b>B 加压</b>=pet-config 的 evolution_pressure 全部 8 字段（一一对应）。
+        旋钮＝音量盘；字段名见盘下灰字。
+      </div>
+      <div class="lp-knobs-sec">
+        <div class="lp-knobs-sec-title">A · 生境 habitat <span class="meta">4 钮 · 写 habitat</span></div>
+        <div class="lp-knobs-grid cols-2" id="lp-knobs-habitat"></div>
+      </div>
+      <div class="lp-knobs-sec">
+        <div class="lp-knobs-sec-title">B · 加压 evolution_pressure <span class="meta">8 钮 · 与深参页同键</span></div>
+        <div class="lp-knobs-grid cols-2" id="lp-knobs-pressure"></div>
+      </div>
+      <!-- 兼容旧 id：合并查询用 -->
+      <div id="lp-knobs-grid" style="display:none" aria-hidden="true"></div>
+      <div class="lp-knobs-actions">
+        <button type="button" class="btn" id="lp-knob-pressure" title="A+B 加压预设（与 pet-config 一键加压同口径）">加压</button>
+        <button type="button" class="btn" id="lp-knob-loose" title="宽松演示">宽松</button>
+        <button type="button" class="btn" id="lp-knob-save" style="color:var(--green)">写回</button>
+      </div>
+    </div>
   </div>
 
     <div class="eval-results" id="eval-results" style="display:none;margin-top:16px;padding:16px;background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;"><h4 style="margin:0 0 10px;color:var(--cyan);font-size:13px;">📊 五维评分</h4><div class="radar-chart-container" id="radar-chart-area"></div><div id="resilience-detail-area" style="font-size:10px;color:var(--amber);padding:6px 8px;margin:6px 0"></div><h4 style="margin:14px 0 10px;color:var(--cyan);font-size:13px;">📈 维度得分</h4><div id="bar-chart-area"></div></div><div class="sop-results" id="sop-results" style="display:none;margin-top:16px;padding:16px;background:rgba(13,17,23,0.95);border:1px solid var(--border);border-radius:12px;"><h4 style="margin:0 0 10px;color:#fbbf24;font-size:13px;">📋 SOP候选</h4><div id="sop-list-area"></div></div>
@@ -887,12 +1051,16 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
             <svg class="erf-mini-chart" viewBox="0 0 160 28"><polyline id="erf-chart-line" fill="none" stroke="var(--green)" stroke-width="1.5"/></svg>
           </div>
 
-          <div style="position:absolute;bottom:14px;left:14px;font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.6);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px)">
+          <!-- XF-5: 任务型考卷 HUD（仅挂接契约时显示；办公室语言，非生物图腾） -->
+          <div id="env-3d-task-hud" style="display:none;position:absolute;top:12px;right:12px;width:min(280px,calc(100% - 24px));z-index:7;pointer-events:auto;background:rgba(15,14,13,0.82);padding:10px 12px;border-radius:10px;backdrop-filter:blur(8px);border:1px solid rgba(167,139,250,.45);box-shadow:0 4px 24px rgba(0,0,0,.35);font-size:11px;color:#e2e8f0;line-height:1.45"></div>
+          <div id="env-3d-bottom-hud" style="position:absolute;bottom:14px;left:14px;max-width:min(360px,calc(100% - 28px));font-size:11px;color:var(--dim);pointer-events:none;background:rgba(15,14,13,0.72);padding:8px 12px;border-radius:8px;backdrop-filter:blur(6px);border:1px solid rgba(34,211,238,.2);z-index:6">
             <div style="display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6H4z"/><path d="M14 4h6v6h-6z"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg> 拖拽旋转 · 滚轮缩放 · 右键平移</div>
             <div id="env-3d-info" style="margin-top:4px;color:var(--cyan);font-weight:500"></div>
+            <!-- 生境实时信息并入本条，避免与 office-habitat-hud 左下角叠两层蓝底 -->
+            <div id="env-3d-habitat" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid rgba(34,211,238,.22);line-height:1.55;color:#e2e8f0"></div>
             <div id="env-3d-legend" style="margin-top:6px;font-size:9px;line-height:1.6;display:none">
               <div><span style="color:#00e676">━</span> 协作帮助 <span style="color:#ff6d00;margin-left:6px">━</span> 委派 <span style="color:#00b0ff;margin-left:6px">━</span> 沟通</div>
-              <div><span style="color:#ffeb3b">━</span> 觅食信号 <span style="color:#ff1744;margin-left:6px">━</span> 求助 <span style="color:#d500f9;margin-left:6px">━</span> 求偶/交配</div>
+              <div><span style="color:#ffeb3b">━</span> 信号 <span style="color:#ff1744;margin-left:6px">━</span> 求助 <span style="color:#d500f9;margin-left:6px">━</span> 求偶/交配</div>
             </div>
           </div>
         </div>
@@ -1185,11 +1353,17 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
      注意：必须与 rp-secs 同级、位于布局容器内（v1 曾误放顶层导致 3D 区被挤没，bug-028） ═══ -->
 <div class="right-panel" id="rp-eco" style="width:580px;overflow-y:auto;display:none">
 
-  <!-- 标题栏 -->
+  <!-- 标题栏 + 试验田步骤 -->
   <div class="rp-section eco2-head" style="padding:12px 14px;border-bottom:1px solid var(--border)">
     <div class="rp-title" style="font-size:16px;letter-spacing:.5px">🧬 物竞天择 · 自然选择生境</div>
     <div style="font-size:10px;color:var(--dim);margin-top:3px">
-      感知 → 意图 → 行为 · Skill 与协作被环境选择 · <b style="color:var(--green)">生存时长 = 唯一适应度</b>
+      <b style="color:var(--green)">Tᵢ = 唯一适应度</b> · Skill/协作被环境选择
+    </div>
+    <div id="eco2-steps" class="eco2-steps" style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;font-size:9px">
+      <span class="eco2-step" data-step="1">① 旋钮</span>
+      <span class="eco2-step eco2-step-active" data-step="2">② 演练</span>
+      <span class="eco2-step" data-step="3">③ 适者反馈</span>
+      <span class="eco2-step" data-step="4" style="cursor:pointer" title="打开物竞×成本竞标页（先适者后省钱）" onclick="window.ecoGoCostStep&&ecoGoCostStep()">④ 成本竞标</span>
     </div>
   </div>
 
@@ -1206,47 +1380,58 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     <div class="rp-title" style="margin-bottom:6px">🌡 环境压力台
       <span id="eco2-env-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
     </div>
-    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">生态位（环境当前需求的 Skill——匹配者得食，错配者耗竭）</div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">考卷步骤 <span class="meta">（任务型 · 挂接后显示）</span></div>
     <div id="eco2-env-niches" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
       <span style="color:var(--dim);font-size:10px">选择团队后加载生态位…</span>
     </div>
-    <div class="eco2-slider-row"><span class="eco2-slider-label">🦅 捕食压力</span>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">🦅 事故压</span>
       <input type="range" id="eco2-env-predator" min="0" max="50" value="8" style="flex:1">
       <span class="eco2-slider-val" id="eco2-env-predator-val">0.08</span></div>
     <div class="eco2-slider-row"><span class="eco2-slider-label">🌾 丰饶度</span>
       <input type="range" id="eco2-env-abundance" min="30" max="200" value="100" style="flex:1">
       <span class="eco2-slider-val" id="eco2-env-abundance-val">1.0</span></div>
-    <div class="eco2-slider-row"><span class="eco2-slider-label">⚡ 生态位漂移</span>
+    <div class="eco2-slider-row"><span class="eco2-slider-label">⚡ 需求漂移</span>
       <input type="range" id="eco2-env-drift" min="0" max="100" value="30" style="flex:1">
       <span class="eco2-slider-val" id="eco2-env-drift-val">0.30</span></div>
     <div class="eco2-slider-row"><span class="eco2-slider-label">🥊 竞争名额</span>
       <input type="range" id="eco2-env-capacity" min="0" max="6" value="3" style="flex:1">
       <span class="eco2-slider-val" id="eco2-env-capacity-val">3</span></div>
-    <div style="font-size:9px;color:var(--dim);margin:2px 0 6px">竞争名额 = 每 tick 生态位可供成功觅食的份数（0=不限）。名额越少「物竞」越烈：有能力者也要抢，抢不到白耗代谢。</div>
-    <!-- 环境剧本：一键组合选择压力（物竞×天择的预设强度） -->
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
-      <span style="font-size:9px;color:var(--dim);align-self:center">环境剧本:</span>
-      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('mild', this)" style="font-size:9px;padding:3px 8px" title="丰饶1.5 捕食0.02 漂移0.1 名额∞——协作是负担，独行者胜">🌿 温和</button>
-      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('harsh', this)" style="font-size:9px;padding:3px 8px" title="丰饶0.7 捕食0.15 漂移0.3 名额2——利他与信号开始救命">🏜 严酷</button>
-      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('upheaval', this)" style="font-size:9px;padding:3px 8px" title="丰饶1.0 捕食0.10 漂移0.8 名额3——生态位剧变，盲目学习者才有明天">🌋 剧变</button>
-      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('armsrace', this)" style="font-size:9px;padding:3px 8px" title="丰饶0.9 捕食0.25 漂移0.5 名额1——极限军备竞赛">⚔️ 军备竞赛</button>
+      <span style="font-size:9px;color:var(--dim);align-self:center">剧本:</span>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('mild', this)" style="font-size:9px;padding:3px 8px" title="丰饶↑ 事故↓">🌿 温和</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('harsh', this)" style="font-size:9px;padding:3px 8px" title="丰饶↓ 事故↑">🏜 严酷</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('upheaval', this)" style="font-size:9px;padding:3px 8px" title="漂移↑">🌋 剧变</button>
+      <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('armsrace', this)" style="font-size:9px;padding:3px 8px" title="事故↑ 名额1">⚔️ 军备</button>
     </div>
     <div style="display:flex;gap:6px;margin-top:6px">
-      <button class="btn" onclick="eco2SaveEnv()" style="font-size:10px;padding:4px 10px;color:var(--green)">💾 写回生境配置</button>
-      <a href="/pet-config.html" class="btn" style="font-size:10px;padding:4px 10px;text-decoration:none">⚙ 全部参数（代谢/学习/经济学）</a>
+      <button class="btn" onclick="eco2SaveEnv()" style="font-size:10px;padding:4px 10px;color:var(--green)">💾 写回</button>
+      <a href="/pet-config.html#tab-runtime" class="btn" style="font-size:10px;padding:4px 10px;text-decoration:none" title="代谢/学习/LLM 提示词">⚙ 深参</a>
     </div>
   </div>
 
   <!-- ③ 物竞天择控制 + 回放 -->
   <div class="rp-section" style="padding:8px 12px">
     <div class="rp-title" style="margin-bottom:6px">▶ 演练控制</div>
+    <div style="font-size:9px;color:var(--dim);margin-bottom:6px">闭环：种群 → <b>挂载任务（业务场景实例）</b> → 演练 → 适者反馈</div>
     <button class="btn" id="eco2-run-team" onclick="sexyPickTeam()"
-      style="width:100%;padding:8px 0;font-size:12px;margin-bottom:4px">👥 选择投放种群（团队）</button>
-    <!-- XG-11: 已挂接任务（从团队任务菜单/Plaza 深链带入） -->
-    <div id="eco2-run-task-wrap" style="display:none;margin-bottom:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;border:1px solid rgba(167,139,250,.35)">
-      <div style="font-size:9px;color:var(--dim);margin-bottom:2px">📋 已挂接任务（生境需求来源）</div>
-      <div id="eco2-run-task" style="font-size:11px;font-weight:600;color:var(--purple);word-break:break-all">—</div>
-      <div id="eco2-run-task-meta" style="font-size:9px;color:var(--dim);margin-top:2px"></div>
+      style="width:100%;padding:8px 0;font-size:12px;margin-bottom:4px">👥 ① 选择投放种群（团队）</button>
+    <!-- XF-6: 选种群后始终展示任务挂载菜单（任务主闭环） -->
+    <div id="eco2-task-mount" style="display:none;margin-bottom:8px;padding:8px;background:var(--panel2);border-radius:6px;border:1px solid rgba(167,139,250,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+        <span style="font-size:10px;font-weight:600;color:var(--purple)">② 挂载任务（业务场景实例）</span>
+        <button type="button" class="btn" id="eco2-task-clear" onclick="eco2ClearPrimaryTask()"
+          style="display:none;font-size:9px;padding:2px 6px" title="解除任务与契约">解除</button>
+      </div>
+      <select id="eco2-primary-task-select" onchange="eco2OnPrimaryTaskSelect(this.value)"
+        style="width:100%;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);margin-bottom:4px">
+        <option value="">— 先选种群后加载任务 —</option>
+      </select>
+      <div id="eco2-run-task-wrap" style="display:none;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)">
+        <div style="font-size:9px;color:var(--dim);margin-bottom:2px">已挂接 · 生境考卷来源</div>
+        <div id="eco2-run-task" style="font-size:11px;font-weight:600;color:var(--purple);word-break:break-all">—</div>
+        <div id="eco2-run-task-meta" style="font-size:9px;color:var(--dim);margin-top:2px"></div>
+      </div>
+      <div id="eco2-task-mount-hint" style="font-size:9px;color:var(--dim);margin-top:4px">无任务则无业务考卷；建议挂载后再开跑。</div>
     </div>
     <!-- v3: 主队排兵策略选择器（多队对抗模式可见） -->
     <div id="eco2-primary-strategy-row" style="display:none;gap:6px;align-items:center;margin-bottom:4px;font-size:10px">
@@ -1256,22 +1441,22 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     <!-- v2.3/XG-12 多种群：对比队可选相同/相似任务 → Apple-to-apple；不选=随机比较 -->
     <div style="margin-bottom:6px">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
-        <button class="btn" onclick="eco2AddRivalTeam()" style="font-size:10px;padding:3px 8px">＋ 添加对比种群</button>
-        <span style="font-size:9px;color:var(--dim)">为对比队选择与主任务相同/相似的执行计划任务 → 共用考卷比 skill/协作；不选 → 随机生境</span>
+        <button class="btn" onclick="eco2AddRivalTeam()" style="font-size:10px;padding:3px 8px"
+          title="对比队可选同/相似任务共用考卷；不选则随机生境">＋ 添加对比种群</button>
       </div>
       <div id="eco2-rival-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
       <div id="eco2-compare-banner" style="display:none;margin-top:4px;font-size:9px;color:var(--amber);line-height:1.4"></div>
     </div>
-    <!-- v3 赛制三档（XV-1.2）：①分场锦标赛(个体·家族精英) / ②多队对抗(团队·田忌赛马) / ③混合竞争(生态·螺旋上升) -->
+    <!-- v3 赛制三档：详细释义见 title，不占底部文案区 -->
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;font-size:10px;flex-wrap:wrap">
       <span style="color:var(--dim)">赛制:</span>
-      <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="division" checked
-        onchange="eco2SetRaceMode(this.value)"> 🏟 ①分场锦标赛</label>
-      <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="confrontation"
-        onchange="eco2SetRaceMode(this.value)"> ⚔️ ②多队对抗</label>
-      <label style="cursor:pointer"><input type="radio" name="eco2-race-mode" value="mixed"
-        onchange="eco2SetRaceMode(this.value)"> 🌍 ③混合竞争</label>
-      <span id="eco2-race-hint" style="color:var(--dim);font-size:9px;width:100%">① 分场·球星评比——各队 Agent 比个体 skill；②球队协作；③世界杯=球星+协作（奖杯只有一座）</span>
+      <label style="cursor:pointer" title="各队 Agent 比个体 skill"><input type="radio" name="eco2-race-mode" value="division" checked
+        onchange="eco2SetRaceMode(this.value)"> 🏟 分场</label>
+      <label style="cursor:pointer" title="比团队协作与策略"><input type="radio" name="eco2-race-mode" value="confrontation"
+        onchange="eco2SetRaceMode(this.value)"> ⚔️ 对抗</label>
+      <label style="cursor:pointer" title="个体 skill + 团队协作"><input type="radio" name="eco2-race-mode" value="mixed"
+        onchange="eco2SetRaceMode(this.value)"> 🌍 混合</label>
+      <span id="eco2-race-hint" style="display:none" aria-hidden="true"></span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:11px">
       <label>每代步数</label>
@@ -1281,9 +1466,8 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     </div>
     <button class="btn btn-primary" onclick="eco2RunDrill()" id="eco2-run-launch"
       style="width:100%;padding:10px 0;font-size:14px;font-weight:700;letter-spacing:1px">🧬 开始物竞天择</button>
-    <div id="eco2-run-status" style="font-size:10px;color:var(--dim);margin-top:6px;text-align:center">
-      环境不会告诉 Agent 该怎么做——它只负责选择。
-    </div>
+    <!-- 仅运行态状态，无哲学文案 -->
+    <div id="eco2-run-status" style="font-size:10px;color:var(--dim);margin-top:6px;text-align:center;min-height:0"></div>
     <!-- 剧场回放条 -->
     <div id="eco2-replay-bar" style="display:none;margin-top:8px;padding:6px 8px;background:var(--panel2);border-radius:6px">
       <div style="display:flex;gap:6px;align-items:center">
@@ -1292,9 +1476,52 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
           oninput="eco2ReplaySeek(this.value)">
         <button class="btn" id="eco2-replay-speed" onclick="eco2ReplaySpeed()" style="font-size:10px;padding:3px 8px">1x</button>
         <button class="btn" onclick="eco2ShowReport()" style="font-size:10px;padding:3px 8px;color:var(--amber)" title="生境报告">📜</button>
+        <button class="btn" onclick="ecoFeedbackOpen()" style="font-size:10px;padding:3px 8px;color:var(--green)" title="适者反馈：Skill/协作写回智能体">③ 反馈</button>
       </div>
-      <div id="eco2-replay-label" style="font-size:9px;color:var(--dim);margin-top:3px;text-align:center">回放就绪</div>
+      <div id="eco2-replay-label" style="font-size:9px;color:var(--dim);margin-top:3px;text-align:center"></div>
     </div>
+  </div>
+
+  <!-- ③ 适者反馈台（演练后写回 Skill；进成本优化前门禁） -->
+  <div class="rp-section" id="rp-eco-feedback" style="display:none;padding:10px 12px;background:linear-gradient(180deg,rgba(167,139,250,.06),transparent)">
+    <div class="rp-title" style="margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>③ 适者反馈 · Skill → 智能体</span>
+      <button type="button" class="btn" style="font-size:9px;padding:2px 8px" onclick="ecoFeedbackClose()">收起</button>
+    </div>
+    <div id="eco-fb-summary" style="font-size:10px;color:var(--dim);margin-bottom:8px;line-height:1.45"></div>
+    <div style="font-size:10px;font-weight:600;margin-bottom:4px">Skill 建议（勾选后写回）</div>
+    <div id="eco-fb-skill-table" style="max-height:180px;overflow-y:auto;font-size:10px;margin-bottom:8px"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <div style="font-size:10px;font-weight:600">协作模式（写回 metadata.eco_collab）</div>
+      <select id="eco-fb-collab-strategy" style="font-size:10px;padding:2px 6px;max-width:120px" title="覆盖=全量替换；混合=与真身加权；快照=标记来源">
+        <option value="blend" selected>混合</option>
+        <option value="overwrite">覆盖</option>
+        <option value="snapshot">仅快照</option>
+      </select>
+    </div>
+    <div id="eco-fb-collab-table" style="max-height:160px;overflow-y:auto;font-size:10px;margin-bottom:8px"></div>
+    <div style="font-size:10px;font-weight:600;margin-bottom:4px">协作关系建议（真拓扑 · 关系边 + 通道）</div>
+    <div class="meta" style="font-size:9px;color:var(--dim);margin-bottom:4px;line-height:1.4">协作基因=仿真表型；关系边/通道=团队页可见的真协作拓扑。mate/COURT 不进关系与通道。须人确认后写回。</div>
+    <div style="font-size:10px;font-weight:600;margin-bottom:2px;color:var(--dim)">表1 · 关系拓扑图 Before/After（通道/同队/门禁）</div>
+    <div id="eco-fb-relation-table" style="min-height:200px;max-height:420px;overflow-y:auto;font-size:10px;margin-bottom:8px;border:1px dashed rgba(167,139,250,.25);border-radius:6px;padding:6px"></div>
+    <div style="font-size:10px;font-weight:600;margin-bottom:2px;color:var(--dim)">表2 · 通道绑定 → agent.channels</div>
+    <div id="eco-fb-channel-table" style="max-height:140px;overflow-y:auto;font-size:10px;margin-bottom:8px"></div>
+    <div id="eco-fb-status" style="font-size:10px;color:var(--amber);min-height:16px;margin-bottom:6px"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackPreviewSkills()">预览 Skill</button>
+      <button type="button" class="btn btn-primary" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackApplySkills()">✅ 写回 Skill</button>
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackPreviewCollab()">预览协作基因</button>
+      <button type="button" class="btn btn-primary" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackApplyCollab()">✅ 写回协作基因</button>
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackPreviewRelations()">预览关系边</button>
+      <button type="button" class="btn btn-primary" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackApplyRelations()">✅ 写回关系边</button>
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackPreviewChannels()">预览通道</button>
+      <button type="button" class="btn btn-primary" style="font-size:10px;padding:4px 10px" onclick="ecoFeedbackApplyChannels()">✅ 写回通道</button>
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px" onclick="eco2DispatchWinner()">🏷 适者派发</button>
+      <button type="button" class="btn btn-primary" style="font-size:10px;padding:4px 10px;background:rgba(167,139,250,.2);border-color:rgba(167,139,250,.5);color:#c4b5fd" onclick="ecoFeedbackPushBid()" title="先适者后省钱：创建 BidCandidate 并跳转成本竞标">④ 推送到成本竞标</button>
+      <button type="button" class="btn" style="font-size:10px;padding:4px 10px;color:var(--cyan)" onclick="ecoFeedbackGoCost(false)">④ 仅跳转成本页</button>
+      <button type="button" class="btn" style="font-size:9px;padding:4px 8px;color:var(--dim)" onclick="ecoFeedbackGoCost(true)" title="跳过写回需填原因">跳过写回…</button>
+    </div>
+    <div class="meta" style="font-size:9px;color:var(--dim);margin-top:6px;line-height:1.4">先选活得长的（物竞）→ 再选花钱省的（成本）。推送须已挂任务且已反馈/跳过；空跑不可进竞标。</div>
   </div>
 
   <!-- ④ 种群面板 -->
@@ -1303,7 +1530,7 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
       <span id="eco2-pop-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
     </div>
     <div id="eco2-pop-list" style="max-height:230px;overflow-y:auto">
-      <div class="eco2-empty">投放种群后，这里将显示每个生物的血量、意图与双基因（技能 + 协作倾向）。</div>
+      <div class="eco2-empty">投放种群后显示</div>
     </div>
   </div>
 
@@ -1312,17 +1539,17 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
     <div class="rp-title" style="margin-bottom:6px">📈 世代演化曲线</div>
     <div id="eco2-gen-chart" style="display:flex;align-items:flex-end;gap:6px;height:72px;padding:4px 2px"></div>
     <div id="eco2-gen-list" style="max-height:120px;overflow-y:auto;font-size:10px;margin-top:4px">
-      <div class="eco2-empty">每代的平均/最长生存时长、出生与死亡将在此累积。</div>
+      <div class="eco2-empty">演练后显示</div>
     </div>
   </div>
 
   <!-- ⑥ 基因池 -->
   <div class="rp-section" style="padding:8px 12px">
-    <div class="rp-title" style="margin-bottom:6px">🧬 基因池（环境选择的结果）</div>
+    <div class="rp-title" style="margin-bottom:6px">🧬 基因池</div>
     <div id="eco2-gene-skills" style="font-size:10px;margin-bottom:8px">
-      <div class="eco2-empty">dominant（存活者高频携带）与 deprecated（随死者消亡）的 Skill 将在此浮现。</div>
+      <div class="eco2-empty">演练后显示 dominant / deprecated</div>
     </div>
-    <div style="font-size:10px;color:var(--dim);margin-bottom:3px">协作基因画像（种群均值——协作协议被选择的方向）</div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:3px">协作基因均值</div>
     <div id="eco2-gene-collab"></div>
   </div>
 
@@ -1330,7 +1557,7 @@ body.office-mode .eco2-head { background: linear-gradient(135deg, rgba(34,197,94
   <div class="rp-section" style="padding:8px 12px">
     <div class="rp-title" style="margin-bottom:6px">🌳 繁衍谱系</div>
     <div id="eco2-lineage" style="max-height:140px;overflow-y:auto;font-size:10px">
-      <div class="eco2-empty">高存活个体求偶配对后，后代的双亲与继承基因将在此追溯。</div>
+      <div class="eco2-empty">演练后显示</div>
     </div>
   </div>
 
@@ -1432,6 +1659,8 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="/js/digital-twin/eco-curves.js"></script>
 <script src="/js/digital-twin/eco-genetics.js"></script>
 <script src="/js/digital-twin/eco-console.js"></script>
+<script src="/js/digital-twin/eco-task-hud.js"></script>
+<script src="/js/digital-twin/eco-feedback.js"></script>
 
 <!-- ═══ 物竞天择 ND-5: 生境模式双形态切换（自包含，legacy 零回归）═══ -->
 <script>

@@ -2353,6 +2353,11 @@
       try { if (window.eco2Init) window.eco2Init(); } catch(e) {}
       try { if (window.ecoLoadConfig) window.ecoLoadConfig(); } catch(e) {}
     }
+    // 左侧生境旋钮台随试验田显示/隐藏
+    try {
+      var knobs = document.getElementById('lp-eco-knobs');
+      if (knobs) knobs.style.display = isEco ? 'block' : 'none';
+    } catch (e2) { /* ignore */ }
   }
 
   function enhanceSwitchView() {

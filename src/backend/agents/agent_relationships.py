@@ -124,29 +124,172 @@ class RelationshipStore:
         return result
 
 
-# ── EC-3: 通信门禁 ─────────────────────────────────────────
+# ── 协作拓扑（三层：门禁边 / 同队编制 / 通道协作）──────────
 
-def check_can_communicate(team_id: str, from_agent_id: str, to_agent_id: str,
-                          store: Optional[RelationshipStore] = None) -> Dict[str, Any]:
-    """A2A 通信检查：无关系 → 拒绝并只返回已授权联系人（白皮书受限提示）."""
+def _channel_names_of(agent: Any) -> List[str]:
+    names: List[str] = []
+    for c in getattr(agent, "channels", None) or []:
+        if hasattr(c, "to_dict"):
+            d = c.to_dict()
+        elif isinstance(c, dict):
+            d = c
+        else:
+            continue
+        name = str(d.get("channel_name") or d.get("channel") or "").strip()
+        if not name:
+            continue
+        if d.get("subscribe") or d.get("publish") or d.get("enabled", True):
+            names.append(name)
+    return names
+
+
+def load_team_collab_context(team_id: str) -> Dict[str, Any]:
+    """从 team_manager 加载队员 id 与通道绑定（懒导入，避免环依赖）."""
+    agent_ids: List[str] = []
+    channels_by_agent: Dict[str, List[str]] = {}
+    names_by_agent: Dict[str, str] = {}
+    roles_by_agent: Dict[str, str] = {}
+    try:
+        from agents.api import _team_manager  # lazy
+        if _team_manager is None:
+            return {
+                "agent_ids": agent_ids,
+                "channels_by_agent": channels_by_agent,
+                "names_by_agent": names_by_agent,
+                "roles_by_agent": roles_by_agent,
+            }
+        team = _team_manager.get_team(team_id)
+        if team is None:
+            return {
+                "agent_ids": agent_ids,
+                "channels_by_agent": channels_by_agent,
+                "names_by_agent": names_by_agent,
+                "roles_by_agent": roles_by_agent,
+            }
+        agents = team.agents.values() if hasattr(team, "agents") and hasattr(team.agents, "values") else []
+        for a in agents:
+            aid = str(getattr(a, "agent_id", "") or "")
+            if not aid:
+                continue
+            agent_ids.append(aid)
+            channels_by_agent[aid] = _channel_names_of(a)
+            names_by_agent[aid] = str(getattr(a, "name", "") or aid)
+            roles_by_agent[aid] = str(getattr(a, "role", "") or "")
+    except Exception as e:
+        logger.debug("load_team_collab_context: %s", e)
+    return {
+        "agent_ids": agent_ids,
+        "channels_by_agent": channels_by_agent,
+        "names_by_agent": names_by_agent,
+        "roles_by_agent": roles_by_agent,
+    }
+
+
+def resolve_collab_path(
+    team_id: str,
+    from_agent_id: str,
+    to_agent_id: str,
+    *,
+    store: Optional[RelationshipStore] = None,
+    team_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """解析 A→B 是否存在协作路径（三层任一即可）.
+
+    返回 allowed + layers 命中列表 + reason + allowed_contacts。
+    """
     if from_agent_id == to_agent_id:
-        return {"allowed": True, "reason": "self", "allowed_contacts": []}
+        return {
+            "allowed": True,
+            "reason": "self",
+            "layers": ["self"],
+            "allowed_contacts": [],
+            "contact_layers": {},
+        }
+
     store = store or get_relationship_store()
+    ctx = team_ctx if team_ctx is not None else load_team_collab_context(team_id)
+    team_ids = set(ctx.get("agent_ids") or [])
+    ch_map: Dict[str, List[str]] = ctx.get("channels_by_agent") or {}
+
+    contact_layers: Dict[str, List[str]] = {}  # contact -> [layer, ...]
+
+    def _add_contact(cid: str, layer: str) -> None:
+        if not cid or cid == from_agent_id:
+            return
+        contact_layers.setdefault(cid, [])
+        if layer not in contact_layers[cid]:
+            contact_layers[cid].append(layer)
+
+    # Layer 1: RelationshipStore 门禁边
     rels = store.list_for_agent(team_id, from_agent_id)
-    allowed_contacts = sorted({
-        (r.target_id if r.source_agent_id == from_agent_id else r.source_agent_id)
-        for r in rels if r.kind == "agent_agent"
-    })
     for r in rels:
         if r.kind != "agent_agent":
             continue
-        pair = {r.source_agent_id, r.target_id}
-        if {from_agent_id, to_agent_id} == pair:
-            return {"allowed": True, "reason": f"relationship:{r.rel_type}",
-                    "allowed_contacts": allowed_contacts}
-    return {"allowed": False,
-            "reason": "no_relationship: 关系只能由人工在配置页建立",
-            "allowed_contacts": allowed_contacts}
+        other = r.target_id if r.source_agent_id == from_agent_id else r.source_agent_id
+        _add_contact(other, f"store:{r.rel_type}")
+
+    # Layer 2: 同队编制 peer
+    for aid in team_ids:
+        if aid != from_agent_id:
+            _add_contact(aid, "team_peer")
+
+    # Layer 3: 共总线通道协作
+    my_ch = set(ch_map.get(from_agent_id) or [])
+    if my_ch:
+        for aid, chs in ch_map.items():
+            if aid == from_agent_id:
+                continue
+            shared = my_ch.intersection(chs or [])
+            if shared:
+                bus = sorted(shared)[0]
+                _add_contact(aid, f"channel:{bus}")
+
+    allowed_contacts = sorted(contact_layers.keys())
+    layers_hit: List[str] = list(contact_layers.get(to_agent_id) or [])
+
+    if layers_hit:
+        # 优先 reason 用 store > channel > peer
+        primary = layers_hit[0]
+        for pref in ("store:", "channel:", "team_peer"):
+            matched = [x for x in layers_hit if x.startswith(pref) or x == pref]
+            if matched:
+                primary = matched[0]
+                break
+        return {
+            "allowed": True,
+            "reason": primary,
+            "layers": layers_hit,
+            "allowed_contacts": allowed_contacts,
+            "contact_layers": contact_layers,
+        }
+
+    return {
+        "allowed": False,
+        "reason": "no_collab_path: 无门禁边/同队/共总线",
+        "layers": [],
+        "allowed_contacts": allowed_contacts,
+        "contact_layers": contact_layers,
+    }
+
+
+# ── EC-3: 通信门禁 ─────────────────────────────────────────
+
+def check_can_communicate(team_id: str, from_agent_id: str, to_agent_id: str,
+                          store: Optional[RelationshipStore] = None,
+                          **kwargs: Any) -> Dict[str, Any]:
+    """A2A 通信检查：协作三层任一命中则允许（门禁边 / 同队 / 共总线）."""
+    path = resolve_collab_path(
+        team_id, from_agent_id, to_agent_id,
+        store=store,
+        team_ctx=kwargs.get("team_ctx"),
+    )
+    return {
+        "allowed": path["allowed"],
+        "reason": path["reason"],
+        "layers": path.get("layers") or [],
+        "allowed_contacts": path.get("allowed_contacts") or [],
+        "contact_layers": path.get("contact_layers") or {},
+    }
 
 
 # ── EC-4: 软/硬门禁 ────────────────────────────────────────
@@ -167,48 +310,135 @@ def _gate_mode() -> str:
     return relationship_gate_mode()
 
 
-def gate_delegate(team_id: str, from_agent_id: str, to_agent_id: str) -> Dict[str, Any]:
-    """委派门禁: soft=记警告放行 / hard=拒绝 (EC-4)."""
-    check = check_can_communicate(team_id, from_agent_id, to_agent_id)
+def gate_delegate(team_id: str, from_agent_id: str, to_agent_id: str,
+                  **kwargs: Any) -> Dict[str, Any]:
+    """委派/消息/交接门禁: soft=记警告放行 / hard=拒绝 (EC-4).
+
+    允许路径：门禁边 OR 同队编制 OR 共总线。
+    """
+    check = check_can_communicate(team_id, from_agent_id, to_agent_id, **kwargs)
     mode = _gate_mode()
     if check["allowed"]:
-        return {"allowed": True, "mode": mode, "reason": check["reason"]}
+        return {
+            "allowed": True,
+            "mode": mode,
+            "reason": check["reason"],
+            "layers": check.get("layers") or [],
+        }
     if mode == "hard":
-        return {"allowed": False, "mode": "hard", "reason": check["reason"],
-                "allowed_contacts": check["allowed_contacts"]}
-    logger.warning(f"⚠️ 软门禁放行无关系委派: {from_agent_id} → {to_agent_id} (team={team_id})")
-    return {"allowed": True, "mode": "soft",
-            "warning": f"无显式关系 ({from_agent_id} → {to_agent_id})，建议在配置页建立关系。"
-                       f"settings.enforce_relationship_gate=true 时此委派将被拒绝",
-            "reason": check["reason"]}
+        return {
+            "allowed": False,
+            "mode": "hard",
+            "reason": check["reason"],
+            "allowed_contacts": check.get("allowed_contacts") or [],
+            "layers": [],
+        }
+    logger.warning(
+        "⚠️ 软门禁放行无协作路径委派: %s → %s (team=%s)",
+        from_agent_id, to_agent_id, team_id,
+    )
+    return {
+        "allowed": True,
+        "mode": "soft",
+        "warning": (
+            f"无协作路径 ({from_agent_id} → {to_agent_id})："
+            f"非同队、无共总线、无门禁边。settings.enforce_relationship_gate=true 时将拒绝"
+        ),
+        "reason": check["reason"],
+        "layers": [],
+    }
+
+
+def gate_workflow_handoff(
+    team_id: str,
+    from_agent_id: str,
+    to_agent_id: str,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """工作流步骤交接门禁（同 gate_delegate，语义=step handoff）."""
+    result = gate_delegate(team_id, from_agent_id, to_agent_id, **kwargs)
+    result["kind"] = "workflow_handoff"
+    return result
 
 
 # ── EC-5: relationships.md 渲染 ────────────────────────────
 
 def render_relationships_md(team_id: str, agent_id: str,
                             store: Optional[RelationshipStore] = None) -> str:
-    """生成"我能联系谁"清单，注入组织上下文."""
+    """生成"我能联系谁"清单（协作三层），注入组织上下文 / 任务 prompt."""
     store = store or get_relationship_store()
-    rels = store.list_for_agent(team_id, agent_id)
-    if not rels:
-        return "（尚未建立任何关系——所有关系需人工在团队配置页建立；无关系时不能主动联系其他 Agent）"
+    ctx = load_team_collab_context(team_id)
+    # to 用哨兵 id，只取 contact_layers 全量通讯录
+    path = resolve_collab_path(
+        team_id, agent_id, "__none__", store=store, team_ctx=ctx,
+    )
+    contact_layers: Dict[str, List[str]] = path.get("contact_layers") or {}
+    names = ctx.get("names_by_agent") or {}
+    roles = ctx.get("roles_by_agent") or {}
+
+    if not contact_layers:
+        return (
+            "（协作拓扑为空：无同队成员、无通道绑定、无门禁边。"
+            "同队/共总线/门禁边任一建立后即可协作通信。）"
+        )
+
+    type_label = {
+        "collaborator": "协作者", "supervisor": "上级",
+        "subordinate": "下属", "reviewer": "评审人", "peer": "同队编制",
+    }
     groups: Dict[str, List[str]] = {}
-    type_label = {"collaborator": "协作者", "supervisor": "上级",
-                  "subordinate": "下属", "reviewer": "评审人"}
-    for r in rels:
-        other = r.target_id if r.source_agent_id == agent_id else r.source_agent_id
-        direction = "→" if r.source_agent_id == agent_id else "←"
-        kind_tag = "👤人类" if r.kind == "agent_human" else "🤖Agent"
-        line = f"- {kind_tag} {other} {direction} {type_label.get(r.rel_type, r.rel_type)}"
-        if r.note:
-            line += f"（{r.note}）"
-        groups.setdefault(type_label.get(r.rel_type, r.rel_type), []).append(line)
-    out = []
+    for other, layers in sorted(contact_layers.items()):
+        label_bits = []
+        for ly in layers:
+            if ly.startswith("store:"):
+                rt = ly.split(":", 1)[1]
+                label_bits.append(type_label.get(rt, rt))
+            elif ly.startswith("channel:"):
+                label_bits.append(f"通道:{ly.split(':', 1)[1]}")
+            elif ly == "team_peer":
+                label_bits.append("同队编制")
+            else:
+                label_bits.append(ly)
+        nm = names.get(other) or other
+        role = roles.get(other) or ""
+        role_s = f" · {role}" if role else ""
+        line = f"- 🤖 {nm} (`{other}`{role_s}) — {', '.join(label_bits)}"
+        # 归组：优先门禁类型
+        gkey = "协作联系人"
+        for ly in layers:
+            if ly.startswith("store:"):
+                gkey = type_label.get(ly.split(":", 1)[1], "协作者")
+                break
+            if ly.startswith("channel:"):
+                gkey = "通道协作"
+                break
+            if ly == "team_peer":
+                gkey = "同队编制"
+        groups.setdefault(gkey, []).append(line)
+
+    # 门禁边备注
+    for r in store.list_for_agent(team_id, agent_id):
+        if r.kind == "agent_human":
+            groups.setdefault("人类联系人", []).append(
+                f"- 👤 {r.target_id} — {type_label.get(r.rel_type, r.rel_type)}"
+                + (f"（{r.note}）" if r.note else "")
+            )
+
+    out = ["## 协作拓扑（任务执行生效）", ""]
     for label, lines in groups.items():
         out.append(f"### {label}")
         out.extend(lines)
-    out.append("\n规则：只能联系上述名单；联系名单外对象会被拒绝。")
+        out.append("")
+    out.append(
+        "规则：可委派/交接/发消息的对象须在上述名单内（同队编制、共总线、门禁边任一即可）。"
+        " hard 门禁下名单外对象会被拒绝。"
+    )
     return "\n".join(out)
+
+
+def collab_topology_for_prompt(team_id: str, agent_id: str) -> str:
+    """供任务 step prompt 注入的短协作拓扑块."""
+    return render_relationships_md(team_id, agent_id)
 
 
 # ── 单例 ──────────────────────────────────────────────────

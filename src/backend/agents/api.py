@@ -431,6 +431,15 @@ class UpdateChannelsRequest(BaseModel):
     channels: List[ChannelItem] = Field(default_factory=list)
 
 
+class PublishChannelRequest(BaseModel):
+    """进程内通道发布."""
+    channel_name: str = ""
+    channel: str = ""
+    content: str = ""
+    message: str = ""
+    payload: Optional[Dict[str, Any]] = None
+
+
 class UsageBudgetUpdateRequest(BaseModel):
     per_session_max: int = Field(default=200_000, ge=0)
     per_agent_daily_max: int = Field(default=2_000_000, ge=0)
@@ -1142,22 +1151,82 @@ def update_permissions(
 
 @router.put(
     "/teams/{team_id}/agents/{agent_id}/channels",
-    summary="Update agent channels (wizard step 5)",
+    summary="Update agent channels (wizard step 5 / 关系·通道绑定)",
 )
 def update_channels(
     team_id: str, agent_id: str, req: UpdateChannelsRequest
 ) -> Dict[str, Any]:
+    """全量替换 agent.channels 并持久化；运行时由 agent_channel_bus 消费 subscribe/publish."""
     agent = _get_agent_or_404(team_id, agent_id)
-    agent.channels = [
-        AgentChannelConfig(
-            channel_name=c.channel_name,
-            subscribe=c.subscribe,
-            publish=c.publish,
-            priority=c.priority,
+    # 保留已有 endpoint/enabled，避免向导只传 name 时丢字段
+    prev_by = {}
+    for old in getattr(agent, "channels", None) or []:
+        nm = getattr(old, "channel_name", None) or getattr(old, "channel", None) or ""
+        if nm:
+            prev_by[str(nm)] = old
+    new_list: List[AgentChannelConfig] = []
+    for c in req.channels:
+        name = (c.channel_name or getattr(c, "channel", None) or "").strip()
+        if not name:
+            continue
+        old = prev_by.get(name)
+        new_list.append(
+            AgentChannelConfig(
+                channel=name,
+                channel_name=name,
+                endpoint=getattr(old, "endpoint", "") if old else "",
+                enabled=getattr(old, "enabled", True) if old else True,
+                sync_interval_seconds=getattr(old, "sync_interval_seconds", 60) if old else 60,
+                subscribe=bool(c.subscribe),
+                publish=bool(c.publish),
+                priority=int(c.priority or 0),
+                source=getattr(old, "source", "") if old else "",
+                note=getattr(old, "note", "") if old else "",
+            )
         )
-        for c in req.channels
-    ]
+    agent.channels = new_list
+    _tm()._persist()
     return agent.to_dict()
+
+
+@router.post(
+    "/teams/{team_id}/agents/{agent_id}/channels/publish",
+    summary="向绑定通道发消息（校验 publish 权限，写入进程内总线）",
+)
+def publish_agent_channel(
+    team_id: str, agent_id: str, body: PublishChannelRequest
+) -> Dict[str, Any]:
+    from agents.agent_channel_bus import agent_can_publish, publish_message
+
+    agent = _get_agent_or_404(team_id, agent_id)
+    channel = str(body.channel_name or body.channel or "").strip()
+    content = str(body.content or body.message or "")
+    if not channel:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="channel_name required")
+    ok, reason = agent_can_publish(agent, channel)
+    if not ok:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"publish denied: {reason}",
+        )
+    msg = publish_message(
+        team_id, channel, from_agent_id=agent_id, content=content, payload=body.payload
+    )
+    return {"ok": True, "message": msg, "reason": reason}
+
+
+@router.get(
+    "/teams/{team_id}/agents/{agent_id}/channels/inbox",
+    summary="读取 agent 已订阅通道上的消息",
+)
+def agent_channel_inbox(
+    team_id: str, agent_id: str, limit_per_channel: int = 10
+) -> Dict[str, Any]:
+    from agents.agent_channel_bus import read_subscribed
+
+    agent = _get_agent_or_404(team_id, agent_id)
+    msgs = read_subscribed(team_id, agent, limit_per_channel=int(limit_per_channel or 10))
+    return {"ok": True, "messages": msgs, "count": len(msgs)}
 
 
 @router.delete(
@@ -1839,6 +1908,19 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
     target = _tm().get_agent(team_id, req.target_agent_id)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target agent not found")
+    # 协作拓扑门禁：门禁边 / 同队 / 共总线
+    from agents.agent_relationships import gate_delegate
+    gate = gate_delegate(team_id, agent_id, req.target_agent_id)
+    if not gate.get("allowed"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "collab_topology_denied",
+                "reason": gate.get("reason"),
+                "allowed_contacts": gate.get("allowed_contacts") or [],
+                "mode": gate.get("mode"),
+            },
+        )
     result = {
         "task_id": str(uuid.uuid4())[:8],
         "from_agent": agent_id,
@@ -1848,10 +1930,14 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
         "priority": req.priority,
         "status": "delegated",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "collab_path": gate.get("reason"),
+        "collab_layers": gate.get("layers") or [],
+        "gate_mode": gate.get("mode"),
+        "gate_warning": gate.get("warning"),
     }
     _delegated_tasks.append(result)
     _log_agent_action(agent_id, "delegated_task",
-                      f"to={req.target_agent_id} task={result['task_id']}")
+                      f"to={req.target_agent_id} task={result['task_id']} path={gate.get('reason')}")
     _log_agent_action(req.target_agent_id, "received_delegation",
                       f"from={agent_id} task={result['task_id']}")
     return result
@@ -1859,20 +1945,60 @@ def delegate_task(team_id: str, agent_id: str, req: DelegateTaskRequest) -> Dict
 
 @router.get("/teams/{team_id}/agents/{agent_id}/relationships", summary="Get agent relationships")
 def get_agent_relationships(team_id: str, agent_id: str) -> Dict[str, Any]:
+    """返回协作拓扑通讯录：门禁边 + 同队编制 + 通道协作（任务执行同源）."""
     _get_agent_or_404(team_id, agent_id)
-    team = _get_team_or_404(team_id)
-    relationships = [
-        {
-            "agent_id": a.agent_id,
-            "target": a.agent_id,
-            "name": a.name,
-            "role": a.role,
-            "type": "peer",
-            "relationship": "peer",
-        }
-        for a in team.agents.values() if a.agent_id != agent_id
-    ]
-    return {"agent_id": agent_id, "relationships": relationships}
+    from agents.agent_relationships import (
+        check_can_communicate,
+        get_relationship_store,
+        load_team_collab_context,
+        relationship_gate_mode,
+    )
+    ctx = load_team_collab_context(team_id)
+    names = ctx.get("names_by_agent") or {}
+    roles = ctx.get("roles_by_agent") or {}
+    path = check_can_communicate(team_id, agent_id, "__none__")
+    contact_layers = path.get("contact_layers") or {}
+    store = get_relationship_store()
+    store_notes = {
+        (r.target_id if r.source_agent_id == agent_id else r.source_agent_id): r
+        for r in store.list_for_agent(team_id, agent_id)
+        if r.kind == "agent_agent"
+    }
+    relationships = []
+    for other, layers in sorted(contact_layers.items()):
+        primary = "peer"
+        for ly in layers:
+            if ly.startswith("store:"):
+                primary = ly.split(":", 1)[1]
+                break
+            if ly.startswith("channel:"):
+                primary = "channel"
+                break
+            if ly == "team_peer":
+                primary = "peer"
+        note = ""
+        rel = store_notes.get(other)
+        if rel and rel.note:
+            note = rel.note
+        elif any(str(l).startswith("channel:") for l in layers):
+            buses = [l.split(":", 1)[1] for l in layers if str(l).startswith("channel:")]
+            note = "channel:" + ",".join(buses)
+        relationships.append({
+            "agent_id": other,
+            "target": other,
+            "name": names.get(other) or other,
+            "role": roles.get(other) or "",
+            "type": primary,
+            "relationship": primary,
+            "layers": layers,
+            "note": note,
+        })
+    return {
+        "agent_id": agent_id,
+        "relationships": relationships,
+        "gate_mode": relationship_gate_mode(),
+        "topology": "store+team_peer+channel",
+    }
 
 
 @router.get("/teams/{team_id}/agents/{agent_id}/sessions", summary="List agent sessions")
@@ -2405,15 +2531,52 @@ def _has_execution_backend(log_prefix: str) -> bool:
     return False
 
 
+def _apply_eco_bid_locked_to_task(
+    team_id: str,
+    *,
+    agent_id: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> tuple:
+    """XC-4.4：生产任务注入 locked BidCandidate（skill 包 + 适者 agent）."""
+    try:
+        from sandbox.bid_candidate import apply_locked_config_to_task
+        out = apply_locked_config_to_task(
+            team_id,
+            agent_id=agent_id or "",
+            metadata=dict(metadata or {}),
+        )
+        if out.get("applied"):
+            bind = out.get("skill_bind") or {}
+            _harness_log.info(
+                "[eco_bid] locked candidate applied team=%s bid=%s agent=%s skills=%s "
+                "skill_bind_ok=%s assigned=%s",
+                team_id,
+                (out.get("config") or {}).get("bid_candidate_id"),
+                out.get("agent_id"),
+                (out.get("config") or {}).get("required_skills"),
+                bind.get("ok"),
+                bind.get("assigned"),
+            )
+        return out.get("agent_id") or agent_id, dict(out.get("metadata") or metadata or {}), out
+    except Exception as e:
+        logger.debug("eco bid locked apply skip: %s", e)
+        return agent_id, dict(metadata or {}), {"applied": False, "config": None, "skill_bind": None}
+
+
 def _build_task_from_request(team_id: str, req: SubmitTaskRequest) -> AgentTask:
+    agent_id, metadata, _bid = _apply_eco_bid_locked_to_task(
+        team_id,
+        agent_id=req.agent_id or "",
+        metadata=dict(req.metadata or {}),
+    )
     return AgentTask(
-        agent_id=req.agent_id,
+        agent_id=agent_id or req.agent_id,
         team_id=team_id,
         title=req.title,
         description=req.description,
         priority=req.priority,
         dependencies=list(req.dependencies),
-        metadata=dict(req.metadata),
+        metadata=metadata,
     )
 
 
@@ -2428,6 +2591,7 @@ async def _submit_internal_task(
     metadata: Optional[Dict[str, Any]] = None,
     auto_start: bool = False,
 ) -> AgentTask:
+    # locked 注入在 _build_task_from_request 内完成
     task = _build_task_from_request(
         team_id,
         SubmitTaskRequest(
@@ -2710,16 +2874,26 @@ async def submit_batch_tasks(
         await engine.start()
     tasks = []
     for item in req.tasks:
-        if item.agent_id:
-            _get_agent_or_404(team_id, item.agent_id)
+        agent_id, metadata, _bid = _apply_eco_bid_locked_to_task(
+            team_id,
+            agent_id=item.agent_id or "",
+            metadata=dict(item.metadata or {}),
+        )
+        if agent_id:
+            try:
+                _get_agent_or_404(team_id, agent_id)
+            except Exception:
+                if item.agent_id:
+                    _get_agent_or_404(team_id, item.agent_id)
+                    agent_id = item.agent_id
         t = AgentTask(
-            agent_id=item.agent_id,
+            agent_id=agent_id or item.agent_id,
             team_id=team_id,
             title=item.title,
             description=item.description,
             priority=item.priority,
             dependencies=list(item.dependencies),
-            metadata=dict(item.metadata),
+            metadata=metadata,
         )
         tasks.append(t)
     await engine.submit_batch(tasks)
@@ -2921,6 +3095,27 @@ def _generate_workflow(task: "AgentTask", team_id: str) -> list:
     return steps
 
 
+def _workflow_handoff_gate(
+    team_id: str,
+    from_agent_id: str,
+    to_agent_id: str,
+    *,
+    log_prefix: str = "workflow_handoff",
+) -> Dict[str, Any]:
+    """步骤交接协作拓扑检查。hard 且无路径时返回 allowed=False."""
+    if not from_agent_id or not to_agent_id or from_agent_id == to_agent_id:
+        return {"allowed": True, "reason": "same_or_empty", "layers": []}
+    try:
+        from agents.agent_relationships import gate_workflow_handoff
+        gate = gate_workflow_handoff(team_id, from_agent_id, to_agent_id)
+        if gate.get("warning"):
+            logger.warning("[%s] %s", log_prefix, gate.get("warning"))
+        return gate
+    except Exception as e:
+        logger.debug("[%s] gate error: %s", log_prefix, e)
+        return {"allowed": True, "reason": f"gate_error:{e}", "layers": [], "mode": "soft"}
+
+
 @router.post(
     "/teams/{team_id}/tasks/{task_id}/workflow/advance",
     summary="Advance task workflow to next step",
@@ -2950,8 +3145,29 @@ async def advance_workflow(team_id: str, task_id: str) -> Dict[str, Any]:
     # Complete current, activate next
     wf[active_idx]["status"] = "completed"
     if active_idx + 1 < len(wf):
-        wf[active_idx + 1]["status"] = "active"
         next_step = wf[active_idx + 1]
+        from_aid = str(completed_step.get("agent_id") or "")
+        to_aid = str(next_step.get("agent_id") or "")
+        gate = _workflow_handoff_gate(team_id, from_aid, to_aid, log_prefix="advance_workflow")
+        if not gate.get("allowed"):
+            wf[active_idx]["status"] = "active"  # 回滚完成态
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "collab_topology_handoff_denied",
+                    "from_agent": from_aid,
+                    "to_agent": to_aid,
+                    "reason": gate.get("reason"),
+                    "allowed_contacts": gate.get("allowed_contacts") or [],
+                },
+            )
+        next_step["status"] = "active"
+        next_step["collab_handoff"] = {
+            "from": from_aid,
+            "to": to_aid,
+            "path": gate.get("reason"),
+            "layers": gate.get("layers") or [],
+        }
         # Auto-start Claude Code for EVERY step
         if next_step.get("agent_id"):
             _start_workflow_step_session(
@@ -3939,6 +4155,30 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                         task.metadata["workflow"] = wf
                         continue  # Retry on next poll instead of killing the monitor
 
+                    # 协作拓扑：步骤交接门禁（同队/共总线/门禁边）
+                    _from_aid = str(active_step.get("agent_id") or "")
+                    _to_aid = str(next_step.get("agent_id") or "")
+                    _hgate = _workflow_handoff_gate(
+                        team_id, _from_aid, _to_aid, log_prefix="harness_handoff",
+                    )
+                    if not _hgate.get("allowed"):
+                        _harness_log.warning(
+                            f"[Harness] Handoff denied {_from_aid}→{_to_aid}: "
+                            f"{_hgate.get('reason')} — step {next_step['key']} blocked"
+                        )
+                        next_step["status"] = "failed"
+                        next_step["error"] = f"collab_handoff_denied:{_hgate.get('reason')}"
+                        next_step["_blocked_reason"] = "collab_topology"
+                        task.metadata["workflow"] = wf
+                        continue
+                    next_step["collab_handoff"] = {
+                        "from": _from_aid,
+                        "to": _to_aid,
+                        "path": _hgate.get("reason"),
+                        "layers": _hgate.get("layers") or [],
+                        "warning": _hgate.get("warning"),
+                    }
+
                     # Start Claude for next step
                     if next_step.get("agent_id"):
                         import uuid as _uuid
@@ -3953,13 +4193,15 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                                 step_prompt = _build_step_prompt(task, next_step, wf)
                                 _harness_log.info(
                                     f"[Harness] Auto-advancing: step {active_step['key']} → "
-                                    f"{next_step['key']} (agent: {agent.name}, session: {new_sid})"
+                                    f"{next_step['key']} (agent: {agent.name}, session: {new_sid}, "
+                                    f"collab={_hgate.get('reason')})"
                                 )
                                 _emit_pipeline_event(task_id, "step_started", {
                                     "step": next_step["key"],
                                     "label": next_step.get("label", ""),
                                     "agent": agent.name,
                                     "prev_step": active_step["key"],
+                                    "collab_path": _hgate.get("reason"),
                                 })
                                 _start_claude_session(new_sid, step_prompt, cfg, agent, task_id)
                                 next_step["session_id"] = new_sid
@@ -5795,6 +6037,54 @@ def _build_step_prompt(task, step: Dict, workflow: list) -> str:
                     )
                 except Exception:
                     pass
+
+    # ── 协作拓扑：可委派/交接/发消息的对象（同队/共总线/门禁边）──
+    try:
+        team_id = getattr(task, "team_id", "") or ""
+        agent_id = str(step.get("agent_id") or getattr(task, "agent_id", "") or "")
+        if team_id and agent_id:
+            from agents.agent_relationships import collab_topology_for_prompt
+            topo_md = collab_topology_for_prompt(team_id, agent_id)
+            if topo_md:
+                handoff = step.get("collab_handoff") or {}
+                handoff_line = ""
+                if handoff.get("path"):
+                    handoff_line = (
+                        f"\n本步由 `{handoff.get('from')}` 交接而来，"
+                        f"路径={handoff.get('path')} layers={handoff.get('layers')}\n"
+                    )
+                prev_parts.append(
+                    f"## 协作拓扑（执行时生效）\n\n{topo_md}\n{handoff_line}\n"
+                    "委派/发消息请使用 list_agents 与上述名单内对象；"
+                    "broadcast 须绑定通道 publish 权限。\n"
+                )
+    except Exception:
+        pass
+
+    # ── XC-4.4 物竞成本锁定构型（先适者后省钱）──
+    try:
+        meta = getattr(task, "metadata", None) or {}
+        if meta.get("eco_bid_locked") or meta.get("bid_candidate_id"):
+            skills = meta.get("required_skills") or meta.get("skill_genome") or []
+            sk_line = ", ".join(str(s) for s in skills[:16]) if skills else "（无 dominant 列表）"
+            bind = meta.get("eco_bid_skill_bind") or {}
+            bind_line = ""
+            if bind:
+                bind_line = (
+                    f"- SkillRouter 静默绑定: ok={bind.get('ok')} "
+                    f"新增={bind.get('assigned') or []} 已有={bind.get('already_has') or []}\n"
+                )
+            prev_parts.insert(0,
+                "## 物竞成本锁定构型（生产优先）\n\n"
+                f"- bid: `{meta.get('bid_candidate_id') or '—'}`\n"
+                f"- 适者 agent: `{meta.get('champion_agent_id') or getattr(task, 'agent_id', '') or '—'}`\n"
+                f"- 优先 skill 包: {sk_line}\n"
+                f"{bind_line}"
+                f"- T={meta.get('eco_best_T', '—')} · fp=`{str(meta.get('eco_fp') or '')[:16]}`\n"
+                "- 原则：先适者后省钱；locked skill 已写入 agent.skills（幂等）；勿随意换无 skill 构型。\n"
+            )
+    except Exception:
+        pass
 
     prev_artifacts = "\n".join(prev_parts) if prev_parts else ""
 

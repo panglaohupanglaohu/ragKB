@@ -38,11 +38,11 @@ function bootOffice() {
   container.appendChild(badge);
   container.appendChild(panel);
 
-  // XB-6.1 生境 HUD（左下）：当前生态位需求 skill / 存活 — 物竞回放时可见
-  const habitatHud = document.createElement('div');
-  habitatHud.id = 'office-habitat-hud';
-  habitatHud.style.cssText = 'position:absolute;bottom:12px;left:12px;min-width:180px;max-width:280px;padding:8px 10px;background:rgba(15,23,42,.82);border:1px solid rgba(34,211,238,.35);border-radius:6px;font:11px/1.6 sans-serif;color:#e2e8f0;z-index:5;display:none;pointer-events:none';
-  container.appendChild(habitatHud);
+  // XB-6.1 生境实时信息：写入 #env-3d-habitat（与操作提示同一左下角卡片），禁止再叠一层蓝底浮层
+  function habitatSlot() {
+    return document.getElementById('env-3d-habitat')
+      || document.getElementById('office-habitat-hud');
+  }
 
   function renderPanel(state) {
     badge.style.display = state.mirror ? 'block' : 'none';
@@ -50,21 +50,50 @@ function bootOffice() {
     panel.innerHTML = '<b style="font-size:11px">协作热度 TOP5</b>' + (stats.length
       ? stats.map((s) => '<div>' + esc(s.pair) + ' <b>×' + s.count + '</b></div>').join('')
       : '<div style="color:#9aa1ab">演练开始后显示 Agent 协作</div>');
-    // 生境 HUD
+    // 生境 / 任务考卷 HUD → 单卡片内区块
+    // XF-5：任务型用办公室语言（本步技能/考卷进度）；随机生境仍用简洁环境读数，禁止裸 hex 图腾
+    const habitatHud = habitatSlot();
     const env = state.ecoEnv || null;
-    if (env && (env.demand || env.niche_title)) {
+    // 同步任务 HUD（右上角）
+    try {
+      if (env && window.ecoTaskHudOnEnv) window.ecoTaskHudOnEnv(env);
+    } catch (eTask) { /* ignore */ }
+    if (habitatHud && env && (env.demand || env.niche_title || env.step != null)) {
       habitatHud.style.display = 'block';
-      habitatHud.innerHTML = '<b style="color:#22d3ee;font-size:11px">🌍 生境（客观环境）</b>'
-        + '<div style="margin-top:4px">需求 skill：<b style="color:#f59e0b">' + esc(env.demand || '—') + '</b></div>'
-        + (env.niche_title ? '<div style="color:#94a3b8;font-size:10px">步骤：' + esc(env.niche_title) + '</div>' : '')
-        + '<div style="color:#94a3b8;font-size:10px">存活 ' + (env.living != null ? env.living : '—')
-        + (env.deaths ? ' · 本帧死亡 ' + env.deaths : '')
-        + (env.predated ? ' · 捕食 ' + env.predated : '')
-        + (env.step != null ? ' · tick ' + env.step : '')
-        + '</div>'
-        + '<div style="font-size:9px;color:#64748b;margin-top:2px">奖杯只有一座：环境过滤 skill/协作是否适合</div>';
+      const taskExam = !!(window.__ECO_TASK_EXAM__ || (window.ecoTaskHudIsActive && window.ecoTaskHudIsActive()));
+      let demandLab = env.demand || '—';
+      if (taskExam && env.demand && window._ecoSkillLabel) {
+        try {
+          const lab = window._ecoSkillLabel(env.demand);
+          if (lab && lab !== env.demand) demandLab = lab;
+          else if (/^[0-9a-f]{6,}$/i.test(String(env.demand))) demandLab = '技能·' + String(env.demand).slice(0, 8);
+        } catch (eL) { /* ignore */ }
+      } else if (env.demand && /^[0-9a-f]{6,}$/i.test(String(env.demand))) {
+        demandLab = '技能·' + String(env.demand).slice(0, 8);
+      }
+      if (taskExam) {
+        habitatHud.innerHTML = '<b style="color:#c4b5fd;font-size:11px">📋 考卷进度（任务型）</b>'
+          + '<div style="margin-top:4px">本步所需：<b style="color:#67e8f9">' + esc(demandLab) + '</b></div>'
+          + (env.niche_title ? '<div style="color:#94a3b8;font-size:10px">步骤：' + esc(env.niche_title) + '</div>' : '')
+          + '<div style="color:#94a3b8;font-size:10px">存活 ' + (env.living != null ? env.living : '—')
+          + (env.deaths ? ' · 本帧离场 ' + env.deaths : '')
+          + (env.predated ? ' · 突发 ' + env.predated : '')
+          + (env.step != null ? ' · tick ' + env.step : '')
+          + '</div>'
+          + '<div style="font-size:9px;color:#64748b;margin-top:2px">统一业务考卷过滤 skill/协作是否适合（非觅食图腾）</div>';
+      } else {
+        habitatHud.innerHTML = '<b style="color:#22d3ee;font-size:11px">🌍 生境读数</b>'
+          + '<div style="margin-top:4px">当前过滤：<b style="color:#f59e0b">' + esc(demandLab) + '</b></div>'
+          + (env.niche_title ? '<div style="color:#94a3b8;font-size:10px">步骤：' + esc(env.niche_title) + '</div>' : '')
+          + '<div style="color:#94a3b8;font-size:10px">存活 ' + (env.living != null ? env.living : '—')
+          + (env.deaths ? ' · 本帧死亡 ' + env.deaths : '')
+          + (env.predated ? ' · 捕食 ' + env.predated : '')
+          + (env.step != null ? ' · tick ' + env.step : '')
+          + '</div>'
+          + '<div style="font-size:9px;color:#64748b;margin-top:2px">随机生境 · 挂任务后显示考卷 HUD</div>';
+      }
     } else if (!env) {
-      // 保持上次显示，除非显式清空
+      // 保持上次显示，除非显式清空 ecoEnv
     }
   }
   function esc(s) {
@@ -77,6 +106,7 @@ function bootOffice() {
   window._dt3dBuildRoom = function (roomId) {
     if (roomId === 'rest-area' && typeof legacyBuildRoom === 'function') {
       canvas.style.display = 'none'; panel.style.display = 'none'; badge.style.display = 'none';
+      const h = habitatSlot(); if (h) { h.style.display = 'none'; h.innerHTML = ''; }
       legacyCanvas.style.display = 'block';
       return legacyBuildRoom(roomId);            // 枯山水原样
     }

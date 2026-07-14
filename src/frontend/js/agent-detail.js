@@ -68,9 +68,30 @@ function renderATab(d){
         ? logs.map(l => `<div class="focus-item" style="padding:6px 12px"><span class="chip" style="font-size:9px">${escapeHtml(l.action||'log')}</span> <span style="font-size:11px;color:var(--muted)">${escapeHtml((l.detail||'').slice(0,80))}</span></div>`).join('')
         : '<p style="color:var(--dim);font-size:12px">暂无执行记录 — 运行 Agent Loop 后显示</p>';
 
+      // XF-2.4 物竞协作基因（metadata.eco_collab）只读
+      const eco=m.eco_collab&&typeof m.eco_collab==='object'?m.eco_collab:null;
+      const dimBar=(lab,v)=>{
+        const n=Math.max(0,Math.min(1,Number(v!=null?v:0.5)));
+        const pct=Math.round(n*100);
+        return `<div class="detail-row" style="align-items:center"><span class="lbl">${lab}</span>`
+          +`<span class="val" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">`
+          +`<span style="flex:1;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;max-width:120px">`
+          +`<span style="display:block;height:100%;width:${pct}%;background:var(--cyan)"></span></span>`
+          +`<span style="font-size:12px;min-width:36px">${pct}%</span></span></div>`;
+      };
+      const ecoCard=eco
+        ?`<div class="card" style="margin-top:16px;border-color:rgba(34,211,238,.35)"><div class="section-title">🧬 物竞协作基因 <span class="chip" style="font-size:10px;background:rgba(34,211,238,.12);color:var(--cyan)">eco_collab · 只读</span></div>`
+          +`<p style="color:var(--dim);font-size:12px;margin:0 0 10px">仿真表型参数（非团队页关系/通道拓扑）。来源 ${escapeHtml(eco.source||'—')} · 策略 ${escapeHtml(eco.strategy||'—')}${eco.eco_fp?` · fp <code style="font-size:10px">${escapeHtml(String(eco.eco_fp).slice(0,12))}</code>`:''}</p>`
+          +dimBar('share',eco.share_tendency)+dimBar('signal',eco.signal_tendency)
+          +dimBar('follow',eco.follow_tendency)+dimBar('mate',eco.mate_choosiness)
+          +(eco.survival_ticks!=null?`<div class="detail-row"><span class="lbl">存活 T</span><span class="val">${eco.survival_ticks}</span></div>`:'')
+          +`<p style="color:var(--dim);font-size:11px;margin:10px 0 0">改拓扑请回 <a href="/Agent-digital-twin.html?office3d=1&team_id=${encodeURIComponent(tid||'')}" style="color:var(--cyan)">物竞 ③ 反馈台</a> 写回关系/通道</p></div>`
+        :`<div class="card" style="margin-top:16px"><div class="section-title">🧬 物竞协作基因</div><p style="color:var(--dim);font-size:13px;margin:0">尚未写回 metadata.eco_collab — 在物竞试验田 ③ 勾选「写回协作基因」后此处可见四维倾向</p></div>`;
+
       c.innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 任务队列</button><button class="btn btn-sm" onclick="atab='ag-chat';loadAgent()">💬 对话</button></div>
 <div class="card-grid"><div class="stat-card"><div class="label">📋 状态</div><div class="value" style="font-size:16px"><span class="st st-${d.state||'idle'}">● ${stL(d.state)}</span></div><div class="sub"><button class="btn btn-sm" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="startStop('${escapeHtml(d.state)}')">${d.state==='working'?'⏹ 停止':'▶ 启动'}</button></div></div><div class="stat-card"><div class="label">📊 今日 Token</div><div class="value">${(mt.today_tokens||0).toLocaleString()}</div></div><div class="stat-card"><div class="label">📈 本月 Token</div><div class="value">${((mt.month_tokens||0)/1000).toFixed(1)}K</div></div><div class="stat-card"><div class="label">🤖 今日 LLM 调用</div><div class="value">${mt.today_llm_calls||0}</div><div class="sub">消息: ${mt.messages_sent||0}</div></div><div class="stat-card"><div class="label">✅ 任务完成</div><div class="value">${mt.tasks_completed||0}</div><div class="sub" style="color:${(mt.tasks_failed||0)>0?'var(--pink)':'var(--muted)'}">成功率: ${mt.success_rate?Math.round(mt.success_rate*100)+'%':'N/A'}</div></div><div class="stat-card"><div class="label">🎯 能力评分</div><div class="value" style="color:${(mt.capability_score||0)>=60?'var(--lime)':(mt.capability_score||0)>=30?'var(--amber)':'var(--red)'}">${mt.capability_score||'?'}</div><div class="sub">/100</div></div><div class="stat-card"><div class="label">🔧 工具调用</div><div class="value">${mt.tools_invoked||0}</div></div><div class="stat-card"><div class="label">⚡ 技能数</div><div class="value">${(d.skills||[]).length}</div></div></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div class="card"><div class="section-title">📁 Agent 档案</div><div class="detail-row"><span class="lbl">👤 角色</span><span class="val">${escapeHtml(d.role||d.description||'-')}</span></div><div class="detail-row"><span class="lbl">📅 创建时间</span><span class="val">${cr}</span></div><div class="detail-row"><span class="lbl">🔴 最后活跃</span><span class="val">${mt.last_active?mt.last_active.split('T')[0]:'从未'}</span></div><div class="detail-row"><span class="lbl">💬 会话数</span><span class="val">${mt.sessions_created||0}</span></div></div><div class="card"><div class="section-title">🧠 模型配置</div><div class="detail-row"><span class="lbl">🟠 模型</span><span class="val">${escapeHtml(d.model_id||'未配置')}</span></div><div class="detail-row"><span class="lbl">📁 模板</span><span class="val">${escapeHtml(d.template_type||'-')}</span></div><div class="detail-row"><span class="lbl">🔧 工具数</span><span class="val">${(d.tools||[]).length}</span></div><div class="detail-row"><span class="lbl">📡 通道数</span><span class="val">${(d.channels||[]).length}</span></div></div></div>
+${ecoCard}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px"><div class="card"><div class="section-title">📋 最近任务</div>${recentTasksHtml}</div><div class="card"><div class="section-title">📡 执行证据</div>${evidenceHtml}</div></div>
 <div class="section" style="margin-top:20px"><div class="section-title">📊 近期活动</div>${act.recent_logs&&act.recent_logs.length?act.recent_logs.slice(-8).reverse().map(l=>`<div class="focus-item" style="padding:10px 14px"><div class="title" style="font-size:13px"><span class="chip" style="font-size:10px">${escapeHtml(l.action)}</span> ${escapeHtml(l.detail||'')}</div><div class="meta">${l.timestamp?l.timestamp.replace('T',' ').slice(0,19):''}</div></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无活动记录 — 发送消息或启动 Agent 后将显示</p>'}</div>`;
     });
@@ -151,8 +172,45 @@ function renderATab(d){
       c.innerHTML = html;
     });
   } else if(atab==='ag-relations'){
-    api(`${A}/teams/${tid}/agents/${aid}/relationships`).then(rel=>{
-      c.innerHTML=`<div class="section"><div class="section-title">🔗 关系</div>${rel&&rel.relationships&&rel.relationships.length?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${escapeHtml(r.name||r.target||'?')}</span><span class="chip">${escapeHtml(r.type||'peer')}</span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div><div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?d.channels.map(ch=>`<div class="ws-item"><span class="fname">📡 ${escapeHtml(ch.channel_name)}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span></span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div>`;
+    // 协作三层：门禁边(store) + 通讯录(api) + 通道 + eco_collab 摘要
+    const AE='/api/v1/agent-employee';
+    const eco=m.eco_collab&&typeof m.eco_collab==='object'?m.eco_collab:null;
+    Promise.all([
+      api(`${A}/teams/${tid}/agents/${aid}/relationships`).catch(()=>null),
+      api(`${AE}/teams/${tid}/relationships?agent_id=${encodeURIComponent(aid)}`).catch(()=>null),
+    ]).then(([rel,storeRel])=>{
+      const edges=(storeRel&&storeRel.relationships)||[];
+      const twinUrl=`/Agent-digital-twin.html?office3d=1&team_id=${encodeURIComponent(tid||'')}`;
+      const edgeHtml=edges.length?edges.map(r=>{
+        const other=r.source_agent_id===aid?r.target_id:r.source_agent_id;
+        const dir=r.source_agent_id===aid?'→':'←';
+        const ecoChip=(r.note&&String(r.note).includes('eco'))||(r.created_by&&String(r.created_by).includes('eco'));
+        return `<div class="ws-item"><span class="fname">🔗 ${escapeHtml(dir)} ${escapeHtml(other||'?')}</span>`
+          +`<span class="chip">${escapeHtml(r.rel_type||'collaborator')}</span>`
+          +(ecoChip?'<span class="chip" style="background:rgba(34,211,238,.12);color:var(--cyan)">物竞</span>':'')
+          +`</div>`;
+      }).join(''):(
+        `<div style="padding:12px;border:1px dashed var(--line);border-radius:0;margin-bottom:8px">`
+        +`<p style="color:var(--dim);margin:0 0 8px;font-size:13px">暂无门禁关系边（RelationshipStore）</p>`
+        +`<p style="color:var(--muted);font-size:12px;margin:0 0 10px">同队/共总线已是协作；点对点门禁需在物竞 ③ 确认写回或在此人工添加。</p>`
+        +`<a class="btn btn-sm btn-pink" href="${twinUrl}" style="text-decoration:none">🧬 打开物竞 ③ 生成关系建议</a>`
+        +`</div>`
+      );
+      const topoHtml=rel&&rel.relationships&&rel.relationships.length
+        ?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${escapeHtml(r.name||r.target||'?')}</span>`
+          +`<span class="chip">${escapeHtml(r.type||r.relationship||'peer')}</span>`
+          +((r.layers||[]).length?`<span style="color:var(--dim);font-size:11px">${escapeHtml((r.layers||[]).join(', '))}</span>`:'')
+          +`</div>`).join('')
+        :'<p style="color:var(--dim)">暂无协作通讯录</p>';
+      const ecoHtml=eco
+        ?`<div class="section"><div class="section-title">🧬 协作基因 eco_collab（只读表型）</div>`
+          +`<div class="ws-item">share ${Math.round((eco.share_tendency??0.5)*100)}% · signal ${Math.round((eco.signal_tendency??0.5)*100)}% · follow ${Math.round((eco.follow_tendency??0.5)*100)}% · mate ${Math.round((eco.mate_choosiness??0.5)*100)}%</div>`
+          +`<p style="color:var(--dim);font-size:11px;margin:6px 0 0">基因≠拓扑；关系/通道才是真协作拓扑</p></div>`
+        :'';
+      c.innerHTML=`<div class="section"><div class="section-title">🔗 门禁关系边</div>${edgeHtml}</div>`
+        +`<div class="section"><div class="section-title">🤝 协作通讯录（同队/通道/门禁）</div>${topoHtml}</div>`
+        +`<div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?(d.channels||[]).map(ch=>`<div class="ws-item"><span class="fname">📡 ${escapeHtml(ch.channel_name||ch.channel||'')}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span>${ch.source==='eco_drill'?'<span class="chip" style="background:rgba(34,211,238,.12);color:var(--cyan)">物竞</span>':''}</span></div>`).join(''):'<p style="color:var(--dim)">暂无通道</p>'}</div>`
+        +ecoHtml;
     });
   } else if(atab==='ag-workspace'){
     var wsPath='';

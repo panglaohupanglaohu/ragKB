@@ -513,100 +513,40 @@ export function createOfficeScene(canvas, container) {
   let _nicheTotem = null;   // XB-6.1 {group, labelMat, lastDemand}
   const _forageSeen = new Set();
 
-  /** XB-6.1 生态位图腾：中央柱体 + 需求 skill 文字精灵 */
+  /**
+   * 生境 3D 图腾 / 觅食光点：默认关闭。
+   * 用户校准：数字办公室没有「觅食」的孪生语义；「当前需求 + skill hex」不可读、未要求出现在 3D。
+   * 需求 skill 请看右侧控制台生态位 chips；任务成功用意图/协作线表达即可。
+   * 若将来要恢复实验性可视化，设 window.__ECO_HABITAT_3D__ = true。
+   */
+  function habitat3dEnabled() {
+    return !!(typeof window !== 'undefined' && window.__ECO_HABITAT_3D__);
+  }
+
   function ensureNicheTotem() {
     if (_nicheTotem) return _nicheTotem;
+    // 仅在显式开启时创建网格，避免默认污染办公室
+    if (!habitat3dEnabled()) return null;
     const g = new THREE.Group();
     g.position.set(8.5, 0, -8);
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.18, 2.2, 10),
-      new THREE.MeshStandardMaterial({ color: 0x0e7490, emissive: 0x164e63, emissiveIntensity: 0.35, roughness: 0.55 })
-    );
-    pole.position.y = 1.1;
-    g.add(pole);
-    const orb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.28, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 0.55, roughness: 0.3 })
-    );
-    orb.position.y = 2.35;
-    orb.name = 'nicheOrb';
-    g.add(orb);
-    // 地面资源点氛围（小环）
-    const pad = new THREE.Mesh(
-      new THREE.RingGeometry(0.5, 1.1, 24),
-      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = 0.02;
-    g.add(pad);
-    // skill 标签
-    const cv = document.createElement('canvas');
-    cv.width = 256; cv.height = 64;
-    const ctx = cv.getContext('2d');
-    const tex = new THREE.CanvasTexture(cv);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-    spr.scale.set(3.2, 0.8, 1);
-    spr.position.set(0, 2.95, 0);
-    g.add(spr);
+    g.visible = false;
     habitatLayer.add(g);
-    _nicheTotem = { group: g, canvas: cv, ctx, tex, spr, lastDemand: '' };
+    _nicheTotem = { group: g, lastDemand: '' };
     return _nicheTotem;
   }
 
   function updateNicheTotem(env) {
-    if (!env || !(env.demand || env.niche_title)) {
-      if (_nicheTotem) _nicheTotem.group.visible = false;
-      return;
-    }
-    const t = ensureNicheTotem();
-    t.group.visible = true;
-    const demand = String(env.demand || '—');
-    if (demand !== t.lastDemand) {
-      t.lastDemand = demand;
-      const ctx = t.ctx;
-      ctx.clearRect(0, 0, 256, 64);
-      ctx.fillStyle = 'rgba(15,23,42,0.82)';
-      ctx.fillRect(0, 0, 256, 64);
-      ctx.fillStyle = '#22d3ee';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('🌍 当前需求', 12, 24);
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = 'bold 18px sans-serif';
-      const label = demand.length > 18 ? demand.slice(0, 17) + '…' : demand;
-      ctx.fillText(label, 12, 50);
-      t.tex.needsUpdate = true;
-    }
-    const orb = t.group.getObjectByName('nicheOrb');
-    if (orb && orb.material) {
-      // 捕食帧时偏红闪烁
-      const pred = env.predated > 0;
-      orb.material.color.setHex(pred ? 0xff3030 : 0xf59e0b);
-      orb.material.emissive.setHex(pred ? 0xff3030 : 0xf59e0b);
-    }
+    // 默认永不展示蓝柱黄球「当前需求 xxxx」
+    if (_nicheTotem) _nicheTotem.group.visible = false;
+    if (!habitat3dEnabled()) return;
+    void env;
+    void ensureNicheTotem;
   }
 
-  /** 觅食成功：金光点飞向 Agent 头顶 */
+  /** 觅食成功光点：默认同关闭（办公室无「觅食」孪生） */
   function spawnForageSpark(agentId) {
-    const f = figures[agentId];
-    if (!f) return;
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffeb3b, transparent: true, opacity: 0.95 })
-    );
-    // 从生态位图腾 / 房间中心飞出
-    const origin = _nicheTotem && _nicheTotem.group.visible
-      ? _nicheTotem.group.position.clone().setY(2.2)
-      : new THREE.Vector3(0, 2.5, -6);
-    mesh.position.copy(origin);
-    habitatLayer.add(mesh);
-    const target = f.group.position.clone().setY(2.0);
-    forageParticles.push({
-      mesh,
-      life: 0.85,
-      t: 0,
-      from: origin.clone(),
-      to: target,
-    });
+    if (!habitat3dEnabled()) return;
+    void agentId;
   }
 
   function targetFor(agent, idxInMeeting, meetingCount, facilities) {
@@ -640,23 +580,21 @@ export function createOfficeScene(canvas, container) {
       workflowOrder[w.from + '|' + w.to] = w.order;
     });
     renderStageBands(state.stages || {});
-    // XB-6.1 生境层：生态位图腾 + 觅食光点
+    // 生境 3D 图腾/觅食光点默认关闭（见 updateNicheTotem）
     updateNicheTotem(state.ecoEnv || null);
-    const forageHits = (state.ecoEnv && state.ecoEnv.forage_hits) || [];
-    for (let i = 0; i < forageHits.length; i++) {
-      const aid = forageHits[i];
-      const key = (state.ecoEnv && state.ecoEnv.step != null ? state.ecoEnv.step : 'x') + '|' + aid;
-      if (_forageSeen.has(key)) continue;
-      _forageSeen.add(key);
-      if (_forageSeen.size > 200) {
-        // 简单裁剪：清空旧 key（回放步数通常 < 600）
-        _forageSeen.clear();
+    if (habitat3dEnabled()) {
+      const forageHits = (state.ecoEnv && state.ecoEnv.forage_hits) || [];
+      for (let i = 0; i < forageHits.length; i++) {
+        const aid = forageHits[i];
+        const key = (state.ecoEnv && state.ecoEnv.step != null ? state.ecoEnv.step : 'x') + '|' + aid;
+        if (_forageSeen.has(key)) continue;
         _forageSeen.add(key);
+        if (_forageSeen.size > 200) {
+          _forageSeen.clear();
+          _forageSeen.add(key);
+        }
+        spawnForageSpark(aid);
       }
-      spawnForageSpark(aid);
-    }
-    if (!state.ecoEnv) {
-      if (_nicheTotem) _nicheTotem.group.visible = false;
     }
     const meetingIds = Object.values(state.agents)
       .filter((a) => a.activity === 'meeting').map((a) => a.id);

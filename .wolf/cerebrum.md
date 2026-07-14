@@ -12,6 +12,16 @@
 - [2026-07-05] 猫「按有效技能数跳到 Agent 桌上」的逻辑用户明确不要，已撤销；不要再加回。猫互动只保留最近 Agent 转身+光圈吸引。
 - [2026-07-11] 用户世界观（物竞天择，最高设计约束）：Agent 不是人类模仿，应有自己的生态/沟通/繁衍/成长方式；以「感知-意图-行为」存在；skill 与协作过程都是被环境选择的可遗传单元（不是 skill 选路径、不是主动换协作方式）；主动学习是盲目的、选择是客观的；生存时长是唯一适应度，禁止人工评分。办公室视图(?office3d=1)=物竞天择试验田：右侧演练菜单整体换成生境控制台，3D 窗口必须始终保留且有内容。
 - [2026-07-11] 演练类页面右侧菜单重构时用户要求「完全与以前不一样」，不接受在旧 SECS 菜单上叠加小块——要整面板替换。
+- [2026-07-14] 用户 UX：生境参数应在数字孪生左侧用「音量式旋钮」调节（非抽象按钮名）；团队+智能体合并树状；pet-config 保留深参实验室。旋钮语义=客观环境强度，不是评分。
+
+- [2026-07-14] 数字办公室 3D 不展示生境「当前需求」蓝柱黄球图腾，也不默认播觅食光点——办公室没有「觅食」孪生语义；需求 skill 用右侧控制台 chips/反馈台表达。实验可视化仅 window.__ECO_HABITAT_3D__=true。
+
+- [2026-07-14] 物竞试验田必须以任务（业务场景实例）为主闭环：演练控制选择种群后都要提供任务挂载菜单；无任务空跑为次要/须显式确认。
+
+- [2026-07-14] 物竞协作的**真正变化**是团队配置页「关系」+「通道绑定」经人确认写回，不是只写 metadata.eco_collab 四维基因。基因=仿真表型；关系边/通道=通信拓扑。须 suggest→确认 apply，禁止静默建边；mate/COURT 不映射业务 collaborator。设计见 docs 适者反馈 plan §3.5 / todos XF-7。
+
+- [2026-07-14] 用户校准：同队 peer 与共总线（如 aws_ops_bus）**就是协作关系**，不得说成「假/软/不算」。协作三层都真：①同队编制 ②通道协作 ③点对点门禁边；差别只在运行时 enforce 点，不是「算不算协作」。
+
 
 ## Key Learnings
 
@@ -54,6 +64,8 @@
 - [2026-06-18] skill-extract 队列 UI 不能无条件展示团队全部历史项；从议事厅跳转场景必须按 source_meta(plaza/discussion/output)做来源隔离，否则用户会把历史项误认为“当前萃取结果”。
 - [2026-06-18] skill-extract 详情弹窗里“按钮没展示出来”优先排查 CSS 布局裁切（tab 条/usage 头部动作区的 flex 单行挤压），不要先怀疑 JS 显隐。先查元素是否在 DOM 中且无 `display:none`，再修为 `flex-wrap`/`overflow-x:auto` 并给动作区在窄宽度下换行。
 
+
+- [2026-07-14] 演化加压第二层：predator_bias_unskilled（捕食加权无 skill）、scarce_share_boost（稀缺分享溢价）、same_pop_share_bias（同队分享）；LOOP 判定排除 abundant 负对照；mixed 出 dominant=Skill 可进化信号，对抗 collab≥15%=团队演化信号。ECO_LOOP_SKIP_LLM=1 可加速闭环脚本。
 ## Decision Log
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
@@ -70,3 +82,17 @@
 - [2026-07-13] 物竞赛制世界杯隐喻：①分场=各队球星(Agent)skill评比；②多队对抗=球队协作与策略；③混合=世界杯(球星+协作)。客观环境=奖杯只有一座/同一任务过滤，不是天选任务。加对比种群不自动改赛制。
 
 - [2026-07-14] 存活唯一适应度=survival_ticks；T_i 分解（skill/协作/残差）只可解释不另评分。对比种群任务选择=Apple-to-apple 共用考卷，非天选。EcoDrill 需求池字段是 env.demanded_skills（不是 _demanded）。
+- [2026-07-14] LLM 演练分析提示词在 eco_runtime_config.llm_analysis（pet-config 可编辑）；演化加压=skill_idle_penalty + prefer_forage_when_can_serve + 契约 min_steps/gens；一键预设 applyEvolutionPressurePreset。
+
+- [2026-07-14] 通道绑定已落地为可编辑+persist+运行时门禁（agent_channel_bus）；空绑定 legacy 放行，有绑定则 enforce publish/subscribe。物竞写回走 channel-integration。
+
+- [2026-07-14] 关系边物竞写回已落地：`relation_integration` suggest→confirm apply → RelationshipStore（created_by=human_via_eco_feedback）；mate/COURT 不映射。团队配置「关系」tab 读 agent-employee Relationships（真边）+ 通道绑定；深链 `?team_id&view=agent&atab=ag-relations`。
+- [2026-07-14] AWS运维「关系」用户记忆多半=同队 peer API 假边 或 aws_ops_bus 通道共总线；RelationshipStore 实际为空。Before 图须叠 channel soft 层，勿只读 store。
+- [2026-07-14] 任务执行必须走协作拓扑：check_can_communicate=门禁边|同队peer|共总线；delegate/send_message/workflow handoff 接 gate；step prompt 注入拓扑。hard=enforce_relationship_gate。
+- [2026-07-14] 适者反馈验收入口：scripts/verify_eco_feedback_xf.py（静态+离线+活后端）。通道写回必须 resolve_team_bus 优先真身 channel_name。
+- [2026-07-14] XF-5 决策：任务型考卷可视化=2D HUD（3D 窗右上）+右侧步骤 chips；仅挂接契约时开；禁止蓝柱图腾；旧 __ECO_HABITAT_3D__ 默认关。
+- [2026-07-14] 物竞×成本：先适者后省钱。BidCandidate 存 storage/eco_bid_candidates；Q1 task+Q2 feedback 硬门；推送 ecoFeedbackPushBid；cost 页列表/填 token/lock。生产读 locked=XC-4.4 后续。
+- [2026-07-14] XC-4.4：任务 submit/_submit_internal/batch 自动 apply_locked_config_to_task（metadata.required_skills+champion agent）；不静默改 agent.skills 真身；skip_locked_bid 可关。
+- [2026-07-14] locked BidCandidate：SkillRouter.assign 静默写 agent.skills（lock 时绑适者 + 任务提交再幂等）；skip_locked_skill_bind 可关；失败不挡 lock/submit。
+- [2026-07-14] XF+XC 统一验收：`scripts/verify_eco_feedback_xf.py` 含静态+离线+活后端 BidCandidate（create→PATCH→quality→lock 拒绝/成功→GET production）；离线用 tempfile 不碰真存储；live 用 `task_xc_verify_live` + 空 dominant_skills 避免 SkillRouter 写真身。PASS≈51。
+- [2026-07-14] cost-dashboard 与物竞结合：`#eco-hub` **始终可见**（不依赖 deep-link）；团队下拉默认 aws-ops 拉 BidCandidate + production locked；旧达尔文棘轮标「副轴」。孪生顶栏「物竞×成本」+ 步骤 ④ `ecoGoCostStep` 双向深链。

@@ -28,12 +28,24 @@ class TestDefaultsAndMerge:
 
     def test_all_sections_present(self, tmp_cfg):
         cfg = tmp_cfg.get_config()
-        # 核心节 + 生境/经济学/纪元/任务耦合（v2~v4 扩展）
+        # 核心节 + 生境/经济学/纪元/任务耦合/加压/LLM 提示词（v2~v4 扩展）
         required = {
             "mental_state", "metabolism", "learning", "selection", "mating",
             "habitat", "drill_economics", "era", "task_coupling",
+            "evolution_pressure", "llm_analysis",
         }
         assert required.issubset(set(cfg.keys()))
+        assert "system_preamble" in cfg["llm_analysis"]
+        assert "skill_idle_penalty" in cfg["evolution_pressure"]
+        assert "predator_bias_unskilled" in cfg["evolution_pressure"]
+        assert "scarce_share_boost" in cfg["evolution_pressure"]
+        assert "same_pop_share_bias" in cfg["evolution_pressure"]
+
+    def test_llm_analysis_text_update(self, tmp_cfg):
+        tmp_cfg.update({"llm_analysis": {"system_preamble": "自定义分析师"}})
+        cfg = tmp_cfg.get_config()
+        assert cfg["llm_analysis"]["system_preamble"] == "自定义分析师"
+        assert cfg["llm_analysis"]["hard_constraints"]  # 其它键仍有默认
 
 
 class TestUpdate:

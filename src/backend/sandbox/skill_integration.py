@@ -17,9 +17,26 @@ def build_integration_report(
     *,
     write_policy: str = "suggest_only",
     dominant_threshold: float = 0.5,
+    agent_bound_skills: Optional[Dict[str, List[str]]] = None,
+    reserve_skill_ids: Optional[List[str]] = None,
+    team_skill_ids: Optional[List[str]] = None,
+    top_k: int = 12,
 ) -> Dict[str, Any]:
-    """构建 SkillIntegrationReport（纯函数，无副作用）."""
+    """构建 SkillIntegrationReport（纯函数，无副作用）.
+
+    写回建议 **只包含 agent 尚未绑定的 skill**，优先：
+    1) 任务契约 demand 中该 agent 没有的
+    2) 种群 dominant 中该 agent 没有的
+    3) 分类储备池 reserve 中该 agent 没有的
+    4) 团队技能库中与 demand/dominant 相关且未绑定的
+
+    绝不把「已在 genome/真身绑定」的 skill 放进 add_skills。
+    """
     contract = contract or {}
+    agent_bound_skills = agent_bound_skills or {}
+    reserve_set: Set[str] = set(reserve_skill_ids or [])
+    team_set: Set[str] = set(team_skill_ids or [])
+
     niches = contract.get("niches") or []
     plan_skills: List[str] = []
     for n in niches:
@@ -57,21 +74,69 @@ def build_integration_report(
 
     missing = [s for s in plan_skills if freq.get(s, 0) == 0]
 
-    # 推荐：对 top survivors 补齐 missing plan skills
+    def _bound_for(r: Dict[str, Any]) -> Set[str]:
+        aid = str(r.get("agent_id") or "")
+        bound: Set[str] = set(r.get("skill_genome") or [])
+        # 真身绑定优先并入（写回前已有的不能再推荐）
+        for s in agent_bound_skills.get(aid) or []:
+            bound.add(s)
+        # 模糊 key：短 id / 名字
+        for k, skills in agent_bound_skills.items():
+            if k == aid or aid.startswith(k) or k.startswith(aid[:8]):
+                bound.update(skills)
+        return {str(x) for x in bound if x}
+
+    # 候选池排序：plan demand → dominant → reserve → 团队库中与 plan/dominant 相关
+    def _candidates_for(bound: Set[str]) -> List[Dict[str, str]]:
+        ordered: List[Dict[str, str]] = []
+        seen: Set[str] = set()
+
+        def _push(sid: str, source: str) -> None:
+            s = str(sid)
+            if not s or s in bound or s in seen:
+                return
+            seen.add(s)
+            ordered.append({"skill": s, "source": source})
+
+        for s in plan_skills:
+            _push(s, "plan_demand")
+        for s in dominant or dominant_all:
+            _push(s, "dominant")
+        for s in sorted(reserve_set):
+            # 储备优先挂与考卷/dominant 相关的；其余储备作次级
+            if s in plan_set or s in set(dominant_all):
+                _push(s, "reserve")
+        for s in sorted(reserve_set):
+            _push(s, "reserve")
+        for s in sorted(team_set):
+            if s in plan_set or s in set(dominant_all):
+                _push(s, "team_library")
+        return ordered
+
     recommended: List[Dict[str, Any]] = []
-    top = sorted(pool, key=lambda r: int(r.get("survival_ticks") or 0), reverse=True)[:3]
+    top = sorted(pool, key=lambda r: int(r.get("survival_ticks") or 0), reverse=True)[: max(3, top_k)]
     for r in top:
-        genome = set(r.get("skill_genome") or [])
-        add = [s for s in missing if s not in genome]
-        # 也推荐 dominant plan skills 缺失者
-        for s in dominant:
-            if s not in genome and s not in add:
-                add.append(s)
+        bound = _bound_for(r)
+        cands = _candidates_for(bound)
+        # 每 agent 最多 6 条未绑定建议
+        add = [c["skill"] for c in cands[:6]]
+        sources = {c["skill"]: c["source"] for c in cands[:6]}
         if add:
             recommended.append({
                 "agent_id": r.get("agent_id"),
                 "add_skills": add,
-                "reason": "high frequency among top survivors / missing plan skills",
+                "skill_sources": sources,
+                "already_bound": sorted(bound)[:24],
+                "reason": "unbound only: plan_demand / dominant / reserve / team_library",
+                "survival_ticks": r.get("survival_ticks"),
+            })
+        else:
+            recommended.append({
+                "agent_id": r.get("agent_id"),
+                "add_skills": [],
+                "skill_sources": {},
+                "already_bound": sorted(bound)[:24],
+                "reason": "no_unbound_candidates",
                 "survival_ticks": r.get("survival_ticks"),
             })
 
@@ -99,6 +164,8 @@ def build_integration_report(
         "school_clusters": schools,
         "write_policy": write_policy,
         "plan_skills": plan_skills,
+        "reserve_pool_size": len(reserve_set),
         "n_alive": len(alive),
         "n_ranked": len(ranking),
+        "policy_note": "add_skills 仅含未绑定 skill；优先 plan_demand / dominant / reserve",
     }

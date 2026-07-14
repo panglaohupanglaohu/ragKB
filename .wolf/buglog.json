@@ -2228,5 +2228,32 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-07-12T00:37:41.910059"
+  },
+  {
+    "id": "bug-office-habitat-hud-overlap",
+    "timestamp": "2026-07-14T10:33:54.635032Z",
+    "error_message": "演练时 3D 窗口左下角两个蓝色实时信息子窗口重叠",
+    "file": "src/frontend/js/office/office-boot.js, Agent-digital-twin.html",
+    "root_cause": "office-habitat-hud 与 env-3d 操作提示条均 absolute bottom-left（bottom≈12–14, left≈12–14），物竞 ecoEnv 显示时双蓝底卡片叠在一起",
+    "fix": "取消独立 office-habitat-hud 浮层；在 #env-3d-bottom-hud 内增加 #env-3d-habitat 区块，renderPanel 写入同一卡片",
+    "tags": [
+      "frontend",
+      "office3d",
+      "ui-overlap",
+      "habitat-hud",
+      "eco-drill"
+    ]
+  },
+  {
+    "id": "bug-channels-not-persisted-or-enforced",
+    "timestamp": "2026-07-14T11:07:32.805001+00:00",
+    "error_message": "通道绑定只读、update_channels不persist、工具假成功、运行时不消费",
+    "file": "api.py, tool_executor.py, agent-team-config.js",
+    "root_cause": "通道仅模型+种子半截实现",
+    "fix": "agent_channel_bus+persist+publish/inbox+可编辑tab+channel-integration+eco-feedback",
+    "tags": [
+      "channels",
+      "xf-7"
+    ]
   }
 ]

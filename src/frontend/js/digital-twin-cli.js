@@ -90,19 +90,20 @@ async function loadTeamsAndAgents(){
     renderTeamSelector();
   }catch(e){console.error('[DT] loadTeamsAndAgents FAILED:',e.message)}
 }
+// 树状展开状态（团队 id → bool）；默认展开已选中团队
+window._lpTreeExpanded = window._lpTreeExpanded || {};
 function renderTeamSelector(){
+  // 兼容旧调用点：树状合并后主渲染走 renderAgentList
+  if(typeof renderAgentList==='function') renderAgentList();
+  // 隐藏兼容容器若仍被填充
   const el=document.getElementById('team-selector');
-  const teamColors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
-  el.innerHTML=S.teams.map((t,i)=>{
-    const c=teamColors[i%teamColors.length];
-    const sel=S.selectedTeams.includes(t.id);
-    return`<button class="team-btn${sel?' active':''}" data-tid="${t.id}" onclick="toggleTeam('${t.id}',this)" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid ${sel?c:'var(--border)'};background:${sel?c+'18':'transparent'};color:${sel?c:'var(--dim)'};cursor:pointer;transition:all 0.2s">${t.name} <span style="opacity:0.6">${t.agents.length}</span></button>`;
-  }).join('');
+  if(el && el.style.display!=='none') el.style.display='none';
 }
 function toggleTeam(tid,btn){
   const idx=S.selectedTeams.indexOf(tid);
   const turningOn = idx < 0;
   if(idx>=0)S.selectedTeams.splice(idx,1);else S.selectedTeams.push(tid);
+  if(turningOn) window._lpTreeExpanded[tid]=true;
   renderTeamSelector();renderAgentList();
   // 重建当前3D房间以刷新智能体（3D 常在，独立于当前 Tab）
   if(window._dt3dBuildRoom&&window._currentRoomId)window._dt3dBuildRoom(window._currentRoomId);
@@ -115,6 +116,12 @@ function toggleTeam(tid,btn){
     if(target) window.secsSyncTeamFromLeft(target);
   }
 }
+function lpToggleExpand(tid, ev){
+  if(ev){ ev.stopPropagation(); }
+  window._lpTreeExpanded[tid]=!window._lpTreeExpanded[tid];
+  renderAgentList();
+}
+window.lpToggleExpand=lpToggleExpand;
 // L1: 统一数字孪生页"当前团队"(localStorage 'selected_team' / S.selectedTeams / 右SECS 三套)
 function dtGetCurrentTeam(){
   return localStorage.getItem('selected_team') || (S.selectedTeams && S.selectedTeams[0]) || 'build_system';
@@ -175,22 +182,54 @@ window.dtRefresh=function(reason){
 };
 
 function renderAgentList(){
-  const el=document.getElementById('agent-list');
+  // 树根：优先 #lp-tree，否则退回 #agent-list
+  const tree=document.getElementById('lp-tree');
+  const el=tree||document.getElementById('agent-list');
+  if(!el) return;
   const visibleAgents=S.agents.filter(a=>S.selectedTeams.includes(a._teamId));
-  document.getElementById('agent-count').textContent=visibleAgents.length;
+  const countEl=document.getElementById('agent-count');
+  if(countEl) countEl.textContent=visibleAgents.length;
   const colors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
   const teamColors=['var(--cyan)','var(--green)','var(--purple)','var(--amber)','var(--pink)','var(--blue)'];
+  // 首次：已选团队默认展开
+  (S.teams||[]).forEach(t=>{
+    if(window._lpTreeExpanded[t.id]==null && S.selectedTeams.includes(t.id))
+      window._lpTreeExpanded[t.id]=true;
+  });
   let html='';
-  S.teams.filter(t=>S.selectedTeams.includes(t.id)).forEach((team,ti)=>{
+  (S.teams||[]).forEach((team,ti)=>{
     const tc=teamColors[ti%teamColors.length];
-    html+=`<div style="padding:8px 4px 4px;margin-top:${ti>0?'8px':'0'}"><div style="font-size:11px;font-weight:600;color:${tc};text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:2px;background:${tc}"></span>${team.name}<span style="color:var(--dim);font-weight:400;margin-left:auto">${team.agents.length}</span></div></div>`;
-    team.agents.forEach((a,i)=>{
+    const sel=S.selectedTeams.includes(team.id);
+    const expanded=!!window._lpTreeExpanded[team.id];
+    const nAgents=(team.agents||[]).length;
+    html+=`<div class="lp-team${sel?' selected':''}${expanded?' expanded':''}" data-tid="${team.id}" role="treeitem" aria-expanded="${expanded}">
+      <div class="lp-team-row" onclick="lpToggleExpand('${team.id}',event)">
+        <span class="lp-team-caret">▶</span>
+        <span class="lp-team-check" title="投放/筛选此种群" onclick="event.stopPropagation();toggleTeam('${team.id}',this)">${sel?'✓':''}</span>
+        <span class="lp-team-dot" style="background:${tc}"></span>
+        <span class="lp-team-name" style="color:${sel?tc:'var(--text)'}">${team.name||team.id}</span>
+        <span class="lp-team-meta">${nAgents}</span>
+      </div>
+      <div class="lp-agents" role="group">`;
+    (team.agents||[]).forEach((a)=>{
       const ci=S.agents.indexOf(a)%6;const c=colors[ci];
       const room=S.rooms.find(r=>r.id===S.positions[a.agent_id]);
-      html+=`<div class="agent-card" draggable="true" data-agent-id="${a.agent_id}" onclick="selectAgent('${a.agent_id}',this)" ondragstart="onDragStart(event,'${a.agent_id}')"><div class="top"><div class="avatar" style="background:${c}20;color:${c};border:1.5px solid ${c}40">${(a.name||'?').charAt(0)}</div><div><div class="name">${a.name}</div><div class="role">${a.role||'agent'}</div></div><span class="state-dot" style="background:${a.state==='active'?'var(--green)':'var(--dim)'};margin-left:auto"></span></div><div class="meta"><span>▣${(a.tools||[]).length}</span><span>◈${(a.skills||[]).length}</span><span>○${room?room.name:'—'}</span></div></div>`;
+      const dim=!sel;
+      html+=`<div class="agent-card" draggable="true" data-agent-id="${a.agent_id}" style="${dim?'opacity:.45':''}"
+        onclick="selectAgent('${a.agent_id}',this)" ondragstart="onDragStart(event,'${a.agent_id}')">
+        <div class="top">
+          <div class="avatar" style="background:${c}20;color:${c};border:1.5px solid ${c}40">${(a.name||'?').charAt(0)}</div>
+          <div><div class="name">${a.name}</div><div class="role">${a.role||'agent'}</div></div>
+          <span class="state-dot" style="background:${a.state==='active'?'var(--green)':'var(--dim)'};margin-left:auto"></span>
+        </div>
+        <div class="meta"><span>▣${(a.tools||[]).length}</span><span>◈${(a.skills||[]).length}</span><span>○${room?room.name:'—'}</span></div>
+      </div>`;
     });
+    html+=`</div></div>`;
   });
+  if(!(S.teams||[]).length) html='<div style="padding:12px;font-size:11px;color:var(--dim)">加载团队中…</div>';
   el.innerHTML=html;
+  // 兼容：隐藏的 #agent-list 若独立存在且不是 tree 子节点被清空后需忽略
 }
 function selectAgent(aid,el){
   document.querySelectorAll('.agent-card').forEach(c=>c.classList.remove('active'));el.classList.add('active');

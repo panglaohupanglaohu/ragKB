@@ -401,6 +401,9 @@ class AgentChannelConfig:
     subscribe: bool = True
     publish: bool = False
     priority: int = 0
+    # 物竞/审计来源（可选；团队页「物竞」chip）
+    source: str = ""
+    note: str = ""
 
     def __post_init__(self) -> None:
         if self.channel and not self.channel_name:
@@ -409,7 +412,7 @@ class AgentChannelConfig:
             self.channel = self.channel_name
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "channel": self.channel,
             "channel_name": self.channel_name,
             "endpoint": self.endpoint,
@@ -419,6 +422,11 @@ class AgentChannelConfig:
             "publish": self.publish,
             "priority": self.priority,
         }
+        if self.source:
+            d["source"] = self.source
+        if self.note:
+            d["note"] = self.note
+        return d
 
 
 @dataclass

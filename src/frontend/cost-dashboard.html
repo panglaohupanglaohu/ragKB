@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>演进式成本优化 - AgentsGroup2026</title>
+  <title>物竞×成本 · 先适者后省钱 - AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
@@ -73,20 +73,39 @@
     /* Token 优化建议 */
     .token-suggest{padding:11px 13px;background:var(--ob-bg-section);border:1px solid var(--ob-border);border-left:3px solid var(--kitsune);border-radius:8px;margin-bottom:8px;font-size:12px;color:var(--sumi-2);line-height:1.5}
     .token-suggest b{color:var(--sumi)}
+
+    /* 物竞×成本主轴（常驻） */
+    .eco-hub{margin-bottom:20px;border:1px solid var(--ob-border);border-radius:12px;background:linear-gradient(180deg,rgba(107,196,127,.06),var(--ob-bg-section) 48%);overflow:hidden}
+    .eco-hub__head{padding:16px 18px 12px;border-bottom:1px solid var(--ob-border);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    .eco-hub__title{font-size:16px;font-weight:800;color:var(--sumi);letter-spacing:.02em}
+    .eco-hub__sub{font-size:12px;color:var(--sumi-3);margin-top:4px;line-height:1.55;max-width:52rem}
+    .eco-hub__actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .eco-pipe{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--ob-border);background:rgba(0,0,0,.02)}
+    .eco-pipe__step{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--sumi-2);padding:5px 10px;border:1px solid var(--ob-border);border-radius:999px;background:var(--ob-bg)}
+    .eco-pipe__step b{color:var(--sumi)}
+    .eco-pipe__step.is-here{border-color:var(--koke);color:var(--koke);background:rgba(107,196,127,.1);font-weight:600}
+    .eco-pipe__arrow{color:var(--sumi-3);font-size:12px;opacity:.7}
+    .eco-hub__toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;padding:12px 18px;border-bottom:1px solid var(--ob-border)}
+    .eco-hub__toolbar label{font-size:11px;color:var(--sumi-3);display:flex;flex-direction:column;gap:4px}
+    .eco-hub__toolbar select,.eco-hub__toolbar input{min-width:160px;font-size:12px;padding:6px 8px;border:1px solid var(--ob-border);border-radius:6px;background:var(--ob-bg);color:var(--sumi)}
+    .eco-hub__body{padding:14px 18px 16px}
+    .eco-prod{margin-top:12px;padding:10px 12px;border:1px dashed var(--ob-border);border-radius:8px;font-size:12px;color:var(--sumi-2);line-height:1.5;background:rgba(107,196,127,.04)}
+    .eco-prod.is-empty{opacity:.75;background:transparent}
+    .eco-legacy-note{font-size:11px;color:var(--sumi-3);margin:0 0 12px;padding:8px 10px;border-left:3px solid var(--kitsune);background:var(--ob-bg-section);border-radius:0 6px 6px 0}
   </style>
 </head>
 <body class="cost-page">
   <!-- Wabi-Sabi Topbar -->
   <header class="topbar-ws">
     <div class="topbar-ws__left">
-      <h1>演进式成本优化</h1>
+      <h1>物竞×成本</h1>
     </div>
     <nav class="topbar-ws__nav" aria-label="主导航">
       <a href="/agent-team-config.html">智能体团队</a>
       <a href="/plaza.html">议事广场</a>
       <a href="/skill-extract.html">技能萃取/赋予</a>
-      <a href="/Agent-digital-twin.html">数字孪生</a>
-      <span class="cur">演进式成本优化</span>
+      <a href="/Agent-digital-twin.html?office3d=1">物竞试验田</a>
+      <span class="cur">物竞×成本</span>
       <a href="/pet-config.html">🐾 仿生生态</a>
     </nav>
     <div class="topbar-ws__right">
@@ -98,19 +117,82 @@
     </div>
   </header>
 
-  <!-- 顶部操作栏：仅全局关键操作（Gate自检 + 棘轮周期 + 报告）-->
+  <!-- 顶部操作栏 -->
   <div class="ev-action-bar">
-    <button class="btn cost-btn cost-btn--primary" onclick="runCostGateSelfCheck()">🚦 Cost Gate 自检</button>
-    <button class="btn cost-btn cost-btn--ghost" onclick="runCycleOnRatchet()">▶ 运行棘轮演进周期</button>
+    <a href="/Agent-digital-twin.html?office3d=1" class="btn cost-btn cost-btn--primary" style="text-decoration:none">🧬 去物竞试验田</a>
+    <button class="btn cost-btn cost-btn--ghost" onclick="document.getElementById('eco-hub').scrollIntoView({behavior:'smooth'})">🏁 竞标候选</button>
+    <button class="btn cost-btn cost-btn--ghost" onclick="runCostGateSelfCheck()">🚦 Cost Gate 自检</button>
     <button class="btn cost-btn cost-btn--ghost" onclick="generateCostReport()" id="report-btn">📊 生成报告</button>
   </div>
 
   <div class="cost-dashboard">
-    <!-- Cost Header -->
+    <!-- ═══ 物竞×成本主轴（始终可见，不依赖 deep-link）═══ -->
+    <section id="eco-hub" class="eco-hub" aria-label="物竞天择成本竞标主轴">
+      <div class="eco-hub__head">
+        <div>
+          <div class="eco-hub__title">🧬 物竞天择 × 演进式成本 · 先适者后省钱</div>
+          <div class="eco-hub__sub">
+            本页是物竞闭环的<strong>④ 省钱段</strong>：只对试验田里<strong>活得过线</strong>的候选比 token，棘轮锁定后写回生产（适者 agent + required skills）。
+            不在此改人设 / 协作拓扑——那是孪生 <strong>③ 适者反馈台</strong> 的事。
+          </div>
+        </div>
+        <div class="eco-hub__actions">
+          <a id="eco-hub-twin-link" href="/Agent-digital-twin.html?office3d=1" class="btn cost-btn cost-btn--primary cost-btn--sm" style="text-decoration:none">打开试验田</a>
+          <a id="eco-hub-feedback-link" href="/Agent-digital-twin.html?office3d=1" class="btn cost-btn cost-btn--ghost cost-btn--sm" style="text-decoration:none">③ 适者反馈</a>
+        </div>
+      </div>
+      <div class="eco-pipe" aria-label="闭环步骤">
+        <span class="eco-pipe__step"><b>①</b> 挂任务</span>
+        <span class="eco-pipe__arrow">→</span>
+        <span class="eco-pipe__step"><b>②</b> 物竞演练</span>
+        <span class="eco-pipe__arrow">→</span>
+        <span class="eco-pipe__step"><b>③</b> 适者反馈写回</span>
+        <span class="eco-pipe__arrow">→</span>
+        <span class="eco-pipe__step is-here"><b>④</b> 成本竞标 · 本页</span>
+        <span class="eco-pipe__arrow">→</span>
+        <span class="eco-pipe__step"><b>⑤</b> 锁定 → 生产注入</span>
+      </div>
+      <div class="eco-hub__toolbar">
+        <label>团队（种群）
+          <select id="eco-bid-team" onchange="onEcoTeamChange()"></select>
+        </label>
+        <label>任务过滤（可选）
+          <input id="eco-bid-task" type="text" placeholder="task_id，空=全队" onkeydown="if(event.key==='Enter')loadEcoBidCandidates()">
+        </label>
+        <button type="button" class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="loadEcoBidCandidates()">刷新候选</button>
+        <button type="button" class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="loadEcoProduction()">生产锁定态</button>
+        <span id="eco-bid-meta" style="font-size:11px;color:var(--sumi-3);align-self:center"></span>
+      </div>
+      <div class="eco-hub__body">
+        <!-- deep-link 时高亮来自 ③ 的快照 -->
+        <div id="eco-candidate-banner" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--ob-border);border-left:3px solid var(--koke);border-radius:8px;background:var(--ob-bg);font-size:12px;color:var(--sumi-2);line-height:1.5">
+          <div style="font-weight:700;color:var(--sumi);margin-bottom:4px">从 ③ 反馈台推送的候选上下文</div>
+          <div id="eco-candidate-body">—</div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <a id="eco-candidate-back" href="/Agent-digital-twin.html?office3d=1" class="btn cost-btn cost-btn--ghost cost-btn--sm" style="text-decoration:none">← 返回适者反馈台</a>
+          </div>
+        </div>
+        <div id="eco-bid-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700;color:var(--sumi);font-size:13px">🏁 物竞成本竞标候选（BidCandidate）</div>
+              <div style="font-size:11px;color:var(--sumi-3);margin-top:2px">
+                质量门（T_i 活得长）过线 → 填 token → 仅过线且更省可棘轮锁定 · 空列表请先去试验田跑任务并「推送到成本竞标」
+              </div>
+            </div>
+          </div>
+          <div id="eco-bid-list" style="font-size:12px;overflow-x:auto">加载中…</div>
+          <div id="eco-bid-detail" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--ob-border);font-size:12px"></div>
+        </div>
+        <div id="eco-prod-box" class="eco-prod is-empty">生产默认构型：选择团队后加载 locked 候选…</div>
+      </div>
+    </section>
+
+    <!-- Cost Header（副轴：通用 token / OpenCost） -->
     <div class="cost-header">
       <div class="cost-header__lead">
-        <div class="cost-header__eyebrow">Token 最小化 · 棘轮演进 · 治理闭环</div>
-        <p>通过 skill 萃取、skill 路由、Agent 协同，让系统完成业务场景任务时耗费的 token 最少</p>
+        <div class="cost-header__eyebrow">副轴 · 通用 Token 计量 / 治理（非物竞质量门）</div>
+        <p>下方统计与棘轮用于日常 token 治理；与上方<strong>物竞候选锁定</strong>是两条路径——生产构型以 BidCandidate <code>ratchet_state=locked</code> 为准。</p>
       </div>
       <div class="cost-status">
         <div class="cost-status__group">
@@ -231,13 +313,14 @@
       </div>
     </section>
 
-    <!-- 演进健康：合规评级 + 棘轮演进周期 -->
+    <!-- 演进健康：合规评级 + 通用棘轮（副轴，≠ 物竞 BidCandidate 锁定） -->
+    <p class="eco-legacy-note">以下「演进健康 / 达尔文棘轮」是通用 token 治理工具，<strong>不是</strong>物竞候选的质量门与生产锁定。物竞主轴请用页面顶部的「竞标候选」。</p>
     <div class="ev-band">
       <section class="panel">
         <header class="panel__head">
           <div>
-            <h3>演进 <span class="ev-tag">Token 视角</span></h3>
-            <p class="panel__sub">以审查 → 派发 → 验证 → 关闭 → 锁定的棘轮闭环衡量系统演进健康度</p>
+            <h3>演进 <span class="ev-tag">副轴 · Token 视角</span></h3>
+            <p class="panel__sub">通用审查 → 派发 → 验证健康度（与物竞 BidCandidate 棘轮分离）</p>
           </div>
         </header>
         <div id="ev-overview"><div class="loading-state"><div class="spinner"></div></div></div>
@@ -246,8 +329,8 @@
       <section class="panel">
         <header class="panel__head panel__head--row">
           <div>
-            <h3>🔄 达尔文棘轮</h3>
-            <p class="panel__sub">只进不退 · 每次通过验证的改进被锁定为不可逆「遗产」</p>
+            <h3>🔄 达尔文棘轮 <span class="ev-tag">副轴</span></h3>
+            <p class="panel__sub">通用遗产锁定 · 与上方「物竞成本竞标锁定」不是同一把锁</p>
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="runCycleOnRatchet()" id="ratchet-run-btn">▶ 运行棘轮周期</button>
@@ -393,6 +476,463 @@
         };
       }
     })();
+
+    // ── 物竞×成本主轴（常驻；不依赖 deep-link 才显示）──
+    function _ecoEsc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    function _ecoCtx() {
+      var qs = new URLSearchParams(location.search || '');
+      var sel = document.getElementById('eco-bid-team');
+      var taskInp = document.getElementById('eco-bid-task');
+      var ctx = window.__ECO_BID_CTX__ || {};
+      var teamId = (sel && sel.value) || ctx.teamId || qs.get('team_id') || '';
+      var taskId = (taskInp && taskInp.value.trim()) || ctx.taskId || qs.get('task_id') || '';
+      var candidateId = ctx.candidateId || qs.get('candidate_id') || '';
+      return { teamId: teamId, taskId: taskId, candidateId: candidateId };
+    }
+
+    function _ecoUpdateTwinLinks(teamId, taskId) {
+      var twin = '/Agent-digital-twin.html?office3d=1'
+        + (teamId ? '&team_id=' + encodeURIComponent(teamId) : '');
+      var fb = twin + (taskId ? '&task_id=' + encodeURIComponent(taskId) : '');
+      var a1 = document.getElementById('eco-hub-twin-link');
+      var a2 = document.getElementById('eco-hub-feedback-link');
+      var a3 = document.getElementById('eco-candidate-back');
+      if (a1) a1.href = twin;
+      if (a2) a2.href = fb;
+      if (a3) a3.href = fb;
+    }
+
+    window.onEcoTeamChange = function () {
+      var ctx = _ecoCtx();
+      window.__ECO_BID_CTX__ = Object.assign({}, window.__ECO_BID_CTX__ || {}, {
+        teamId: ctx.teamId,
+        taskId: ctx.taskId,
+      });
+      _ecoUpdateTwinLinks(ctx.teamId, ctx.taskId);
+      loadEcoBidCandidates();
+      loadEcoProduction();
+    };
+
+    window.loadEcoProduction = async function () {
+      var box = document.getElementById('eco-prod-box');
+      if (!box) return;
+      var ctx = _ecoCtx();
+      var teamId = ctx.teamId;
+      if (!teamId) {
+        box.className = 'eco-prod is-empty';
+        box.innerHTML = '生产默认构型：请先选择团队。';
+        return;
+      }
+      box.className = 'eco-prod';
+      box.innerHTML = '加载生产锁定态…';
+      try {
+        var url = '/api/v1/eco-runtime/bid-candidates-locked?team_id='
+          + encodeURIComponent(teamId)
+          + (ctx.taskId ? '&task_id=' + encodeURIComponent(ctx.taskId) : '')
+          + '&limit=5';
+        var r = await fetch(url, { credentials: 'same-origin' });
+        var d = await r.json();
+        var prod = (d && d.production) || null;
+        var n = (d && d.count) || 0;
+        if (!prod) {
+          box.className = 'eco-prod is-empty';
+          box.innerHTML = '生产默认构型：该队尚无 <b>locked</b> 候选（n=' + n
+            + '）。在上方列表对 quality_passed 候选填 token 后「锁定」即可成为任务提交默认构型。';
+          return;
+        }
+        box.className = 'eco-prod';
+        box.innerHTML =
+          '<b>🔒 生产默认构型（最新 locked）</b><br>'
+          + '候选 <code>' + _ecoEsc(prod.bid_candidate_id) + '</code>'
+          + ' · 适者 <b>' + _ecoEsc(prod.champion_agent_id || '—') + '</b>'
+          + ' · T=' + _ecoEsc(prod.best_T != null ? prod.best_T : '—')
+          + (prod.task_id ? ' · task <code>' + _ecoEsc(prod.task_id) + '</code>' : '')
+          + '<br>required_skills: '
+          + _ecoEsc((prod.required_skills || []).slice(0, 8).join(', ') || '（无，仅适者 agent）')
+          + '<br><span style="opacity:.8">任务提交时自动 inject metadata + SkillRouter 幂等绑定（可用 skip_locked_bid 关闭）</span>';
+      } catch (e) {
+        box.className = 'eco-prod is-empty';
+        box.innerHTML = '生产锁定态加载失败: ' + _ecoEsc(e.message || e);
+      }
+    };
+
+    window.loadEcoBidCandidates = async function () {
+      var listEl = document.getElementById('eco-bid-list');
+      var meta = document.getElementById('eco-bid-meta');
+      if (!listEl) return;
+      var ctx = _ecoCtx();
+      var teamId = ctx.teamId;
+      var taskId = ctx.taskId;
+      var focusId = ctx.candidateId;
+      window.__ECO_BID_CTX__ = Object.assign({}, window.__ECO_BID_CTX__ || {}, {
+        teamId: teamId, taskId: taskId, candidateId: focusId,
+      });
+      _ecoUpdateTwinLinks(teamId, taskId);
+
+      if (!teamId) {
+        listEl.innerHTML =
+          '<div style="color:var(--sumi-3);line-height:1.6">'
+          + '请选择团队，或从试验田 ③「推送到成本竞标」带 team_id 进入。<br>'
+          + '<a href="/Agent-digital-twin.html?office3d=1" style="color:var(--koke)">→ 打开物竞试验田</a>'
+          + '</div>';
+        if (meta) meta.textContent = '';
+        return;
+      }
+      listEl.innerHTML = '加载中…';
+      if (meta) meta.textContent = teamId + (taskId ? ' · task=' + taskId : ' · 全队候选');
+      var url = '/api/v1/eco-runtime/bid-candidates?team_id=' + encodeURIComponent(teamId)
+        + (taskId ? '&task_id=' + encodeURIComponent(taskId) : '')
+        + '&limit=40';
+      try {
+        var r = await fetch(url, { credentials: 'same-origin' });
+        var d = await r.json();
+        var items = (d && d.candidates) || [];
+        if (!items.length) {
+          listEl.innerHTML =
+            '<div style="color:var(--sumi-3);line-height:1.65;padding:8px 0">'
+            + '<b>暂无竞标候选</b> — 物竞与本页尚未串起来时，通常是还没从 ③ 推送。<br>'
+            + '完整路径：① 试验田选种群 → ② 挂任务 → 跑演练 → ③ 适者反馈写回 → '
+            + '「推送到成本竞标」→ 本页填 token / 锁定。<br>'
+            + '<a class="btn cost-btn cost-btn--primary cost-btn--sm" style="margin-top:8px;text-decoration:none;display:inline-block" '
+            + 'href="/Agent-digital-twin.html?office3d=1&team_id=' + encodeURIComponent(teamId) + '">'
+            + '去试验田生成候选</a>'
+            + '</div>';
+          loadEcoProduction();
+          return;
+        }
+        items = items.slice().sort(function (a, b) {
+          var la = a.ratchet_state === 'locked' ? 1 : 0;
+          var lb = b.ratchet_state === 'locked' ? 1 : 0;
+          if (lb !== la) return lb - la;
+          return (b.best_T || 0) - (a.best_T || 0);
+        });
+        var html = '<table class="tbl" style="width:100%;border-collapse:collapse;font-size:11px">'
+          + '<thead><tr style="text-align:left;color:var(--sumi-3)">'
+          + '<th style="padding:6px 4px">候选</th><th>任务</th><th>适者</th><th>T_i</th><th>质量门</th>'
+          + '<th>token(基线/候选)</th><th>棘轮</th><th>操作</th></tr></thead><tbody>';
+        items.forEach(function (c) {
+          var qOk = c.quality_status === 'quality_passed';
+          var locked = c.ratchet_state === 'locked';
+          var qLab = qOk
+            ? '<span style="color:var(--koke)">✓ 过线</span>'
+            : '<span style="color:var(--shu)">✗ ' + _ecoEsc(c.quality_status || 'pending') + '</span>';
+          var focus = c.candidate_id === focusId ? 'background:rgba(107,196,127,.08)' : '';
+          if (locked) focus = 'background:rgba(107,196,127,.14)';
+          var tb = c.tokens_baseline != null ? c.tokens_baseline : '—';
+          var tc = c.tokens_candidate != null ? c.tokens_candidate : '—';
+          var tid = (c.task_id || '—');
+          if (String(tid).length > 16) tid = String(tid).slice(0, 14) + '…';
+          html += '<tr style="' + focus + '">'
+            + '<td style="padding:6px 4px;font-family:monospace;font-size:10px">'
+            + _ecoEsc((c.candidate_id || '').slice(0, 14)) + '</td>'
+            + '<td title="' + _ecoEsc(c.task_id || '') + '">' + _ecoEsc(tid) + '</td>'
+            + '<td>' + _ecoEsc(c.champion_agent_id || '—') + '</td>'
+            + '<td><b>' + (c.best_T != null ? c.best_T : '—') + '</b></td>'
+            + '<td>' + qLab + '</td>'
+            + '<td>' + _ecoEsc(String(tb)) + ' / ' + _ecoEsc(String(tc)) + '</td>'
+            + '<td>' + (locked
+              ? '<b style="color:var(--koke)">🔒 locked</b>'
+              : _ecoEsc(c.ratchet_state || 'none')) + '</td>'
+            + '<td style="white-space:nowrap">'
+            + '<button type="button" class="btn cost-btn cost-btn--ghost cost-btn--sm" onclick="selectEcoBid(\''
+            + _ecoEsc(c.candidate_id) + '\',\'' + _ecoEsc(c.team_id) + '\')">详情</button> '
+            + (qOk && !locked
+              ? '<button type="button" class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="lockEcoBid(\''
+                + _ecoEsc(c.candidate_id) + '\',\'' + _ecoEsc(c.team_id) + '\')">锁定</button>'
+              : locked
+                ? '<span style="color:var(--koke);font-size:10px">生产可用</span>'
+                : '<button type="button" class="btn cost-btn cost-btn--ghost cost-btn--sm" disabled title="须 quality_passed">锁定</button>')
+            + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+        if (meta) meta.textContent = teamId + ' · ' + items.length + ' 候选'
+          + (taskId ? ' · task 过滤' : '');
+        if (focusId) selectEcoBid(focusId, teamId);
+        loadEcoProduction();
+      } catch (e) {
+        listEl.innerHTML = '<span style="color:var(--shu)">加载失败: ' + _ecoEsc(e.message || e) + '</span>';
+      }
+    };
+
+    async function initEcoHub() {
+      var qs = new URLSearchParams(location.search || '');
+      var teamId = qs.get('team_id') || '';
+      var taskId = qs.get('task_id') || '';
+      var candidateId = qs.get('candidate_id') || '';
+      var fp = qs.get('eco_fp') || '';
+      var feedback = qs.get('feedback') || '';
+      var champ = qs.get('champ') || '';
+      var dominant = qs.get('dominant') || '';
+      var skipReason = qs.get('skip_reason') || '';
+      var skill = qs.get('skill') === '1';
+      var collab = qs.get('collab') === '1';
+      var bestT = qs.get('best_T') || '';
+      var quality = qs.get('quality') || '';
+
+      if (!feedback && !teamId) {
+        try {
+          var st = JSON.parse(sessionStorage.getItem('eco_feedback_status') || 'null');
+          if (st && (st.team_id || st.fingerprint)) {
+            teamId = st.team_id || teamId;
+            fp = st.fingerprint || fp;
+            feedback = st.feedback || feedback;
+            skipReason = st.reason || skipReason;
+            skill = skill || !!st.skill_applied;
+            collab = collab || !!st.collab_applied;
+            candidateId = candidateId || st.candidate_id || '';
+            taskId = taskId || st.task_id || '';
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      window.__ECO_BID_CTX__ = { teamId: teamId, taskId: taskId, candidateId: candidateId };
+
+      // 团队下拉
+      var sel = document.getElementById('eco-bid-team');
+      var taskInp = document.getElementById('eco-bid-task');
+      if (taskInp && taskId) taskInp.value = taskId;
+      try {
+        var tr = await fetch('/api/v1/agent-config/teams', { credentials: 'same-origin' });
+        var teams = await tr.json();
+        if (!Array.isArray(teams)) teams = teams.items || teams.teams || [];
+        if (sel) {
+          sel.innerHTML = '<option value="">— 选择团队 —</option>';
+          teams.forEach(function (t) {
+            var id = t.team_id || t.id || '';
+            var name = t.name || id;
+            if (!id) return;
+            var opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = name + ' (' + id + ')';
+            sel.appendChild(opt);
+          });
+          if (teamId) {
+            sel.value = teamId;
+          } else if (teams.some(function (t) { return (t.team_id || t.id) === 'aws-ops'; })) {
+            sel.value = 'aws-ops';
+            teamId = 'aws-ops';
+            window.__ECO_BID_CTX__.teamId = teamId;
+          } else if (teams[0]) {
+            teamId = teams[0].team_id || teams[0].id || '';
+            sel.value = teamId;
+            window.__ECO_BID_CTX__.teamId = teamId;
+          }
+        }
+      } catch (e) {
+        if (sel) {
+          sel.innerHTML = '<option value="aws-ops">aws-ops</option>';
+          if (!teamId) teamId = 'aws-ops';
+          sel.value = teamId;
+          window.__ECO_BID_CTX__.teamId = teamId;
+        }
+      }
+
+      // deep-link 上下文条
+      var banner = document.getElementById('eco-candidate-banner');
+      var body = document.getElementById('eco-candidate-body');
+      if (banner && body && (feedback || fp || candidateId || qs.get('team_id'))) {
+        banner.style.display = 'block';
+        var lines = [];
+        lines.push('<b>团队</b> ' + _ecoEsc(teamId || '—')
+          + (fp ? ' · <b>fp</b> <code style="font-size:11px">' + _ecoEsc(String(fp).slice(0, 16)) + '</code>' : '')
+          + (taskId ? ' · <b>task</b> <code style="font-size:11px">' + _ecoEsc(String(taskId).slice(0, 14)) + '</code>' : ''));
+        if (candidateId) {
+          lines.push('<b>候选 id</b> <code style="font-size:11px">' + _ecoEsc(candidateId) + '</code>'
+            + (quality ? ' · <b>质量门</b> ' + _ecoEsc(quality) : '')
+            + (bestT ? ' · <b>T</b> ' + _ecoEsc(bestT) : ''));
+        }
+        if (champ) lines.push('<b>适者</b> ' + _ecoEsc(champ));
+        if (dominant) lines.push('<b>dominant skills</b> ' + _ecoEsc(dominant.split(',').join(', ')));
+        var fbLabel = feedback === 'skipped'
+          ? '<span style="color:var(--kitsune)">已跳过写回</span>' + (skipReason ? '（' + _ecoEsc(skipReason) + '）' : '')
+          : feedback === 'done'
+            ? '<span style="color:var(--koke)">已反馈写回</span>'
+              + (skill ? ' · Skill' : '')
+              + (collab ? ' · 协作' : '')
+            : _ecoEsc(feedback || '来自物竞试验田');
+        lines.push('<b>反馈状态</b> ' + fbLabel);
+        lines.push('<span style="opacity:.75">本页职责：比 token / 棘轮锁定。改 Skill·协作·关系·通道 → 回试验田 ③。</span>');
+        body.innerHTML = lines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+      }
+
+      _ecoUpdateTwinLinks(teamId, taskId);
+      await loadEcoBidCandidates();
+    }
+
+    // 启动主轴（独立于其它 cost 仪表盘加载）
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { initEcoHub(); });
+    } else {
+      initEcoHub();
+    }
+
+    window.selectEcoBid = async function (candidateId, teamId) {
+      var det = document.getElementById('eco-bid-detail');
+      if (!det) return;
+      det.style.display = 'block';
+      det.innerHTML = '加载…';
+      try {
+        var url = '/api/v1/eco-runtime/bid-candidates/' + encodeURIComponent(candidateId)
+          + (teamId ? '?team_id=' + encodeURIComponent(teamId) : '');
+        var r = await fetch(url, { credentials: 'same-origin' });
+        var d = await r.json();
+        var c = (d && d.candidate) || {};
+        if (!d || !d.ok) {
+          det.innerHTML = '未找到候选';
+          return;
+        }
+        var reasons = (c.quality_reasons || []).join('；') || '—';
+        var esc = _ecoEsc;
+        var twinHref = '/Agent-digital-twin.html?office3d=1'
+          + (c.team_id ? '&team_id=' + encodeURIComponent(c.team_id) : '')
+          + (c.task_id ? '&task_id=' + encodeURIComponent(c.task_id) : '');
+
+        // 同 task 候选 token 对比条
+        var peerHtml = '';
+        try {
+          if (c.team_id && c.task_id) {
+            var pr = await fetch(
+              '/api/v1/eco-runtime/bid-candidates?team_id=' + encodeURIComponent(c.team_id)
+              + '&task_id=' + encodeURIComponent(c.task_id) + '&limit=20',
+              { credentials: 'same-origin' },
+            );
+            var pd = await pr.json();
+            var peers = ((pd && pd.candidates) || []).slice();
+            var withTok = peers.filter(function (p) {
+              return p.tokens_candidate != null || p.tokens_baseline != null;
+            });
+            if (peers.length > 1) {
+              var maxTok = 1;
+              peers.forEach(function (p) {
+                var v = Number(p.tokens_candidate != null ? p.tokens_candidate
+                  : (p.tokens_baseline != null ? p.tokens_baseline : 0));
+                if (v > maxTok) maxTok = v;
+              });
+              peerHtml = '<div style="margin:10px 0 4px;font-weight:600;font-size:11px">同 task 候选对比（T_i · token）</div>';
+              peers.sort(function (a, b) { return (b.best_T || 0) - (a.best_T || 0); });
+              peers.forEach(function (p) {
+                var tok = p.tokens_candidate != null ? Number(p.tokens_candidate) : null;
+                var pct = tok != null ? Math.max(4, Math.round(100 * tok / maxTok)) : 0;
+                var me = p.candidate_id === c.candidate_id;
+                var barColor = p.ratchet_state === 'locked' ? 'var(--koke)'
+                  : (me ? 'var(--kitsune)' : 'var(--sumi-3)');
+                peerHtml += '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:10px">'
+                  + '<span style="width:72px;font-family:monospace;opacity:' + (me ? '1' : '.75') + '">'
+                  + esc((p.candidate_id || '').slice(0, 10)) + (me ? ' ←' : '') + '</span>'
+                  + '<span style="width:36px">T=' + (p.best_T != null ? p.best_T : '—') + '</span>'
+                  + '<span style="flex:1;height:8px;background:var(--ob-border);border-radius:4px;overflow:hidden">'
+                  + (tok != null
+                    ? '<span style="display:block;height:100%;width:' + pct + '%;background:' + barColor + '"></span>'
+                    : '')
+                  + '</span>'
+                  + '<span style="width:48px;text-align:right">' + (tok != null ? tok : '未填') + '</span>'
+                  + '</div>';
+              });
+              if (!withTok.length) {
+                peerHtml += '<div style="font-size:10px;color:var(--sumi-3)">尚未填 token — 在下方输入后点「保存 token」再比省钱</div>';
+              }
+            }
+          }
+        } catch (e2) { /* ignore peer compare */ }
+
+        det.innerHTML =
+          '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'
+          + '<div style="font-weight:700">候选详情 · 先适者后省钱</div>'
+          + '<a href="' + twinHref + '" class="btn cost-btn cost-btn--ghost cost-btn--sm" style="text-decoration:none">← 回试验田 ③</a>'
+          + '</div>'
+          + '<div><b>id</b> ' + esc(c.candidate_id) + ' · <b>task</b> ' + esc(c.task_id || '—') + '</div>'
+          + '<div><b>适者</b> ' + esc(c.champion_agent_id) + ' · T_i=' + (c.best_T || 0)
+          + ' · 质量 <b>' + esc(c.quality_status) + '</b>'
+          + (c.feedback_status ? ' · 反馈 ' + esc(c.feedback_status) : '') + '</div>'
+          + '<div style="color:var(--sumi-3);margin:4px 0">质量原因: ' + esc(reasons) + '</div>'
+          + '<div><b>dominant skills</b> ' + esc((c.dominant_skills || []).slice(0, 8).join(', ') || '—') + '</div>'
+          + peerHtml
+          + '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+          + '<label>基线 token <input id="eco-bid-tb" type="number" style="width:90px" value="'
+          + (c.tokens_baseline != null ? c.tokens_baseline : '') + '"></label>'
+          + '<label>候选 token <input id="eco-bid-tc" type="number" style="width:90px" value="'
+          + (c.tokens_candidate != null ? c.tokens_candidate : '') + '"></label>'
+          + '<button type="button" class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="saveEcoBidTokens(\''
+          + esc(c.candidate_id) + '\',\'' + esc(c.team_id) + '\')">保存 token</button>'
+          + (c.quality_status === 'quality_passed' && c.ratchet_state !== 'locked'
+            ? '<button type="button" class="btn cost-btn cost-btn--primary cost-btn--sm" onclick="lockEcoBid(\''
+              + esc(c.candidate_id) + '\',\'' + esc(c.team_id) + '\')">🔒 棘轮锁定</button>'
+            : c.ratchet_state === 'locked'
+              ? '<span style="color:var(--koke);font-size:11px">已锁定 · 生产可用</span>'
+              : '<span style="color:var(--shu);font-size:11px">未过质量门不可锁定</span>')
+          + '</div>'
+          + '<div style="margin-top:6px;font-size:11px;color:var(--sumi-3)">棘轮: '
+          + esc(c.ratchet_state || 'none') + ' · cost_gate: ' + esc(c.cost_gate || 'pending')
+          + (c.ratchet_state === 'locked'
+            ? ' · <b style="color:var(--koke)">生产提交注入适者 + SkillRouter 幂等绑 skill</b>'
+            : ' · 锁定后任务提交读此构型')
+          + (c.skill_bind_on_lock
+            ? '<div style="margin-top:4px;font-size:11px">锁定时绑定: '
+              + (c.skill_bind_on_lock.ok ? '✓' : '✗')
+              + ' 新增 ' + esc((c.skill_bind_on_lock.assigned || []).join(', ') || '—')
+              + ' · 已有 ' + esc((c.skill_bind_on_lock.already_has || []).join(', ') || '—')
+              + '</div>'
+            : '')
+          + '</div>';
+      } catch (e) {
+        det.innerHTML = '加载失败: ' + (e.message || e);
+      }
+    };
+
+    window.saveEcoBidTokens = async function (candidateId, teamId) {
+      var tb = document.getElementById('eco-bid-tb');
+      var tc = document.getElementById('eco-bid-tc');
+      var body = {};
+      if (tb && tb.value !== '') body.tokens_baseline = Number(tb.value);
+      if (tc && tc.value !== '') body.tokens_candidate = Number(tc.value);
+      try {
+        var r = await fetch('/api/v1/eco-runtime/bid-candidates/' + encodeURIComponent(candidateId)
+          + '?team_id=' + encodeURIComponent(teamId || ''), {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        var d = await r.json();
+        if (d && d.ok) {
+          if (window.toast) toast('已保存 token 并重算 cost_gate', 'success');
+          loadEcoBidCandidates();
+          selectEcoBid(candidateId, teamId);
+        } else if (window.toast) toast((d && d.error) || '保存失败', 'error');
+      } catch (e) {
+        if (window.toast) toast(String(e.message || e), 'error');
+      }
+    };
+
+    window.lockEcoBid = async function (candidateId, teamId) {
+      if (!confirm('确认棘轮锁定该候选？\n仅 quality_passed 且 token≤baseline（若已填）可锁定。\n原则：先适者后省钱。')) return;
+      try {
+        var r = await fetch('/api/v1/eco-runtime/bid-candidates/' + encodeURIComponent(candidateId)
+          + '/lock?team_id=' + encodeURIComponent(teamId || ''), {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        var d = await r.json();
+        if (d && d.ok) {
+          if (window.toast) toast('已锁定 · 生产将采用该适者构型', 'success');
+          loadEcoBidCandidates();
+          selectEcoBid(candidateId, teamId);
+          if (typeof loadEcoProduction === 'function') loadEcoProduction();
+        } else {
+          var msg = (d && d.error) || '锁定失败';
+          if (d && d.detail) msg += ': ' + d.detail;
+          if (d && d.reasons && d.reasons.length) msg += ' | ' + d.reasons.join('; ');
+          if (window.toast) toast(msg, 'error');
+          else alert(msg);
+        }
+      } catch (e) {
+        if (window.toast) toast(String(e.message || e), 'error');
+      }
+    };
 
     // 演进（Token 视角）— 审查规则 / 验证函数卡片可点击展开详情
     async function renderEvOverview() {

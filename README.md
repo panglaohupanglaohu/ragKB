@@ -77,8 +77,12 @@ npm run test:frontend   # vitest
 | [docs/VALIDATION.md](docs/VALIDATION.md) | 验证基线与已知失败 |
 | [docs/OPTIMIZATION_PLAN_2026H2.md](docs/OPTIMIZATION_PLAN_2026H2.md) | **当前优化规划**（孪生验证 + 最低 token 成本目标） |
 | [docs/OPTIMIZATION_TODOS_2026H2.md](docs/OPTIMIZATION_TODOS_2026H2.md) | **当前 Todos**（按执行模型分层标注） |
+| [docs/物竞天择任务闭环与Skill遗传plan.md](docs/物竞天择任务闭环与Skill遗传plan.md) | 物竞 v4：任务契约 → 生境 → Skill 遗传 |
+| [docs/物竞闭环评估报告-aws-build.md](docs/物竞闭环评估报告-aws-build.md) | AWS×Build 闭环 LOOP 评估样例 |
 | [docs/全仓库分阶段重构路线.md](docs/全仓库分阶段重构路线.md) | 工程收口重构路线 |
 | [docs/archive/root-legacy](docs/archive/root-legacy) | 历史 README 与旧计划（仅参考） |
+
+根 README 内嵌公式摘要见上文 **「物竞天择：适应度、加压 8 钮与公式」**。
 
 `docs/` 下 plan/todos 文件需签名头，规则见 [docs/SIGNING_RULE.md](docs/SIGNING_RULE.md)，校验：`node scripts/check-docs-signoff.cjs --strict`。
 
@@ -118,9 +122,181 @@ npm run test:frontend   # vitest
 
 详细设计与路线图见 [docs/宠物团队生态仿真plan.md](docs/宠物团队生态仿真plan.md)（§10 Phase I 是泛化路线），任务追踪见 [docs/宠物团队生态仿真todos.md](docs/宠物团队生态仿真todos.md)。
 
+## 物竞天择：适应度、加压 8 钮与公式
+
+办公室视图试验田（[`Agent-digital-twin.html?office3d=1`](src/frontend/Agent-digital-twin.html)）把团队放入**自然选择生境**：任务契约是客观考卷（同一 demand 过滤），**不是天选任务**。环境不打分；只通过健康账本与生存时长筛选「匹配且干活的 skill」与「稀缺时能救命的协作」。内核：`sandbox/eco_drill.py`；配置：`storage/eco_runtime_config.json`（`GET/PUT /api/v1/eco-runtime/config`）；左侧音量旋钮与 [`pet-config.html`](src/frontend/pet-config.html) 深参同键。
+
+赛制语义：①分场＝多队比个体 skill；②多队对抗＝比协作/策略；③混合＝个体+团队（世界杯）。加对比种群**不**自动改赛制。
+
+### 唯一适应度
+
+\[
+T_i \;=\; \sum_{t=1}^{t_{\mathrm{death}}} \mathbf{1}\{\text{agent } i \text{ alive at tick } t\}
+\]
+
+选择只看 \(T_i\)（活得久）。不另设 skill 分、协作分。
+
+### 每 tick 健康（示意）
+
+\[
+H_{i,t+1}
+=
+H_{i,t}
+- m
+- c\cdot |G_i|
+- \lambda\cdot \mathbf{1}\{\mathrm{can\_serve}\land \mathrm{REST}\}
+- C(\mathrm{act}_{i,t})
++ R_{i,t}
+- P_{i,t}
+\]
+
+| 符号 | 含义 | 配置键 |
+| --- | --- | --- |
+| \(m\) | 基础代谢 | `metabolism.metabolic_rate` |
+| \(G_i\) | skill 基因组 | agent 携带 skills |
+| \(c\) | 每 skill 每 tick 囤积税 | `evolution_pressure.genome_carry_cost` |
+| \(\lambda\) | 能 serve 却 REST 的闲置税 | `evolution_pressure.skill_idle_penalty` |
+| \(C\) | 动作成本（觅食 miss / 信号 / 避险等） | `drill_economics.*` |
+| \(R\) | 觅食命中、收分享等收益 | 见下 |
+| \(P\) | 事故/捕食伤害 | 生境 `predator_pressure` + 偏压 \(\beta\) |
+
+\(H\le 0\Rightarrow\) 死亡，\(T_i\) 封顶。
+
+### 能否 serve 与觅食
+
+\[
+\mathrm{can\_serve}_{i,t}
+=
+\mathbf{1}\{ G_i \cap D_t \neq \emptyset \}
+\]
+
+\(D_t\)：当前生态位 demand（任务契约 niches / `TaskHabitatContract`）。
+
+\[
+R^{\mathrm{forage}}_{i,t}
+=
+\begin{cases}
+a\cdot g & \text{FORAGE 且 can\_serve 且命中}\\
+0 & \text{否则}
+\end{cases}
+\]
+
+- \(a=\) `habitat.abundance`（丰饶度 ≈ token 松紧）  
+- \(g=\) `drill_economics.forage_gain`  
+- 命中率随熟练度与跟随 `follow_bonus` 上升  
+
+意图加压（0/1）：
+
+\[
+\mathrm{REST}
+\;\xrightarrow{\pi=1}\;
+\mathrm{FORAGE}
+\quad\text{当 can\_serve 且略饿},\quad
+\pi=\texttt{prefer\_forage\_when\_can\_serve}
+\]
+
+### 事故偏压（无 skill 更易中）
+
+\[
+\mathbb{P}(\text{事故打中 } i)
+\propto
+1 + \beta\cdot \mathbf{1}\{\neg\mathrm{can\_serve}_{i,t}\}
+\]
+
+\(\beta=\) `predator_bias_unskilled`；事故是否发生由 `habitat.predator_pressure` 控制。
+
+### 协作分享
+
+\[
+R^{\mathrm{share}}_{j\leftarrow i}
+=
+r_i\cdot f\cdot
+\bigl(1 + s\cdot \mathbf{1}\{a<1\}\cdot(1-a)\bigr)
+\]
+
+- \(f=\) `share_fraction`  
+- \(s=\) `scarce_share_boost`（稀缺时分享更值钱）  
+- 同队偏好 \(\gamma=\) `same_pop_share_bias`  
+
+协作基因 \((share, signal, follow)\) 决定是否 HELP/FOOD、是否分享、是否跟随（可遗传）。
+
+### 契约最少长度
+
+绑定任务契约时：
+
+\[
+\mathrm{steps}\ge S_{\min},\quad
+\mathrm{gens}\ge G_{\min}
+\]
+
+\(S_{\min}=\) `min_steps_when_contract`，\(G_{\min}=\) `min_gens_when_contract`（避免过短跑次被残差噪声主导）。
+
+### 事后分解（只解释，不另评分）
+
+\[
+T_i = T_i^{\mathrm{skill}} + T_i^{\mathrm{collab}} + T_i^{\mathrm{residual}}
+\]
+
+\[
+\mathrm{skill\%}_i=\frac{T_i^{\mathrm{skill}}}{T_i},\quad
+\mathrm{collab\%}_i=\frac{T_i^{\mathrm{collab}}}{T_i},\quad
+\mathrm{residual\%}_i=\frac{T_i^{\mathrm{residual}}}{T_i}
+\]
+
+实现：`sandbox/survival_decompose.py`。skill tick ≈ can_serve 且觅食成功；collab tick ≈ 收分享/跟随等；其余为 residual。
+
+### 旋钮对照：A 生境 4 + B 加压 8
+
+左侧试验田旋钮与配置 JSON **同键**（盘下灰字为字段名）。
+
+**A · `habitat`（客观环境松紧）**
+
+| 中文 | 键 | 作用 |
+| --- | --- | --- |
+| 丰饶度 | `abundance` | 觅食收益倍率（≈ token 松紧） |
+| 事故压 | `predator_pressure` | 每 tick 事故概率 |
+| 需求漂移 | `drift_prob` | 世代替换 demand skill |
+| 竞争名额 | `niche_capacity` | 每 tick 成功觅食名额（0=不限） |
+
+**B · `evolution_pressure`（让 skill/协作在 \(T_i\) 上拉开差距）**
+
+| 中文 | 键 | 作用 |
+| --- | --- | --- |
+| 闲置税 | `skill_idle_penalty` | 能 serve 却 REST → 额外代谢 |
+| 囤积税 | `genome_carry_cost` | 每 skill 每 tick 代谢（覆盖 learning） |
+| 契约最少步 | `min_steps_when_contract` | 绑定契约时步数底 |
+| 契约最少代 | `min_gens_when_contract` | 绑定契约时世代底 |
+| 偏觅食 | `prefer_forage_when_can_serve` | 0/1，能做则 REST→FORAGE |
+| 无技偏压 | `predator_bias_unskilled` | 事故加权打 \(\neg\)can_serve |
+| 稀缺分享 | `scarce_share_boost` | abundance&lt;1 时分享放大 |
+| 同队分享 | `same_pop_share_bias` | 0~1 优先同 population 分享 |
+
+### 加压链（一句）
+
+\[
+\underbrace{\lambda,\pi,\beta,c}_{\text{逼用对 skill、罚躺/囤/无技}}
++
+\underbrace{s,\gamma}_{\text{稀缺协作值钱、偏同队}}
++
+\underbrace{S_{\min},G_{\min}}_{\text{够长才选得出来}}
+\;\Longrightarrow\;
+\Delta T_i\text{ 放大}
+\;\Longrightarrow\;
+\text{高 }T\text{ 的 }(G,\text{collab 基因})\text{ 入繁衍}
+\;\Longrightarrow\;
+\text{合适 skill + 协作方式被环境保留}
+\]
+
+**一句话**：环境不打分；只通过 \(H\) 与 \(T_i\) 让「匹配且干活的 skill」和「稀缺时能救命的协作」活得更久。
+
+相关文档：[docs/物竞天择任务闭环与Skill遗传plan.md](docs/物竞天择任务闭环与Skill遗传plan.md)、[docs/物竞天择数字孪生演练plan.md](docs/物竞天择数字孪生演练plan.md)、[docs/物竞闭环评估报告-aws-build.md](docs/物竞闭环评估报告-aws-build.md)。闭环脚本：`scripts/eco_closed_loop_eval.py`（`ECO_LOOP_SKIP_LLM=1` 可跳过 LLM 分析加速）。
+
+**与演进式成本优化结合（先适者，后省钱）**：任务挂载 → 物竞 \(T_i\) 过线 → ③ 适者反馈写回 Skill/协作 → 成本页在过线构型内比 token 并棘轮锁定。设计见 [docs/物竞与成本优化结合plan.md](docs/物竞与成本优化结合plan.md)，执行清单 [docs/物竞与成本优化结合todos.md](docs/物竞与成本优化结合todos.md)。
+
 ## 核心概念速查
 
 - **TwinLoop**（`sandbox/twin_loop.py`）：snapshot_world → spawn_twins → run_simulation → evaluate_outcomes → inject_best_strategy 的仿真在环闭环；支持混沌注入与熟练度结算。
+- **物竞天择 / EcoDrill**（`sandbox/eco_drill.py`）：生存时长 \(T_i\) 唯一适应度；任务契约 demand 过滤；加压 8 钮见上文公式节；办公室视图 `?office3d=1` 左侧 A 生境 4 + B 加压 8 音量旋钮。
 - **SECS 演练**：团队 + 场景驱动的 演练→评估→进化 循环，SSE 实时推流到 3D 前端。
 - **SkillRouter**：BM25/TF-IDF 双阶段检索重排，把 top-K 技能注入 agent system prompt（无 GPU 依赖）。
 - **SkillClaw 流水线**：Filter → Improve → Verify → Solidify，从演练轨迹提取技能并验证后入库。

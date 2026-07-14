@@ -102,6 +102,12 @@ function escapeHtml(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'
 async function loadTeams(){
   const d=await getTeamsList(true);const s=el('team-select');
   if(!d||!d.length){s.innerHTML='<option>无团队</option>';return}
+  // 深链 team_id（物竞反馈台 → 关系 tab）
+  try{
+    const qp=new URLSearchParams(window.location.search);
+    const qTeam=qp.get('team_id')||qp.get('team');
+    if(qTeam&&d.some(t=>t.team_id===qTeam))tid=qTeam;
+  }catch(e){/* ignore */}
   s.innerHTML=d.map(t=>`<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join('');
   if(!tid)tid=d[0].team_id;s.value=tid;loadView();
 }
@@ -127,11 +133,27 @@ function switchView(v,extra){
 }
 function loadView(){
   // ── Darwin rule: bridge-task-dispatch deep-link support ──
+  // ── XF-7.11: 物竞反馈 → team_id + agent_id + atab=ag-relations ──
   const params = new URLSearchParams(window.location.search);
   const view = params.get('view');
-  const nextView=view && document.querySelector(`[data-view="${view}"]`) ? view : 'overview';
+  const qAgent = params.get('agent_id') || params.get('aid') || '';
+  const qAtab = params.get('atab') || params.get('tab') || '';
+  if(qAtab)atab=qAtab;
+  if(qAgent)aid=qAgent;
+  let nextView=view && document.querySelector(`[data-view="${view}"]`) ? view : 'overview';
+  if(qAgent&&(!view||view==='agent'))nextView='agent';
   if(nextView!=='overview')loadSbAgents();
-  switchView(nextView);
+  if(nextView==='agent'){
+    // 激活对应 tab UI
+    if(qAtab){
+      document.querySelectorAll('#agent-tabs .tab').forEach(x=>{
+        x.classList.toggle('active',x.dataset.at===qAtab);
+      });
+    }
+    switchView('agent',qAgent||aid||undefined);
+  }else{
+    switchView(nextView);
+  }
 }
 
 // ── Sidebar agents ──
@@ -903,8 +925,62 @@ function renderATab(d){
       c.innerHTML=html;
     });
   } else if(atab==='ag-relations'){
-    api(`${A}/teams/${tid}/agents/${aid}/relationships`).then(rel=>{
-      c.innerHTML=`<div class="section"><div class="section-title">🔗 关系</div>${rel&&rel.relationships&&rel.relationships.length?rel.relationships.map(r=>`<div class="ws-item"><span class="fname">👤 ${r.target||r.name||'?'}</span><span class="chip">${r.type||'peer'}</span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div><div class="section"><div class="section-title">📡 通道绑定</div>${(d.channels||[]).length?d.channels.map(ch=>`<div class="ws-item"><span class="fname">📡 ${ch.channel_name}</span><span>${ch.subscribe?'<span class="chip">订阅</span>':''}${ch.publish?'<span class="chip">发布</span>':''}<span class="chip" style="background:rgba(255,207,112,0.1);color:var(--amber)">P${ch.priority??0}</span></span></div>`).join(''):'<p style="color:var(--dim)">暂无</p>'}</div>`;
+    // 真关系边 = RelationshipStore（agent-employee API）；同伴列表仅作参考
+    const AE='/api/v1/agent-employee';
+    Promise.all([
+      api(`${A}/teams/${tid}/agents/${aid}/relationships`).catch(()=>null),
+      api(`${AE}/teams/${tid}/relationships?agent_id=${encodeURIComponent(aid)}`).catch(()=>null),
+    ]).then(([rel,storeRel])=>{
+      const chans=JSON.parse(JSON.stringify(d.channels||[]));
+      window._relChannelDraft={teamId:tid,agentId:aid,channels:chans};
+      const edges=(storeRel&&storeRel.relationships)||[];
+      // XF-7.13 空关系 CTA
+      const twinUrl=`/Agent-digital-twin.html?office3d=1&team_id=${encodeURIComponent(tid||'')}`;
+      const edgeHtml=edges.length?edges.map(r=>{
+        const other=r.source_agent_id===aid?r.target_id:r.source_agent_id;
+        const dir=r.source_agent_id===aid?'→':'←';
+        const eco=(r.note&&String(r.note).includes('eco'))||(r.created_by&&String(r.created_by).includes('eco'));
+        return `<div class="ws-item"><span class="fname">🔗 ${escapeHtml(dir)} ${escapeHtml(other||'?')}</span>`
+          +`<span class="chip">${escapeHtml(r.rel_type||'collaborator')}</span>`
+          +(eco?'<span class="chip" style="background:rgba(34,211,238,.12);color:var(--cyan)">物竞</span>':'')
+          +(r.note?`<span style="color:var(--dim);font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.note)}</span>`:'')
+          +`</div>`;
+      }).join(''):(
+        `<div style="padding:12px 14px;border:1px dashed var(--line);margin-bottom:8px">`
+        +`<div style="font-size:13px;font-weight:600;margin-bottom:6px">暂无门禁关系边</div>`
+        +`<p style="color:var(--dim);font-size:12px;margin:0 0 10px;line-height:1.45">同队编制与通道共总线已是协作关系；点对点门禁边可从物竞 ③ 建议确认写回，或在数字员工页人工添加。</p>`
+        +`<div style="display:flex;flex-wrap:wrap;gap:8px">`
+        +`<a class="btn btn-sm btn-pink" href="${twinUrl}" style="text-decoration:none">🧬 物竞 ③ 生成建议</a>`
+        +`<a class="btn btn-sm" href="/agent-team-config.html?team_id=${encodeURIComponent(tid||'')}&view=agent&agent_id=${encodeURIComponent(aid||'')}&atab=ag-relations" style="text-decoration:none">刷新本页</a>`
+        +`</div></div>`
+      );
+      const peerHtml=rel&&rel.relationships&&rel.relationships.length
+        ?`<div style="margin-top:8px;font-size:11px;color:var(--dim)">协作通讯录（同队/通道/门禁）：${rel.relationships.map(r=>escapeHtml(r.name||r.target||'?')).join(' · ')}</div>`
+        :'';
+      const chRows=chans.length?chans.map((ch,i)=>{
+        const eco=ch.source==='eco_drill'||(ch.note&&String(ch.note).indexOf('eco:')===0);
+        return `<div class="ws-item" style="flex-wrap:wrap;gap:8px" data-ch-i="${i}">
+          <span class="fname">📡 <input class="fi" style="width:140px;padding:4px 8px;font-size:12px" value="${escapeHtml(ch.channel_name||ch.channel||'')}" onchange="updRelChanName(${i},this.value)" placeholder="通道名"></span>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" ${ch.subscribe?'checked':''} onchange="updRelChanField(${i},'subscribe',this.checked)"> 订阅</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" ${ch.publish?'checked':''} onchange="updRelChanField(${i},'publish',this.checked)"> 发布</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px">P <input type="number" style="width:48px" value="${ch.priority??0}" onchange="updRelChanField(${i},'priority',+this.value)"></label>
+          ${eco?'<span class="chip" style="background:rgba(34,211,238,.12);color:var(--cyan)">物竞</span>':''}
+          <button class="btn btn-sm btn-ghost" style="color:var(--pink)" onclick="rmRelChan(${i})">删除</button>
+        </div>`;
+      }).join(''):'<p style="color:var(--dim)">暂无通道 — 可添加团队总线</p>';
+      c.innerHTML=`<div class="section"><div class="section-title">🔗 关系边 <span style="font-weight:400;color:var(--dim);font-size:11px">通信门禁 · RelationshipStore</span></div>${edgeHtml}${peerHtml}</div>
+        <div class="section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span>📡 通道绑定 <span style="font-weight:400;color:var(--dim);font-size:11px">subscribe/publish 运行时生效</span></span>
+          <span style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm" onclick="addRelChan()">＋ 添加</button>
+            <button class="btn btn-sm btn-pink" onclick="saveRelChannels()">💾 保存通道</button>
+            <button class="btn btn-sm" onclick="testRelChanPublish()" title="向首个可发布通道发测试消息">🧪 测发布</button>
+            <button class="btn btn-sm" onclick="testRelChanInbox()">📥 收件箱</button>
+          </span>
+        </div>
+        <div id="rel-chan-list">${chRows}</div>
+        <p id="rel-chan-status" style="font-size:12px;color:var(--dim);margin-top:8px"></p>
+        </div>`;
     });
   } else if(atab==='ag-workspace'){
     var wsPath='';
@@ -2111,3 +2187,39 @@ async function startTTSService(){
   }catch(e){res.innerHTML='<span style="color:var(--pink)">❌ 启动请求失败: '+escapeHtml(e.message)+'</span>'}
 }
 
+
+
+/* ── 关系 tab：通道绑定可编辑 + 运行时测通 ── */
+function _relChanStatus(msg){const el=document.getElementById('rel-chan-status');if(el)el.textContent=msg||'';}
+function _relDraft(){return window._relChannelDraft||{teamId:'',agentId:'',channels:[]};}
+function updRelChanName(i,v){const d=_relDraft();if(d.channels[i]){d.channels[i].channel_name=v;d.channels[i].channel=v;}}
+function updRelChanField(i,k,v){const d=_relDraft();if(d.channels[i])d.channels[i][k]=v;}
+function rmRelChan(i){const d=_relDraft();d.channels.splice(i,1);loadAgent(d.agentId||aid);}
+function addRelChan(){const d=_relDraft();const bus=(d.teamId||tid||'team').replace(/[^a-zA-Z0-9_-]/g,'_')+'_bus';d.channels.push({channel_name:bus,channel:bus,subscribe:true,publish:true,priority:0});
+  // 就地刷新列表，不丢未保存编辑
+  const list=document.getElementById('rel-chan-list');
+  if(list){
+    const i=d.channels.length-1;const ch=d.channels[i];
+    const div=document.createElement('div');div.className='ws-item';div.style.cssText='flex-wrap:wrap;gap:8px';
+    div.innerHTML=`<span class="fname">📡 <input class="fi" style="width:140px;padding:4px 8px;font-size:12px" value="${escapeHtml(ch.channel_name||'')}" onchange="updRelChanName(${i},this.value)"></span>
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" checked onchange="updRelChanField(${i},'subscribe',this.checked)"> 订阅</label>
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" checked onchange="updRelChanField(${i},'publish',this.checked)"> 发布</label>
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px">P <input type="number" style="width:48px" value="0" onchange="updRelChanField(${i},'priority',+this.value)"></label>
+      <button class="btn btn-sm btn-ghost" style="color:var(--pink)" onclick="rmRelChan(${i})">删除</button>`;
+    list.appendChild(div);_relChanStatus('已添加，记得保存');
+  } else loadAgent(d.agentId||aid);
+}
+function saveRelChannels(){const d=_relDraft();if(!d.teamId||!d.agentId){_relChanStatus('⚠ 无 agent');return;}
+  const channels=(d.channels||[]).filter(c=>c&&(c.channel_name||c.channel)).map(c=>({channel_name:c.channel_name||c.channel,subscribe:!!c.subscribe,publish:!!c.publish,priority:c.priority||0}));
+  api(`${A}/teams/${d.teamId}/agents/${d.agentId}/channels`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})}).then(r=>{
+    if(r&&(r.agent_id||r.channels)){ _relChanStatus('✅ 通道已保存（已持久化；publish/subscribe 运行时生效）'); loadAgent(d.agentId||aid); }
+    else _relChanStatus('⚠ 保存失败'+(api._lastError?': '+api._lastError.message:''));
+  }).catch(e=>_relChanStatus('⚠ '+(e.message||e)));}
+function testRelChanPublish(){const d=_relDraft();const pub=(d.channels||[]).find(c=>c.publish);if(!pub){_relChanStatus('⚠ 无 publish=true 的通道');return;}
+  const name=pub.channel_name||pub.channel;api(`${A}/teams/${d.teamId}/agents/${d.agentId}/channels/publish`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel_name:name,content:'test from team-config '+new Date().toISOString()})}).then(r=>{
+    if(r&&r.ok)_relChanStatus('✅ 已发布到 '+name+' msg='+(r.message&&r.message.msg_id));else _relChanStatus('⚠ '+(r&&r.detail||r&&r.error||'publish failed'));
+  }).catch(e=>_relChanStatus('⚠ '+(e.message||e)));}
+function testRelChanInbox(){const d=_relDraft();api(`${A}/teams/${d.teamId}/agents/${d.agentId}/channels/inbox`).then(r=>{
+  if(r&&r.ok)_relChanStatus('📥 收件箱 '+(r.count||0)+' 条'+(r.messages&&r.messages.length?': '+r.messages.slice(-3).map(m=>(m.from||'?')+':'+(m.content||'').slice(0,24)).join(' | '):''));
+  else _relChanStatus('⚠ inbox failed');
+}).catch(e=>_relChanStatus('⚠ '+(e.message||e)));}
