@@ -1,0 +1,835 @@
+/**
+ * Taste Skill — product UI light shell (shared)
+ * ─────────────────────────────────────────────
+ * Official skill: https://www.tasteskill.dev
+ * Install: npx skills add Leonxlnx/taste-skill --skill design-taste-frontend
+ * Local:   .agents/skills/design-taste-frontend/SKILL.md
+ *
+ * Design Read (this product surface):
+ *   Multi-page B2B agent ops console (not a marketing landing).
+ *   Page Theme Lock = light (except 数字孪生 immersion pages).
+ *   Color Consistency Lock = single forest accent (#1F6B4A).
+ *   Shape Consistency Lock = soft radius 8–12px.
+ *   Anti-slop: no AI-purple / mesh blob; off-white + off-black (never pure
+ *   #fff/#000); cold monochrome + one accent (Taste §4.2 / §8 / §9).
+ *   Dials for console: VARIANCE 4 · MOTION 2 · DENSITY 7–8 (cockpit).
+ *
+ * Usage (all product pages except 数字孪生):
+ *   <html class="taste-light">
+ *   <link rel="stylesheet" href="/css/taste-light.css">  <!-- last stylesheet -->
+ *
+ * Do NOT load on Agent-digital-twin.html / digital-twin-cli.html
+ * (孪生 3D 试验田 Page Theme Lock = dark immersion).
+ */
+
+/* ═══ Token remap on html ═══ */
+html.taste-light {
+  color-scheme: light;
+
+  /* Taste page tokens */
+  --tg-bg: #F3F5F8;
+  --tg-bg-elevated: #FFFFFF;
+  --tg-bg-soft: #EBF0F5;
+  --tg-bg-hover: #E4EAF1;
+  --tg-border: #D8DEE8;
+  --tg-border-soft: #E8EDF3;
+  --tg-ink: #1A2030;
+  --tg-ink-2: #4B5568;
+  --tg-ink-3: #7B8798;
+  --tg-accent: #1F6B4A;
+  --tg-accent-hover: #27845B;
+  --tg-accent-soft: rgba(31, 107, 74, 0.10);
+  --tg-accent-ring: rgba(31, 107, 74, 0.18);
+  --tg-warn: #A67C1A;
+  --tg-warn-soft: rgba(166, 124, 26, 0.10);
+  --tg-danger: #C44B4B;
+  --tg-danger-soft: rgba(196, 75, 75, 0.08);
+  --tg-shadow: 0 1px 2px rgba(26, 32, 48, 0.04), 0 8px 24px rgba(26, 32, 48, 0.04);
+
+  /* Wabi-Sabi names → light (so existing pages inherit without rewrite) */
+  --shironeri: #FFFFFF;
+  --ishi: #F3F5F8;
+  --kabe: #E4EAF1;
+  --hai: #D8DEE8;
+  --nezumi: #7B8798;
+  --rubber: #E4EAF1;
+  --rubber-hover: #D8DEE8;
+  --rubber-press: #CDD5E0;
+  --sumi: #1A2030;
+  --sumi-2: #4B5568;
+  --sumi-3: #7B8798;
+  --koke: #1F6B4A;
+  --mizui: #0E7490;
+  --shu: #C44B4B;
+  --kitsune: #A67C1A;
+  --fuji: #4B5568; /* no purple — de-saturated slate */
+  --text: #1A2030;
+  --text-2: #4B5568;
+  --text-3: #7B8798;
+  --groove: #D8DEE8;
+  --ridge: rgba(26, 32, 48, 0.06);
+  --muted: #7B8798;
+  --dim: #7B8798;
+
+  /* Semantic */
+  --cyan: var(--tg-accent);
+  --cyan-s: var(--tg-accent);
+  --lime: var(--tg-accent);
+  --amber: var(--tg-warn);
+  --red: var(--tg-danger);
+  --pink: var(--tg-danger);
+  --bg: var(--tg-bg);
+  --panel: var(--tg-bg-elevated);
+  --panel2: var(--tg-bg-soft);
+  --line: var(--tg-border);
+
+  /* OpenBridge */
+  --ob-bg-global: var(--tg-bg);
+  --ob-bg-body: var(--tg-bg);
+  --ob-bg-section: var(--tg-bg-elevated);
+  --ob-bg-backdrop: var(--tg-bg-soft);
+  --ob-bg-panel: var(--tg-bg-elevated);
+  --ob-bg-card: #FFFFFF;
+  --ob-bg-card-hover: var(--tg-bg-hover);
+  --ob-bg-input: #FFFFFF;
+  --ob-bg-raised: var(--tg-bg-soft);
+  --ob-bg-hover: var(--tg-bg-hover);
+  --ob-text-primary: var(--tg-ink);
+  --ob-text-secondary: var(--tg-ink-2);
+  --ob-text-tertiary: var(--tg-ink-3);
+  --ob-text-disabled: #A0AAB8;
+  --ob-text-inverse: #FFFFFF;
+  --ob-border: var(--tg-border);
+  --ob-border-strong: #B8C0CC;
+  --ob-border-subtle: var(--tg-border-soft);
+  --ob-accent: var(--tg-accent);
+  --ob-accent-hover: var(--tg-accent-hover);
+  --ob-accent-light: var(--tg-accent-soft);
+  --ob-accent-text: #FFFFFF;
+  --ob-alarm: var(--tg-danger);
+  --ob-warning: var(--tg-warn);
+  --ob-caution: #C9A227;
+  --ob-running: var(--tg-accent);
+  --ob-on-alarm: #FFFFFF;
+  --ob-on-warning: #1A2030;
+  --ob-on-caution: #1A2030;
+  --ob-green: var(--tg-accent);
+  --ob-cyan: #0E7490;
+  --ob-red: var(--tg-danger);
+  --ob-orange: var(--tg-warn);
+  --ob-teal: var(--tg-accent);
+  --ob-nav-bg: #FFFFFF;
+  --ob-nav-active: var(--tg-accent);
+  --ob-nav-text: var(--tg-ink-3);
+  --ob-nav-text-active: #FFFFFF;
+
+  /* Plaza concrete tokens */
+  --concrete: #F3F5F8;
+  --concrete-light: #EBF0F5;
+  --concrete-pale: #E4EAF1;
+  --concrete-dark: #FFFFFF;
+  --concrete-deep: #E8EDF3;
+  --surface: #FFFFFF;
+  --surface-light: #EBF0F5;
+  --slit-light: #1A2030;
+  --slit-glow: #1F6B4A;
+  --bronze: #7B8798;
+  --bronze-light: #4B5568;
+  --ink: #1A2030;
+
+  /* Shadows */
+  --ws-shadow: rgba(26, 32, 48, 0.04);
+  --ws-shadow-md: rgba(26, 32, 48, 0.08);
+  --ws-shadow-lg: rgba(26, 32, 48, 0.12);
+
+  /* agent-team-config ws-* bridges */
+  --ws-sidebar-bg: #FFFFFF;
+  --ws-border-light: var(--tg-border);
+  --ws-border: var(--tg-border);
+  --ws-border-subtle: var(--tg-border-soft);
+  --ws-panel-bg: #FFFFFF;
+  --ws-hover-bg: var(--tg-bg-hover);
+  --ws-active-bg: var(--tg-accent-soft);
+  --ws-hover-row: rgba(31, 107, 74, 0.04);
+  --ws-danger-bg: var(--tg-danger-soft);
+  --ws-danger-border: rgba(196, 75, 75, 0.35);
+
+  /* skill-extract modal tabs: dark ink on light (never near-white) */
+  --modal-tab-fg: #5C6675;
+  --modal-tab-fg-hover: #1A2030;
+  --modal-tab-fg-active: #1F6B4A;
+  --modal-tab-border-active: #1F6B4A;
+}
+
+/* ═══ Body shell ═══ */
+html.taste-light body {
+  background:
+    radial-gradient(1200px 480px at 12% -10%, rgba(31, 107, 74, 0.05), transparent 55%),
+    radial-gradient(900px 420px at 88% 0%, rgba(60, 90, 140, 0.04), transparent 50%),
+    var(--tg-bg, #F3F5F8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Kill dark-theme grain / white dots on light pages */
+html.taste-light body::before {
+  background-image: none !important;
+  opacity: 0 !important;
+}
+
+/* ═══ Topbar (topbar-ws uses dark-oriented defaults) ═══ */
+html.taste-light .topbar-ws {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-bottom-color: var(--tg-border) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 4px 16px rgba(26, 32, 48, 0.04);
+  backdrop-filter: saturate(1.1) blur(10px);
+}
+html.taste-light .topbar-ws__left h1,
+html.taste-light .topbar-ws__nav a {
+  color: var(--tg-ink-2) !important;
+}
+html.taste-light .topbar-ws__nav a:hover {
+  color: var(--tg-ink) !important;
+  background: var(--tg-accent-soft) !important;
+}
+html.taste-light .topbar-ws__nav .cur {
+  color: var(--tg-accent) !important;
+  border-bottom-color: var(--tg-accent) !important;
+}
+html.taste-light .topbar-ws__nav .cur::before {
+  background: var(--tg-accent) !important;
+}
+html.taste-light .topbar-ws__user-name {
+  color: var(--tg-ink-2) !important;
+}
+html.taste-light .topbar-ws__user-avatar {
+  background: var(--tg-accent-soft) !important;
+  color: var(--tg-accent) !important;
+  border-color: var(--tg-border) !important;
+}
+html.taste-light .topbar-ws__logout-btn {
+  color: var(--tg-ink-3) !important;
+  border-color: var(--tg-border) !important;
+}
+html.taste-light .topbar-ws__logout-btn:hover {
+  color: var(--tg-danger) !important;
+  border-color: var(--tg-danger) !important;
+}
+
+/* ═══ Common panels / cards ═══ */
+html.taste-light .card,
+html.taste-light .stat-card,
+html.taste-light .tbl,
+html.taste-light .modal,
+html.taste-light .panel {
+  background: var(--tg-bg-elevated);
+  color: var(--tg-ink);
+  border-color: var(--tg-border);
+}
+html.taste-light .sidebar,
+html.taste-light .left,
+html.taste-light .right {
+  background: #FFFFFF;
+  border-color: var(--tg-border);
+  color: var(--tg-ink);
+}
+html.taste-light .app,
+html.taste-light .main,
+html.taste-light .layout {
+  background: transparent;
+  color: inherit;
+}
+
+/* Inputs */
+html.taste-light input,
+html.taste-light select,
+html.taste-light textarea,
+html.taste-light .fi {
+  background: #FFFFFF !important;
+  color: var(--tg-ink) !important;
+  border-color: var(--tg-border) !important;
+}
+html.taste-light input::placeholder,
+html.taste-light textarea::placeholder {
+  color: var(--tg-ink-3) !important;
+}
+
+/* Buttons — single accent */
+html.taste-light .btn-primary,
+html.taste-light .btn-pink {
+  background: var(--tg-accent) !important;
+  color: #FFFFFF !important;
+  border-color: transparent !important;
+}
+html.taste-light .btn-primary:hover,
+html.taste-light .btn-pink:hover {
+  background: var(--tg-accent-hover) !important;
+}
+html.taste-light .btn,
+html.taste-light .btn-ghost,
+html.taste-light .btn-sm {
+  color: var(--tg-ink-2);
+  border-color: var(--tg-border);
+}
+html.taste-light .btn:hover,
+html.taste-light .btn-ghost:hover {
+  background: var(--tg-bg-hover);
+  color: var(--tg-ink);
+}
+
+/* Seal chips (dark-on-light invert) */
+html.taste-light .seal {
+  color: #FFFFFF !important;
+  background: var(--tg-ink) !important;
+}
+html.taste-light .seal-koke { background: var(--tg-accent) !important; }
+html.taste-light .seal-shu { background: var(--tg-danger) !important; }
+html.taste-light .seal-kitsune { background: var(--tg-warn) !important; }
+
+/* Tables */
+html.taste-light .tbl th {
+  color: var(--tg-ink-3);
+  border-bottom-color: var(--tg-border);
+  background: var(--tg-bg-soft);
+}
+html.taste-light .tbl td {
+  color: var(--tg-ink);
+  border-bottom-color: var(--tg-border-soft);
+}
+html.taste-light .tbl tr:hover td {
+  background: var(--ws-hover-row);
+}
+
+/* Scrollbars */
+html.taste-light ::-webkit-scrollbar-thumb {
+  background: #C5CDD8;
+}
+html.taste-light ::-webkit-scrollbar-thumb:hover {
+  background: #A8B2C0;
+}
+
+/* ═══ agent-team-config sidebar density ═══ */
+html.taste-light .sb-nav a {
+  color: var(--tg-ink-3);
+}
+html.taste-light .sb-nav a:hover {
+  background: var(--tg-bg-hover);
+  color: var(--tg-ink);
+}
+html.taste-light .sb-nav a.active {
+  background: var(--tg-accent-soft);
+  color: var(--tg-accent);
+}
+html.taste-light .sb-agent:hover {
+  background: var(--tg-bg-hover);
+  color: var(--tg-ink);
+}
+html.taste-light .sb-agent.active {
+  background: var(--tg-accent-soft);
+  color: var(--tg-accent);
+}
+
+/* ═══ Plaza light adaptations ═══ */
+html.taste-light .plaza-card:hover {
+  background: rgba(31, 107, 74, 0.04);
+}
+html.taste-light .plaza-card.active {
+  background: rgba(31, 107, 74, 0.08);
+  border-left-color: var(--tg-accent);
+}
+
+/* ═══ Modals that rely on .modal { display } ═══ */
+html.taste-light .modal-overlay {
+  background: rgba(26, 32, 48, 0.35);
+}
+
+/* ═══ Login / bare pages without theme vars ═══ */
+html.taste-light.login-page body,
+html.taste-light body.login-page {
+  background: var(--tg-bg) !important;
+  color: var(--tg-ink) !important;
+}
+
+/* ═══ Re-assert tokens (beat later :root dark resets via higher specificity) ═══ */
+html.taste-light:root,
+html.taste-light {
+  --shironeri: #FFFFFF !important;
+  --ishi: #F3F5F8 !important;
+  --kabe: #E4EAF1 !important;
+  --hai: #D8DEE8 !important;
+  --sumi: #1A2030 !important;
+  --sumi-2: #4B5568 !important;
+  --sumi-3: #7B8798 !important;
+  --koke: #1F6B4A !important;
+  --shu: #C44B4B !important;
+  --kitsune: #A67C1A !important;
+  --groove: #D8DEE8 !important;
+  --bg: #F3F5F8 !important;
+  --panel: #FFFFFF !important;
+  --panel2: #EBF0F5 !important;
+  --line: #D8DEE8 !important;
+  --text: #1A2030 !important;
+  --text-2: #4B5568 !important;
+  --text-3: #7B8798 !important;
+  --muted: #7B8798 !important;
+  --concrete: #F3F5F8 !important;
+  --concrete-light: #EBF0F5 !important;
+  --concrete-pale: #E4EAF1 !important;
+  --concrete-dark: #FFFFFF !important;
+  --concrete-deep: #E8EDF3 !important;
+  --surface: #FFFFFF !important;
+  --surface-light: #EBF0F5 !important;
+  --slit-light: #1A2030 !important;
+  --slit-glow: #1F6B4A !important;
+  --ink: #1A2030 !important;
+  --ws-sidebar-bg: #FFFFFF !important;
+  --ws-panel-bg: #FFFFFF !important;
+  --ws-panel2-bg: #EBF0F5 !important;
+  --ws-input-bg: #FFFFFF !important;
+  --ws-soul-bg: #FFFFFF !important;
+  --ws-memory-bg: #F3F5F8 !important;
+  --ws-border-light: #D8DEE8 !important;
+  --input-bg: #FFFFFF !important;
+}
+
+/* ═══ skill-extract hard-coded dark panels ═══ */
+html.taste-light .overlay .topbar-ws,
+html.taste-light .overlay > .topbar-ws {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-bottom-color: var(--tg-border, #D8DEE8) !important;
+}
+html.taste-light .overlay .topbar-ws > .topbar-ws__left h1 {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .panel-left,
+html.taste-light .panel-right,
+html.taste-light .taxonomy-bar,
+html.taste-light .router-left,
+html.taste-light .router-right {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .topbar,
+html.taste-light .chat-input-bar,
+html.taste-light .rassign-bar {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .submit-form textarea,
+html.taste-light .submit-row input,
+html.taste-light .submit-row select,
+html.taste-light .chat-input-bar textarea,
+html.taste-light .router-query textarea,
+html.taste-light .modal-field input,
+html.taste-light .modal-field select,
+html.taste-light .modal-field textarea,
+html.taste-light .topbar-right select {
+  background: #FFFFFF !important;
+  color: var(--tg-ink, #1A2030) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+html.taste-light .modal,
+html.taste-light .star-modal,
+html.taste-light .sixpager {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .msg.user,
+html.taste-light .msg.system,
+html.taste-light .msg.skill-card,
+html.taste-light .queue-item,
+html.taste-light .skill-card,
+html.taste-light .rlog,
+html.taste-light .ragent-item,
+html.taste-light .rr-item {
+  background: var(--tg-bg-soft, #EBF0F5) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .msg.user { background: var(--tg-accent-soft, rgba(31,107,74,.1)) !important; }
+html.taste-light .queue-item .qi-name,
+html.taste-light .skill-card .sc-name,
+html.taste-light .rr-item .rr-name,
+html.taste-light .ragent-item .ra-name {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .queue-item .qi-meta,
+html.taste-light .skill-card .sc-desc,
+html.taste-light .rr-item .rr-desc {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+html.taste-light .modal-overlay,
+html.taste-light .star-modal-overlay,
+html.taste-light .sixpager-overlay {
+  background: rgba(26, 32, 48, 0.4) !important;
+}
+html.taste-light .modal-header h2,
+html.taste-light .star-modal-header h2,
+html.taste-light .sixpager-header h2,
+html.taste-light .panel-section h3,
+html.taste-light .router-query h3 {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .modal-col .source-text {
+  color: var(--tg-ink-2, #4B5568) !important;
+}
+html.taste-light .toast {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+  box-shadow: var(--tg-shadow);
+}
+html.taste-light .toggle-btn {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink-2, #4B5568) !important;
+}
+/* skill-extract: canvas is position:fixed z-index:0 under .overlay;
+   .viewport is the center column (z-index:10) — MUST stay transparent
+   or it paints a solid plate and the whole 3D scene disappears. */
+html.taste-light #three-canvas {
+  background: #E8EDF3 !important;
+}
+html.taste-light .viewport {
+  background: transparent !important;
+}
+
+/* ═══ agent-team-config hard dark leftovers ═══ */
+html.taste-light .app .sidebar {
+  background: #FFFFFF !important;
+  border-right-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .main,
+html.taste-light .main-inner,
+html.taste-light .main-scroll {
+  background: transparent !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .card,
+html.taste-light .stat-card,
+html.taste-light .section {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+/* ═══ plaza concrete formwork → light air ═══ */
+html.taste-light .left,
+html.taste-light .right,
+html.taste-light .center {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .plaza-card .nm,
+html.taste-light .hd h2 {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .plaza-card .mt,
+html.taste-light .hd .sub,
+html.taste-light .dim {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+
+/* ═══ system-evolution / tasks ═══ */
+html.taste-light .sidebar {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+
+/* ═══ sandbox-twin ═══ */
+html.taste-light .sandbox-shell,
+html.taste-light .sandbox-main {
+  background: var(--tg-bg, #F3F5F8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   skill-extract 详情弹窗 · 编辑/演化/验证/效果/版本/智线
+   暗色样式写死了 #EEF2F5 / oklch 浅色字，浅底上几乎看不见
+   ═══════════════════════════════════════════════════════════════ */
+html.taste-light .modal,
+html.taste-light .star-modal,
+html.taste-light .sixpager {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  color: var(--tg-ink, #1A2030) !important;
+  box-shadow: 0 16px 48px rgba(26, 32, 48, 0.12);
+}
+
+html.taste-light .modal-header,
+html.taste-light .star-modal-header,
+html.taste-light .sixpager-header,
+html.taste-light .modal-footer,
+html.taste-light .star-modal-footer,
+html.taste-light .sixpager-footer {
+  background: #FFFFFF !important;
+  border-color: var(--tg-border-soft, #E8EDF3) !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+html.taste-light .modal-header h2,
+html.taste-light .star-modal-header h2,
+html.taste-light .sixpager-header h2,
+html.taste-light .modal-body h4,
+html.taste-light .modal-col h4 {
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+html.taste-light .modal-header .close-btn,
+html.taste-light .star-modal-header .close-btn,
+html.taste-light .sixpager-header .close-btn {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+html.taste-light .modal-header .close-btn:hover {
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+/* Tab bar: 编辑 / 演化 / 验证 / 效果 / 版本 / 智线
+   Source skill-extract used #EEF2F5 active text — white-on-white under light shell.
+   Tokens + high-specificity button selectors force dark/accent ink. */
+html.taste-light .modal-tabs-bar {
+  border-bottom-color: var(--tg-border, #D8DEE8) !important;
+  background: #FFFFFF !important;
+}
+
+html.taste-light .modal-tabs-bar .modal-tab,
+html.taste-light button.modal-tab,
+html.taste-light .modal-tab {
+  color: var(--modal-tab-fg, #5C6675) !important;
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+  -webkit-text-fill-color: var(--modal-tab-fg, #5C6675) !important;
+}
+html.taste-light .modal-tabs-bar .modal-tab:hover,
+html.taste-light button.modal-tab:hover,
+html.taste-light .modal-tab:hover {
+  color: var(--modal-tab-fg-hover, #1A2030) !important;
+  -webkit-text-fill-color: var(--modal-tab-fg-hover, #1A2030) !important;
+  background: var(--tg-bg-soft, #EBF0F5) !important;
+}
+html.taste-light .modal-tabs-bar .modal-tab.active,
+html.taste-light button.modal-tab.active,
+html.taste-light .modal-tab.active {
+  color: var(--modal-tab-fg-active, #1F6B4A) !important;
+  -webkit-text-fill-color: var(--modal-tab-fg-active, #1F6B4A) !important;
+  border-bottom-color: var(--modal-tab-border-active, #1F6B4A) !important;
+  font-weight: 650;
+  background: transparent !important;
+}
+/* Icons keep per-tab tint; fill inherits only when no data-tab color */
+html.taste-light .modal-tab .tab-icon {
+  opacity: 1 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html.taste-light .modal-tab.active .tab-icon {
+  color: var(--modal-tab-fg-active, #1F6B4A) !important;
+  -webkit-text-fill-color: var(--modal-tab-fg-active, #1F6B4A) !important;
+}
+/* Explicit tints remain readable on white */
+html.taste-light .modal-tab[data-tab="edit"] .tab-icon { color: #2F7A6B !important; -webkit-text-fill-color: #2F7A6B !important; }
+html.taste-light .modal-tab[data-tab="evolve"] .tab-icon { color: #6B5B8A !important; -webkit-text-fill-color: #6B5B8A !important; }
+html.taste-light .modal-tab[data-tab="verify"] .tab-icon { color: #2F6F8F !important; -webkit-text-fill-color: #2F6F8F !important; }
+html.taste-light .modal-tab[data-tab="usage"] .tab-icon { color: #9A6B2F !important; -webkit-text-fill-color: #9A6B2F !important; }
+html.taste-light .modal-tab[data-tab="version"] .tab-icon { color: #3F6B48 !important; -webkit-text-fill-color: #3F6B48 !important; }
+html.taste-light .modal-tab[data-tab="pipeline"] .tab-icon { color: #8A4F48 !important; -webkit-text-fill-color: #8A4F48 !important; }
+html.taste-light .modal-tab.active[data-tab] .tab-icon {
+  color: var(--modal-tab-fg-active, #1F6B4A) !important;
+  -webkit-text-fill-color: var(--modal-tab-fg-active, #1F6B4A) !important;
+}
+
+/* Tab body panels */
+html.taste-light .modal-body,
+html.taste-light .modal-tab-content,
+html.taste-light .modal-col {
+  background: #FFFFFF !important;
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .modal-col .source-text {
+  color: var(--tg-ink-2, #4B5568) !important;
+}
+html.taste-light .modal-field label {
+  color: var(--tg-ink-2, #4B5568) !important;
+}
+html.taste-light .modal-field input,
+html.taste-light .modal-field select,
+html.taste-light .modal-field textarea,
+html.taste-light #version-changelog,
+html.taste-light #edit-instructions,
+html.taste-light #edit-desc,
+html.taste-light #edit-name {
+  background: #FFFFFF !important;
+  color: var(--tg-ink, #1A2030) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+
+/* Buttons inside modal — dark text on light, accent primary */
+html.taste-light .modal .btn,
+html.taste-light .modal .btn-sm {
+  color: var(--tg-ink-2, #4B5568) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+  background: #FFFFFF !important;
+}
+html.taste-light .modal .btn:hover,
+html.taste-light .modal .btn-sm:hover {
+  color: var(--tg-ink, #1A2030) !important;
+  background: var(--tg-bg-soft, #EBF0F5) !important;
+}
+html.taste-light .modal .btn-approve,
+html.taste-light .modal .btn-extract,
+html.taste-light .modal .btn-primary {
+  background: var(--tg-accent, #1F6B4A) !important;
+  color: #FFFFFF !important;
+  border-color: transparent !important;
+}
+html.taste-light .modal .btn-reject {
+  color: var(--tg-danger, #C44B4B) !important;
+  border-color: rgba(196, 75, 75, 0.35) !important;
+  background: #FFFFFF !important;
+}
+
+/* Soft cards / sections inside light modal (dark oklch backgrounds) */
+html.taste-light .modal [style*="background:oklch(0.1"],
+html.taste-light .modal [style*="background:oklch(0.12"],
+html.taste-light .modal [style*="background:oklch(0.14"],
+html.taste-light .modal [style*="background:oklch(0.15"],
+html.taste-light .modal [style*="background:oklch(0.16"],
+html.taste-light .modal [style*="background:oklch(0.18"] {
+  background: var(--tg-bg-soft, #EBF0F5) !important;
+  color: var(--tg-ink, #1A2030) !important;
+  border-color: var(--tg-border-soft, #E8EDF3) !important;
+}
+html.taste-light .modal [style*="color:oklch(0.8"],
+html.taste-light .modal [style*="color:oklch(0.85"],
+html.taste-light .modal [style*="color:oklch(0.88"],
+html.taste-light .modal [style*="color:oklch(0.75"],
+html.taste-light .modal [style*="color:oklch(0.7"],
+html.taste-light .modal [style*="color:oklch(0.65"] {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .modal [style*="color:oklch(0.5"],
+html.taste-light .modal [style*="color:oklch(0.45"],
+html.taste-light .modal [style*="color:oklch(0.4"] {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+
+/* Side panels (queue / message log) text */
+html.taste-light .panel-left,
+html.taste-light .panel-right,
+html.taste-light .router-left,
+html.taste-light .router-right,
+html.taste-light .taxonomy-bar {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .panel-section h3,
+html.taste-light .queue-tabs button.active,
+html.taste-light .queue-item .qi-name,
+html.taste-light .msg.user,
+html.taste-light .msg.system,
+html.taste-light .msg.skill-card {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .queue-tabs button {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+html.taste-light .queue-tabs button:hover {
+  color: var(--tg-ink, #1A2030) !important;
+}
+html.taste-light .queue-tabs button.active {
+  color: var(--tg-accent, #1F6B4A) !important;
+  border-bottom-color: var(--tg-accent, #1F6B4A) !important;
+}
+html.taste-light .msg.user,
+html.taste-light .msg.system,
+html.taste-light .msg.skill-card,
+html.taste-light .queue-item {
+  background: var(--tg-bg-soft, #EBF0F5) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+html.taste-light .chat-input-bar textarea,
+html.taste-light .submit-form textarea {
+  color: var(--tg-ink, #1A2030) !important;
+  background: #FFFFFF !important;
+}
+html.taste-light .mode-toggle button {
+  color: var(--tg-ink-3, #7B8798) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+html.taste-light .mode-toggle button.active {
+  color: var(--tg-accent, #1F6B4A) !important;
+  border-color: rgba(31, 107, 74, 0.35) !important;
+  background: var(--tg-accent-soft, rgba(31, 107, 74, 0.1)) !important;
+}
+html.taste-light .overlay .topbar-ws > .topbar-ws__left h1 {
+  color: var(--tg-ink, #1A2030) !important;
+}
+
+/* skill-extract taxonomy tabs: never white-on-white */
+html.taste-light .taxonomy-label {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+html.taste-light .taxonomy-tab {
+  color: var(--tg-ink-2, #4A5568) !important;
+  background: transparent !important;
+  border-bottom: 2px solid transparent !important;
+}
+html.taste-light .taxonomy-tab:hover {
+  color: var(--tg-ink, #1A2030) !important;
+  background: rgba(31, 107, 74, 0.06) !important;
+}
+html.taste-light .taxonomy-tab.active {
+  color: var(--tg-accent, #1F6B4A) !important;
+  border-bottom-color: var(--tg-accent, #1F6B4A) !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+}
+html.taste-light #taxonomy-toggle,
+html.taste-light #btn-view-mode {
+  color: var(--tg-ink-2, #4A5568) !important;
+  border-color: var(--tg-border, #D8DEE8) !important;
+}
+html.taste-light .taxonomy-header [style*="color:oklch(0.4"],
+html.taste-light .taxonomy-header [style*="color:oklch(0.45"],
+html.taste-light .taxonomy-header [style*="color:#8CBEB2"] {
+  color: var(--tg-ink-3, #7B8798) !important;
+}
+
+/* skill-extract progress bar + TSE badge on light shell */
+html.taste-light .extract-progress{
+  background:rgba(255,255,255,.92) !important;
+  border:1px solid rgba(31,107,74,.18) !important;
+  box-shadow:0 8px 24px rgba(26,32,48,.08);
+}
+html.taste-light .extract-progress .ep-text{
+  color:var(--tg-ink-2,#4A5568) !important;
+}
+html.taste-light .extract-progress .ep-bar{
+  background:rgba(26,32,48,.08) !important;
+}
+html.taste-light .extract-progress .ep-fill{
+  background:var(--tg-accent,#1F6B4A) !important;
+}
+html.taste-light .extract-progress .ep-engine{
+  border-color:rgba(31,107,74,.35) !important;
+  background:rgba(31,107,74,.1) !important;
+  color:var(--tg-accent,#1F6B4A) !important;
+}
+html.taste-light .extract-progress .ep-engine[data-mode="local"]{
+  border-color:rgba(166,124,26,.4) !important;
+  background:rgba(166,124,26,.12) !important;
+  color:#8A6615 !important;
+}
+html.taste-light .extract-progress .ep-engine[data-mode="offline"]{
+  border-color:rgba(75,85,104,.3) !important;
+  background:rgba(75,85,104,.08) !important;
+  color:#4B5568 !important;
+}
+html.taste-light .extract-progress .ep-engine[data-mode="error"]{
+  border-color:rgba(196,75,75,.4) !important;
+  background:rgba(196,75,75,.1) !important;
+  color:#B33A3A !important;
+}

@@ -1,4 +1,10 @@
-from .guard import BudgetCheckResult, BudgetExceededError, BudgetGuard, get_budget_guard
+from .guard import (
+    BudgetCheckResult,
+    BudgetExceededError,
+    BudgetGuard,
+    get_budget_guard,
+    save_budget_settings,
+)
 from .models import BudgetEvent, TokenBudget, UsageRecord
 from .store import UsageStore, get_usage_store
 
@@ -12,4 +18,5 @@ __all__ = [
     "UsageStore",
     "get_budget_guard",
     "get_usage_store",
+    "save_budget_settings",
 ]

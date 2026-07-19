@@ -279,3 +279,100 @@
 | 15:10 | XC-4.4b SkillRouter 静默绑定 locked skill | bid_candidate.py api.py cost-dashboard | lock+任务提交 assign 幂等；5 tests | ~2k |
 | 15:17 | 收口：verify 纳入 XC BidCandidate 全链路 + plan 待建文案 | verify_eco_feedback_xf.py docs/物竞与成本* | PASS=51 FAIL=0；pytest 5 | ~2k |
 | 15:30 | cost 页物竞主轴常驻+双向深链+同task token 条 | cost-dashboard.html eco-feedback Agent-digital-twin | 直接打开也见竞标；④可点 | ~3k |
+| 07:06 | Token治理主轴：全链1-6+计量缓存路由预算+物竞折叠 | cost-dashboard prompt_cache token_governance_routes token_ledger chat_harness | pytest10; verify PASS=39; live API ok | ~12k |
+| 07:45 | TG-7: 任务归因 env+记账 + submit 预算402 + unscoped UI | api.py tool_loop token_governance cost-dashboard | pytest 7; 归因/门禁落地 | ~6k |
+| 08:05 | cost 顶栏合并：全链1-6+动作+筛选条 | cost-dashboard.html | 去重复 pipe/topbar/action-bar | ~2k |
+| 08:20 | TG v2: 调研plan+TokenGovernanceService+workbench一体 | token_governance/* token-workbench.js cost-dashboard chat_harness | pytest9; dashboard live; 去两张皮 | ~15k |
+| 08:10 | R3: tool_loop prepare + skill/model 节省 + 预算感知 compact | tool_loop chat_harness service workbench | pytest 11 | ~5k |
+| 08:25 | cost 页 Taste 浅色：冷灰白+森林 accent 强制 light | cost-dashboard.css/.html | 去紫/奶白；sticky 白玻璃顶栏 | ~2k |
+| 08:30 | R5: skill缩短+savings JSONL+工作台按task节省+浅色 | token_governance savings_store workbench | pytest13 | ~4k |
+| 08:40 | R6: SkillRouter RoutingSession 解析+关键词回退+savings API+tg_prepare usage | token_governance service routes | pytest15 | ~3k |
+| 08:50 | 工作台布局：动作(杠杆/预算)在前，报表(账单/节省/prepare)在后 | cost-dashboard.html token-workbench.js | UX 重排 | ~1k |
+| 09:00 | 杠杆区改为实现卡+试跑效果表，修正 skill 虚增 saved | token-workbench.js service | 可证 before/after | ~2k |
+| 09:20 | R7 杠杆 catalog 全量 UI+plan+关compress可测+lever字段 catalog_id/module/before/after | lever_catalog service workbench plan todos | 19 pytest green, live levers/sim OK | ~5k |
+
+## Session: 2026-07-15 11:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 11:20 | R8 节省计量诚实化 | token_governance/service.py tests plan/todos | saved=before-after净减; observe HIT不虚增; 21 pytest; 恢复 settings 全开 | ~2k |
+| 12:00 | R9 六源调研真算法入 prepare | rtk/progressive/codegraph/behavior/cost_tier service lever catalog | live 12593→4838 saved7755; 26 pytest; codegraph MIT CLI | ~8k |
+| 12:25 | fix 试跑 toast null textContent | system-evolution.js token-workbench.js | cost 页无#toast; 全局 toast 空指针; 改安全 toast+collectBody 不全 false | ~1k |
+| 13:10 | 真实 task 试跑 | task_messages.py routes tool_loop workbench | snapshot 落盘+reconstruct; 29 pytest; live task saved 8774 | ~3k |
+| 13:40 | 试跑改为用户点选 task | cost-dashboard.html token-workbench.js | 独立面板列表+团队过滤+账单行联动 | ~2k |
+
+## Session: 2026-07-15 20:28
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 12:31 | paper consistency pass + research-state COMPLETE | paper/paper.tex analysis.md research-state.md paper/paper.docx | peak collab band fixed; ANOVA p>0.7; docs synced | ~2k |
+| 12:31 | user: do not touch paper/research | .wolf/cerebrum.md | preference logged | ~0.2k |
+| 14:57 | R10 杠杆一行表+params旋钮 | lever_params settings service routes workbench README tests | 33 pytest green; UI 去长文; budget/threshold 可调 | ~8k |
+| 15:01 | R10.1 收口: 预算面板只读+测隔离settings+恢复默认 | token-workbench tests settings | 33 green; 无双写预算表单 | ~2k |
+| 16:44 | R10.10 试跑前自动保存+submit开关+dirty+试跑列精简 | token-workbench.js todos | node ok; 33 pytest; live max_tool 生效 | ~2k |
+| 17:20 | R10.11 预算验证并入试跑建议+账单合并+竞标末位 | cost-dashboard token-workbench | 去掉独立预算验证菜单；细节中文；eco 非侧支 | ~3k |
+| 17:31 | R10.12 合并效率/建议/构成/明细为分析台 | cost-dashboard.html | 共用筛选条；棘轮副轴折叠 | ~2k |
+| 17:33 | R11 H0+H1 启动: 段导航 sticky 窗口统一 空状态 账单高亮 | cost-dashboard* token-workbench | scheduler 25m; node ok; 33 pytest | ~4k |
+| 17:40 | R11 COMPLETE H0-H4 全勾 | cost-dashboard token-workbench cost-dashboard.js | 明细空态/建议动词/窄屏/compress恢复/竞标步骤6/去抖/错误可见 | ~6k |
+| 17:45 | 竞标区强化: 过程条/能力/排行卡/比价/质量Q/冠军锁定 | cost-dashboard.html | BidCandidate 竞价台可见 | ~4k |
+| 17:58 | R11 scheduler polish: bid focus + quality recheck + error empty | cost-dashboard.html | H0-H4 still COMPLETE; node+33 pytest | ~1k |
+| 18:48 | R11 COMPLETE 停调度019f66d64812 | docs/任务Token治理-5h连续优化todos.md | 无未完成H项; node+33pytest 绿; 停止重复劳动 | ~0.3k |
+| 23:42 | 任务token归因加固: session/tool_loop token_scope+team 必写 | api.py tool_loop.py workbench KPI | build_system 历史0=未记账; 新任务应进分析台 | ~3k |
+| 00:03 | 新增 verify_task_token_attribution.py | scripts/ | 离线写入路径+usage.db诊断+可选live | ~1k |
+| 00:18 | 物竞四机制: 性选择/频依/上位/衰老 + 全链核对 | eco_drill.py eco_runtime_config eco-console pet-config README nature-audit | 65 pytest 绿; A4+B12; 生产默认注入 | ~8k |
+| 00:25 | 右侧环境压力台补 Darwin 四滑杆(性选择/稀有利/协同/衰老) | Agent-digital-twin.html eco-console.js | 用户可见A4下新增B段 | ~1k |
+| 00:35 | 衰老率迁 metabolism(Agent侧) 与环境加压分离 | eco_runtime_config eco_drill eco-console pet-config | A生境/B环境选择/C Agent 生命 | ~2k |
+
+## Session: 2026-07-16 11:40
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 03:43 | 物竞四机制全链核对+habitat注入测试+写回文案A+B+C | eco-console eco_runtime_config tests Agent-digital-twin.html | 30 pytest绿; 生产注入OK; 压力台仅demand skills | ~2k |
+| 06:10 | 分析台：构成/趋势两图并入优化栏；标题改 skill萃取+路由 成本构成与趋势 | cost-dashboard.html | 嵌套 charts 上下叠；id 不变 | ~0.5k |
+| 06:15 | 消耗明细并入优化 skill/构成/趋势 右栏 | cost-dashboard.html | pods-table id 不变 | ~0.3k |
+| 06:50 | Token节省命名 + cost 页补生态配置站导航 | nav.js cost-dashboard pet-config | 🐾→生态配置文字；全站 Token节省/生态配置 | ~1k |
+| 06:53 | 修 cost 导航重叠: 去掉 topbar-ws__nav absolute 叠层 | cost-dashboard.html | site-nav 文档流; 生态配置仅在站导航 | ~0.5k |
+| 06:58 | Taste 浅色全站(除数字孪生) | css/taste-light.css + 13 html | twin 保持暗色; 其余 cold-light | ~3k |
+| 07:00 | 对齐官方 Taste Skill tasteskill.dev + 安装 SKILL.md | .agents/skills/design-taste-frontend taste-light.css cerebrum | 用户纠正官方源 | ~1k |
+| 08:05 | plaza 3D 浅色议事厅 + 气泡/TTS 配色协调 | plaza.js plaza.html | bg fog 0xE8EDF3 石台浅灰; 议事台白底气泡 | ~2k |
+| 08:09 | skill-extract 3D 浅色培养皿(对齐 plaza Taste) | skill-extract.js | bg/fog E8EDF3 基质/灯/菌丝/标签/团队皿 | ~2k |
+| 08:14 | skill-extract 3D 对比度修复: 基质/菌丝/尘埃/皿可见 | skill-extract.js | 降雾 提 opacity 加 rim accent 加厚 hypha | ~1.5k |
+| 08:16 | 修 skill-extract 3D 全空: viewport 不透明盖住 canvas | taste-light.css | viewport background transparent | ~0.5k |
+| 08:29 | skill-extract 3D sexy twin 配色+skill 自发光+萤火虫尘埃 | skill-extract.js | vivid palette; mycelium 34d399; additive skill rings; firefly dust | ~3k |
+| 09:03 | llm 测试连接显示实际 model@base + tip 解释 model_not_found | api.py agent-team-config.js | 全局 vs 单模型区分 | ~1.5k |
+| 09:04 | skill-extract 弹窗 tab 浅色字对比修复 | taste-light.css skill-extract.html | modal-tab active 深色/accent; 面板正文 ink | ~1.5k |
+| 17:05 | skill-extract modal tab 白字→深色/accent（token+force fill） | skill-extract.css taste-light.css skill-extract.html | 编辑/演化/验证等可读 | ~1k |
+| 17:09 | 修 test-model 被 TG 改写成 deepseek-v4-flash | chat_harness api agent-team-config.js | model_override+sent_model | ~2k |
+| 17:18 | skill-extract 3D Taste 配色：forest+slate，去霓虹紫粉 | skill-extract.js | TASTE3D 单 accent | ~2k |
+| 17:19 | skill-extract 3D 标签可读：白底 chip + 深字 + 放大 | skill-extract.js | makeSpriteLabel | ~1k |
+| 17:21 | 菌丝改冷色 teal 系+提高透明度/粗细 | skill-extract.js | MYC palette | ~1k |
+| 17:22 | skill-extract 3D 字对齐 plaza makeTextCanvas 800/34 + scale | skill-extract.js | 去 chip | ~0.8k |
+| 17:49 | 全站「数字孪生」入口统一 ?office3d=1 | nav.js global-nav 各页 topbar | 物竞试验田默认 | ~0.5k |
+| 18:14 | plaza LLM 不可用=INVALID_API_KEY；改进 abort 提示；plaza 跳过 model_route | plaza_engine chat_harness | 用户需更新 Key | ~1.5k |
+| 18:43 | 修技能删除404：按 id/slug/registry/store/队列解析 | api.py tools-skills skill-extract | delete_skill 增强 | ~2k |
+| 18:48 | 修技能DELETE 403：api()走CSRF重试 + fetch包装 | api.js agent-team-config tools-skills | CSRF | ~1k |
+| 18:51 | Agent 列表加编辑/删除按钮 | agent-team-config.js | editAgentFromList deleteAgentFromList | ~0.5k |
+| 18:54 | 技能删除幂等：二次删除 already_deleted + 防连点刷新 | api tools-skills | 避免假 404 | ~0.8k |
+| 19:25 | Agent技能删除：就地移除+幂等+禁整页刷新 | agent-detail.js | deleteSkillWithContext | ~1.2k |
+| 19:37 | 演化LLM：磁盘拉Key+override优先+错误可读+回退命名 | skill_evolver chat_harness skill-extract | 解释技能名 | ~2k |
+| 19:37 | 修 resolve_api_key：UI密钥优先于 OPENAI_API_KEY 环境变量 | secret_store skill_evolver | 演化可用 | ~1k |
+| 20:18 | Implement TSE skill extractor pipeline + wire skill_extractor | tse/*, skill_extractor.py, test_tse_pipeline.py | 8 tests pass | ~4k |
+| 00:30 | TSE training: silver/dataset/trainer/checkpoint/active + CLI | tse/*.py, scripts/train_tse.py, test_tse_train.py | 15 tests pass, demo train ok | ~5k |
+| 13:45 | Fix extract LLM route + local TSE decoder; verified real skill AWS ES auto-scale | chat_harness.py, tse/decoder.py | tse+qwen-36 ready_for_review | ~1k |
+| 14:10 | Document TSE skill-extract arch in README; confirm available (tse+qwen-36) | README.md | extraction OK + docs | ~0.8k |
+| 15:20 | Fix deleted skills resurrect via extract queue rehydrate | api.py, skill_extractor.py, skill_library.py | tombstone+queue dict fix | ~1.2k |
+| 14:45 | Fix plaza extract: full transcript not plan-only; skill-extract hydrate+auto TSE | plaza.js, skill-extract.js | 3 fe tests pass | ~1k |
+| 15:00 | skill-extract UX: queue=pending only; taxonomy=approved library; no left skill-card dup | skill-extract.js/html | vitest ok | ~0.8k |
+
+## Session: 2026-07-17 02:01
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 02:05 | 修回退草稿标题：TSE local 优先+去【回退草稿】前缀+前端离线徽章 | skill_extractor.py skill-extract.js | smoke OK; vitest 20; tse 8 | ~3k |
+| 02:15 | 萃取进度条显示 TSE 引擎徽章+model | skill-extract.html/js/css + skill_extractor SSE | vitest 20; 文案/徽章随 tse_extract_done | ~1.5k |
+| 02:12 | 修特质/储备 tab 误分类：skill_type 持久化+默认储备 | skill_extractor + skill-extract.js | 非公共≠特质；旧数据回填 reserve | ~2k |
+| 02:24 | 重写 skill 演化：JSON草稿+语言硬守卫+前端可编辑changelog | skill_evolver.py skill-extract.* tests/test_skill_evolver.py | 9 pytest; vitest 20 | ~4k |
+| 02:35 | 路由 lifecycle 加权+affinity 落盘+README 演化/验证/路由速查 | skill_router.py README tests | 12 pytest | ~2k |
+| 08:05 | 语义验证(步骤/工具mock/场景对齐)+路由 lifecycle 徽章 UI | skill_verifier skill_router skill-extract README tests | 15 pytest + 20 vitest | ~4k |
+| 08:20 | Twin A/B 全量接入 skill 验证：skill_twin_ab + UI 对照表 | skill_twin_ab.py skill_verifier.py skill-extract.js README tests | 7+ twin/semantic tests pass | ~5k |
+| 08:40 | 修演化卡死：独立 session + 60s 超时 + 最多2次LLM + 取消语言二次修复 | skill_evolver.py skill-extract.js | 11 pytest | ~2k |

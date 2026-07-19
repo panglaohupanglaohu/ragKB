@@ -150,6 +150,16 @@ class ModelRouter:
         self.state.consecutive_failures += 1
         self.state.consecutive_successes = 0
 
+    def prefer_tier(self, target: ModelTier, reason: str = "cost_tier") -> None:
+        """External cost-tier hint (Flowork-style). Respect sticky failures."""
+        if self.state.consecutive_failures >= self.state.failure_threshold_up:
+            return
+        if self.state.sticky_remaining > 0 and target != self.state.current_tier:
+            # still allow downgrade to economy for savings
+            if not (target == ModelTier.ECONOMY and self.state.current_tier != ModelTier.ECONOMY):
+                return
+        self._switch_tier(target, reason)
+
     def _switch_tier(self, target: ModelTier, reason: str) -> None:
         if self.state.current_tier == target:
             return

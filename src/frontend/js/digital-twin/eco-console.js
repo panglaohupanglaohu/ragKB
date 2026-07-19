@@ -184,8 +184,7 @@
     _renderBoundTaskUi(null);
     var sel = $('eco2-primary-task-select');
     if (sel) sel.value = '';
-    var nb = $('eco2-env-niches');
-    if (nb) nb.innerHTML = '<span style="color:var(--dim)">未挂任务 — 无考卷步骤</span>';
+    _clearEnvDemandChips('未挂任务 — 无 demand');
     setText('eco2-run-status', '已解除任务挂载（无业务考卷）');
     _syncComparisonBanner();
   };
@@ -199,6 +198,45 @@
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
   function setText(id, v) { var el = $(id); if (el) el.textContent = v; }
+
+  /** 压力台只渲染 demand skills，禁止任务名/步骤长标题（无信息量、与挂载区重复） */
+  function _renderEnvDemandChips(source) {
+    var box = $('eco2-env-niches');
+    if (!box) return;
+    var names = [];
+    var seen = {};
+    function pushSk(s) {
+      var n = _sk(s);
+      if (!n || seen[n]) return;
+      seen[n] = 1;
+      names.push(n);
+    }
+    if (Array.isArray(source)) {
+      // niches[] 或 skill id 字符串数组
+      source.forEach(function (item) {
+        if (item == null) return;
+        if (typeof item === 'string') {
+          pushSk(item);
+        } else if (typeof item === 'object') {
+          (item.demanded_skills || item.skills || []).forEach(pushSk);
+        }
+      });
+    } else if (source && typeof source === 'object') {
+      (source.demanded_skills || source.skills || []).forEach(pushSk);
+    }
+    if (!names.length) {
+      box.innerHTML = '<span style="color:var(--dim);font-size:10px">无 demand skill</span>';
+      return;
+    }
+    box.innerHTML = names.slice(0, 24).map(function (n) {
+      return '<span class="eco2-chip" title="demand">' + esc(n) + '</span>';
+    }).join(' ');
+  }
+  function _clearEnvDemandChips(msg) {
+    var box = $('eco2-env-niches');
+    if (box) box.innerHTML = '<span style="color:var(--dim);font-size:10px">'
+      + esc(msg || '挂任务后显示 demand skills…') + '</span>';
+  }
 
   // ═══ v2.3 R5: skill 名称解析（hex ID → 可读名，覆盖控制台+报告全部展示点） ═══
   var _skillNames = {};   // skillId -> 可读名（主队 + 对比种群的技能目录合并）
@@ -316,14 +354,8 @@
         var gensEl = $('eco2-run-gens');
         if (stepsEl && sb.max_steps_per_generation) stepsEl.value = sb.max_steps_per_generation;
         if (gensEl && sb.max_generations) gensEl.value = sb.max_generations;
-        var nb = $('eco2-env-niches');
-        if (nb) {
-          nb.innerHTML = (_boundContract.niches || []).map(function (n) {
-            var sk = (n.demanded_skills || []).map(function (s) { return _sk(s); }).join(', ');
-            return '<span class="eco2-chip eco2-niche-chip" title="' + esc(sk) + '">' + esc(n.index + '. ' + (n.title || n.step_id)) + '</span>';
-          }).join(' ') || '<span style="color:var(--dim)">（无考卷步骤）</span>';
-        }
-        // XF-5：任务型 HUD（仅契约挂接时）
+        _renderEnvDemandChips(_boundContract.niches || []);
+        // XF-5：任务型 HUD（仅契约挂接时；步骤标题在 HUD，不进压力台）
         try {
           if (window.ecoTaskHudBind) window.ecoTaskHudBind(_boundContract, task);
         } catch (eHud) { /* ignore */ }
@@ -492,14 +524,8 @@
         var gensEl = $('eco2-run-gens');
         if (stepsEl && sb.max_steps_per_generation) stepsEl.value = sb.max_steps_per_generation;
         if (gensEl && sb.max_generations) gensEl.value = sb.max_generations;
-        // 计划考卷 chips + XF-5 HUD
-        var nb = $('eco2-env-niches');
-        if (nb) {
-          nb.innerHTML = (_boundContract.niches || []).map(function (n) {
-            var sk = (n.demanded_skills || []).map(function (s) { return _sk(s); }).join(', ');
-            return '<span class="eco2-chip eco2-niche-chip" title="' + esc(sk) + '">' + esc(n.index + '. ' + (n.title || n.step_id)) + '</span>';
-          }).join(' ') || '<span style="color:var(--dim)">（无考卷步骤）</span>';
-        }
+        // 压力台只显示 demand skills；步骤标题在 HUD
+        _renderEnvDemandChips(_boundContract.niches || []);
         try {
           if (window.ecoTaskHudBind) {
             window.ecoTaskHudBind(_boundContract, {
@@ -527,8 +553,7 @@
       sessionStorage.removeItem('eco_bound_contract');
     } catch (e) { /* ignore */ }
     try { if (window.ecoTaskHudClear) window.ecoTaskHudClear(); } catch (eH) { /* ignore */ }
-    var nb = $('eco2-env-niches');
-    if (nb) nb.innerHTML = '<span style="color:var(--dim)">未挂任务 — 无考卷步骤</span>';
+    _clearEnvDemandChips('未挂任务 — 无 demand');
     setText('eco2-run-status', '已解除计划/任务绑定（回退 v3 手填预算）');
   };
 
@@ -621,16 +646,17 @@
   };
 
   // ── 左侧音量式旋钮台 ───────────────────────────────────────────
-  // 两组，与配置 JSON 字段严格对应（不再混装）：
+  // 三组，与配置 JSON 字段严格对应：
   //   A habitat(4)  → abundance / predator_pressure / drift_prob / niche_capacity
-  //   B evolution_pressure(8) → pet-config「演化加压」全部 8 键
+  //   B evolution_pressure(11) → 环境选择压（含性选择/频依/上位；不含衰老）
+  //   C metabolism  → senescence_rate（Agent 生命史，非环境）
   var _knobState = {
     // A habitat
     abundance: 0.7,
     predator_pressure: 0.12,
     drift_prob: 0.2,
     niche_capacity: 3,
-    // B evolution_pressure（与 eco_runtime_config._DEFAULTS.evolution_pressure 同键）
+    // B evolution_pressure（环境侧）
     skill_idle_penalty: 1.2,
     genome_carry_cost: 0.08,
     min_steps_when_contract: 64,
@@ -639,6 +665,11 @@
     predator_bias_unskilled: 2.0,
     scarce_share_boost: 1.2,
     same_pop_share_bias: 0.7,
+    sexual_selection_strength: 1.0,
+    freq_dep_strength: 0.5,
+    epistasis_strength: 0.2,
+    // C metabolism · Agent 侧
+    senescence_rate: 0.003,
   };
   var _habitatDefs = [
     { key: 'abundance', label: '丰饶度', hint: '≈ token 松紧', min: 0.3, max: 2.0, step: 0.05, fmt: function (v) { return v.toFixed(2); } },
@@ -655,8 +686,14 @@
     { key: 'predator_bias_unskilled', label: '无技偏压', hint: '事故盯无 skill', min: 0, max: 8, step: 0.1, fmt: function (v) { return v.toFixed(1); } },
     { key: 'scarce_share_boost', label: '稀缺分享', hint: '丰饶<1 分享放大', min: 0, max: 4, step: 0.1, fmt: function (v) { return v.toFixed(1); } },
     { key: 'same_pop_share_bias', label: '同队分享', hint: '0~1 优先同队', min: 0, max: 1, step: 0.05, fmt: function (v) { return v.toFixed(2); } },
+    { key: 'sexual_selection_strength', label: '性选择', hint: '择偶×choosiness', min: 0, max: 3, step: 0.1, fmt: function (v) { return v.toFixed(1); } },
+    { key: 'freq_dep_strength', label: '稀有利', hint: '负频率依赖 skill', min: 0, max: 2, step: 0.05, fmt: function (v) { return v.toFixed(2); } },
+    { key: 'epistasis_strength', label: '技能协同', hint: '上位/组合加成', min: 0, max: 1, step: 0.05, fmt: function (v) { return v.toFixed(2); } },
   ];
-  var _knobDefs = _habitatDefs.concat(_pressureDefs);
+  var _agentDefs = [
+    { key: 'senescence_rate', label: '衰老率', hint: 'Agent 侧 μ×age', min: 0, max: 0.02, step: 0.001, fmt: function (v) { return v.toFixed(3); } },
+  ];
+  var _knobDefs = _habitatDefs.concat(_pressureDefs).concat(_agentDefs);
   var _knobSyncing = false;
   var _knobsBound = false;
 
@@ -725,6 +762,7 @@
     var panel = $('lp-eco-knobs');
     var gHab = $('lp-knobs-habitat');
     var gPr = $('lp-knobs-pressure');
+    var gAg = $('lp-knobs-agent');
     if (!panel) return;
     var show = !!(window.__ECO_FIELD__ || document.body.classList.contains('office-mode')
       || (document.getElementById('rp-eco') && document.getElementById('rp-eco').style.display !== 'none'));
@@ -737,6 +775,10 @@
     if (gPr && !gPr.dataset.built) {
       gPr.innerHTML = _pressureDefs.map(_dialHtml).join('');
       gPr.dataset.built = '1';
+    }
+    if (gAg && !gAg.dataset.built) {
+      gAg.innerHTML = _agentDefs.map(_dialHtml).join('');
+      gAg.dataset.built = '1';
     }
     if (!_knobsBound) {
       _bindLeftKnobs(panel);
@@ -797,6 +839,21 @@
     var bs = $('lp-knob-save');
     if (bs) bs.onclick = function () { window.eco2SaveEnv(); };
   }
+  // 右侧 Darwin 扩展滑杆：raw → 真实值（与 HTML min/max 对齐）
+  // sexual 0~30 → /10；freqdep 0~40 → /20；epistasis 0~20 → /20；senescence 0~20 → /1000
+  function _setDarwinSlidersFromState() {
+    _setSlider('eco2-env-sexual', Math.round(Number(_knobState.sexual_selection_strength || 0) * 10), 10);
+    _setSlider('eco2-env-freqdep', Math.round(Number(_knobState.freq_dep_strength || 0) * 20), 20);
+    _setSlider('eco2-env-epistasis', Math.round(Number(_knobState.epistasis_strength || 0) * 20), 20);
+    _setSlider('eco2-env-senescence', Math.round(Number(_knobState.senescence_rate || 0) * 1000), 1000);
+  }
+  function _readDarwinSlidersToState() {
+    var sx = $('eco2-env-sexual'), fd = $('eco2-env-freqdep'), ep = $('eco2-env-epistasis'), se = $('eco2-env-senescence');
+    if (sx) _knobState.sexual_selection_strength = Number(sx.value) / 10;
+    if (fd) _knobState.freq_dep_strength = Number(fd.value) / 20;
+    if (ep) _knobState.epistasis_strength = Number(ep.value) / 20;
+    if (se) _knobState.senescence_rate = Number(se.value) / 1000;
+  }
   function _syncKnobsToRightSliders() {
     if (_knobSyncing) return;
     _knobSyncing = true;
@@ -805,6 +862,7 @@
       _setSlider('eco2-env-abundance', Math.round(_knobState.abundance * 100), 100);
       _setSlider('eco2-env-drift', Math.round(_knobState.drift_prob * 100), 100);
       _setSlider('eco2-env-capacity', Math.round(_knobState.niche_capacity), 1);
+      _setDarwinSlidersFromState();
     } finally {
       _knobSyncing = false;
     }
@@ -816,6 +874,7 @@
     if (a) _knobState.abundance = Number(a.value) / 100;
     if (d) _knobState.drift_prob = Number(d.value) / 100;
     if (c) _knobState.niche_capacity = Number(c.value);
+    _readDarwinSlidersToState();
     _paintAllKnobs();
   }
   window.eco2ApplyPressureKnobs = function () {
@@ -833,11 +892,15 @@
       predator_bias_unskilled: 2.5,
       scarce_share_boost: 1.5,
       same_pop_share_bias: 0.75,
+      sexual_selection_strength: 1.2,
+      freq_dep_strength: 0.6,
+      epistasis_strength: 0.25,
+      senescence_rate: 0.004,
     });
     _syncKnobsToRightSliders();
     _paintAllKnobs();
     window.eco2SaveEnv();
-    setText('lp-knobs-status', '· 已加压(A+B)');
+    setText('lp-knobs-status', '· 已加压(A+B+C)');
     setText('eco2-env-status', '· 加压预设已写回');
   };
   window.eco2ApplyLooseKnobs = function () {
@@ -854,6 +917,10 @@
       predator_bias_unskilled: 0,
       scarce_share_boost: 0,
       same_pop_share_bias: 0,
+      sexual_selection_strength: 0,
+      freq_dep_strength: 0,
+      epistasis_strength: 0,
+      senescence_rate: 0,
     });
     _syncKnobsToRightSliders();
     _paintAllKnobs();
@@ -875,7 +942,8 @@
         _knobState.abundance = hab.abundance != null ? Number(hab.abundance) : 0.7;
         _knobState.drift_prob = hab.drift_prob != null ? Number(hab.drift_prob) : 0.2;
         _knobState.niche_capacity = hab.niche_capacity != null ? Number(hab.niche_capacity) : 3;
-        // B — 8 键全量
+        // B — 环境选择压；C — Agent 衰老（metabolism，兼容旧 evo 键）
+        var metaSec = cfg.metabolism || {};
         _knobState.skill_idle_penalty = evo.skill_idle_penalty != null ? Number(evo.skill_idle_penalty)
           : (econ.skill_idle_penalty != null ? Number(econ.skill_idle_penalty) : 1.2);
         _knobState.genome_carry_cost = evo.genome_carry_cost != null ? Number(evo.genome_carry_cost)
@@ -886,13 +954,19 @@
         _knobState.predator_bias_unskilled = evo.predator_bias_unskilled != null ? Number(evo.predator_bias_unskilled) : 2.0;
         _knobState.scarce_share_boost = evo.scarce_share_boost != null ? Number(evo.scarce_share_boost) : 1.2;
         _knobState.same_pop_share_bias = evo.same_pop_share_bias != null ? Number(evo.same_pop_share_bias) : 0.7;
+        _knobState.sexual_selection_strength = evo.sexual_selection_strength != null ? Number(evo.sexual_selection_strength) : 1.0;
+        _knobState.freq_dep_strength = evo.freq_dep_strength != null ? Number(evo.freq_dep_strength) : 0.5;
+        _knobState.epistasis_strength = evo.epistasis_strength != null ? Number(evo.epistasis_strength) : 0.2;
+        _knobState.senescence_rate = metaSec.senescence_rate != null ? Number(metaSec.senescence_rate)
+          : (evo.senescence_rate != null ? Number(evo.senescence_rate) : 0.003);
         _setSlider('eco2-env-predator', Math.round(_knobState.predator_pressure * 100), 100);
         _setSlider('eco2-env-abundance', Math.round(_knobState.abundance * 100), 100);
         _setSlider('eco2-env-drift', Math.round(_knobState.drift_prob * 100), 100);
         _setSlider('eco2-env-capacity', _knobState.niche_capacity, 1);
+        _setDarwinSlidersFromState();
         _renderLeftKnobs();
-        setText('eco2-env-status', '· 已加载');
-        setText('lp-knobs-status', '· A4+B8 已加载');
+        setText('eco2-env-status', '· 环境+Agent 已加载');
+        setText('lp-knobs-status', '· A4+B11+C1 已加载');
       }).catch(function () {
         setText('eco2-env-status', '· 使用默认值');
         _renderLeftKnobs();
@@ -911,6 +985,11 @@
     if (denom === 1) {
       var v = Number(el.value);
       out.textContent = v === 0 ? '∞' : String(v);
+    } else if (denom === 1000) {
+      // 衰老率三位小数
+      out.textContent = (Number(el.value) / denom).toFixed(3);
+    } else if (denom === 10 || denom === 20) {
+      out.textContent = (Number(el.value) / denom).toFixed(denom === 10 ? 1 : 2);
     } else {
       out.textContent = (Number(el.value) / denom).toFixed(2).replace(/0$/, '');
     }
@@ -927,6 +1006,21 @@
     if (cap) cap.addEventListener('input', function () {
       _syncSliderVal('eco2-env-capacity', 1);
       _syncRightSlidersToKnobs();
+    });
+    // Darwin 扩展四滑杆（右侧压力台可见）
+    var darwinBind = [
+      ['eco2-env-sexual', 10],
+      ['eco2-env-freqdep', 20],
+      ['eco2-env-epistasis', 20],
+      ['eco2-env-senescence', 1000],
+    ];
+    darwinBind.forEach(function (pair) {
+      var id = pair[0], den = pair[1];
+      var el = $(id);
+      if (el) el.addEventListener('input', function () {
+        _syncSliderVal(id, den);
+        _syncRightSlidersToKnobs();
+      });
     });
   }
 
@@ -955,16 +1049,15 @@
     }
   };
 
-  // 环境压力台 / 左侧旋钮 → 写回 habitat(A4) + evolution_pressure(B8 全量)
+  // 环境压力台 / 左侧旋钮 → 写回 habitat(A4) + evolution_pressure(B12 全量)
   window.eco2SaveEnv = function () {
-    // 若左旋钮未建好，从右侧滑杆回填 A
-    var hasLeft = ($('lp-knobs-habitat') && $('lp-knobs-habitat').dataset.built)
-      || ($('lp-knobs-pressure') && $('lp-knobs-pressure').dataset.built);
-    if (!hasLeft && $('eco2-env-predator')) {
+    // 始终从右侧滑杆回填 A + Darwin（右侧是用户最常改的入口）
+    if ($('eco2-env-predator')) {
       _knobState.predator_pressure = Number($('eco2-env-predator').value) / 100;
       _knobState.abundance = Number($('eco2-env-abundance').value) / 100;
       _knobState.drift_prob = Number($('eco2-env-drift').value) / 100;
       _knobState.niche_capacity = Number(($('eco2-env-capacity') || { value: 2 }).value);
+      _readDarwinSlidersToState();
     }
     var body = {
       habitat: {
@@ -982,6 +1075,13 @@
         predator_bias_unskilled: Number(_knobState.predator_bias_unskilled),
         scarce_share_boost: Number(_knobState.scarce_share_boost),
         same_pop_share_bias: Number(_knobState.same_pop_share_bias),
+        sexual_selection_strength: Number(_knobState.sexual_selection_strength),
+        freq_dep_strength: Number(_knobState.freq_dep_strength),
+        epistasis_strength: Number(_knobState.epistasis_strength),
+      },
+      // Agent 侧生命史（与环境加压分离）
+      metabolism: {
+        senescence_rate: Number(_knobState.senescence_rate),
       },
       // 生产路径会读 drill_economics.skill_idle 与 learning.genome_carry — 与 B 同步
       drill_economics: {
@@ -997,40 +1097,26 @@
       body: JSON.stringify(body),
     }).then(function (r) {
       var ok = r && r.ok !== false;
-      setText('eco2-env-status', ok ? '· ✓ 已写回' : '· 写回失败');
-      setText('lp-knobs-status', ok ? '· ✓ A+B 已写回' : '· 失败');
+      setText('eco2-env-status', ok ? '· ✓ A+B+C 已写回' : '· 写回失败');
+      setText('lp-knobs-status', ok ? '· ✓ A+B+C 已写回' : '· 失败');
     }).catch(function () {
       setText('eco2-env-status', '· 写回失败');
       setText('lp-knobs-status', '· 失败');
     });
   };
 
-  // 生态位 chips：选中团队的 skill 汇总（与后端 run_drill_via_trial 的需求采集一致）
+  // 无任务时：压力台不展示团队技能清单（那不是「环境 demand」）；提示去挂任务
   function _loadNichesFromTeam() {
-    var box = $('eco2-env-niches');
-    if (!box) return;
-    var teamId = window._selectedTeamId;
-    if (!teamId) {
-      box.innerHTML = '<span style="color:var(--dim);font-size:10px">选择团队后加载生态位…</span>';
+    if (_boundContract && (_boundContract.niches || []).length) {
+      _renderEnvDemandChips(_boundContract.niches);
       return;
     }
-    _loadTeamSkills(teamId).then(function (d) {
-      var names = [];
-      if (d && d.skills && typeof d.skills === 'object') {
-        Object.keys(d.skills).forEach(function (sid) { names.push(_sk(sid)); });
-      }
-      if (!names.length && d && Array.isArray(d.agents)) {
-        var set = {};
-        d.agents.forEach(function (a) { (a.skills || []).forEach(function (s) { set[s] = 1; }); });
-        names = Object.keys(set).map(_sk);
-      }
-      // 按名称去重（不同 skill ID 可能同名——如旧技能迁移后的重复条目）
-      var seen = {};
-      names = names.filter(function (n) { if (seen[n]) return false; seen[n] = 1; return true; });
-      box.innerHTML = names.length
-        ? names.slice(0, 16).map(function (n) { return '<span class="eco2-chip">' + esc(n) + '</span>'; }).join(' ')
-        : '<span style="color:var(--dim);font-size:10px">该团队暂无 skill——生境将以 generic 生态位运行</span>';
-    });
+    var teamId = window._selectedTeamId;
+    if (!teamId) {
+      _clearEnvDemandChips('挂任务后显示 demand skills…');
+      return;
+    }
+    _clearEnvDemandChips('已选种群 · 挂任务后显示 demand skills…');
   }
 
   // 团队选中联动（secs-core 的 sexyPickTeam 会更新 window._selectedTeamName）
@@ -1753,18 +1839,9 @@
       }
     } catch (e) { /* ignore */ }
 
-    // ② 生态位（演练后环境可能已漂移 → 用 result.env 刷新）
+    // ② 生态位 demand skills（演练后环境可能已漂移 → 用 result.env 刷新；无标题）
     if (result.env && result.env.demanded_skills) {
-      var nb = $('eco2-env-niches');
-      if (nb) {
-        var _seen = {};
-        var _names = result.env.demanded_skills.map(_sk).filter(function (n) {
-          if (_seen[n]) return false; _seen[n] = 1; return true;
-        });
-        nb.innerHTML = _names.slice(0, 16).map(function (n) {
-          return '<span class="eco2-chip">' + esc(n) + '</span>';
-        }).join(' ');
-      }
+      _renderEnvDemandChips(result.env.demanded_skills);
     }
 
     _renderPopulation(ranking, null);

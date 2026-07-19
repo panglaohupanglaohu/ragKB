@@ -2255,5 +2255,196 @@
       "channels",
       "xf-7"
     ]
+  },
+  {
+    "id": "bug-094",
+    "timestamp": "2026-07-15T15:01:00.658982+00:00",
+    "error_message": "pytest token_governance update_settings 写脏 config/settings.json，线上杠杆开关被关掉",
+    "file": "tests/test_token_governance.py",
+    "root_cause": "测试直接 save_tg_settings 到默认路径，无隔离",
+    "fix": "autouse fixture monkeypatch _SETTINGS_PATH 到 tmp；恢复生产默认 token_governance",
+    "tags": [
+      "token-governance",
+      "settings",
+      "test-isolation",
+      "R10"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-15"
+  },
+  {
+    "id": "bug-95",
+    "timestamp": "2026-07-16T09:05:45.266566+00:00",
+    "error_message": "skill-extract 详情弹窗 编辑/演化/验证/效果/版本 tab 浅色背景下白字看不清",
+    "file": "src/frontend/css/skill-extract.css, src/frontend/css/taste-light.css, src/frontend/skill-extract.html",
+    "root_cause": "skill-extract 暗色主题硬编码 .modal-tab.active color:#EEF2F5 / hover:#D7DEE4；浅色壳把 modal 背景刷白后 tab 仍近白字",
+    "fix": "引入 --modal-tab-fg* 变量（暗色默认浅字、taste-light 重映射为深灰/墨色/accent）；taste-light 用 button.modal-tab + -webkit-text-fill-color 强制可读；CSS 链接 cache-bust ?v=20260716-tabs",
+    "tags": [
+      "skill-extract",
+      "taste-light",
+      "contrast",
+      "modal-tab",
+      "a11y"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-16"
+  },
+  {
+    "id": "bug-96",
+    "timestamp": "2026-07-16T09:09:18.612510+00:00",
+    "error_message": "编辑模型测试连接：UI 显示 model=qwen27b… 但上游报 Model deepseek-v4-flash is not supported",
+    "file": "src/backend/agents/chat_harness.py, src/backend/agents/api.py, src/frontend/js/agent-team-config.js",
+    "root_cause": "Token 治理 model_route+cost_tier 对短测试句路由到 economy 默认 deepseek-v4-flash；test-model 只把编辑框名放进 requested_model 展示，未 model_override 钉死实际上游 model",
+    "fix": "test-model/test 传 model_override；chat() 对 agent_id 以 __ 开头跳过 model_route；响应增加 sent_model；前端同时展示编辑框 vs 实际上游 model",
+    "tags": [
+      "llm",
+      "test-model",
+      "model_route",
+      "token-governance",
+      "deepseek-v4-flash"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-16"
+  },
+  {
+    "id": "bug-97",
+    "timestamp": "2026-07-16T18:14:37.910405+08:00",
+    "error_message": "plaza 讨论：LLM 当前不可用，讨论已提前终止",
+    "file": "plaza_engine.py, chat_harness.py, config/settings.json",
+    "root_cause": "ChatHarness 调用上游返回 INVALID_API_KEY（model=qwen-36 base=sub2api.fcyaxing.com）；连续 2 次 fallback 触发讨论熔断。旧 abort 文案不暴露真实原因。",
+    "fix": "abort 消息附带 INVALID_API_KEY/模型名 可操作提示；plaza phase 跳过 model_route；_usable_agent_response 优先读 TurnResult.error",
+    "tags": [
+      "plaza",
+      "llm",
+      "api-key",
+      "fallback"
+    ],
+    "related_bugs": [
+      "bug-96"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-16"
+  },
+  {
+    "id": "bug-98",
+    "timestamp": "2026-07-16T18:43:20.633513+08:00",
+    "error_message": "DELETE /teams/build_system/skills/a4dc9a5c 404 技能不能删除",
+    "file": "api.py delete_skill, tools-skills.js, skill-extract.js",
+    "root_cause": "delete 只 pop 精确 skill_id key；UI 可能传萃取 item_id/slug，或技能在其它团队/registry/store；幽灵技能无法删",
+    "fix": "delete_skill 解析 id+slug+跨团队副本+store+registry+萃取队列；前端 encodeURIComponent 并在 skill-extract 右键删除真正调 API",
+    "tags": [
+      "skill",
+      "delete",
+      "404",
+      "skill-library"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-16"
+  },
+  {
+    "id": "bug-99",
+    "timestamp": "2026-07-16T19:37:56.463339+08:00",
+    "error_message": "测试连接成功但技能演化报 LLM 回退文本/API Key 无效；错误字几乎看不见",
+    "file": "secret_store.py, skill_evolver.py, chat_harness.py, skill-extract.html/js, skill_extractor.py",
+    "root_cause": "resolve_api_key 优先读进程 OPENAI_API_KEY(旧 sk-proj) 盖过 UI 写入的 secret/settings Key；演化走 harness 非 explicit。技能名「方案文档/执行记录…」来自 LLM 失败时关键词回退模板拼词。浅色壳下 evolve-new 深底+深字对比差。",
+    "fix": "Key 优先级改为 explicit→secret→settings→env；演化每次拉磁盘配置+model_override；config_override 优先于 global；错误面板浅底深红字；回退技能名加【回退草稿】并滤噪声词",
+    "tags": [
+      "llm",
+      "api-key",
+      "skill-evolve",
+      "contrast",
+      "skill-extract"
+    ],
+    "related_bugs": [
+      "bug-96"
+    ],
+    "occurrences": 1,
+    "last_seen": "2026-07-16"
+  },
+  {
+    "id": "bug-skill-delete-rehydrate",
+    "timestamp": "2026-07-17T06:22:56.812190+00:00",
+    "error_message": "智能体团队技能列表：已删除的「无基线不变更防御」仍显示（v1 draft / 技能库）",
+    "file": "src/backend/agents/api.py, skill_extractor.py",
+    "root_cause": "delete_skill 清理萃取队列时把 dict 当 list 迭代(只遍历 item_id 字符串)，approved 项未删除；启动 _rehydrate_approved_skill 又把技能写回 registry/team。版本快照 skill_versions 也未清。",
+    "fix": "1) 队列按 dict.items 删除匹配 item_id/slug/name；2) tombstone deleted_skill_keys 持久化，rehydrate 跳过；3) purge_version_snapshots；4) 按 name 删 team.skills/registry 兜底。已清理 a7c36670 幽灵 approved 与 044051e6 版本。",
+    "tags": [
+      "skill-delete",
+      "rehydrate",
+      "skill-extract-queue",
+      "ghost-skill"
+    ],
+    "related_bugs": [],
+    "occurrences": 1
+  },
+  {
+    "id": "bug-100",
+    "timestamp": "2026-07-17T18:05:25Z",
+    "error_message": "技能标题出现【回退草稿】；LLM 失败时叠三套模板名，像正式技能",
+    "file": "src/backend/agents/skill_extractor.py",
+    "root_cause": "Stage4 失败走 _fallback_skill_specs 写死三套【回退草稿】标题；未优先 TSE synthesize_skills_local；前端原样展示 draft_name",
+    "fix": "1) 失败时先 TSE local 合成讨论锚定技能 2) 最后兜底仅 1 条离线占位且标题=议题名、禁止【回退草稿】前缀 3) _apply_skill_data/ingest 剥前缀 4) 前端 cleanDraftName+离线徽章",
+    "tags": [
+      "skill-extract",
+      "fallback",
+      "tse",
+      "ux"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-17T18:05:25Z"
+  },
+  {
+    "id": "bug-101",
+    "timestamp": "2026-07-17T18:12:07Z",
+    "error_message": "已批准为储备的萃取技能出现在「特质」tab 并标 特质",
+    "file": "src/frontend/js/skill-extract.js",
+    "root_cause": "两套概念混用：draft_scope(personal/public LLM建议) vs skill_type(trait/reserve/public 批准)。前端 特质 tab 显示全部非 public，classifySkill 又把 source=distilled 一律当 trait；approve 的 skill_type 未持久化",
+    "fix": "1) SkillReviewItem 持久化 skill_type 2) resolveSkillType 默认 reserve 3) 三 tab 按 skill_type 分流 4) 旧 approved 回填 reserve",
+    "tags": [
+      "skill-extract",
+      "taxonomy",
+      "reserve",
+      "trait"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-17T18:12:07Z"
+  },
+  {
+    "id": "bug-102",
+    "timestamp": "2026-07-17T18:24:51Z",
+    "error_message": "技能演化结果变成大段英文 SOP 模板",
+    "file": "src/backend/agents/skill_evolver.py",
+    "root_cause": "evolve 仅弱中文 prompt、自由文本输出、无结构化约束；模型改写 SOP 默认英文化",
+    "fix": "重写 evolve：强制 JSON、语言硬守卫+repair、flip 拒绝交付；前端 changelog+可编辑+禁用应用",
+    "tags": [
+      "skill-evolve",
+      "language",
+      "llm"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-17T18:24:51Z"
+  },
+  {
+    "id": "bug-103",
+    "timestamp": "2026-07-18T00:04:40Z",
+    "error_message": "验证仅结构启发式、路由 UI 不显示 lifecycle 加权原因",
+    "file": "src/backend/agents/skill_verifier.py",
+    "root_cause": "sandbox runner 只做长度/关键词；RouteResult 无 lifecycle 字段给前端",
+    "fix": "进程内 _semantic_checks + sandbox mock tools；RouteResult lifecycle_* + 路由结果徽章",
+    "tags": [
+      "skill-verify",
+      "skill-router",
+      "ux"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-18T00:04:40Z"
   }
 ]

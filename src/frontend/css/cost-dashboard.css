@@ -1,19 +1,65 @@
 /* ============================================================
    Cost Governance Workbench — Visual Layer
-   Built on top of variables.css (Wabi-Sabi) + openbridge-theme.css
-   Scope: cost-dashboard.html only. Does NOT touch global tokens.
+   Taste Skill light cockpit (Linear-ish / cold airy):
+   pure monochrome + single forest accent · no AI-purple · no cream/brass
+   Scope: cost-dashboard.html only.
    ============================================================ */
 
+/* Design read: light B2B FinOps workbench · VARIANCE 4 · MOTION 2 · DENSITY 6 */
 body.cost-page {
-  background: var(--ob-bg-global);
-  color: var(--ob-text-primary);
+  /* ── page tokens (force light; ignore global dark theme) ── */
+  --tg-bg: #F3F5F8;
+  --tg-bg-elevated: #FFFFFF;
+  --tg-bg-soft: #EBF0F5;
+  --tg-bg-hover: #E4EAF1;
+  --tg-border: #D8DEE8;
+  --tg-border-soft: #E8EDF3;
+  --tg-ink: #1A2030;
+  --tg-ink-2: #4B5568;
+  --tg-ink-3: #7B8798;
+  --tg-accent: #1F6B4A;
+  --tg-accent-hover: #27845B;
+  --tg-accent-soft: rgba(31, 107, 74, 0.10);
+  --tg-accent-ring: rgba(31, 107, 74, 0.18);
+  --tg-warn: #A67C1A;
+  --tg-warn-soft: rgba(166, 124, 26, 0.10);
+  --tg-danger: #C44B4B;
+  --tg-danger-soft: rgba(196, 75, 75, 0.08);
+  --tg-shadow: 0 1px 2px rgba(26, 32, 48, 0.04), 0 8px 24px rgba(26, 32, 48, 0.04);
+  --tg-radius: 12px;
+  --tg-radius-sm: 8px;
+
+  /* bridge to legacy var names used across this page */
+  --ob-bg-global: var(--tg-bg);
+  --ob-bg-body: var(--tg-bg);
+  --ob-bg-section: var(--tg-bg-elevated);
+  --ob-bg-panel: var(--tg-bg-elevated);
+  --ob-bg-card: var(--tg-bg-elevated);
+  --ob-bg-input: #FFFFFF;
+  --ob-bg-hover: var(--tg-bg-hover);
+  --ob-border: var(--tg-border);
+  --ob-border-subtle: var(--tg-border-soft);
+  --ob-text-primary: var(--tg-ink);
+  --sumi: var(--tg-ink);
+  --sumi-2: var(--tg-ink-2);
+  --sumi-3: var(--tg-ink-3);
+  --koke: var(--tg-accent);
+  --kitsune: var(--tg-warn);
+  --shu: var(--tg-danger);
+  --shironeri: #FFFFFF;
+  --ob-font: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --ob-font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  background: var(--tg-bg);
+  color: var(--tg-ink);
   min-height: 100vh;
   font-family: var(--ob-font);
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
 }
 
 .cost-dashboard {
-  padding: 28px 32px 64px;
+  padding: 24px 28px 72px;
   max-width: 1480px;
   margin: 0 auto;
 }
@@ -140,26 +186,27 @@ body.cost-page {
   white-space: nowrap;
 }
 .cost-btn--primary {
-  background: var(--koke);
-  color: var(--shironeri);
-  border-color: var(--koke);
+  background: var(--tg-accent, var(--koke));
+  color: #FFFFFF;
+  border-color: var(--tg-accent, var(--koke));
 }
 .cost-btn--primary:hover {
-  background: #82d094;
-  border-color: #82d094;
+  background: var(--tg-accent-hover, #27845B);
+  border-color: var(--tg-accent-hover, #27845B);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(107, 196, 127, 0.25);
+  box-shadow: 0 4px 14px var(--tg-accent-ring, rgba(31, 107, 74, 0.22));
 }
 .cost-btn--primary:active { transform: translateY(0); }
 .cost-btn--primary:disabled { opacity: 0.5; cursor: wait; }
 .cost-btn--ghost {
-  background: transparent;
+  background: var(--tg-bg-elevated, #fff);
   color: var(--sumi-2);
   border-color: var(--ob-border);
 }
 .cost-btn--ghost:hover {
-  background: var(--ob-bg-section);
+  background: var(--tg-bg-soft, var(--ob-bg-section));
   color: var(--sumi);
+  border-color: var(--tg-accent, var(--koke));
 }
 .cost-btn--accent {
   background: var(--shu);
@@ -468,11 +515,45 @@ body.cost-page {
 
 /* ─────────────────────── Panel ─────────────────────── */
 .panel {
-  background: var(--ob-bg-panel);
-  border: 1px solid var(--ob-border);
+  background: var(--tg-bg-elevated, var(--ob-bg-panel));
+  border: 1px solid var(--tg-border, var(--ob-border));
   border-radius: 14px;
   padding: 22px;
   min-width: 0;
+  box-shadow: var(--tg-shadow, none);
+}
+
+/* Taste light: tables / inputs / avatar */
+body.cost-page .kpi-card,
+body.cost-page .kpi-hero .kpi-card {
+  background: var(--tg-bg-elevated) !important;
+  border-color: var(--tg-border) !important;
+  box-shadow: var(--tg-shadow);
+}
+body.cost-page .data-table th {
+  background: var(--tg-bg-soft) !important;
+  color: var(--tg-ink-3) !important;
+}
+body.cost-page .data-table td {
+  border-color: var(--tg-border-soft) !important;
+  color: var(--tg-ink-2);
+}
+body.cost-page input,
+body.cost-page select,
+body.cost-page textarea {
+  background: #fff !important;
+  color: var(--tg-ink) !important;
+  border-color: var(--tg-border) !important;
+}
+body.cost-page .topbar-ws__user-avatar {
+  background: var(--tg-accent-soft) !important;
+  color: var(--tg-accent) !important;
+  border: 1px solid var(--tg-border);
+}
+body.cost-page .topbar-ws__logout-btn {
+  color: var(--tg-ink-2) !important;
+  border-color: var(--tg-border) !important;
+  background: #fff !important;
 }
 .panel__head {
   display: flex;

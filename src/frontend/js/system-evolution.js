@@ -152,12 +152,33 @@ function cacheClear(prefix) {
   for (const k of _panelCache.keys()) { if (k.startsWith(prefix)) _panelCache.delete(k); }
 }
 
-function toast(m) {
+function toast(m, type) {
   const text = String(m ?? '');
   const shouldDecorate = /失败|错误|异常|不可用|未找到|无法|无效|请求失败/.test(text);
   const finalText = shouldDecorate && window.api?.decorateErrorMessage ? window.api.decorateErrorMessage(text) : text;
-  const e = el('toast'); e.textContent = finalText; e.classList.add('show');
-  setTimeout(() => e.classList.remove('show'), 2500);
+  // cost-dashboard 等页无 #toast，优先 cost-toast-host / utils.toast，禁止对 null 写 textContent
+  const e = (typeof el === 'function' ? el('toast') : null) || document.getElementById('toast');
+  if (e) {
+    e.className = 'toast' + (type ? ' toast-' + type : '') + ' show';
+    e.textContent = finalText;
+    e.classList.add('show');
+    setTimeout(() => e.classList.remove('show'), 2500);
+    return;
+  }
+  const host = document.getElementById('cost-toast-host');
+  if (host && typeof host.appendChild === 'function') {
+    const kind = (type === 'error' || type === 'warn') ? type : 'success';
+    const node = document.createElement('div');
+    node.className = 'cost-toast cost-toast--' + kind;
+    node.textContent = finalText;
+    host.appendChild(node);
+    setTimeout(() => {
+      node.classList.add('cost-toast--leaving');
+      setTimeout(() => { if (node.parentNode) node.parentNode.removeChild(node); }, 260);
+    }, 3500);
+    return;
+  }
+  if (typeof console !== 'undefined' && console.info) console.info('[toast]', finalText);
 }
 // Button loading state helper
 function btnLoading(btn, loading, originalText) {

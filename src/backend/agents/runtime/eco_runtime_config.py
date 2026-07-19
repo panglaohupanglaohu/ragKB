@@ -42,6 +42,8 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
         "metabolic_rate": 1.0,      # 每 tick 基础代谢消耗
         "revive_ratio": 0.5,        # 复活恢复到 health_max 的比例
         "saturation_threshold": 0.7,  # 「饱暖」判定阈值（sustained_ratio）
+        # Agent 侧生命史（非环境选择压）：衰老 μ×survival_ticks，防不死个体垄断基因池
+        "senescence_rate": 0.003,
     },
     # §4 盲目学习探索期 + 特征抽象（twin_loop.compute_exploration_rate / health_ledger.should_solidify）
     "learning": {
@@ -112,6 +114,11 @@ _DEFAULTS: Dict[str, Dict[str, Any]] = {
         "predator_bias_unskilled": 2.0,   # 无法 serve 的个体被捕食权重 +=bias
         "scarce_share_boost": 1.2,        # 丰饶不足时分享让渡放大 → 协作更值钱
         "same_pop_share_bias": 0.7,       # 优先同队分享 → 团队边界可被选择
+        # Darwin 第二机制 + 定量遗传学（环境选择压；EcoDrill economics 注入）
+        "sexual_selection_strength": 1.0,  # 性选择强度：× mate_choosiness，加权展示质量择偶
+        "freq_dep_strength": 0.5,          # 负频率依赖：稀有 skill 觅食优势（防垄断）
+        "epistasis_strength": 0.2,         # 技能上位协同：持有 demand 相邻对时非加性加成
+        # 注意：senescence_rate 在 metabolism（Agent 侧），不在本节
     },
     # LLM 演练分析提示词（pet-config 可编辑；{summary} 注入结构化数据）
     "llm_analysis": {

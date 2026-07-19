@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="taste-light">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentsGroup2026 — 智能体团队管理</title>
+  <title>智能体团队 — AgentsGroup2026</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/ws-theme-bridge.css">
   <link rel="stylesheet" href="/css/agent-team-config.css">
   <link rel="stylesheet" href="/css/topbar-ws.css">
@@ -821,6 +821,7 @@ code, pre, kbd {
   }
 }
 </style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 <a href="#main-content" class="skip-link">跳转到主内容</a>
@@ -849,13 +850,14 @@ code, pre, kbd {
         <h1 id="main-title">团队概览</h1>
         <span class="badge" id="main-badge" style="background:rgba(152,245,167,0.15);color:var(--lime)"></span>
       </div>
-      <nav class="topbar-ws__nav" aria-label="主导航">
-        <span class="cur">智能体团队</span>
-        <a href="/plaza.html">议事广场</a>
-        <a href="/skill-extract.html">技能萃取/赋予</a>
-        <a href="/Agent-digital-twin.html">数字孪生</a>
-        <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
-      </nav>
+      <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
+  </nav>
       <div class="topbar-ws__right">
         <button class="btn btn-sm" onclick="openModal('modal-create-team')">＋ 创建团队</button>
         <button class="btn btn-sm btn-ghost" onclick="deleteTeam()" style="color:var(--red)">🗑 删除团队</button>
@@ -1065,13 +1067,14 @@ code, pre, kbd {
 </div>
 <script src="/js/utils.js"></script>
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="agents"></script>
 <script src="/js/evidence-runs.js"></script>
 <script src="/js/ag-context.js"></script>
 <script src="/js/agent-team-config.js"></script>
 <script src="/js/tools-skills.js"></script>
 <script src="/js/wizard.js"></script>
 <script src="/js/tasks-view.js"></script>
-<script src="/js/agent-detail.js"></script>
+<script src="/js/agent-detail.js?v=20260716-skdel"></script>
 <script src="/js/sessions-runtime.js"></script>
 <script src="/js/token-factory.js"></script>
 <script>

@@ -120,6 +120,55 @@ class TokenLedger:
             for r in rows
         ]
 
+    def by_task(
+        self,
+        window: str = "24h",
+        team_id: str = "",
+        limit: int = 50,
+    ) -> List[Dict]:
+        """按任务维聚合 Token（TG-2：scenario_id 优先，否则 run_id）.
+
+        task_key = COALESCE(NULLIF(scenario_id,''), NULLIF(run_id,''), '(unscoped)')
+        北极星：任务上耗费的 token。
+        """
+        ws = self._window_start(window)
+        where = "date >= ? AND total_tokens > 0"
+        params: list = [ws]
+        if team_id:
+            where += " AND team_id = ?"
+            params.append(team_id)
+        lim = max(1, min(int(limit or 50), 200))
+        sql = f"""
+            SELECT
+                COALESCE(NULLIF(scenario_id, ''), NULLIF(run_id, ''), '(unscoped)') AS task_key,
+                COALESCE(MAX(team_id), '') AS team_id,
+                COALESCE(SUM(total_tokens), 0) AS total,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COUNT(*) AS calls,
+                MAX(timestamp) AS last_ts
+            FROM usage_log
+            WHERE {where}
+            GROUP BY task_key
+            ORDER BY total DESC
+            LIMIT ?
+        """
+        params.append(lim)
+        with self.store._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "task_key": r[0] or "(unscoped)",
+                "team_id": r[1] or "",
+                "total": int(r[2] or 0),
+                "input_tokens": int(r[3] or 0),
+                "output_tokens": int(r[4] or 0),
+                "calls": int(r[5] or 0),
+                "last_ts": r[6],
+            }
+            for r in rows
+        ]
+
     def by_phase(self, window: str = "24h", team_id: str = "") -> Dict[str, Dict]:
         """按阶段聚合 Token 成本。可选 team_id 过滤。"""
         ws = self._window_start(window)

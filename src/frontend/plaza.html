@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="taste-light">
 <head>
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://ga.jspm.io; media-src 'self' data: blob:; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智能体广场 — AgentsGroup2026</title>
+<title>议事广场 — AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/topbar-ws.css">
 <style>
 /* ── 安藤忠雄式清水混凝土 · Tadao Ando Exposed Concrete ─────── */
@@ -83,42 +83,49 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   color:var(--muted);font-size:10px;cursor:pointer;letter-spacing:1px;transition:all 0.3s;font-family:var(--font-mono)}
 .btn-new:hover{border-color:var(--slit-glow);color:var(--slit-glow)}
 
-/* ── Center: Three.js ── */
-.center{position:relative;overflow:hidden;background:var(--concrete)}
+/* ── Center: Three.js light arena ── */
+.center{position:relative;overflow:hidden;background:#E8EDF3}
 #three-canvas{width:100%;height:100%;display:block}
+/* 议事气泡：浅色台面可读 — 白底软边 + 角色色点缀，去掉霓虹 glow */
 .speech-bubble{position:absolute;max-width:380px;padding:12px 16px;
-  background:transparent;border:1px solid color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 40%, transparent);
-  border-radius:16px;outline:1px solid #FFFFFF10;
-  font-size:11px;line-height:1.55;color:var(--bubble-color, var(--text));
+  background:rgba(255,255,255,0.94);border:1px solid color-mix(in srgb, var(--bubble-color, #1F6B4A) 35%, #D8DEE8);
+  border-radius:12px;outline:none;
+  font-size:11px;line-height:1.55;color:var(--tg-ink, #1A2030);
   pointer-events:auto;opacity:0;transform:translateY(8px);
-  transition:opacity 0.18s ease-out,transform 0.18s ease-out,filter 0.18s ease-out,box-shadow 0.18s ease-out,border-color 0.18s ease-out;z-index:50;
-  box-shadow:0 0 18px color-mix(in srgb, var(--bubble-color, #fff) 16%, transparent), inset 0 0 14px #FFFFFF08}
+  transition:opacity 0.18s ease-out,transform 0.18s ease-out,box-shadow 0.18s ease-out,border-color 0.18s ease-out;z-index:50;
+  box-shadow:0 4px 18px rgba(26,32,48,0.08), 0 0 0 1px rgba(255,255,255,0.6) inset;
+  backdrop-filter:blur(8px)}
 .speech-bubble.show{opacity:1;transform:translateY(0)}
-.speech-bubble::after{content:'';position:absolute;left:50%;bottom:-7px;width:12px;height:12px;
-  background:transparent;border-right:1px solid color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 40%, transparent);
-  border-bottom:1px solid color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 40%, transparent);
-  transform:translateX(-50%) rotate(45deg)}
-.speech-bubble .sb-name{font-weight:700;font-size:9px;color:var(--bubble-color, var(--slit-glow));margin-bottom:2px;letter-spacing:0.8px;text-transform:uppercase;text-shadow:0 0 10px color-mix(in srgb, var(--bubble-color, #fff) 55%, transparent)}
-.speech-bubble .sb-text{white-space:pre-wrap;word-break:break-word;font-size:10px;color:var(--bubble-color, var(--text));text-shadow:0 0 12px color-mix(in srgb, var(--bubble-color, #fff) 45%, transparent), 0 0 3px color-mix(in srgb, var(--bubble-color, #fff) 75%, transparent);
+.speech-bubble::after{content:'';position:absolute;left:50%;bottom:-6px;width:11px;height:11px;
+  background:rgba(255,255,255,0.94);
+  border-right:1px solid color-mix(in srgb, var(--bubble-color, #1F6B4A) 35%, #D8DEE8);
+  border-bottom:1px solid color-mix(in srgb, var(--bubble-color, #1F6B4A) 35%, #D8DEE8);
+  transform:translateX(-50%) rotate(45deg);box-shadow:2px 2px 6px rgba(26,32,48,0.04)}
+.speech-bubble .sb-name{font-weight:700;font-size:9px;color:var(--bubble-color, #1F6B4A);margin-bottom:3px;letter-spacing:0.8px;text-transform:uppercase;text-shadow:none}
+.speech-bubble .sb-text{white-space:pre-wrap;word-break:break-word;font-size:10px;color:var(--tg-ink, #1A2030);text-shadow:none;
   max-height:7.8em;overflow-y:auto;scroll-behavior:smooth}
 .speech-bubble .sb-text::-webkit-scrollbar{width:4px}
 .speech-bubble .sb-text::-webkit-scrollbar-track{background:transparent}
-.speech-bubble .sb-text::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 50%, transparent);border-radius:2px}
-.speech-bubble .sb-text::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 80%, transparent)}
-.speech-bubble.history{opacity:0.14;transform:translateY(0) scale(0.975);filter:brightness(0.52) saturate(0.55);border-color:color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 10%, transparent);box-shadow:0 0 4px color-mix(in srgb, var(--bubble-color, #fff) 4%, transparent), inset 0 0 6px #FFFFFF02}
-.speech-bubble.history::after{border-right-color:color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 20%, transparent);border-bottom-color:color-mix(in srgb, var(--bubble-color, var(--slit-glow)) 20%, transparent)}
-.speech-bubble.history .sb-name{opacity:0.45;text-shadow:none}
-.speech-bubble.history .sb-text{opacity:0.38;text-shadow:none}
-.speech-bubble.speaking{box-shadow:0 0 26px color-mix(in srgb, var(--bubble-color, #fff) 24%, transparent), inset 0 0 16px #FFFFFF0E}
+.speech-bubble .sb-text::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--bubble-color, #1F6B4A) 40%, #D8DEE8);border-radius:2px}
+.speech-bubble .sb-text::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb, var(--bubble-color, #1F6B4A) 65%, #D8DEE8)}
+.speech-bubble.history{opacity:0.55;transform:translateY(0) scale(0.98);filter:none;
+  border-color:#E8EDF3;background:rgba(255,255,255,0.72);
+  box-shadow:0 2px 8px rgba(26,32,48,0.04)}
+.speech-bubble.history::after{border-right-color:#E8EDF3;border-bottom-color:#E8EDF3;background:rgba(255,255,255,0.72)}
+.speech-bubble.history .sb-name{opacity:0.7;text-shadow:none}
+.speech-bubble.history .sb-text{opacity:0.75;color:var(--tg-ink-2, #4B5568);text-shadow:none}
+.speech-bubble.speaking{
+  border-color:color-mix(in srgb, var(--bubble-color, #1F6B4A) 55%, #D8DEE8);
+  box-shadow:0 6px 22px rgba(26,32,48,0.1), 0 0 0 3px color-mix(in srgb, var(--bubble-color, #1F6B4A) 14%, transparent)}
 
 /* ── TTS speaker button ── */
 .tts-btn{position:absolute;top:12px;right:12px;z-index:60;width:34px;height:34px;border-radius:50%;
-  background:color-mix(in srgb, var(--concrete) 80%, transparent);border:1px solid var(--line);
-  color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all 0.3s;backdrop-filter:blur(4px)}
-.tts-btn:hover{border-color:var(--slit-glow);color:var(--slit-glow)}
+  background:rgba(255,255,255,0.9);border:1px solid #D8DEE8;
+  color:#4B5568;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all 0.3s;backdrop-filter:blur(6px);box-shadow:0 2px 8px rgba(26,32,48,0.06)}
+.tts-btn:hover{border-color:#1F6B4A;color:#1F6B4A}
 .tts-btn.muted{opacity:0.5}
-.tts-btn.paused{border-color:#F0A050;color:#F0A050}
+.tts-btn.paused{border-color:#A67C1A;color:#A67C1A}
 .tts-btn svg{width:16px;height:16px;fill:currentColor}
 
 /* ── Right panel ── */
@@ -267,8 +274,18 @@ textarea.fi{resize:vertical;min-height:45px}
 @keyframes tin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:0}
+
+/* taste-light plaza concrete override */
+html.taste-light{
+  --concrete:#F3F5F8;--concrete-light:#EBF0F5;--concrete-pale:#E4EAF1;
+  --concrete-dark:#FFFFFF;--concrete-deep:#E8EDF3;--surface:#FFFFFF;
+  --surface-light:#EBF0F5;--shadow:rgba(26,32,48,.08);--shadow-soft:rgba(26,32,48,.04);
+  --slit-light:#1A2030;--slit-glow:#1F6B4A;--bronze:#7B8798;--bronze-light:#4B5568;--ink:#1A2030;
+}
+
 </style>
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 
@@ -276,12 +293,13 @@ textarea.fi{resize:vertical;min-height:45px}
   <div class="topbar-ws__left">
     <h1>议事广场</h1>
   </div>
-  <nav class="topbar-ws__nav" aria-label="主导航">
+  <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
     <a href="/agent-team-config.html">智能体团队</a>
-    <span class="cur">议事广场</span>
-    <a href="/skill-extract.html">技能萃取/赋予</a>
-    <a href="/Agent-digital-twin.html">数字孪生</a>
-    <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
   </nav>
   <div class="topbar-ws__right">
     <div class="topbar-ws__user">
@@ -390,6 +408,7 @@ textarea.fi{resize:vertical;min-height:45px}
 
 <script src="/js/utils.js"></script>
   <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="plaza"></script>
   <script src="/js/evidence-runs.js"></script>
   <script src="/js/ag-context.js"></script>
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.1/dist/es-module-shims.js"></script>

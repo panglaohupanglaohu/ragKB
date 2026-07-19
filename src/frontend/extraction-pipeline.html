@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-obc-theme="dusk">
+<html lang="zh-CN" data-obc-theme="dusk" class="taste-light">
 <head>
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>萃取管线 — AgentsGroup2026</title>
+<title>技能萃取 · 管线 — AgentsGroup2026</title>
 <link rel="stylesheet" href="/css/openbridge-theme.css">
 <style>
 :root {
@@ -117,6 +117,7 @@ tr:hover { background:var(--hover); }
 @media (max-width:768px) { .sidebar { display:none; } .form-row { flex-direction:column; } }
 </style>
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 
@@ -129,7 +130,7 @@ tr:hover { background:var(--hover); }
     <a href="#" onclick="switchTab('todos')">📝 待办中心</a>
     <a href="#" onclick="switchTab('create')">➕ 新建管线</a>
     <a href="/cost-dashboard.html" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;opacity:0.7">💰 成本治理</a>
-    <a href="/pet-config.html" style="opacity:0.7">🐾 仿生生态</a>
+    <a href="/pet-config.html" style="opacity:0.7">生态配置</a>
     <a href="/agent-team-config.html">🧠 智能体团队</a>
   </nav>
 </aside>
@@ -164,6 +165,7 @@ tr:hover { background:var(--hover); }
 <div class="toast" id="toast"></div>
 
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="skill-extract"></script>
 <script>
 // ═══════════════════════════════════════
 // Constants

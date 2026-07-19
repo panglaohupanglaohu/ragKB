@@ -24,7 +24,7 @@
     { id: 'safety',     icon: '安', label: 'nav.safety',     href: '/safety-emergency.html' },
     { id: 'shore',      icon: '岸', label: 'nav.shore',      href: '/ship-shore.html' },
     { sep: true },
-    { id: 'twin',       icon: '孪', label: 'nav.twin',       href: '/digital-twin.html' },
+    { id: 'twin',       icon: '孪', label: 'nav.twin',       href: '/Agent-digital-twin.html?office3d=1' },
     { id: 'agents',     icon: '智', label: 'nav.agents',     href: '/agent-team-config.html' },
     { id: 'plaza',      icon: '⊙', label: 'nav.plaza',      href: '/plaza.html' },
     { id: 'tasks',      icon: '任', label: 'nav.tasks',      href: '/tasks.html' },

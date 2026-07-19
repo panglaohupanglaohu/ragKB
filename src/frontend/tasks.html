@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh" data-obc-theme="dusk">
+<html lang="zh" data-obc-theme="day" class="taste-light">
 <head>
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
@@ -41,19 +41,20 @@ h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;bor
 .stats-bar .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 </style>
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 <header class="topbar-ws">
   <div class="topbar-ws__left">
     <h1>任务中心</h1>
   </div>
-  <nav class="topbar-ws__nav" aria-label="主导航">
+  <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
     <a href="/agent-team-config.html">智能体团队</a>
     <a href="/plaza.html">议事广场</a>
-    <a href="/skill-extract.html">技能萃取/赋予</a>
-    <a href="/Agent-digital-twin.html">数字孪生</a>
-    <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
-    <span class="cur">任务中心</span>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
   </nav>
   <div class="topbar-ws__right">
     <div class="topbar-ws__user">
@@ -64,6 +65,7 @@ h1 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;bor
   </div>
 </header>
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="agents"></script>
 <script src="/js/evidence-runs.js"></script>
 <div class="container">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">

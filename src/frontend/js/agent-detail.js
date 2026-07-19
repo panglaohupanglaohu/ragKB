@@ -159,9 +159,11 @@ ${ecoCard}
       const teamSkills = [...teamAvail, ...registryAvail];
       const renderSkillRow = (s, isBound, source) => {
         const bindId = s.bind_id || s.skill_id;
+        const sid = String(s.skill_id || s.slug || s.name || '');
         const versionInfo = s.version ? ` v${s.version}` : '';
         const lifecycle = s.lifecycle_stage ? `<span class="chip" style="font-size:9px">${escapeHtml(s.lifecycle_stage)}</span>` : '';
-        return `<div class="ws-item" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${s.name}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button class="btn btn-sm btn-ghost" onclick="openEditSkill('${s.skill_id}')" title="编辑">✏️</button><button class="btn btn-sm btn-ghost" onclick="deleteSkillWithContext('${encodeURIComponent(s.skill_id||'')}','${encodeURIComponent(s.name||'')}','agent','${encodeURIComponent(aid||'')}')" title="删除" style="color:var(--pink)">🗑️</button>${isBound?`<button class="btn btn-sm btn-danger" onclick="togAgentSkill('${escapeHtml(bindId)}',false)">解绑</button>`:`<button class="btn btn-sm" onclick="togAgentSkill('${escapeHtml(bindId)}',true)">绑定</button>`}</span></div>`;
+        // type=button 防止误触 form submit 整页刷新；data-skill-id 供删除后就地移除
+        return `<div class="ws-item" data-skill-row data-skill-id="${escapeHtml(sid)}" style="padding:10px 14px"><span class="fname" style="gap:10px"><span style="font-size:18px">${s.icon||'⚡'}</span> <b>${escapeHtml(s.name||'')}</b>${versionInfo} ${lifecycle}<span style="color:var(--dim);font-size:11px">${escapeHtml(s.category||'')}</span></span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.description||"")}</span><span style="font-size:9px;color:var(--muted)">${source}</span>${s.has_instructions?`<button type="button" class="btn btn-sm btn-ghost" onclick="viewSkillInstructions('${escapeHtml(s.skill_id)}')" title="查看指令">📖</button>`:''}<button type="button" class="btn btn-sm btn-ghost" onclick="openEditSkill('${escapeHtml(sid)}')" title="编辑">✏️</button><button type="button" class="btn btn-sm btn-ghost" data-skill-del="${escapeHtml(sid)}" onclick="event.preventDefault();event.stopPropagation();deleteSkillWithContext('${encodeURIComponent(sid)}','${encodeURIComponent(s.name||'')}','agent','${encodeURIComponent(aid||'')}')" title="删除" style="color:var(--pink)">🗑️</button>${isBound?`<button type="button" class="btn btn-sm btn-danger" onclick="event.preventDefault();togAgentSkill('${escapeHtml(bindId)}',false)">解绑</button>`:`<button type="button" class="btn btn-sm" onclick="event.preventDefault();togAgentSkill('${escapeHtml(bindId)}',true)">绑定</button>`}</span></div>`;
       };
       let html = `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">⚡ 智能体技能</div><span style="color:var(--dim);font-size:12px">${mySkills.length} 个已绑定 · 可绑定 ${teamSkills.length} 个</span></div>`;
       html += `<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-pink btn-sm" onclick="switchView('runtime')">▶ 运行 Agent Loop 测试</button><button class="btn btn-sm" onclick="switchView('tasks')">📋 查看任务</button></div>`;
@@ -324,7 +326,21 @@ async function testAgentLLM(){
     }
   }catch(e){rc.innerHTML=`<p style="color:var(--pink)">请求异常: ${escapeHtml(e.message)}</p>`}
 }
-async function delAgent(){if(!confirm('确定删除？'))return;await csrfFetch(`${A}/teams/${tid}/agents/${aid}`,{method:'DELETE'});toast('已删除');aid='';loadSbAgents();switchView('overview')}
+async function delAgent(){
+  if(!aid){toast('未选中智能体');return}
+  // 复用列表删除（CSRF + 确认文案）
+  if(typeof deleteAgentFromList==='function'){
+    const nameEl=document.getElementById('set-name');
+    await deleteAgentFromList(aid, nameEl?nameEl.value:aid);
+    return;
+  }
+  if(!confirm('确定删除？'))return;
+  await csrfFetch(`${A}/teams/${tid}/agents/${encodeURIComponent(aid)}`,{method:'DELETE'});
+  toast('已删除');aid='';loadSbAgents();switchView('overview');
+}
+// 列表按钮若在 agent-detail 之后加载，仍挂到 window
+if(typeof editAgentFromList==='function')window.editAgentFromList=editAgentFromList;
+if(typeof deleteAgentFromList==='function')window.deleteAgentFromList=deleteAgentFromList;
 async function startStop(cur){const act=cur==='working'?'stop':'start';const r=await api(`${A}/teams/${tid}/agents/${aid}/${act}`,{method:'POST'});if(r){toast(act==='start'?'Agent 已启动':'Agent 已停止');loadSbAgents();loadAgent()}else toast('操作失败')}
 
 // ══════════════════════════════════
@@ -652,64 +668,133 @@ async function togAgentSkill(skillId,bind){
 }
 
 // ── Enhanced Skill Delete (with context) ──
+// 防连点 + 幂等：删后立刻从 DOM 去掉，不整页跳转/刷新
+const _skillCtxDeleteInFlight = new Set();
+function _removeSkillRowsFromDom(skillId) {
+  const id = String(skillId || '');
+  if (!id) return;
+  document.querySelectorAll('[data-skill-row]').forEach(function (row) {
+    if (row.getAttribute('data-skill-id') === id) row.remove();
+  });
+  document.querySelectorAll('[data-skill-del]').forEach(function (btn) {
+    if (btn.getAttribute('data-skill-del') === id) {
+      const row = btn.closest('.ws-item, [data-skill-row]');
+      if (row) row.remove();
+    }
+  });
+}
 async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) {
   const rawSkillId = decodeURIComponent(String(skillId || ''));
   const rawSkillName = decodeURIComponent(String(skillName || ''));
   const rawSourceId = decodeURIComponent(String(sourceId || ''));
-  // 查找技能详情确定影响范围
-  const teamSkills = await listApi(`${A}/teams/${tid}/skills`, 200, 0);
-  const skill = teamSkills.find(s => s.skill_id === rawSkillId || s.name === rawSkillName || s.slug === rawSkillId);
-  const boundAgents = []; // Will be populated from API
-  let impactHtml = '';
-  if (skill) {
-    // Check which agents in the team have this skill bound
-    const teamDetail = await api(`${A}/teams/${tid}`);
-    if (teamDetail && teamDetail.agents) {
-      const agents = Array.isArray(teamDetail.agents) ? teamDetail.agents : Object.values(teamDetail.agents);
-      agents.forEach(a => {
-        const aSkills = a.skills || [];
-        if (aSkills.includes(rawSkillId) || aSkills.includes(skill.name) || aSkills.includes(skill.slug)) {
-          boundAgents.push(a.name || a.agent_id);
-        }
-      });
-    }
-    impactHtml = `
-      <div style="margin:12px 0;padding:12px;background:rgba(224,27,36,0.06);border-radius:0;font-size:12px">
-        <div><b>删除对象:</b> ${escapeHtml(skill.name)} (${escapeHtml(rawSkillId)})</div>
-        <div><b>来源:</b> ${sourceType === 'agent' ? `智能体 ${escapeHtml(rawSourceId)}` : `团队 ${escapeHtml(sourceType)}`}</div>
-        <div><b>类别:</b> ${escapeHtml(skill.category||'general')} · 版本: ${skill.version||1}</div>
-        ${skill.lifecycle_stage ? `<div><b>生命周期:</b> ${escapeHtml(skill.lifecycle_stage)}</div>` : ''}
-        ${boundAgents.length > 0 ? `<div style="margin-top:6px;color:var(--amber)"><b>⚠️ 影响范围:</b> ${boundAgents.length} 个智能体仍绑定此技能 (${boundAgents.map(escapeHtml).join(', ')})</div>` : ''}
-        ${skill.is_default ? '<div style="margin-top:4px;color:var(--pink)"><b>⚠️ 此为默认技能</b> — 删除可能影响团队基础能力</div>' : ''}
-      </div>`;
-  }
-  const confirmed = confirm(`确认删除技能「${rawSkillName}」？\n\n${skill ? '来源: ' + sourceType + ' · 影响智能体: ' + boundAgents.length + ' 个' : ''}\n\n此操作不可撤销。`);
-  if (!confirmed) return;
+  if (!rawSkillId) { toast('缺少 skill_id'); return; }
+  if (_skillCtxDeleteInFlight.has(rawSkillId)) { toast('正在删除，请稍候…'); return; }
+
+  // 查找技能详情确定影响范围（失败也不挡删除）
+  let skill = null;
+  let boundAgents = [];
   try {
-    const resp = await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`, { method: 'DELETE' });
-    if (resp.ok) {
-      toast(`✅ 已删除「${rawSkillName}」`);
-      if (typeof loadAgent === 'function' && window.aid) loadAgent();
-      if (typeof loadSkills === 'function') loadSkills();
-    } else if (resp.status === 409) {
-      const body = await resp.json().catch(() => ({}));
-      const detail = body.detail || '技能已通过验证/发布，不允许直接删除';
-      const goForce = confirm(detail + '\n\n是否强制删除？');
-      if (goForce) {
-        const resp2 = await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}?force=true`, { method: 'DELETE' });
-        if (resp2.ok) {
-          toast(`✅ 已强制删除「${rawSkillName}」`);
-          if (typeof loadAgent === 'function' && window.aid) loadAgent();
-          if (typeof loadSkills === 'function') loadSkills();
-        } else {
-          toast('强制删除失败');
-        }
+    const teamSkills = await listApi(`${A}/teams/${tid}/skills`, 200, 0);
+    skill = teamSkills.find(s => s.skill_id === rawSkillId || s.name === rawSkillName || s.slug === rawSkillId) || null;
+    if (skill) {
+      const teamDetail = await api(`${A}/teams/${tid}`);
+      if (teamDetail && teamDetail.agents) {
+        const agents = Array.isArray(teamDetail.agents) ? teamDetail.agents : Object.values(teamDetail.agents);
+        agents.forEach(a => {
+          const aSkills = a.skills || [];
+          if (aSkills.includes(rawSkillId) || aSkills.includes(skill.name) || aSkills.includes(skill.slug)) {
+            boundAgents.push(a.name || a.agent_id);
+          }
+        });
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  const confirmed = confirm(
+    `确认删除技能「${rawSkillName || rawSkillId}」？\n\n` +
+    (skill ? `来源: ${sourceType}${rawSourceId ? ' ' + rawSourceId : ''} · 影响智能体: ${boundAgents.length} 个\n\n` : '') +
+    '此操作不可撤销。'
+  );
+  if (!confirmed) return;
+
+  _skillCtxDeleteInFlight.add(rawSkillId);
+  // 先就地移除行，避免「删了还在 → 再点 404 / 以为要刷整页」
+  _removeSkillRowsFromDom(rawSkillId);
+
+  try {
+    let body = null;
+    let status = 0;
+    if (window.api && typeof window.api.del === 'function') {
+      body = await window.api.del(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`);
+      const err = window.api._lastError || {};
+      status = body ? 200 : (err.status || 0);
+      if (!body && status === 404) {
+        body = { status: 'already_deleted', skill_id: rawSkillId };
+        status = 200;
       }
     } else {
-      toast(`删除失败 HTTP ${resp.status}`);
+      const resp = await csrfFetch(`${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}`, { method: 'DELETE' });
+      status = resp.status;
+      body = await resp.json().catch(() => ({}));
+      if (status === 404) {
+        body = { status: 'already_deleted', skill_id: rawSkillId };
+        status = 200;
+      }
     }
+
+    const ok = status >= 200 && status < 300 && (
+      !body || body.status === 'deleted' || body.status === 'already_deleted' || body.skill_id || body.deleted
+    );
+    if (ok) {
+      toast(body && body.status === 'already_deleted'
+        ? `「${rawSkillName || rawSkillId}」已不存在`
+        : `✅ 已删除「${rawSkillName || rawSkillId}」`);
+      // 只软刷技能 Tab 内容，不 location.reload / 不跳转
+      if (typeof atab !== 'undefined') atab = 'ag-skills';
+      if (typeof loadAgent === 'function' && (window.aid || aid)) {
+        try { await loadAgent(window.aid || aid); } catch (_) {}
+      }
+      if (typeof loadSkills === 'function') {
+        try { await loadSkills(); } catch (_) {}
+      }
+      return;
+    }
+
+    // 409 强制删
+    if (status === 409) {
+      const detail = (body && (body.detail || body.message)) || '技能已通过验证/发布，不允许直接删除';
+      if (confirm(String(detail) + '\n\n是否强制删除？')) {
+        const resp2 = await csrfFetch(
+          `${A}/teams/${tid}/skills/${encodeURIComponent(rawSkillId)}?force=true`,
+          { method: 'DELETE' }
+        );
+        if (resp2.ok || resp2.status === 404) {
+          toast(`✅ 已强制删除「${rawSkillName || rawSkillId}」`);
+          _removeSkillRowsFromDom(rawSkillId);
+          if (typeof loadAgent === 'function' && (window.aid || aid)) await loadAgent(window.aid || aid);
+          if (typeof loadSkills === 'function') try { await loadSkills(); } catch (_) {}
+          return;
+        }
+        toast('强制删除失败 HTTP ' + resp2.status);
+      }
+      // 用户取消强制删 → 刷回列表
+      if (typeof loadAgent === 'function' && (window.aid || aid)) await loadAgent(window.aid || aid);
+      return;
+    }
+
+    const errMsg = (window.api && window.api._lastError && window.api._lastError.message)
+      || (body && (body.detail || body.message))
+      || ('HTTP ' + status);
+    toast('删除失败：' + errMsg);
+    // 失败时刷回真实列表，恢复被乐观移除的行
+    if (typeof loadAgent === 'function' && (window.aid || aid)) await loadAgent(window.aid || aid);
   } catch (e) {
-    toast('删除失败: ' + e.message);
+    toast('删除失败: ' + (e && e.message ? e.message : e));
+    if (typeof loadAgent === 'function' && (window.aid || aid)) {
+      try { await loadAgent(window.aid || aid); } catch (_) {}
+    }
+  } finally {
+    _skillCtxDeleteInFlight.delete(rawSkillId);
   }
 }
 

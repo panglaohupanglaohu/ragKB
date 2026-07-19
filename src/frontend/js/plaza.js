@@ -201,28 +201,29 @@ const VIVID_AGENT_COLORS = [0x22d3ee, 0x34d399, 0xa78bfa, 0xfbbf24, 0xf472b6, 0x
 let _plazaSeatColorIdx = 0;
 function nextVividColor() { const c = VIVID_AGENT_COLORS[_plazaSeatColorIdx % VIVID_AGENT_COLORS.length]; _plazaSeatColorIdx++; return c; }
 
-/* ═══════════ THREE.JS — 安藤忠雄清水混凝土议事厅 ═══════════ */
+/* ═══════════ THREE.JS — 浅色清水混凝土议事厅 (Taste light) ═══════════ */
 const canvas = $('three-canvas');
 // E-4.1: 屏幕阅读器可访问
 if (canvas) canvas.setAttribute('aria-label', '议事厅 3D 场景');
 const container = $('arena-container');
 const scene = new THREE.Scene();
 
-// Exposed-concrete background
-const bgColor = new THREE.Color(0x1A2026);
+// Light arena sky / fog (cold off-white, matches page taste-light)
+const PLAZA_BG = 0xE8EDF3;
+const bgColor = new THREE.Color(PLAZA_BG);
 scene.background = bgColor;
-scene.fog = new THREE.FogExp2(0x1A2026, 0.0076);
+scene.fog = new THREE.FogExp2(PLAZA_BG, 0.0048);
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
 camera.position.set(0, 14, 28);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setClearColor(0x1A2026);
+renderer.setClearColor(PLAZA_BG);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.12;
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -232,11 +233,11 @@ controls.maxDistance = 55;
 controls.maxPolarAngle = Math.PI / 2.1;
 controls.target.set(0, 1, 0);
 
-/* ── Lights: restrained Ando-style contrast ── */
-scene.add(new THREE.AmbientLight(0x9099A2, 0.06));
+/* ── Lights: soft daylight over pale concrete ── */
+scene.add(new THREE.AmbientLight(0xD8DEE8, 0.42));
 
-// Main: strong top-front skylight
-const mainLight = new THREE.DirectionalLight(0xC7D0D8, 0.46);
+// Main: cool skylight
+const mainLight = new THREE.DirectionalLight(0xF5F7FA, 0.72);
 mainLight.position.set(3, 30, 5);
 mainLight.castShadow = true;
 mainLight.shadow.mapSize.set(2048, 2048);
@@ -245,12 +246,14 @@ mainLight.shadow.camera.left = -25; mainLight.shadow.camera.right = 25;
 mainLight.shadow.camera.top = 25; mainLight.shadow.camera.bottom = -25;
 mainLight.shadow.bias = -0.001;
 mainLight.shadow.normalBias = 0.02;
+mainLight.shadow.radius = 2.5;
 scene.add(mainLight);
 
-scene.add(new THREE.HemisphereLight(0x98A2AB, 0x353D46, 0.04));
+// Hemisphere: pale sky / soft ground bounce
+scene.add(new THREE.HemisphereLight(0xF0F4F8, 0xC5CDD8, 0.38));
 
-// Raking architectural light to keep the concrete edges legible
-const rakingLight = new THREE.SpotLight(0xCCD4DC, 0.12, 70, Math.PI / 8, 0.65, 1.3);
+// Raking light — edge definition without dark vignette
+const rakingLight = new THREE.SpotLight(0xFFFFFF, 0.28, 80, Math.PI / 7, 0.55, 1.1);
 rakingLight.position.set(-18, 24, -6);
 rakingLight.target.position.set(0, 0.8, 0);
 rakingLight.castShadow = true;
@@ -261,27 +264,27 @@ scene.add(rakingLight.target);
 function concreteMat(color, rough = 0.92) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0 });
 }
-function bronzeMat(color = 0x626A72, rough = 0.35) {
+function bronzeMat(color = 0x8A929C, rough = 0.4) {
   return new THREE.MeshStandardMaterial({
-    color, roughness: rough, metalness: 0.6,
-    emissive: new THREE.Color(color).multiplyScalar(0.05), emissiveIntensity: 0.3
+    color, roughness: rough, metalness: 0.45,
+    emissive: new THREE.Color(color).multiplyScalar(0.02), emissiveIntensity: 0.15
   });
 }
 
-/* ── Ground ── */
+/* ── Ground (light stone field) ── */
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(35, 64),
-  concreteMat(0xA9AFB5)
+  concreteMat(0xDCE2EA)
 );
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-/* ── Tiered Arena: Ando stepped concrete ── */
+/* ── Tiered Arena: stepped pale concrete ── */
 const tierDefs = [
-  { innerR: 14, outerR: 19, y: 2.4, stepH: 1.0, color: 0x7F8790 },
-  { innerR: 9,  outerR: 13, y: 1.5, stepH: 0.8, color: 0x939BA4 },
-  { innerR: 5,  outerR: 8,  y: 0.7, stepH: 0.6, color: 0xAEB5BC },
+  { innerR: 14, outerR: 19, y: 2.4, stepH: 1.0, color: 0xC8D0DA },
+  { innerR: 9,  outerR: 13, y: 1.5, stepH: 0.8, color: 0xD4DBE4 },
+  { innerR: 5,  outerR: 8,  y: 0.7, stepH: 0.6, color: 0xE2E8F0 },
 ];
 tierDefs.forEach(tier => {
   // Ring surface
@@ -293,10 +296,10 @@ tierDefs.forEach(tier => {
   top.receiveShadow = true;
   scene.add(top);
 
-  // Inner wall
+  // Inner wall (slightly cooler / darker for form reading)
   const wall = new THREE.Mesh(
     new THREE.CylinderGeometry(tier.innerR, tier.innerR, tier.stepH, 96, 1, true),
-    concreteMat(new THREE.Color(tier.color).multiplyScalar(0.72), 0.92)
+    concreteMat(new THREE.Color(tier.color).multiplyScalar(0.88), 0.92)
   );
   wall.position.y = tier.y - tier.stepH / 2;
   wall.receiveShadow = true; wall.castShadow = true;
@@ -305,32 +308,32 @@ tierDefs.forEach(tier => {
   // Outer wall
   const outer = new THREE.Mesh(
     new THREE.CylinderGeometry(tier.outerR, tier.outerR, tier.y, 96, 1, true),
-    concreteMat(new THREE.Color(tier.color).multiplyScalar(0.8), 0.92)
+    concreteMat(new THREE.Color(tier.color).multiplyScalar(0.92), 0.92)
   );
   outer.position.y = tier.y / 2;
   scene.add(outer);
 
-  // Formwork seam
+  // Formwork seam — soft slate line on light stone
   const seam = new THREE.Mesh(
     new THREE.RingGeometry(tier.innerR - 0.01, tier.outerR + 0.01, 96),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.075, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: 0x1A2030, transparent: true, opacity: 0.06, side: THREE.DoubleSide })
   );
   seam.rotation.x = -Math.PI / 2; seam.position.y = tier.y + 0.005;
   scene.add(seam);
 });
 
-// Center arena floor — polished concrete
+// Center arena floor — soft polished slab (议事台面)
 const centerFloor = new THREE.Mesh(
   new THREE.CircleGeometry(4.5, 64),
-  concreteMat(0xE2E6E9, 0.72)
+  concreteMat(0xF7F9FC, 0.55)
 );
 centerFloor.rotation.x = -Math.PI / 2; centerFloor.position.y = 0.01;
 centerFloor.receiveShadow = true;
 scene.add(centerFloor);
 
-// Formwork grid
+// Formwork grid on dais
 for (let i = -4; i <= 4; i++) {
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x1A2030, transparent: true, opacity: 0.055, side: THREE.DoubleSide });
   const hLine = new THREE.Mesh(new THREE.PlaneGeometry(9, 0.015), lineMat);
   hLine.rotation.x = -Math.PI / 2; hLine.position.set(0, 0.015, i);
   scene.add(hLine);
@@ -340,43 +343,43 @@ for (let i = -4; i <= 4; i++) {
   scene.add(vLine);
 }
 
-/* ═══ 议事长座椅 — Carlo Scarpa 层叠几何 ═══ */
+/* ═══ 议事长座椅 — 浅色层叠石台 ═══ */
 const throneGroup = new THREE.Group();
 
-// Layer 1: Large concrete base (rotated slightly)
-const base1 = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 2.0), concreteMat(0x9BA2A9, 0.88));
+// Layer 1: Large pale concrete base
+const base1 = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 2.0), concreteMat(0xD8DEE8, 0.88));
 base1.position.y = 0.06; base1.rotation.y = Math.PI / 24;
 base1.castShadow = true; base1.receiveShadow = true;
 throneGroup.add(base1);
 
-// Layer 2: Graphite plate, offset
-const base2 = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 1.7), bronzeMat(0x5F666D));
+// Layer 2: Cool graphite plate (accent contrast)
+const base2 = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 1.7), bronzeMat(0x7B8798));
 base2.position.set(0.08, 0.18, -0.05); base2.rotation.y = -Math.PI / 30;
 base2.castShadow = true;
 throneGroup.add(base2);
 
 // Layer 3: Concrete step
-const base3 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.15, 1.3), concreteMat(0xB0B6BC, 0.84));
+const base3 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.15, 1.3), concreteMat(0xE8EDF3, 0.84));
 base3.position.set(-0.04, 0.30, -0.02); base3.rotation.y = Math.PI / 40;
 base3.castShadow = true;
 throneGroup.add(base3);
 
-// Seat: cantilevered graphite slab
-const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.07, 0.85), bronzeMat(0x687078, 0.32));
+// Seat: soft slate slab
+const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.07, 0.85), bronzeMat(0x6B7585, 0.35));
 seatMesh.position.set(0, 0.56, 0.08);
 seatMesh.castShadow = true;
 throneGroup.add(seatMesh);
 
-// Armrests: asymmetric (Scarpa)
-const armL = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.75), concreteMat(0xA6ADB4, 0.86));
+// Armrests: asymmetric
+const armL = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.75), concreteMat(0xD0D7E0, 0.86));
 armL.position.set(-0.62, 0.82, 0.05);
 throneGroup.add(armL);
-const armR = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.70), bronzeMat(0x5E666E, 0.32));
+const armR = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.70), bronzeMat(0x7B8798, 0.35));
 armR.position.set(0.62, 0.72, 0.05);
 throneGroup.add(armR);
 
-// Sky beam: visible shaft of light falling onto the chairman seat
-const throneLight = new THREE.SpotLight(0xF4F7FA, 1.95, 22, Math.PI / 18, 0.12, 1.9);
+// Soft key light on chairman seat (not harsh white beam)
+const throneLight = new THREE.SpotLight(0xFFFFFF, 0.85, 22, Math.PI / 16, 0.22, 1.6);
 throneLight.position.set(0.18, 12.6, -0.42);
 throneLight.target.position.set(0.04, 0.72, 0.08);
 throneLight.castShadow = true;
@@ -385,7 +388,7 @@ throneLight.shadow.bias = -0.0005;
 throneGroup.add(throneLight);
 throneGroup.add(throneLight.target);
 
-const crossFill = new THREE.SpotLight(0xE6ECF1, 0.16, 10, Math.PI / 24, 0.18, 1.8);
+const crossFill = new THREE.SpotLight(0xF0F4F8, 0.22, 12, Math.PI / 22, 0.25, 1.5);
 crossFill.position.set(-0.95, 10.8, -1.2);
 crossFill.target.position.set(0.0, 0.58, 0.04);
 throneGroup.add(crossFill);
@@ -405,7 +408,8 @@ function makeTextCanvas(text, color) {
   ctx.clearRect(0, 0, 384, 104);
   ctx.font = '800 34px "Noto Sans SC", sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = color || '#2A2625';
+  // Light scene: dark ink labels (readable on pale concrete)
+  ctx.fillStyle = color || '#1A2030';
   ctx.fillText(text, 192, 52);
   return c;
 }
@@ -417,8 +421,9 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   group.userData.labelColor = `#${col.getHexString()}`;
   group.userData.bubbleOffsetY = (isChairman ? 3.15 : 2.9) * scale;
 
-  const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
-  const glowMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+  // Light room: slightly stronger stroke, softer glow halo
+  const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.82, side: THREE.DoubleSide });
+  const glowMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
 
   // Head ring
   const headR = 0.34 * scale, headTube = 0.035 * scale;
@@ -442,21 +447,21 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.12 * scale, 8, false), glowMat));
 
   // Light
-  const pLight = new THREE.PointLight(col, isChairman ? 0.95 : 0.55, isChairman ? 8 : 5.5);
+  const pLight = new THREE.PointLight(col, isChairman ? 0.45 : 0.28, isChairman ? 7 : 5);
   pLight.position.y = 1.4 * scale;
   group.add(pLight);
 
   // Ground ring
   const glowRing = new THREE.Mesh(
     new THREE.RingGeometry(0.35 * scale, 0.55 * scale, 32),
-    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.16, side: THREE.DoubleSide })
   );
   glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = 0.01;
   group.add(glowRing);
   group.userData.glowRing = glowRing;
 
   // Name
-  const tex = new THREE.CanvasTexture(makeTextCanvas(name, '#2A2625'));
+  const tex = new THREE.CanvasTexture(makeTextCanvas(name, '#1A2030'));
   tex.minFilter = THREE.LinearFilter;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   sprite.position.y = (isChairman ? 3.12 : 2.84) * scale;
@@ -2331,6 +2336,37 @@ window.reopenDisc = async function(event, discId) {
   } catch (e) { toast('重新开启失败: ' + (e.message || '服务异常')); }
 };
 
+/** Format Plaza discussion as TSE-friendly transcript (messages + summary/plan). */
+function buildDiscExtractText(disc) {
+  const lines = [];
+  const topic = (disc && (disc.topic || disc.title)) || '讨论萃取';
+  lines.push(`Topic: ${topic}`);
+  if (disc?.goal) lines.push(`Goal: ${disc.goal}`);
+  const msgs = Array.isArray(disc?.messages) ? disc.messages : [];
+  msgs.forEach((m, i) => {
+    const content = String(m?.content || m?.text || m?.body || '').trim();
+    if (!content) return;
+    const rnd = (m.round_number != null ? m.round_number : m.round);
+    const round = (rnd != null && rnd !== '') ? rnd : Math.floor(i / 4);
+    const name = m.agent_name || m.speaker_name || m.name || m.agent_id || `Speaker${i + 1}`;
+    const role = m.role || m.niche_role || m.seat_role || 'participant';
+    const signal = m.ritual_signal || m.signal || 'supplement';
+    lines.push(`[Round ${round}] ${name} (${role}, signal=${signal}): ${content}`);
+  });
+  if (disc?.summary) {
+    lines.push('');
+    lines.push('--- Summary ---');
+    lines.push(String(disc.summary).trim());
+  }
+  const planContent = disc?.plan?.content || (typeof disc?.plan === 'string' ? disc.plan : '');
+  if (planContent) {
+    lines.push('');
+    lines.push('--- Execution Plan ---');
+    lines.push(String(planContent).trim());
+  }
+  return lines.join('\n').trim();
+}
+
 window.extractFromDisc = async function(event, discId) {
   event?.stopPropagation();
   const id = discId || curDisc;
@@ -2338,8 +2374,13 @@ window.extractFromDisc = async function(event, discId) {
   toast('正在准备萃取…');
   const disc = await api(`${API}/plaza/${curPlaza}/discussions/${id}`);
   if (!disc) { toast('获取讨论失败'); return; }
-  const planText = disc.plan?.content || disc.summary || '';
-  if (!planText) { toast('暂无执行计划可萃取'); return; }
+  // 完整讨论可萃：消息 transcript 优先（TSE 时序输入）；无消息再退 summary/plan
+  const sourceText = buildDiscExtractText(disc);
+  const msgCount = Array.isArray(disc.messages) ? disc.messages.length : 0;
+  if (!sourceText || sourceText.length < 10) {
+    toast(msgCount ? '讨论内容过短，无法萃取' : '讨论无消息且无计划/总结，无法萃取');
+    return;
+  }
   const title = disc.topic || '讨论萃取';
   // Pass participating teams to extract page
   const plaza = await api(`${API}/plaza/${curPlaza}`);
@@ -2351,26 +2392,44 @@ window.extractFromDisc = async function(event, discId) {
     team_id: routing.preferredTeamId || '',
     status_value: 'prepared',
   };
-  const outputResp = await api(`${API}/plaza/${curPlaza}/discussions/${id}/outputs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(outputPayload),
-  });
-  recordedOutput = outputResp?.output || (outputResp?.outputs || [])[0] || null;
+  try {
+    const outputResp = await api(`${API}/plaza/${curPlaza}/discussions/${id}/outputs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(outputPayload),
+    });
+    recordedOutput = outputResp?.output || (outputResp?.outputs || [])[0] || null;
+  } catch (e) {
+    // 结构化 output 失败不挡萃取（旧逻辑会因此整段中断）
+    console.warn('plaza output record failed', e);
+  }
   if (recordedOutput) {
     renderStructuredOutput(recordedOutput);
     sessionStorage.setItem('plaza_structured_output', JSON.stringify(recordedOutput));
   } else {
     sessionStorage.removeItem('plaza_structured_output');
   }
-  sessionStorage.setItem('extract_source', JSON.stringify({
-    source_text: planText,
+  const extractPayload = {
+    source_text: sourceText,
     source_title: title,
-    source_type: 'document',
+    source_type: 'chat',
     source_plaza_id: curPlaza,
     source_discussion_id: id,
     source_output_id: recordedOutput?.id || '',
-  }));
+    topic: title,
+    // 结构化 messages 供 TSE Stage1 直接用（skill-extract → source_meta）
+    messages: (disc.messages || []).map((m, i) => ({
+      msg_id: m.id || m.msg_id || `m${i}`,
+      speaker_id: m.agent_id || m.speaker_id || `spk_${i}`,
+      speaker_name: m.agent_name || m.speaker_name || m.name || `Speaker${i + 1}`,
+      role: m.role || m.niche_role || 'participant',
+      niche_role: m.niche_role || 'analyst',
+      ritual_signal: m.ritual_signal || m.signal || 'supplement',
+      round_number: m.round_number != null ? m.round_number : (m.round != null ? m.round : Math.floor(i / 4)),
+      content: m.content || m.text || '',
+    })),
+  };
+  sessionStorage.setItem('extract_source', JSON.stringify(extractPayload));
   // 只有从讨论参与者中提取到团队信息时才过滤，避免空参与者导致默认跳到错误团队
   if (routing.teamIds.length) {
     sessionStorage.setItem('extract_teams', JSON.stringify(routing.teamIds));
@@ -2382,9 +2441,13 @@ window.extractFromDisc = async function(event, discId) {
   } else {
     sessionStorage.removeItem('extract_team_id');
   }
-  toast('正在跳转萃取页面…');
+  toast(`正在跳转萃取（${msgCount} 条消息）…`);
   const targetUrl = new URL('/skill-extract.html', window.location.origin);
   if (routing.preferredTeamId) targetUrl.searchParams.set('team_id', routing.preferredTeamId);
+  // URL 备份：sessionStorage 丢了也能按 plaza/discussion 拉回正文
+  targetUrl.searchParams.set('plaza_id', curPlaza);
+  targetUrl.searchParams.set('discussion_id', id);
+  targetUrl.searchParams.set('auto_extract', '1');
   window.location.href = targetUrl.pathname + targetUrl.search;
 };
 

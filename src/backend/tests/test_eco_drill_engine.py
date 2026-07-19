@@ -66,6 +66,116 @@ class TestMetabolicRedLine:
         assert picks.count("a2") >= 30
 
 
+class TestSexualSelection:
+    def test_choosy_prefers_high_quality_when_ss_on(self):
+        """sexual_selection_strength>0 且 choosiness 高 → 倾向选高质量 mate。"""
+        from sandbox.eco_drill import CollabGenome
+        top = Creature(
+            agent_id="toppp", skill_genome=["coding", "review"],
+            skill_proficiency={"coding": 0.95},
+            collab_genome=CollabGenome(mate_choosiness=0.0),
+        )
+        weak = Creature(
+            agent_id="weakk", skill_genome=["coding"],
+            skill_proficiency={"coding": 0.3},
+            collab_genome=CollabGenome(mate_choosiness=0.0),
+        )
+        chooser = Creature(
+            agent_id="pickr", skill_genome=["coding"],
+            collab_genome=CollabGenome(mate_choosiness=1.0),
+        )
+        drill = EcoDrill(
+            [chooser, top, weak], demanded_skills=["coding", "review"],
+            health_max=100.0, metabolic_rate=0.01, seed=21, ledger=_ledger(),
+            economics={"sexual_selection_strength": 2.0},
+        )
+        # 人为抬高 top 的 survival / COURT
+        hs_top = drill._ledger.get("toppp")
+        hs_weak = drill._ledger.get("weakk")
+        if hs_top:
+            hs_top.survival_ticks = 200
+        if hs_weak:
+            hs_weak.survival_ticks = 5
+        drill._court_log["toppp"] = drill._step_index
+        parents = [
+            {"agent_id": "pickr", "population": "", "survival_ticks": 50},
+            {"agent_id": "toppp", "population": "", "survival_ticks": 200},
+            {"agent_id": "weakk", "population": "", "survival_ticks": 5},
+        ]
+        picks = [drill._pick_mate(chooser, parents).agent_id for _ in range(60)]
+        assert picks.count("toppp") > picks.count("weakk")
+
+    def test_ss_zero_keeps_baseline_choosiness(self):
+        """ss=0 时 choosiness=1 取 pool[0]（ranking 顶）。"""
+        from sandbox.eco_drill import CollabGenome
+        p1 = Creature(agent_id="aaaa", skill_genome=["coding"],
+                      collab_genome=CollabGenome(mate_choosiness=1.0))
+        p2 = Creature(agent_id="bbbb", skill_genome=["coding"])
+        p3 = Creature(agent_id="cccc", skill_genome=["coding"])
+        drill = EcoDrill(
+            [p1, p2, p3], demanded_skills=["coding"],
+            health_max=100.0, metabolic_rate=0.01, seed=1, ledger=_ledger(),
+        )
+        parents = [
+            {"agent_id": "bbbb", "population": "", "survival_ticks": 99},
+            {"agent_id": "cccc", "population": "", "survival_ticks": 10},
+        ]
+        # choosiness=1 且 ss=0 → 总是 pool[0]=bbbb
+        assert all(drill._pick_mate(p1, parents).agent_id == "bbbb" for _ in range(10))
+
+
+class TestFrequencyDependentAndEpistasis:
+    def test_rare_skill_has_lower_frequency(self):
+        common = Creature(agent_id="c1", skill_genome=["coding"])
+        common2 = Creature(agent_id="c2", skill_genome=["coding"])
+        rare = Creature(agent_id="r1", skill_genome=["review"])
+        drill = EcoDrill(
+            [common, common2, rare], demanded_skills=["coding", "review"],
+            health_max=100.0, metabolic_rate=0.01, seed=2, ledger=_ledger(),
+            economics={"freq_dep_strength": 1.0},
+        )
+        assert drill._skill_frequency("coding") == pytest.approx(2 / 3)
+        assert drill._skill_frequency("review") == pytest.approx(1 / 3)
+
+    def test_epistasis_bonus_for_synergy_pair(self):
+        single = Creature(agent_id="s1", skill_genome=["architecture"])
+        pair = Creature(agent_id="p1", skill_genome=["architecture", "interface"])
+        drill = EcoDrill(
+            [single, pair], demanded_skills=["architecture", "interface"],
+            health_max=100.0, metabolic_rate=0.01, seed=4, ledger=_ledger(),
+            economics={"epistasis_strength": 0.2},
+        )
+        assert drill._epistasis_bonus(single.skill_genome) == 0.0
+        assert drill._epistasis_bonus(pair.skill_genome) == pytest.approx(0.2)
+
+
+class TestSenescence:
+    def test_senescence_raises_metabolic_drain(self):
+        """senescence_rate>0 时高 age 个体代谢更高 → 更快掉血/死亡。"""
+        young = Creature(agent_id="young", skill_genome=["coding"],
+                         skill_proficiency={"coding": 0.9})
+        old = Creature(agent_id="olddd", skill_genome=["coding"],
+                       skill_proficiency={"coding": 0.9})
+        drill = EcoDrill(
+            [young, old], demanded_skills=["coding"],
+            health_max=40.0, metabolic_rate=0.5, seed=8, ledger=_ledger(),
+            economics={"senescence_rate": 0.15},
+            abundance=0.3, predator_pressure=0.0, genome_carry_cost=0.0,
+        )
+        # 预置 age：old 已高龄（不比较 survival_ticks 绝对值——预置会抬高基数）
+        hs_old = drill._ledger.get("olddd")
+        if hs_old:
+            hs_old.survival_ticks = 80
+        drill.run(max_steps=20)
+        ranking = {r["agent_id"]: r for r in drill.survival_ranking()}
+        # 高龄应先死，或同活时血量更低
+        if ranking["olddd"]["alive"]:
+            assert ranking["young"]["alive"]
+            assert ranking["young"]["health"] > ranking["olddd"]["health"]
+        else:
+            assert ranking["young"]["alive"] or ranking["young"]["health"] >= ranking["olddd"]["health"]
+
+
 class TestExtinctionAndDeath:
     def test_no_matching_skill_population_goes_extinct(self):
         c = Creature(agent_id="doomed", skill_genome=["x"], skill_proficiency={})

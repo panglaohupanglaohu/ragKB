@@ -37,10 +37,17 @@ def get_token_ctx() -> TokenContext:
 def token_scope(**kw: Any) -> Iterator[TokenContext]:
     """合并入栈当前归因上下文。
 
-    支持的键: phase, run_id, team_id, agent_id, skill_id, scenario_id。
+    支持的键: phase, run_id, team_id, agent_id, skill_id, scenario_id, task_id。
+    task_id 若提供且未显式传 scenario_id，则写入 scenario_id（任务维计量兼容）。
     值为 None 的键会被跳过，保留父级上下文中的值。
     """
-    merged = _merge_token_context(_ctx.get(), kw)
+    updates = dict(kw)
+    task_id = updates.pop("task_id", None)
+    if task_id and not updates.get("scenario_id"):
+        updates["scenario_id"] = str(task_id)
+    if task_id:
+        updates["task_id"] = str(task_id)
+    merged = _merge_token_context(_ctx.get(), updates)
     token = _ctx.set(merged)
     try:
         yield merged

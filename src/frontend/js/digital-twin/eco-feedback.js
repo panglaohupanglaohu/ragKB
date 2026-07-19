@@ -1495,7 +1495,10 @@
       teamId = teamId || qs.get('team_id') || '';
     } catch (e) { /* ignore */ }
     var href = '/cost-dashboard.html';
-    if (teamId) href += '?team_id=' + encodeURIComponent(teamId);
+    var q = [];
+    if (teamId) q.push('team_id=' + encodeURIComponent(teamId));
+    // 从孪生跳转时默认展开物竞侧支（若带候选）
+    if (q.length) href += '?' + q.join('&');
     a.href = href;
   }
   try { _syncCostNavLink(); } catch (e) { /* ignore */ }

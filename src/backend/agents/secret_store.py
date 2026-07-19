@@ -214,16 +214,29 @@ def resolve_api_key(
     default_secret: str = "",
     plaintext_fallback: str = "",
 ) -> str:
+    """解析 API Key。
+
+    优先级：
+      1) explicit（含 env:VAR 引用）— 编辑框/测试连接/config_override
+      2) default_secret（secret store __default__）— UI「设为全局默认」写入
+      3) plaintext_fallback（settings.json llm.api_key）
+      4) 进程环境变量 OPENAI_API_KEY 等 — 仅作最后兜底
+
+    注意：环境变量不得压过 UI 已保存的 Key。否则会出现「测试连接成功
+    （explicit=编辑框）但演化/广场仍 INVALID_API_KEY（读到 shell 里旧 OPENAI_API_KEY）」。
+    """
     # env:VAR_NAME 引用 → 从环境变量解析（页面配置存 env: 引用，不存明文 key）
     if explicit.startswith("env:"):
         var_name = explicit[4:]
         return os.environ.get(var_name, "")
     if explicit:
         return explicit
+    if default_secret:
+        return default_secret
+    if plaintext_fallback:
+        return plaintext_fallback
     for env_name in provider_api_key_envs(provider):
         value = os.getenv(env_name, "")
         if value:
             return value
-    if default_secret:
-        return default_secret
-    return plaintext_fallback
+    return ""

@@ -506,7 +506,7 @@
     var container = $('breakdown-chart');
     if (!container) return;
     if (!items || !items.length) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>该维度下暂无 Token 数据</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生 LLM 调用</div></div>';
+      container.innerHTML = '<div class="tg-empty-chart empty-state">该维度下暂无 Token 构成数据<br><span style="opacity:.85">换聚合维度，或去议事/技能/孪生产生 LLM 调用</span></div>';
       return;
     }
     // P8.1: 字段从 OpenCost {value, total_cost} 改为 Token {key, total}
@@ -549,8 +549,8 @@
       series = seriesList;
     }
     if (!series || !series.points || series.points.length < 1) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>窗口内暂无 Token 消耗</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生调用</div></div>';
-      if (sub) sub.textContent = '—';
+      container.innerHTML = '<div class="tg-empty-chart empty-state">本时间窗口暂无趋势点<br><span style="opacity:.85">拉长窗口或先产生带 task_id 的任务调用</span></div>';
+      if (sub) sub.textContent = '暂无趋势';
       return;
     }
     var points = series.points;
@@ -753,8 +753,11 @@
     if (!tbody) return;
     // P8.3: Token 消耗明细（替代 Pod 明细）
     if (!pods || !pods.length) {
-      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">∅</div><div>暂无 Token 消耗明细</div><div style="font-size:12px;color:var(--dim);margin-top:4px">去议事广场/技能萃取/数字孪生产生 LLM 调用</div></div></td></tr>';
-      setText('pod-count', '');
+      tbody.innerHTML = '<tr><td colspan="7"><div class="tg-empty-chart empty-state">'
+        + '本窗口暂无 run 明细<br>'
+        + '<span style="opacity:.85">执行带 task_id 的任务后刷新；或去议事/技能/孪生产生 LLM 调用</span>'
+        + '</div></td></tr>';
+      setText('pod-count', '（0 条）');
       return;
     }
     var sorted = pods.slice().sort(function (a, b) { return Number(b.total || 0) - Number(a.total || 0); });
@@ -879,7 +882,7 @@
       return ra.g - rb.g || ra.v - rb.v;
     });
     if (!teams.length) {
-      host.innerHTML = '<div class="empty-state"><div class="icon">∅</div><div>暂无可持续性评估数据</div></div>';
+      host.innerHTML = '<div class="tg-empty-chart empty-state">暂无效率评估数据<br><span style="opacity:.85">有 token 消耗后才会出现团队效率排行</span></div>';
       return;
     }
     // Build team_id → team_name map from state.teams for display consistency
@@ -894,7 +897,7 @@
       // P8R.4: 效率公式 tooltip
       var formulaTitle = 'score ' + (team.total_score || 0) + ' ÷ (tokens ' + (team.tokens_consumed || 0) + '/1k) = ' + Number(team.token_efficiency || 0).toFixed(4);
       var dqText = esc(team.data_quality || '-');
-      var twinLink = '/Agent-digital-twin.html?team=' + encodeURIComponent(team.team_id || '');
+      var twinLink = '/Agent-digital-twin.html?office3d=1&team=' + encodeURIComponent(team.team_id || '');
       if (team.data_quality === 'token_only') dqText += ' · 有消耗无评分 → <a href="' + twinLink + '" style="color:var(--koke);text-decoration:none">去数字孪生跑评分试炼▸</a>';
       if (team.data_quality === 'no_data') dqText += ' · 暂无数据 → <a href="' + twinLink + '" style="color:var(--koke);text-decoration:none">先跑一次试炼▸</a>';
       // P8R.4: 两杠杆占比条
@@ -927,7 +930,7 @@
     // 9.8: 说明 score 来源，避免把「未跑评分→效率0」误读为低效
     var allZeroEff = teams.every(function (t) { return !Number(t.token_efficiency || 0); });
     var scoreNote = '<div style="font-size:11px;color:var(--sumi-3);margin-bottom:8px;line-height:1.5">效率 = score ÷ (tokens/1k)，<b>score 来自数字孪生「评分试炼」</b>。'
-      + (allZeroEff ? '当前所有团队尚无评分 → 效率显示 0（<b>不代表低效</b>）。去 <a href="/Agent-digital-twin.html" style="color:var(--koke)">数字孪生</a> 跑一次评分试炼即可解锁。' : '未跑评分的团队显示为 0。') + '</div>';
+      + (allZeroEff ? '当前所有团队尚无评分 → 效率显示 0（<b>不代表低效</b>）。去 <a href="/Agent-digital-twin.html?office3d=1" style="color:var(--koke)">数字孪生</a> 跑一次评分试炼即可解锁。' : '未跑评分的团队显示为 0。') + '</div>';
     // 13.1: 未归因 token 健康指标（>5% 红字提示，效率被低估）
     var ua = payload && payload._unattributed;
     var uaBanner = '';
@@ -960,9 +963,15 @@
       recs.length
         ? recs.map(function (t) {
             var first = (t.recommendations || [])[0] || {};
-            return '<p><b>' + esc(teamLabel(t.team_id)) + '</b> · ' + esc(t.grade) + ' · ' + esc(first.detail || '等待建议') + '</p>';
+            var detail = first.detail || first.action || '打开数字孪生跑评分试炼';
+            // 可操作动词开头
+            if (!/^(去|打开|提高|降低|萃取|复盘|跑|创建|检查|绑定)/.test(String(detail))) {
+              detail = '去处理：' + detail;
+            }
+            return '<p><b>' + esc(teamLabel(t.team_id)) + '</b> · ' + esc(t.grade)
+              + ' · ' + esc(detail) + '</p>';
           }).join('')
-        : '<p>当前无 C/D 级团队</p>',
+        : '<p>暂无 C/D 级团队 — 保持监控即可</p>',
       '  </aside>',
       '</div>',
     ].join('');
@@ -983,10 +992,16 @@
       renderEfficiencyView(state.sustainability);
       return state.sustainability;
     } catch (e) {
-      setHtml('efficiency-panel', '<div class="empty-state"><div class="icon">!</div><div>效率数据加载失败</div></div>');
+      setHtml('efficiency-panel', '<div class="tg-empty-chart empty-state">效率数据加载失败<br><span style="opacity:.85">检查 /api/v1/sustainability 或稍后重试</span></div>');
       return null;
     }
   }
+
+  /** 与 Token 工作台共用时间窗口：两边刷新 */
+  window.onCostWindowChange = function () {
+    try { refreshDashboard(); } catch (e1) { /* ignore */ }
+    try { if (window.tgRefreshAll) window.tgRefreshAll(); } catch (e2) { /* ignore */ }
+  };
 
   function teamOptionsHtml() {
     if (!state.teams.length) return '<option value="">加载团队中...</option>';
@@ -1593,7 +1608,7 @@
   function targetHowto(t) {
     var ref = encodeURIComponent(t.ref_id || '');
     if (t.metric === 'score_per_1k') {
-      return '推进：去 <a href="/Agent-digital-twin.html?team=' + ref + '" style="color:var(--koke)">数字孪生</a> 为该团队跑「评分试炼」提高 score/1k → 回来点「刷新效率」→ 棘轮可锁定';
+      return '推进：去 <a href="/Agent-digital-twin.html?office3d=1&team=' + ref + '" style="color:var(--koke)">数字孪生</a> 为该团队跑「评分试炼」提高 score/1k → 回来点「刷新效率」→ 棘轮可锁定';
     }
     // tokens_per_goal — 13.5: 附「预计可省 token」量化（基于当前消耗 × 各杠杆经验降幅）
     var cur = Number(t.current || t.total || t.value || 0);
@@ -1858,8 +1873,12 @@
     generateCostReport: generateCostReport,
   };
 
+  // H4.1: 双 init 去抖（HTML boot + 本文件 DOMContentLoaded 可能各调一次）
   if (!window.__AG_COST_DASHBOARD_NO_INIT__) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+    if (!window.__AG_COST_DASHBOARD_INITED__) {
+      window.__AG_COST_DASHBOARD_INITED__ = true;
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+      else init();
+    }
   }
 })();

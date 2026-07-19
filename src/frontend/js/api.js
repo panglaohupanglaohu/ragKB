@@ -350,7 +350,15 @@
   };
 
   if (nativeFetch) {
+    // 全局 fetch 包装：状态变更请求走 CSRF 注入 + 403 重试（与 api.request 一致）
     window.fetch = async function (input, opts) {
+      var method = (opts && opts.method) ||
+        ((typeof Request !== 'undefined' && input instanceof Request) ? input.method : 'GET') ||
+        'GET';
+      if (isStateChanging(method)) {
+        var result = await fetchWithCsrfRetry(input, opts || {});
+        return result.response;
+      }
       var prepared = await prepareRequest(input, opts);
       return nativeFetch(prepared[0], prepared[1]);
     };

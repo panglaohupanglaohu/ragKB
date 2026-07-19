@@ -15,7 +15,9 @@
     "test:root": "node scripts/run-python.cjs -m pytest -q tests",
     "lint": "node scripts/run-python.cjs -m compileall -q src/backend",
     "typecheck": "node scripts/run-python.cjs -m compileall -q src/backend",
-    "preview": "vite preview --config vite.config.mjs"
+    "preview": "vite preview --config vite.config.mjs",
+    "codegraph:init": "codegraph init",
+    "codegraph:status": "codegraph status"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
@@ -25,5 +27,8 @@
   "dependencies": {
     "playwright": "^1.60.0",
     "three": "^0.184.0"
+  },
+  "optionalDependencies": {
+    "@colbymchenry/codegraph": "^1.4.1"
   }
 }

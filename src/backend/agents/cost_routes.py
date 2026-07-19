@@ -276,6 +276,17 @@ async def tokens_by_skill(
     return LEDGER.by_skill(window)
 
 
+@router.get("/tokens/by-task")
+async def tokens_by_task(
+    window: str = Query(default="24h", description="Time window"),
+    team_id: str = Query(default="", description="Optional team filter"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """按任务维聚合 Token（scenario_id / run_id）— 任务 Token 治理北极星."""
+    items = LEDGER.by_task(window=window, team_id=team_id or "", limit=limit)
+    return {"ok": True, "source": "token", "window": window, "items": items, "count": len(items)}
+
+
 @router.get("/tokens/run/{run_id}")
 async def tokens_by_run(run_id: str):
     """按 run_id 聚合 Token 成本（归因查询）。"""

@@ -708,6 +708,14 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ Token Budget Gate API failed: {e}")
 
+        # 4f-bis++. 任务 Token 治理（计量/缓存/路由/预算/验证）
+        try:
+            from agents.token_governance_routes import router as tg_router
+            app.include_router(tg_router, prefix="/api/v1")
+            logger.info("✅ Token Governance API mounted (/api/v1/cost/token-governance/*)")
+        except Exception as e:
+            logger.warning(f"⚠️ Token Governance API failed: {e}")
+
         # 4f-bis. Token Factory API (LLM inference health & management)
         try:
             from token_factory import router as tf_router

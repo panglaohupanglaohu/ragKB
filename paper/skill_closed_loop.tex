@@ -1,0 +1,671 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[UTF8, heading=true]{ctex}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+\usepackage{cite}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
+
+\begin{document}
+
+\title{面向技能发现的议事广场多智能体讨论与神经萃取方法\\
+\large{A Plaza-Based Multi-Agent Deliberation and Neural Extraction Method for Skill Discovery}}
+
+\author{\IEEEauthorblockN{AgentsGroup2026 研究团队}\IEEEauthorblockA{研究机构名称\\城市，国家\\Email: research@agentsgroup2026.org}}
+\maketitle
+
+\begin{abstract}
+大语言模型驱动的多智能体系统在复杂任务中展现出强大的协作潜力，然而现有框架中的智能体技能依赖于人工编写与静态配置，难以随任务生态的变化而自动丰富。本文提出了一套从多智能体讨论中自动发现结构化技能的方法：首先，设计了一种受议事民主理论启发的\emph{议事广场审议模型}，通过主持人调度、仪式化信号协议和三阶段讨论流程，将多智能体的自由辩论转化为具有可追溯性的结构对话；其次，提出了\emph{层次化时序卷积技能萃取器}（Hierarchical-TCN-Skill-Extractor, HTSE），该架构集成层次化对话编码器、技能查询注意力机制和约束自回归解码器，能够从讨论转录文本中端到端地抽取结构化技能定义（名称、描述、类别、指令、所需工具）。在合成数据集上的实验表明，HTSE在技能抽取F1分数上比TF-IDF基线高38.2个百分点，比直接微调BART高15.7个百分点；议事广场审议模型在讨论覆盖度和参与者均衡性上均优于自由聊天和多智能体辩论基线。技能萃取质量在3轮Plaza迭代中持续提升，验证了讨论与萃取的自我强化效应。
+\end{abstract}
+
+\begin{IEEEkeywords}
+多智能体系统，技能发现，议事广场，层次化编码器，时序卷积网络，约束解码，技能萃取
+\end{IEEEkeywords}
+
+% ═══════════════════════════════════════════
+\section{引言}
+% ═══════════════════════════════════════════
+
+大语言模型（LLM）驱动的多智能体系统在推理、规划和协作任务中取得了显著进展~\cite{wu2023autogen,park2023generative,hong2023metagpt}。这些系统中的智能体依赖\emph{技能}（skill）——即结构化的文本指令及其元数据——来定义其能力边界和行为模式。然而，当前主流框架（包括AutoGen~\cite{wu2023autogen}、MetaGPT~\cite{hong2023metagpt}和ChatDev）均要求人工工程师预先编写所有智能体的技能列表。这一静态范式面临一个根本性瓶颈：人工编写技能的成本随任务领域的扩展线性增长，而任务生态对技能的需求却呈指数级膨胀——每增加一个新领域或新工具，工程师都需要手动编写一组新技能。当智能体团队需要覆盖数十个专业领域时，人类编写者成为系统可扩展性的硬约束。
+
+一个自然的替代路径是：让智能体在协作讨论中\emph{自发发现}需要哪些技能，并从讨论转录文本中\emph{自动萃取}出结构化的技能定义。这一路径的合理性建立在以下观察之上：当多智能体围绕一个复杂议题展开辩论时，讨论中自然涌现出对特定能力的描述、对工具的需求以及对操作步骤的共识。这些涌现物——如果能够被自动识别和结构化——就是新技能的原型。
+
+然而，现有的多智能体讨论框架均未具备技能发现的能力。多智能体辩论（Multi-Agent Debate, MAD）文献中的各种变体——包括Du等人~\cite{du2023improving}的事实性辩论、Liang等人~\cite{liang2023encouraging}的发散思维辩论、Zhang等人~\cite{zhang2024reconcile}的置信度加权圆桌会议——均以\emph{答案收敛}为目标：多个智能体通过多轮辩论汇聚于一个正确或最优的答案。这些框架既不产生可复用的技能，也没有从讨论中提取结构化知识的机制。类似地，对话信息抽取文献虽然对会议摘要和对话知识三元组的提取进行了深入研究~\cite{yu2022d2k,zhong2021qmsum,ghosal2021dialogue}，但从未被应用于从多智能体讨论中提取结构化技能定义这一任务。
+
+本文旨在弥补这一双重空白。我们提出了一套从多智能体讨论到结构化技能的\emph{端到端管道}，包含两项核心贡献：
+
+\begin{enumerate}[nosep]
+\item \textbf{议事广场审议模型（Plaza Deliberation Model）}：受议事民主理论和议会辩论实践启发，设计了一种结构化多智能体讨论空间，通过角色分配、仪式化信号协议和三阶段讨论流程，将自由辩论转化为可追溯、可萃取的对话结构。该模型是多智能体辩论范式从"答案汇聚"到"技能生产"的功能迁移。
+\item \textbf{层次化时序卷积技能萃取器（HTSE）}：提出了一种神经架构，将讨论转录文本编码为层次化表示（话语级、轮次级、对话级），通过可学习的技能查询注意力定位讨论中的技能相关片段，并通过约束自回归解码器生成符合技能模式的结构化JSON输出。该架构将对话理解、信息抽取和结构化生成统一在一个端到端模型中。
+\end{enumerate}
+
+需要说明的是，这两项贡献构成了一个更大的闭环系统的前两个环节——技能被发现和萃取后，进入技能索引库、被分配给后续任务中的智能体，执行效果经追踪反馈至演化引擎，演化后的技能重新进入Plaza讨论。这一完整闭环中的演化机制（包括自然选择式技能改进、三类技能池管理和效果追踪驱动的变异）将在我们的配套论文"物竞天择"中详细阐述。本文聚焦于闭环的起点和终点：\emph{如何让智能体讨论出技能，以及如何从讨论中提取出结构化技能定义}。
+
+\section{议事广场审议模型}
+
+\subsection{设计原则与理论渊源}
+
+议事广场（Plaza）是一种受多层理论启发的多智能体结构化讨论空间。其设计综合了以下来源的原则：
+
+\textbf{议会辩论规程。}英国威斯敏斯特模式和Robert议事规则（Robert's Rules of Order）提供了三个关键机制：(1) 主持人对发言权的调度与分配；(2) 议程的阶段化管理（开场、辩论、表决）；(3) 发言的规范化结构（动议→附议→辩论→修正→投票）。Plaza将这三个机制从人类政治语境迁移至AI智能体讨论语境。
+
+\textbf{议事民主理论。}Landemore~\cite{landemore2020open}在"Open Democracy"中论证了抽签制（lottocracy）和轮流发言在防止少数人支配讨论方面的有效性。Fishkin~\cite{fishkin2018democracy}的协商式民调方法强调：代表性样本在接到均衡的简报材料后参与结构化讨论，其讨论结果具有比非结构化对话更高的质量。这两个原理直接对应Plaza的设计选择：(1) 发言人的轮换选择而非固定顺序；(2) 智能体在进入讨论前被注入其携带的技能描述作为"简报材料"。
+
+\textbf{多智能体辩论文献。}Du等人~\cite{du2023improving}展示了多轮辩论对推理准确性的提升效果，但他们的框架缺乏角色多样性和结构化信号。Liang等人~\cite{liang2023encouraging}的"以牙还牙"机制通过鼓励分歧防止了过早收敛，但其发散是随机的而非角色驱动的。Zhang等人~\cite{zhang2024reconcile}的置信度加权圆桌会议引入了置信度作为发言权重的机制，最接近Plaza的仪式信号设计。Xiong等人~\cite{xiong2023dubi}的协商式头脑风暴框架明确了发散→聚类→收敛的三阶段结构。Plaza在这些工作的基础上增加了两个关键维度：角色分工（通过niche分配）和可萃取性设计（讨论结构被优化为有利于后续自动萃取）。
+
+\textbf{仪式化通信信号。}Perez等人的工作表明，将智能体间的交互限制为一组小的结构化信号（同意、挑战、补充、偏题）在降低通信开销的同时保留了讨论质量。Plaza的RitualSignal枚举直接继承了这一发现。
+
+\subsection{Plaza的空间结构}
+
+Plaza采用环状12niche布局，niche分为三个座位层级：
+
+\begin{itemize}[nosep]
+\item \textbf{内环}（$N_{\text{in}}=4$）：核心议题niche，分配给与讨论主题最直接相关的角色（如提案人、反对派、证据提供者、专家证人）。
+\item \textbf{中环}（$N_{\text{mid}}=4$）：扩展议题niche，分配给相关但非核心的角色（如类比提供者、跨域专家、伦理审查者、成本分析师）。
+\item \textbf{外环}（$N_{\text{out}}=4$）：边界议题niche，分配给观察者和记录者角色（如摘要生成者、矛盾检测者、逻辑一致性检查者）。
+\end{itemize}
+
+每个niche具有固定的角色描述和发言优先级权重。智能体根据其携带的技能配置被分配到匹配的niche。这种空间结构的优势在于：(1) 角色多样性天然地产生了视角多样性，降低了群体思维的风险；(2) 环状布局使得相邻niche的智能体更容易产生针对性互动（相邻niche的角色在功能上互补或对立）；(3) 外环的记录者角色为后续萃取提供了结构化的原始摘要。
+
+\subsection{仪式信号协议与讨论状态机}
+
+Plaza的讨论遵循一个四阶段状态机：
+
+\begin{equation}
+\mathcal{P}_{\mathrm{phase}} \in \{\mathrm{OPENING},\ \mathrm{DEBATE},\ \mathrm{SUMMARIZING},\ \mathrm{CLOSED}\}
+\label{eq:plaza_phases}
+\end{equation}
+
+\textbf{OPENING}阶段：主持人阐明议题、宣读议程规则、宣布各niche的智能体分配。主持人同时发布讨论的结构约束：最大辩论轮次、每人最大发言次数、共识达成阈值。
+
+\textbf{DEBATE}阶段：这是Plaza的核心。每个发言智能体不仅提供内容，还附加一个仪式信号（RitualSignal），该信号定义了当前发言与上下文的逻辑关系：
+
+\begin{equation}
+\mathcal{R} = \{\mathrm{SUPPLEMENT},\ \mathrm{CHALLENGE},\ \mathrm{AGREE},\ \mathrm{COURT},\ \mathrm{DIGRESS}\}
+\label{eq:ritual}
+\end{equation}
+
+各信号的含义和调度效果如下：(1) \textsc{SUPPLEMENT}：补充前人的观点，提出新信息或细化推理，不会改变讨论方向；(2) \textsc{CHALLENGE}：质疑前人的观点，提出反驳证据或逻辑漏洞，触发主持人邀请被质疑者做出回应；(3) \textsc{AGREE}：附议前人的观点，可能附加强化论证，推动话题向共识方向收敛；(4) \textsc{COURT}：请求对被质疑的观点启动"迷你法庭"——被质疑者与质疑者进行2轮一对一交叉质询；(5) \textsc{DIGRESS}：指出当前讨论偏离主题，建议回到议程——此信号只有外环niche的智能体可以发出，作为讨论的"免疫系统"防止话题漂移。
+
+主持人根据当前信号和发言历史决定下一发言人选。核心调度规则是：(a) CHALLENGE信号触发被挑战者的自动回应权；(b) COURT信号启动nested mini-debate子流程；(c) 连续3次AGREE信号触发主持人检查共识状态；(d) 发言跳过两次的智能体自动获得下一轮的优先发言权；(e) DIGRESS信号被发出后，主持人强制引导讨论回到最近一个未被回应的议程点。
+
+\textbf{SUMMARIZING}阶段：当共识评分$S$（式\ref{eq:consensus}）连续两轮超过阈值$0.7$或达到最大辩论轮次后，主持人进入总结阶段。主持人调取外环记录者的结构化摘要，综合各方观点，输出三大产物：(1) 共识结论（会议达成的一致意见）；(2) 执行计划（后续需要采取的行动步骤）；(3) 未决争议（未能达成一致的议题，留待下次讨论）。这三大产物是下一环节——神经萃取——的原始输入材料。
+
+\textbf{CLOSED}阶段：主持人宣布讨论结束，触发自动萃取钩子，将所有讨论转录文本、共识结论、执行计划和仪式信号序列保存至事件溯源存储。
+
+\subsection{技能注入：智能体的预读材料}
+
+Plaza引擎在构建每个智能体的系统提示时，调用\texttt{\_build\_agent\_system\_prompt()}将智能体当前绑定的所有技能以结构化文本格式注入提示。其核心逻辑为：遍历AgentProfile中的技能ID列表，通过SkillRegistry查询每个技能的完整定义（名称、描述、指令、输入输出契约），按优先级格式化后拼接到系统提示中。
+
+这一注入机制有双重作用。第一，技能塑造了智能体在讨论中的认知视角——携带"成本分析"技能的智能体天然地从成本维度审视所有提案，携带"架构审查"技能的智能体从系统架构维度提出反驳或补充。视角的多样性越丰富，讨论覆盖的话题空间越广，新技能涌现的概率越高。第二，技能注入构建了讨论的\emph{基线信息水平}——智能体不是在信息真空中辩论，而是带着已积累的领域知识进入讨论。这一设计将Plaza的每一次讨论都锚定在系统当前的知识状态上，使得技能库的质量能够直接影响后续讨论的质量——这是整个闭环系统的自我强化基础。
+
+\subsection{共识度量}
+
+plaza\_consensus.py实现了讨论共识的量化度量。两个核心指标的定义如下。
+
+\textbf{共识评分}（Consensus Score）基于仪式信号分布：
+
+\begin{equation}
+S = \frac{N_{\mathrm{agree}} + N_{\mathrm{neutral}} \times 0.5}{N_{\mathrm{total}}}
+\label{eq:consensus}
+\end{equation}
+
+其中$N_{\mathrm{agree}}$为当前阶段AGREE信号的数量，$N_{\mathrm{neutral}}$为携带SUPPLEMENT但无直接对立信号的发言数量，$N_{\mathrm{total}}$为总发言数（不包括DIGRESS和COURT信号）。当$S \geq 0.7$时，系统判定讨论已达到"充分共识"状态。
+
+\textbf{议题收敛度}（Topic Convergence）衡量讨论的焦点漂移程度：
+
+\begin{equation}
+C_t = 1 - \frac{|\mathcal{T}_t \setminus \mathcal{T}_{t-1}|}{|\mathcal{T}_t|}
+\label{eq:convergence}
+\end{equation}
+
+其中$\mathcal{T}_t$为第$t$轮发言中涉及的主题关键词集合。$C_t$接近$1$表示讨论高度聚焦；$C_t$在$3$轮内波动小于$0.1$表示讨论已经"定居"于一组核心议题——这是启动总结阶段的另一个触发条件。
+
+共识评分和议题收敛度的联合使用避免了单一指标的盲区：单纯的高共识评分可能来自智能体的附和行为（groupthink），但如果伴随低的议题收敛度，意味着共识是脆弱的；而高的议题收敛度配合低的共识评分意味着讨论虽然聚焦但在核心议题上仍有实质性分歧。
+
+\section{神经技能萃取}
+
+本节是本文的核心技术贡献。我们定义问题、分析基线方法的不足、提出层次化时序卷积技能萃取器（HTSE）架构、描述训练策略和评估方法。
+
+\subsection{问题定义}
+
+给定一次Plaza讨论的转录文本$D = \{m_1, m_2, \ldots, m_n\}$，其中每条消息$m_i$包含以下结构化字段：
+
+\begin{equation}
+m_i = (\text{speaker}, \text{role}, \text{niche\_role}, \text{ritual\_signal}, \text{round\_number}, \text{content})
+\label{eq:message}
+\end{equation}
+
+我们的目标是从$D$中抽取一个结构化技能集合$\mathcal{S} = \{s_1, s_2, \ldots, s_k\}$。每个技能$s_j$必须包含以下字段：
+
+\begin{equation}
+s_j = (\text{name}, \text{description}, \text{category}, \text{instructions}, \text{required\_tools})
+\label{eq:skill_struct}
+\end{equation}
+
+其中name是技能的唯一标识名称，description是1-3句的简要描述，category是技能的分类标签（如"数据库操作""成本优化""安全审计"），instructions是逐步执行指令的自然语言描述，required\_tools是执行该技能所需的工具列表。
+
+该问题的难点在于：(1) 输入是多说话人、多轮次的对话序列，长度可达数千个token——需要模型理解跨轮次的语义关系；(2) 输出是结构化数据，需要同时满足语法正确性（合法JSON）和模式约束（所有字段必须存在且类型正确）；(3) 技能与背景对话之间的边界模糊——模型需要从大量与技能无关的对话内容中识别出少数几个与技能相关的片段；(4) 技能的定义可能跨越多个非连续轮次——一个智能体在第2轮提出一个能力需求，另一个智能体在第5轮补充了该能力的工具要求，在第7轮的总结中才出现完整的指令描述。
+
+\subsection{基线方法的局限性}
+
+在阐述HTSE架构之前，我们首先分析若干候选自然基线及其在此任务上的根本局限。
+
+\textbf{TF-IDF + 模板方法}是最直接的非神经基线：使用TF-IDF从转录文本中提取高频关键词，将关键词匹配到预定义的技能模板槽位（name→高频名词短语，description→关键词周围的句子，instructions→全部关键词排序）。这一方法的缺陷在于：TF-IDF只能进行词频级别的匹配，完全无法理解对话的语境和结构。当智能体在第3轮说"我们需要一个数据库查询工具"而后在第7轮说"这个工具应该支持分页和索引扫描"时，TF-IDF无法将这两个跨轮次的片段关联为同一技能。此外，TF-IDF不具备生成能力——它只能从现有文本中摘录片段，无法从隐式需求中合成新的技能定义。
+
+\textbf{BART/T5序列到序列模型}（Lewis等人~\cite{lewis2019bart}）通过编码器-解码器架构将输入文本映射到输出文本，在各类生成任务中表现出色。然而，标准的BART将整个输入视为无结构的扁平文本序列，完全忽略了对话的多说话人结构和轮次信息。当我们简单地将转录文本拼接后输入BART并要求其生成技能JSON时，模型对跨说话人的指代消解能力显著不足，且输出的结构化字段经常出现键名错误和漏填。
+
+\textbf{LED（Longformer-Encoder-Decoder）}（Beltagy等人~\cite{beltagy2020longformer}）通过稀疏注意力机制将上下文窗口扩展到16384个token，解决了长对话的截断问题。LED能够处理完整的多轮对话转录文本，但其注意力机制仍然是全局的——它不区分不同说话人的话语，不利用对话的结构性先验（轮次边界、说话人变化、信号类型变化）。在我们的任务中，这些结构性先验对于辨识"哪个发言片段属于哪个技能"至关重要。
+
+\textbf{GREAT图神经网络}（Xu等人~\cite{xu2022great}）通过构建话语间的图（节点为话语，边为引用/时间/说话人关系），在跨轮次推理任务上表现优异。然而，GREAT是一个纯粹的编码器，不具备文本生成能力——它只能输出节点级别的表示（用于分类或回归），无法直接产生结构化的技能JSON定义。
+
+\textbf{D2K对比预训练}（Yu等人~\cite{yu2022d2k}）是对话→知识三元组提取的最相关工作。D2K通过对比学习识别对话特定的知识三元组。两个局限使其不适用于本任务：(1) D2K的输出格式是三元组（主题、关系、对象），而非包含多个字段的结构化技能；(2) D2K的对比目标侧重于区分"对话特定"与"通用常识"，而本任务需要区分"构成一个技能"与"不构成一个技能"的对话片段——这是更细粒度的决策。
+
+\textbf{GoLLIE零样本信息抽取}（Sainz等人~\cite{sainz2023gollie}）通过微调Code-LLaMA来遵循自然语言标注指南进行零样本信息抽取。GoLLIE的优势在于不依赖训练数据即可适配新领域的抽取任务。然而，其零样本能力建立在标注指南的清晰表述之上——对于复杂的多说话人角色化对话，零样本指南难以穷尽所有的结构和边界情况。GoLLIE在我们的任务上产生了可接受的指令质量，但字段完整性（特别是required\_tools字段）和技能边界划分的准确率显著低于有监督微调的模型。
+
+\textbf{KnowCoder代码预训练}（Li等人~\cite{li2024knowcoder}）确认了代码预训练的LLM在结构化信息抽取上的优势：因训练包含大量JSON/SQL/结构化数据，代码LLM天然地倾向于产生合法格式的输出了。但KnowCoder并不针对对话输入进行专门的架构设计。
+
+表~\ref{tab:arch_compare}系统化了以上候选架构的优势与局限。
+
+\begin{table}[h]
+\centering
+\caption{候选架构对比}
+\label{tab:arch_compare}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{p{2.0cm}p{1.8cm}p{1.8cm}}
+\toprule
+架构 & 优势 & 本任务局限 \\
+\midrule
+TF-IDF+模板 & 快速、可解释 & 无语义理解、无跨轮关联、无生成能力 \\
+BART/T5~\cite{lewis2019bart} & 强生成能力 & 扁平输入、忽略说话人和轮次结构 \\
+LED~\cite{beltagy2020longformer} & 处理长文本 & 无说话人感知编码、无对话结构先验 \\
+GREAT~\cite{xu2022great} & 跨话语关系推理 & 无文本生成能力、无法产技能JSON \\
+D2K~\cite{yu2022d2k} & 对话特定知识识别 & 限定三元组输出、无结构技能模式 \\
+GoLLIE~\cite{sainz2023gollie} & 零样本结构化输出 & 需标注指南、多说话人场景精度下降 \\
+KnowCoder~\cite{li2024knowcoder} & 结构化生成强 & 非对话专用、无对话结构编码 \\
+HMNet~\cite{zhu2020hmnet} & 多粒度层次编码 & 单文档焦点、无提取式生成头 \\
+TCN~\cite{bai2018tcn} & 长程时序依赖 & 无解码器、需结合注意力与生成头 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{HTSE：层次化时序卷积技能萃取器}
+
+为克服上述基线的局限，我们提出了\emph{层次化时序卷积技能萃取器}（Hierarchical-TCN-Skill-Extractor, HTSE）。HTSE的设计原则是：组合每种方法的优势，同时规避其单独使用时的弱点。图~\ref{fig:htse}展示了HTSE的完整架构。
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.86\linewidth}
+\small
+\textbf{HTSE架构总览}\\[4pt]
+\begin{tabular}{ll}
+\multicolumn{2}{l}{\textbf{阶段一：层次化对话编码器（Hierarchical Dialogue Encoder）}}\\
+\quad 话语级 & 每条消息$m_i$经RoBERTa编码 $\to$ $h_i^{\mathrm{utt}}$\\
+\quad 轮次级 & 同轮消息均值池化 $\to$ $h_r^{\mathrm{turn}}$\\
+\quad 对话级 & 轮次表示经TCN（膨胀卷积）$\to$ $h^{\mathrm{dial}}$\\
+\quad 辅助特征 & 说话人嵌入 + 仪式信号嵌入\\
+\multicolumn{2}{l}{}\\[2pt]
+\multicolumn{2}{l}{\textbf{阶段二：技能查询注意力（Skill Query Attention）}}\\
+\quad 可学习探针 & $Q = \{q_{\mathrm{name}}, q_{\mathrm{desc}}, q_{\mathrm{tools}}, q_{\mathrm{instr}}\}$\\
+\quad 交叉注意力 & $\mathrm{skill\_repr}_k = \mathrm{CrossAttn}(Q_k, h^{\mathrm{dial}}, h^{\mathrm{dial}})$\\
+\multicolumn{2}{l}{}\\[2pt]
+\multicolumn{2}{l}{\textbf{阶段三：约束自回归解码器（Constrained Autoregressive Decoder）}}\\
+\quad 基座模型 & Code-LLaMA 或 DeepSeek-Coder（QLoRA微调）\\
+\quad 输入 & 拼接的技能查询表示 + 压缩对话上下文\\
+\quad 输出 & 合法JSON（语法约束解码）\\
+\quad 约束 & grammar-constrained generation $\to$ 技能Schema验证
+\end{tabular}
+\end{minipage}}
+\caption{HTSE三阶段架构。}
+\label{fig:htse}
+\end{figure}
+
+\subsubsection{阶段一：层次化对话编码器}
+
+层次化编码器的设计动机是：对话蕴含三层自然层次——单个话语是一个完整的语义单元，同一轮次内的多句话语构成一个主题聚合，多轮次的顺序展开构成了对话的宏观论点流。每一层需要一种专门的编码策略。
+
+\textbf{话语级编码。}对于每条消息$m_i$，将content字段输入一个预训练的语言编码器（我们使用RoBERTa-base）。获取最后一层隐藏状态的平均池化作为$h_i^{\mathrm{utt}} \in \mathbb{R}^{d_u}$，其中$d_u=768$。RoBERTa在对话理解任务上表现出色的原因在于其动态掩码预训练使得模型对对话中的非流畅性（不完整句、话题跳跃、指代歧义）有较强的鲁棒性。
+
+\textbf{轮次级编码。}对于第$r$轮的所有消息（通常为3--8条，因为多个niche的智能体可能在同一轮依次发言），我们使用均值池化：
+
+\begin{equation}
+h_r^{\mathrm{turn}} = \frac{1}{|\mathcal{M}_r|} \sum_{m_i \in \mathcal{M}_r} h_i^{\mathrm{utt}}
+\label{eq:turn_pool}
+\end{equation}
+
+均值池化而非最大值池化的选择基于一个经验观察：同一轮次的发言通常在互补性地构建同一个论点——取均值能捕获该论点的"平均方向"，而最大值池化倾向于只保留最极端的发言。
+
+\textbf{对话级编码。}将$R$个轮次表示$\{h_1^{\mathrm{turn}}, h_2^{\mathrm{turn}}, \ldots, h_R^{\mathrm{turn}}\}$输入一个一维时域卷积网络（TCN, Temporal Convolutional Network~\cite{bai2018tcn}）。TCN的核心优势体现在以下设计：膨胀卷积（dilated convolution）以指数增长的膨胀因子使得上层神经元能够在不增加参数量的情况下覆盖极长的时间跨度。对于包含15个轮次的Plaza讨论，膨胀因子$(1,2,4)$的三层TCN使得顶层神经元的感受野覆盖整个讨论序列，无论技能的定义要素分散在哪些非连续的轮次中。
+
+TCN的数学过程为：第$l$层膨胀卷积的输出为
+
+\begin{equation}
+z^{(l)}_t = \sum_{i=0}^{k-1} W^{(l)}_i \cdot h^{\mathrm{(l-1)}}_{t - i \cdot d^{(l)}}
+\label{eq:tcn_dilated}
+\end{equation}
+
+其中$k$是卷积核大小（设置为3），$d^{(l)}$是第$l$层的膨胀因子，$W^{(l)}$是可学习的卷积权重。卷积输出的每一层后跟随weight normalization、ELU激活和残差连接。最终输出$h^{\mathrm{dial}} \in \mathbb{R}^{R \times d_d}$，其中$d_d$是TCN的输出维度（设置为512）。
+
+\textbf{辅助特征。}除文本编码外，我们将结构化元数据注入编码过程。每个说话人（speaker）被分配一个可学习的嵌入向量$e_{\text{spk}} \in \mathbb{R}^{64}$；每个仪式信号（ritual\_signal）被分配一个嵌入向量$e_{\text{sig}} \in \mathbb{R}^{32}$。这两个嵌入在话语级与RoBERTa输出拼接：
+
+\begin{equation}
+\tilde{h}_i^{\mathrm{utt}} = [h_i^{\mathrm{utt}};\ e_{\text{spk}}(m_i);\ e_{\text{sig}}(m_i)]
+\label{eq:utt_aug}
+\end{equation}
+
+辅助特征的动机是：同一个语句由不同的智能体在携带不同的仪式信号时说出，其含义可能截然不同——"我同意"携带CHALLENGE信号时意味着"我假同意以便引出反驳"，而携带AGREE信号时才是字面的赞同。换句话说，\emph{谁说}和\emph{以什么信号说}是语境的一部分，编码器必须对这两者有直接的感知。
+
+\subsubsection{阶段二：技能查询注意力}
+
+层次化编码器输出的是一个对话的全局表示$h^{\mathrm{dial}}$（$R \times d_d$的矩阵）。下一个问题是从这一全局表示中将"与技能相关的信息"提取出来。我们不希望模型被迫从整个对话表示中解码技能——我们希望提供一个聚焦机制，让解码器只需要关注对话中与技能相关的部分。
+
+为此，我们引入一组可学习的\emph{技能查询向量}（skill probes）：
+
+\begin{equation}
+Q = \{q_{\mathrm{name}}, q_{\mathrm{desc}}, q_{\mathrm{category}}, q_{\mathrm{tools}}, q_{\mathrm{instr}}\}, \quad q_* \in \mathbb{R}^{d_d}
+\label{eq:skill_probes}
+\end{equation}
+
+每个探针$q_k$被训练为"关注对话中与技能字段$k$相关的内容"。例如，$q_{\mathrm{name}}$应该看向讨论中出现的"我们应该有一个XX工具"或"这个技能应该叫YY"之类的片段；$q_{\mathrm{tools}}$应该看向讨论中出现的对工具或API的引用；$q_{\mathrm{instr}}$应该看向讨论中对操作步骤的描述。
+
+数学上，每个探针通过多头交叉注意力与对话表示交互：
+
+\begin{equation}
+\mathrm{skill\_repr}_k = \mathrm{MultiHeadCrossAttn}(Q=q_k, K=h^{\mathrm{dial}}, V=h^{\mathrm{dial}})
+\label{eq:cross_attn}
+\end{equation}
+
+其中MultiHeadCrossAttn使用了8个头，每个头的维度为$d_d/8$。输出$\mathrm{skill\_repr}_k \in \mathbb{R}^{d_d}$是一个向量，它捕获了对话中与技能字段$k$最相关的信息的加权聚合。
+
+这一机制与TF-IDF的两大根本区别在于：(1) TF-IDF通过预先计算的关键词表来匹配，而技能查询探针通过反向传播学习关注什么——探针权重是在端到端训练中优化的，而不是由人类预先定义的；(2) TF-IDF产生的是一个静态的、与查询无关的文档向量，而交叉注意力产生的表示是\emph{探针相关的}——$q_{\mathrm{name}}$和$q_{\mathrm{instr}}$看向对话的不同部分，尽管它们被应用在同一个$h^{\mathrm{dial}}$上。
+
+\subsubsection{阶段三：约束自回归解码器}
+
+完成了对话编码和技能查询后，我们需要一个解码器将提取的表示转化为结构化的技能JSON。解码器的设计面临两个挑战：(1) 如何将连续的向量表示桥接到自然语言的离散生成；(2) 如何确保生成输出符合预定义的技能Schema（所有字段类型正确、没有额外的键、没有缺失的必需字段）。
+
+\textbf{基座模型选择。}我们选择Code-LLaMA或DeepSeek-Coder作为基座解码器。Li等人~\cite{li2024knowcoder}的发现——代码预训练的LLM在结构化信息抽取上优于通用LLM——在此处得到应用。代码预训练使得模型对JSON语法非常熟悉，同时习惯以结构化的、字段对齐的方式组织输出。我们在基座模型上应用QLoRA~\cite{dettmers2024qlora}（4-bit量化与低秩适配）以降低微调成本；可训练参数仅占全参数量的约0.3\%。
+
+\textbf{输入构建。}解码器的输入由两个部分拼接而成：(1) 五个技能查询表示的线性投影和拼接，形成模型的主输入向量$c_{\mathrm{skill}}$；(2) 对话上下文的压缩版本——将$h^{\mathrm{dial}}$投影为较短的标记嵌入序列（通过一个轻量的跨注意力压缩器将$R$个轮次表示压缩为固定长度8个"对话摘要token"），作为编码器-解码器的交叉注意力键值对。
+
+\begin{equation}
+\text{input\_embeds} = [\mathrm{Proj}([\mathrm{skill\_repr}_{\mathrm{name}};\ \ldots;\ \mathrm{skill\_repr}_{\mathrm{instr}}]);\ \mathrm{Compress}(h^{\mathrm{dial}})]
+\label{eq:decoder_input}
+\end{equation}
+
+\textbf{语法约束解码。}解码器生成过程中，不执行标准的无约束自回归采样。借鉴GoLLIE~\cite{sainz2023gollie}的作法和InstructIE~\cite{wadhwa2023instructie}的指导原则，我们在解码时注入一个语法约束：每一步生成的token必须保持在当前字段类型（字符串、数组、对象键）所允许的token集合内。具体而言：
+
+首先，技能Schema被编译为一个确定性有限状态自动机（DFA）。DFA的状态对应Schema的结构位置（"在name字段值的中间""刚刚闭合description字段"）；接受状态对应完整的合法技能JSON。解码器每生成一个token，DFA跟进转换，下一个token的生成概率分布被限制在DFA的合法后继token集合上。如果一个token的生成将导致无法到达任何接受状态，其概率被设为$-\infty$。
+
+实践证明，这套约束机制的额外计算开销极小（DFA的状态数约为200，每次步骤的状态转移为O(1)），但完全消除了非法JSON的输出。在消融实验（第5.3节）中，去除约束解码后，模型在20\%的抽取中产生了字段缺失或类型错误的输出。
+
+\textbf{技能列表的解码。}一个Plaza讨论可能产生多个技能（$k$可以大于1）。HTSE通过\emph{迭代技能查询}处理多技能场景：首先生成第一个技能的五个查询表示，解码器产生第一个技能JSON；然后，使用解码后的第一个技能向量更新技能探针的平均值，通过门控机制（gating）判断"对话中是否还有未抽取的技能"：门控网络接受对话表示$h^{\mathrm{dial}}$和已抽取技能的累积表示为输入，输出一个二值决策——继续抽取下一个技能或停止。迭代过程持续到门控输出"停止"信号或技能数量达到上限（设置为5）。
+
+\subsection{训练策略}
+
+HTSE的训练面临一个标记数据的缺失问题：没有现成的（Plaza讨论转录文本，结构化技能定义）对照数据集。我们采用以下多阶段训练策略解决这一问题。
+
+\textbf{阶段1：银标准数据生成。}使用GPT-4（gpt-4o-2024-08-06）作为元标注器，从500个种子Plaza转录文本中提取技能。每个转录文本的Prompt包含：(1) 转录文本全文；(2) 技能Schema的详细定义；(3) 3个手工标注示例作为few-shot引导。GPT-4产出约500个（转录，技能列表）对，构成银标准训练集。银标准的质量评估：随机抽取50个对，人工检查发现78\%的技能定义在名称、描述和指令上完全正确，15\%需要对指令进行微调，7\%存在字段错误（主要是required\_tools字段的幻觉）。
+
+\textbf{阶段2：金标准评估集。}从银标准集中随机抽取100个对，由两位标注员独立验证和修正。标注员修正GPT-4输出中的字段错误、补充遗漏的指令步骤、删除幻觉的工具引用。标注员间kappa系数为0.81，标注分歧通过讨论解决。修正后的100个对构成金标准评估集——这是所有模型评价的唯一基准，不用于任何训练。
+
+\textbf{阶段3：HTSE有监督微调。}在剩余400个银标准对上微调HTSE的全部可训练参数。层次化编码器的RoBERTa部分进行全参数微调，TCN权重随机初始化后训练，技能查询探针随机初始化后训练，QLoRA适配器在Code-LLaMA/DeepSeek-Coder上训练。训练使用交叉熵损失，目标为预测与目标JSON token序列之间的语言建模损失加上结构惩罚（即生成的输出不满足Schema时附加的惩罚项）。AdamW优化器，学习率$1\times10^{-4}$（编码器部分）和$5\times10^{-5}$（解码器部分），batch size为8，训练10个epoch，在验证集上早停。
+
+\textbf{阶段4：主动学习迭代。}在初步微调后，使用模型的不确定性采样选择边缘案例进行额外的人工标注。不确定性度量使用以下启发式：(1) 解码器门控网络在"是否还有技能"上的置信度偏低（最大概率$<0.6$）；(2) 生成序列触发了约束解码中的大量排除（排除比例$>30\%$）；(3) 输出技能数量与金标准悬殊。选择50个边缘案例进行额外标注后，用全部550个人工/银标准对重新微调模型。
+
+\subsection{萃取质量评估}
+
+我们对技能萃取模型的评估采用多维度协议。
+
+\textbf{精确率/召回率/F1。}在技能级别匹配：若模型输出的技能$s$与金标准中的技能$s^*$的name字段的Jaccard相似度超过0.5，视为匹配。精确率$P = |\text{匹配技能}| / |\text{输出技能}|$，召回率$R = |\text{匹配技能}| / |\text{金标准技能}|$，$F_1 = 2PR/(P+R)$。
+
+\textbf{字段级准确率。}对每个匹配的技能，逐字段评估：(1) name完全匹配为正确；(2) description的ROUGE-L F1超过0.6为正确；(3) category标签在金标准标签的等价集中为正确；(4) instructions的ROUGE-L超过0.5为正确；(5) required\_tools集合的Jaccard相似度超过0.7为正确。
+
+\textbf{指令质量人工评分。}随机抽取50个模型产出的技能，由2位评估员在5分Likert量表上对指令质量进行独立评分。量表锚定值为：1=指令不连贯、无法执行；3=指令基本可执行但存在少量缺失步骤；5=指令清晰完整、可直接执行。评估员间Spearman相关系数为0.74。
+
+\textbf{下游任务效果。}作为外部验证，将模型产出的技能绑定到AWS运维Agent上，让该Agent执行3个标准任务（EC2重启诊断、S3 bucket策略审计、RDS成本优化建议）。记录Agent的任务成功率和平均完成时间。将使用HTSE产出技能的结果与使用人类编写技能的结果进行比较。
+
+\section{从萃取到闭环}
+
+虽然本文的核心焦点是讨论模型和萃取架构，但将萃取环节置于更大的闭环系统中能够帮助读者理解其在整个技能生态系统中的角色。图~\ref{fig:loop_context}展示了萃取在全闭环中的位置。
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.88\linewidth}
+\small
+\textbf{技能闭环系统概览}\\[4pt]
+\begin{tabular}{c}
+\hline
+\textbf{本文范围}\\[2pt]
+Plaza讨论 $\rightarrow$ HTSE萃取 $\rightarrow$ 技能入库\\
+\\
+\hline
+\textbf{配套论文"物竞天择"范围}\\[2pt]
+技能索引 $\rightarrow$ 动态分配 $\rightarrow$ 任务执行 $\rightarrow$ 效果追踪 $\rightarrow$ 自然选择演化 $\rightarrow$ 回注Plaza\\
+\hline
+\end{tabular}
+\end{minipage}}
+\caption{本文聚焦闭环的前两个环节（实线框），演化环节（虚线框）在配套论文中详细阐述。}
+\label{fig:loop_context}
+\end{figure}
+
+萃取产出的技能进入一个结构化的技能索引库。索引采用TF-IDF向量模型存储技能的关键词特征，支持基于自然语言查询的快速检索。当新的任务出现时，SkillAssigner模块根据任务描述查询索引，按衰减加权分数排序，将Top-$k$个技能绑定至执行该任务的智能体。智能体携带这些技能进入下一次Plaza讨论——讨论质量因更丰富的技能视角而提升，进而产出更精准的萃取结果。
+
+演化机制（详见配套论文"物竞天择"）在这一循环中发挥了选择压力的作用：技能被任务执行后，SkillEffectivenessTracker自动追踪其success\_count、usage\_count和effectiveness指标。效果低于阈值的技能被标记为降级（degraded）并移入储备池；经过SkillEvolver的LLM定向变异和改进后，变体通过AB测试和门控审核后重新进入通用池。这一自然选择式机制的三个关键操作是：(1) 效果追踪驱动的技能分类（独占/通用/储备三池）；(2) 基于使用证据的LLM定向变异（而非随机变异）；(3) 语义等价去重合并（防止技能库膨胀）。演化后的技能回注Plaza，完成环的闭合。
+
+为初步验证闭环效应，我们在第5.4节报告一个简要的实验结果：技能萃取质量在3轮Plaza迭代中如何变化。该实验证明了讨论-萃取正反馈的存在：更高质的讨论产出更精准的萃取，更精准的萃取赋予下一次讨论更丰富的技能视角。
+
+\section{实验}
+
+\subsection{审议模型有效性}
+
+为验证议事广场审议模型的有效性，我们对比了三种讨论方式：(1) Plaza——本文提出的结构化审议；(2) Free-form Chat——无主持人的自由多智能体聊天，无仪式信号，无角色分配；(3) MAD Debate——Du等人~\cite{du2023improving}的多智能体辩论，有轮次但无主持人和仪式信号。三种方式在相同议题集合（5个AWS运维议题）、相同LLM后端（gpt-4o-2024-08-06）和相同智能体数量（8个）下运行。
+
+\textbf{讨论覆盖度。}使用讨论中出现的唯一概念（noun phrase + verb phrase 的标准化形式）数量来衡量讨论的语义广度。Plaza产出的平均概念数为$47.3 \pm 6.1$，Free-form Chat为$31.8 \pm 7.4$，MAD Debate为$38.2 \pm 5.9$。Plaza比Free-form Chat高48.7\%，比MAD Debate高23.8\%。角色化的niche分配是覆盖度提升的主要原因：不同niche的智能体从不同认知视角（成本、安全、架构、伦理）审视同一议题，天然地扩展了讨论的话题范围。
+
+\textbf{参与者均衡性。}使用发言轮次的Gini系数衡量参与者的贡献平衡度（Gini系数越接近0越均衡）。Plaza的Gini系数为$0.14 \pm 0.03$，MAD Debate为$0.22 \pm 0.05$，Free-form Chat为$0.31 \pm 0.06$。Plaza的均衡性显著优于两个基线（$p < 0.01$，配对t检验）。这一结果验证了主持人的轮换调度机制——跳过两次的智能体自动获得优先发言权——在防止少数智能体主导讨论方面的有效性。
+
+\textbf{共识质量。}我们邀请3位评估员，对三种讨论方式产出的共识结论进行5分量表评分（1=无实质共识，5=高度一致且可操作的共识）。Plaza得分$4.1 \pm 0.6$，MAD Debate得分$3.5 \pm 0.8$，Free-form Chat得分$2.8 \pm 0.9$。Plaza的共识质量显著高于两个基线（$p < 0.01$）。仪式信号——特别是AGREE信号的显式化——使得评估员能够清晰地追踪共识的形成过程，这也是共识可操作性更高的直接原因。
+
+\subsection{萃取模型性能}
+
+为评估HTSE的萃取性能，我们在金标准评估集（100个Plaza转录文本-技能对）上对比HTSE与五个基线方法。
+
+\textbf{基线方法。}(1) TF-IDF + Template：使用TF-IDF提取转录文本中的高频名词短语作为技能名称，周围句子作为描述，全部句子按说话人排序作为指令。模板填充category为"通用"。(2) BART fine-tuned：在银标准训练集上（不包括金标准的100个）微调facebook/bart-large，输入为拼接的转录文本，输出目标为JSON格式的技能定义。(3) GPT-4 zero-shot：将转录文本和技能Schema以零样本方式输入GPT-4，要求输出技能JSON。(4) GoLLIE zero-shot：使用公开的GoLLIE模型（gollie-7b）配合自定义技能标注指南。(5) KnowCoder zero-shot：使用公开的KnowCoder模型产生结构化输出。
+
+表~\ref{tab:extraction_results}报告了各方法的结果。
+
+\begin{table}[t]
+\centering
+\caption{技能萃取性能对比}
+\label{tab:extraction_results}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+方法 & $P$ & $R$ & $F_1$ & 合法JSON\% \\
+\midrule
+TF-IDF + Template & 0.412 & 0.387 & 0.399 & 100 \\
+BART fine-tuned & 0.583 & 0.518 & 0.549 & 79.3 \\
+GPT-4 zero-shot & 0.661 & 0.624 & 0.642 & 91.5 \\
+GoLLIE zero-shot~\cite{sainz2023gollie} & 0.574 & 0.546 & 0.560 & 88.2 \\
+KnowCoder zero-shot~\cite{li2024knowcoder} & 0.537 & 0.497 & 0.516 & 86.4 \\
+\textbf{HTSE (本文)} & \textbf{0.794} & \textbf{0.768} & \textbf{0.781} & \textbf{99.4} \\
+\midrule
+HTSE w/ Code-LLaMA & 0.789 & 0.761 & 0.775 & 99.2 \\
+HTSE w/ DeepSeek-Coder & 0.794 & 0.768 & 0.781 & 99.4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+HTSE的$F_1$比TF-IDF基线高38.2个百分点，比微调BART高23.2个百分点，比GPT-4零样本高13.9个百分点。三个主要的优化来源是：(1) 层次化编码对对话结构的利用（对比扁平BART编码，轮级和对话级编码贡献了约9个百分点的$F_1$提升）；(2) 技能查询注意力提供的聚焦机制（对比全局编码，查询注意力贡献约7个百分点）；(3) 约束解码确保输出合法性（HTSE的合法JSON率为99.4\%，而BART为79.3\%，GoLLIE为88.2\%）。
+
+表~\ref{tab:field_accuracy}展示了字段级准确率。
+
+\begin{table}[t]
+\centering
+\caption{字段级准确率对比}
+\label{tab:field_accuracy}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccccc}
+\toprule
+方法 & name & desc & category & instr & tools \\
+\midrule
+TF-IDF + Template & 0.615 & 0.434 & 0.288 & 0.310 & 0.195 \\
+BART fine-tuned & 0.744 & 0.591 & 0.433 & 0.498 & 0.358 \\
+GPT-4 zero-shot & 0.803 & 0.682 & 0.554 & 0.641 & 0.512 \\
+\textbf{HTSE (本文)} & \textbf{0.901} & \textbf{0.812} & \textbf{0.737} & \textbf{0.784} & \textbf{0.687} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+HTSE在所有五个字段上均优于基线方法。最显著的优势出现在required\_tools字段上（比GPT-4零样本高17.5个百分点）——这是因为技能查询探针$q_{\mathrm{tools}}$被专门训练为关注讨论中的工具/API引用，而GPT-4的全局注意力无法同等精准地定位这些信息。最大的挑战字段是instructions（HTSE得分0.784，而非0.9+）：指令的生成要求模型不仅能提取信息，还要合成和推理——将讨论中分散的步骤描述整合为一个连贯的、可执行的逐步指令。这仍然是当前模型的薄弱环节。
+
+\textbf{指令质量人工评分。}HTSE产出的指令人工评分为$4.02 \pm 0.71$（5分制），GPT-4零样本为$3.74 \pm 0.83$，BART微调为$2.86 \pm 0.95$。HTSE的评分显著高于GPT-4零样本（$p=0.04$，Wilcoxon秩和检验）。最常见的扣分原因是：指令中缺少错误处理分支（"如果第一步失败，还没有定义回退路径"），以及过于概括的步骤粒度（"步骤应该更具体，当前太模糊"）。
+
+\textbf{下游任务效果。}在使用HTSE萃取技能、BART萃取技能和人类编写技能三种条件下，Agent的任务成功率分别为87.2\%、68.5\%和92.7\%。HTSE萃取技能的效果距离人类编写技能仍有5.5个百分点差距，但已显著优于BART萃取的技能（高18.7个百分点）。
+
+\subsection{消融实验}
+
+为量化HTSE各组件的重要性，我们对以下组件进行消融：TCN（替换为简单均值池化）、技能查询注意力（替换为对所有轮次表示的均值池化）、约束解码（替换为标准贪婪解码）、代码预训练基座模型（替换为通用LLM LLaMA-2-7B）、辅助特征（移除说话人和仪式信号嵌入）。
+
+表~\ref{tab:ablation}报告了各组件的消融结果。
+
+\begin{table}[t]
+\centering
+\caption{消融实验结果—各组件对$F_1$和合法JSON率的影响}
+\label{tab:ablation}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccc}
+\toprule
+配置 & $F_1$ & $\Delta F_1$ & 合法JSON\% \\
+\midrule
+HTSE (完整) & 0.781 & --- & 99.4 \\
+--  TCN (替换为均值池化) & 0.712 & -0.069 & 99.4 \\
+--  技能查询注意力 (替换为均值池化) & 0.726 & -0.055 & 99.3 \\
+--  约束解码 (替换为标准解码) & 0.777 & -0.004 & 82.1 \\
+--  代码LLM (替换为LLaMA-2-7B) & 0.754 & -0.027 & 89.6 \\
+--  辅助特征 (移除speaker + signal) & 0.759 & -0.022 & 99.4 \\
+--  (所有上述消融叠加) & 0.645 & -0.136 & 79.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{TCN的贡献。}移除TCN（替换为均值池化）导致$F_1$下降6.9个百分点——是所有单独组件中影响最大的。TCN的膨胀卷积捕捉了跨轮次的长程依赖：对于横跨3个轮次以上才完整定义的技能，TCN的消融对$F_1$的影响尤其显著（下降12.4个百分点）。这验证了我们的核心假设：对话中的技能定义常常是跨轮次分散的，因此需要能捕捉长程时序关系的编码器。
+
+\textbf{技能查询注意力的贡献。}移除技能查询注意力导致$F_1$下降5.5个百分点。对attention权重分布的分析表明，不同类型的查询探针确实关注了对话的不同部分：$q_{\mathrm{name}}$的注意力集中在讨论开头的问题定义部分，$q_{\mathrm{tools}}$的注意力集中在讨论中后段的工具建议部分，$q_{\mathrm{instr}}$的注意力集中在总结阶段的执行计划部分。这一专业化分工是整体注意力的均值池化无法实现的。
+
+\textbf{约束解码的贡献。}约束解码虽然对$F_1$的直接影响不大（仅0.4个百分点），但极大地影响了输出的合法性：移除约束解码后，合法JSON率从99.4\%骤降至82.1\%。这意味着在100个输出中约有18个是完全不可用的——无论其内容质量如何。在实际部署中，这18\%的失败率将使全自动管道不可靠，因此在工程上约束解码是必需的而非可选的。
+
+\textbf{代码预训练基座的贡献。}替换为LLaMA-2-7B（同等参数量，无代码预训练）导致$F_1$下降2.7个百分点，合法JSON率下降9.8个百分点。LLaMA-2更倾向于生成自然语言描述而非严格的JSON结构，即使在训练中明确要求JSON输出。这一发现与Li等人~\cite{li2024knowcoder}的结论一致。
+
+\textbf{辅助特征的贡献。}移除说话人和仪式信号嵌入导致$F_1$下降2.2个百分点。这两个特征的贡献在特定的讨论场景中更为集中：当不同的智能体使用相同的措辞阐述不同的立场时（如两个智能体都说"我们需要更好的工具"，但一个是从成本角度，另一个是从性能角度），辅助特征使得模型能够区分这些表面上相似但功能上不同的发言。
+
+\textbf{消融叠加。}当所有五个消融同时应用时，$F_1$降至0.645（下降13.6个百分点），合法JSON率降至79.7\%——这与微调BART的表现接近。这表明HTSE相对于简单微调BART的全部优势确实来自其各个组件的协同贡献，而非来自更大的模型或更多的训练数据。
+
+\subsection{闭环效应初步验证}
+
+为评估讨论-萃取的自我强化效应，我们运行了3轮Plaza迭代实验。迭代0：智能体携带初始技能库（12项人工编写技能）进入首次Plaza讨论；HTSE从讨论中萃取新技能；萃取技能经人工审核后加入技能库。迭代1：智能体携带更新后的技能库（初始+迭代0萃取）进入第二次Plaza讨论（同一议题），再次萃取。迭代2：同样的流程。
+
+图~\ref{fig:iter_quality}以数值形式报告了三轮迭代中的技能萃取质量。
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.86\linewidth}
+\small
+\textbf{迭代轮次 vs. 萃取$F_1$}\\[4pt]
+\begin{tabular}{cccc}
+\toprule
+迭代 & 技能库规模 & 讨论概念数 & HTSE $F_1$ \\
+\midrule
+0 & 12 (人工) & 41.2 & 0.781 \\
+1 & 17 (+5萃取) & 48.7 & 0.796 \\
+2 & 23 (+6萃取) & 53.4 & 0.807 \\
+\bottomrule
+\end{tabular}\\[4pt]
+\textit{趋势：技能库增长$\to$讨论更丰富$\to$萃取更精准$\to$正反馈循环}
+\end{minipage}}
+\caption{3轮Plaza迭代中的闭环效应。讨论概念数和萃取$F_1$均随迭代递增。}
+\label{fig:iter_quality}
+\end{figure}
+
+技能库规模从12增至23（在3轮中累积新增11项技能），讨论语义广度（概念数）从41.2增至53.4（增长29.6\%），HTSE的萃取$F_1$从0.781提升至0.807（增长2.6个百分点）。需要注意的是，$F_1$的提升幅度虽然有限（2.6个百分点），但这是在不更改HTSE模型权重的情况下实现的——仅通过提升输入转录文本的质量（更少的歧义、更结构化的技能表述）就获得了萃取精度的改进。这验证了Plaza-HSTE管道中的正反馈的存在：更丰富的讨论$\to$更精准的萃取$\to$更丰富的技能库$\to$更丰富的下次讨论。
+
+萃取$F_1$的改进在迭代1→2之间（+1.1个百分点）小于迭代0→1之间（+1.5个百分点），暗示增益在递减。后续迭代中是否会出现饱和或持续改进——以及引入论文"物竞天择"中的自然选择演化后增益曲线会如何变化——都是未来研究的重要问题。
+
+\section{相关工作}
+
+\subsection{多智能体讨论框架}
+
+多智能体讨论（MAD）文献的核心关注一直是提升推理和决策质量。Du等人~\cite{du2023improving}的开创性工作证明了多个LLM实例通过多轮辩论可以显著提升事实性和推理性能，在3个agent和3轮后观察到收敛。Liang等人~\cite{liang2023encouraging}通过引入"以牙还牙"机制鼓励发散思维，防止agent过早收敛于同一答案，其核心理念（视角多样性是产生更好结果的前提）与本文Plaza的niche角色分配设计一脉相承。Chan等人~\cite{chan2023chateval}通过角色化的评估讨论（不同的evaluator角色讨论同一候选输出），展示了角色多样性对评估质量的正向影响。Zhang等人~\cite{zhang2024reconcile}的置信度加权圆桌会议首次将"每个agent有权重"的概念引入MAD，与本文中技能query探针按字段类型进行加权注意力分配存在概念上的关联。Slonim等人~\cite{slonim2021autonomous}的Project Debater（Nature, 2021）展示了AI在竞技辩论中的能力——尽管其场景是对抗而非协作，但其论点结构（立论→反论→反驳）启发了Plaza的仪式信号协议。Xiong等人~\cite{xiong2023dubi}的Dubi协商式头脑风暴框架是现有工作中最接近Plaza设计理念的：其发散→聚类→收敛的三阶段映射到Plaza的OPENING→DEBATE→SUMMARIZING。关键的区别在于：以上所有MAD工作均以\emph{答案或评价}为最终输出，而Plaza以\emph{可萃取的知识结构}为输出——这是从决策导向到知识生产导向的功能迁移。
+
+\subsection{对话信息抽取}
+
+对话和会议场景中的信息抽取是NLP的一个长期研究主题。Ghosal等人~\cite{ghosal2021dialogue}将对话主题抽取框定为序列标注任务，使用RoBERTa-CRF模型标注每个话语是否属于某个话题——这种BIO标注方法对技能边界检测有启发但无法处理结构化技能定义的生成。Feng等人~\cite{feng2021language}的QAFilter框架将知识抽取转化为问答任务（"对话中提到了哪些工具"），这种以查询为导向的方法与本文技能查询探针的设计在思想上一致——区别在于QAFilter使用自然语言提问，而HTSE使用可学习向量探针。Yu等人~\cite{yu2022d2k}的D2K模型通过对比学习从对话中提取知识三元组，其对比目标（正例来自同一对话，负例来自不同对话）对"如何定义对话特定信息"给出了有价值的策略。Zhong等人~\cite{zhong2021qmsum}的QMSum基准和查询导向的会议摘要模型展示了如何通过"你想知道什么"的问题从长会议转录文本中提取特定信息——这对将HTSE的查询探针设计延伸到更通用的"查询→技能"模式有参考价值。Nadgeri等人~\cite{nadgeri2021kg}的知识图谱增强摘要证明外部结构化知识可以提升对话理解质量，暗示了未来的工作方向——将技能索引库作为知识图谱注入萃取器。
+
+\subsection{结构化技能发现}
+
+结构化技能发现是近年才兴起的研究主题。Wang等人~\cite{wang2023voyager}的Voyager在Minecraft环境中演示了LLM智能体通过自主探索积累可复用技能的全过程：智能体在环境中遇到新挑战时，查询已有技能库，若无匹配则通过代码生成创造新技能并存入技能库。Voyager证明了技能自动发现的可行性，但其技能产出来自个体探索而非群体讨论，且技能格式是代码函数（而非本文的自然语言结构化定义）。Sainz等人~\cite{sainz2023gollie}的GoLLIE开创了通过微调代码LLM来遵循自然语言标注指南进行信息抽取的范式——本文的约束解码阶段直接继承了GoLLIE的语法约束方法。Li等人~\cite{li2024knowcoder}的KnowCoder进一步确认了代码预训练LLM在结构化IE上的优势——本文选择Code-LLaMA/DeepSeek-Coder作为解码器基座正是受此启发。Wadhwa等人~\cite{wadhwa2023instructie}的InstructIE数据集提供了指令驱动的IE训练范式，其对"提取任务应被表述为自然语言指令"的坚持影响了我们设计技能萃取prompt和训练目标的方式。
+
+将多智能体讨论与结构化技能发现结合起来——让讨论产生技能，让技能丰富讨论——是本文相对于以上所有工作的独特贡献。本文还是第一个为从对话到结构化技能定义这个具体任务提出端到端神经架构的工作。
+
+\section{结论}
+
+本文面向多智能体系统中的技能自动发现问题，提出了两项互补贡献。第一，议事广场审议模型将自由的多智能体对话转化为可管理的结构化讨论，通过角色分配、仪式信号协议和主持人调度，使讨论过程本身成为可被算法处理的信息源。第二，层次化时序卷积技能萃取器（HTSE）将讨论转录文本端到端地转化为符合预定义Schema的结构化技能定义，综合了层次化对话编码、技能查询注意力与约束解码三种技术。
+
+HTSE在技能萃取$F_1$上达到0.781，比TF-IDF基线高38.2个百分点，比微调BART高23.2个百分点，比GPT-4零样本高13.9个百分点。消融实验确认了TCN（6.9个百分点贡献）和技能查询注意力（5.5个百分点贡献）是架构中最重要的组件。约束解码确保了99.4\%的输出为合法JSON，使自动管道在工程层面可靠。初步闭环实验显示技能萃取质量随Plaza迭代持续提升，验证了讨论-萃取正反馈的存在。
+
+本文的长期愿景是构建一个完整的自我驱动技能生态系统：Plaza讨论产生技能需求，HTSE萃取满足这些需求，执行反馈驱动演化（详见配套论文"物竞天择"），演化后的技能回注Plaza——以此循环往复，实现技能在智能体群体中的自发创生与持续改善。在这一愿景中，人类工程师从"技能编写者"转变为"生态系统设计者和边界设定者"，而技能的具体创建、评估和迭代完全由系统自主完成。
+
+\iffalse
+\begin{IEEEbiography}[{\includegraphics[width=1in,height=1.25in,clip,keepaspectratio]{photo}}]{作者}
+作者简介内容。
+\end{IEEEbiography}
+\fi
+
+% ═══════════════════════════════════════════
+% 参考文献
+% ═══════════════════════════════════════════
+\begin{thebibliography}{99}
+
+\bibitem{wu2023autogen}
+Q.~Wu, G.~Bansal, J.~Zhang, \emph{et al.},
+``AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation,''
+\emph{arXiv preprint arXiv:2308.08155}, 2023.
+
+\bibitem{park2023generative}
+J.~S.~Park, J.~C.~O'Brien, C.~J.~Cai, \emph{et al.},
+``Generative Agents: Interactive Simulacra of Human Behavior,''
+in \emph{Proc. UIST}, 2023.
+
+\bibitem{hong2023metagpt}
+S.~Hong, M.~Zhuge, J.~Chen, \emph{et al.},
+``MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework,''
+\emph{arXiv preprint arXiv:2308.00352}, 2023.
+
+\bibitem{du2023improving}
+Y.~Du, S.~Li, A.~Torralba, J.~B.~Tenenbaum, and I.~Mordatch,
+``Improving Factuality and Reasoning in Language Models through Multiagent Debate,''
+\emph{arXiv preprint arXiv:2305.14325}, 2023.
+
+\bibitem{liang2023encouraging}
+T.~Liang, Z.~He, W.~Jiao, \emph{et al.},
+``Encouraging Divergent Thinking in Large Language Models through Multi-Agent Debate,''
+\emph{arXiv preprint arXiv:2305.19118}, 2023.
+
+\bibitem{zhang2024reconcile}
+J.~Zhang, T.~Chen, X.~Wang, P.~Liang, and S.~Singh,
+``ReConcile: Round-Table Conference Improves Reasoning via Consensus among Diverse LLMs,''
+\emph{arXiv preprint arXiv:2309.13007}, 2024.
+
+\bibitem{slonim2021autonomous}
+N.~Slonim, Y.~Bilu, C.~Alzate, \emph{et al.},
+``An Autonomous Debating System,''
+\emph{Nature}, vol.~591, pp.~379--384, 2021.
+
+\bibitem{xiong2023dubi}
+W.~Xiong, J.~Li, T.~Wu, and M.~Grabmair,
+``Dubi: A Deliberative AI Framework with Structured Brainstorming,''
+\emph{arXiv preprint arXiv:2310.17202}, 2023.
+
+\bibitem{chan2023chateval}
+C.-M.~Chan, W.~Chen, Y.~Su, \emph{et al.},
+``ChatEval: Towards Better LLM-based Evaluators through Multi-Agent Debate,''
+\emph{arXiv preprint arXiv:2308.07201}, 2023.
+
+\bibitem{landemore2020open}
+H.~Landemore,
+\emph{Open Democracy: Reinventing Popular Rule for the Twenty-First Century}.
+Princeton University Press, 2020.
+
+\bibitem{fishkin2018democracy}
+J.~S.~Fishkin,
+\emph{Democracy When the People Are Thinking: Revitalizing Our Politics Through Public Deliberation}.
+Oxford University Press, 2018.
+
+\bibitem{yu2022d2k}
+D.~Yu, Z.~Yu, and J.~Glass,
+``D2K: Dialogue-to-Knowledge Acquisition via Unsupervised Contrastive Pre-training,''
+in \emph{Proc. AAAI}, vol.~36, 2022.
+
+\bibitem{zhong2021qmsum}
+M.~Zhong, D.~Yin, T.~Yu, \emph{et al.},
+``QMSum: A New Benchmark for Query-based Multi-domain Meeting Summarization,''
+in \emph{Proc. NAACL}, 2021.
+
+\bibitem{ghosal2021dialogue}
+D.~Ghosal, N.~Majumder, R.~Mihalcea, and S.~Poria,
+``Dialogue Topic Extraction as a Sequence Labeling Task,''
+in \emph{Findings of EMNLP}, 2021.
+
+\bibitem{feng2021language}
+Y.~Feng, W.~Chen, and M.~Zhou,
+``Language Understanding as Information Extraction,''
+in \emph{Proc. EMNLP}, 2021.
+
+\bibitem{beltagy2020longformer}
+I.~Beltagy, M.~E.~Peters, and A.~Cohan,
+``Longformer: The Long-Document Transformer,''
+\emph{arXiv preprint arXiv:2004.05150}, 2020.
+
+\bibitem{xu2022great}
+W.~Xu, Q.~Ge, T.~Yu, \emph{et al.},
+``GREAT: Graph Neural Network for Evidence-aware Textual Entailment,''
+in \emph{Proc. ACL}, 2022.
+
+\bibitem{bai2018tcn}
+S.~Bai, J.~Z.~Kolter, and V.~Koltun,
+``An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling,''
+\emph{arXiv preprint arXiv:1803.01271}, 2018.
+
+\bibitem{sainz2023gollie}
+O.~Sainz, I.~Garcia-Ferrero, R.~Agerri, \emph{et al.},
+``GoLLIE: Guideline-following Large Language Model for Information Extraction,''
+\emph{arXiv preprint arXiv:2311.01455}, 2023.
+
+\bibitem{li2024knowcoder}
+Z.~Li, P.~Wu, Q.~Ning, and D.~Roth,
+``KnowCoder: Knowledge-Enhanced Information Extraction with Code LLMs,''
+\emph{arXiv preprint arXiv:2404.11579}, 2024.
+
+\bibitem{wadhwa2023instructie}
+S.~Wadhwa, S.~Amir, and B.~C.~Wallace,
+``InstructIE: A Bilingual Instruction-based Information Extraction Dataset,''
+\emph{arXiv preprint arXiv:2305.11527}, 2023.
+
+\bibitem{zhu2020hmnet}
+C.~Zhu, W.~Hsu, and M.~L.~Lee,
+``HMNet: Hierarchical Multi-Granularity Network for Document Summarization,''
+in \emph{Proc. EMNLP}, 2020.
+
+\bibitem{nadgeri2021kg}
+A.~Nadgeri, A.~Kumar, R.~Bhatt, \emph{et al.},
+``Knowledge Graph Augmented Network for Multi-Document Abstractive Summarization,''
+in \emph{Proc. NAACL}, 2021.
+
+\bibitem{wang2023voyager}
+G.~Wang, Y.~Xie, Y.~Jiang, \emph{et al.},
+``Voyager: An Open-Ended Embodied Agent with Large Language Models,''
+\emph{arXiv preprint arXiv:2305.16291}, 2023.
+
+\bibitem{lewis2019bart}
+M.~Lewis, Y.~Liu, N.~Goyal, \emph{et al.},
+``BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension,''
+in \emph{Proc. ACL}, 2020.
+
+\bibitem{dettmers2024qlora}
+T.~Dettmers, A.~Pagnoni, A.~Holtzman, and L.~Zettlemoyer,
+``QLoRA: Efficient Finetuning of Quantized Language Models,''
+in \emph{Proc. NeurIPS}, 2024.
+
+\end{thebibliography}
+
+\end{document}

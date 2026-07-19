@@ -11,7 +11,79 @@ let extractionActive = false;
 let animTime = 0, animFrame = 0, animStartMs = 0;
 let extractParticleGeo, extractParticleData = [];
 const EXTRACT_PARTICLE_COUNT = 80;
-const myceliumColor = new THREE.Color(0xD4A574);
+/**
+ * Taste Skill · skill-extract 3D arena palette
+ * Design Read: B2B skill-cultivation dish under taste-light shell (not twin immersion).
+ * Dials: VARIANCE 4 · MOTION 2 · DENSITY 7 (cockpit companion).
+ * Color Consistency Lock: single forest accent #1F6B4A; cold slate neutrals;
+ * ban AI-purple / neon cyan-pink rainbow; public skills use warn amber only (semantic).
+ * Aligns with css/taste-light.css tokens.
+ */
+const TASTE3D = {
+  bg: 0xF3F5F8,
+  fog: 0xE8EDF3,
+  ink: 0x1A2030,
+  accent: 0x1F6B4A,
+  accentSoft: 0x3D8B68,
+  accentBright: 0x27845B,
+  accentDeep: 0x163D2C,
+  slate: 0x7B8798,
+  slateDark: 0x4B5568,
+  slateMid: 0x5C6675,
+  slateLight: 0xD8DEE8,
+  surface: 0xEBF0F5,
+  surfaceHi: 0xFFFFFF,
+  plate: 0xC5CFD9,
+  plateHi: 0xDDE4EC,
+  rim: 0x6B7A8C,
+  ring: 0x5A6A7C,
+  public: 0xA67C1A,
+  publicSoft: 0xC4A05A,
+  publicDeep: 0x8A6615,
+  danger: 0xC44B4B,
+  coolMist: 0xB8C4D0,
+  ambient: 0xC5CDD8,
+  hemiSky: 0xEEF2F7,
+  hemiGround: 0xA8B4C4,
+  fill: 0xD0D8E4,
+};
+// Agent / multi-entity hues: forest + cool slate steps only (no purple/pink neon)
+const VIVID_AGENT_COLORS = [
+  TASTE3D.accent,
+  TASTE3D.accentSoft,
+  TASTE3D.accentBright,
+  TASTE3D.slateDark,
+  TASTE3D.slateMid,
+  TASTE3D.slate,
+  0x2F6B5A,
+  0x4A6B62,
+];
+let _vividColorIdx = 0;
+function nextVividColor() {
+  const c = VIVID_AGENT_COLORS[_vividColorIdx % VIVID_AGENT_COLORS.length];
+  _vividColorIdx++;
+  return c;
+}
+// 菌丝色系：冷色 teal-slate（与 forest 技能 accent / 灰色基质明确分开）
+// 根深 → 梢浅，浅底培养皿上可读；禁止与技能环同色
+const MYC = {
+  root: 0x1A4550,   // 深 teal 墨
+  trunk: 0x2A6A76,  // 主干
+  branch: 0x3F8A96, // 分枝
+  tip: 0x5AADB8,    // 梢端高光
+  mist: 0x8EC9D0,   // 最细末梢
+};
+const myceliumRoot = new THREE.Color(MYC.root);
+const myceliumTip = new THREE.Color(MYC.tip);
+const myceliumColor = new THREE.Color(MYC.trunk); // 兼容旧引用
+function myceliumColorAtDepth(depth, maxDepth) {
+  const t = Math.min(1, Math.max(0, depth / Math.max(maxDepth, 1)));
+  // depth0 根=深, depth max=梢=浅
+  return myceliumRoot.clone().lerp(myceliumTip, t * 0.85 + 0.05);
+}
+const TWIN_GREEN = TASTE3D.accent;
+let fireflyPoints = null;
+let fireflyData = [];
 
 // ── Team/Agent data ─────────────────────────────────────────────
 let allTeams = [];
@@ -183,31 +255,137 @@ async function loadTeams() {
   setTimeout(maybeHighlightRedundantSkills, 600);
 
   // Pre-fill source text from URL params or sessionStorage (for plaza jump)
+  await hydrateExtractSourceFromPlaza(params);
+}
+
+/**
+ * Plaza → 技能萃取：sessionStorage 主路径；URL plaza_id+discussion_id 兜底拉讨论正文。
+ * 旧逻辑只塞 plan/summary，无计划时跳转失败或正文空 → 页面只剩「暂无萃取出的技能」。
+ */
+async function hydrateExtractSourceFromPlaza(params) {
+  let src = null;
   const storedSource = sessionStorage.getItem('extract_source');
   if (storedSource) {
     sessionStorage.removeItem('extract_source');
-    try {
-      const src = JSON.parse(storedSource);
-      document.getElementById('source-text').value = src.source_text || '';
-      document.getElementById('source-title').value = src.source_title || '';
-      document.getElementById('source-type').value = src.source_type || 'chat';
-      currentExtractSourceMeta = {
-        source_plaza_id: src.source_plaza_id || '',
-        source_discussion_id: src.source_discussion_id || '',
-        source_output_id: src.source_output_id || '',
-      };
-      renderPlazaSourceMeta(src);
-      document.getElementById('knowledge-input-section').classList.remove('collapsed');
-      setTimeout(() => startExtraction(), 500);
-    } catch(e) { console.error('Failed to parse extract_source', e); }
-  } else if (params.get('source_text')) {
-    document.getElementById('source-text').value = decodeURIComponent(params.get('source_text'));
-    document.getElementById('source-title').value = decodeURIComponent(params.get('source_title') || '');
-    document.getElementById('source-type').value = params.get('source_type') || 'chat';
-    currentExtractSourceMeta = null;
-    document.getElementById('knowledge-input-section').classList.remove('collapsed');
-    setTimeout(() => startExtraction(), 500);
+    try { src = JSON.parse(storedSource); } catch (e) {
+      console.error('Failed to parse extract_source', e);
+    }
   }
+
+  const plazaId = params.get('plaza_id') || src?.source_plaza_id || '';
+  const discussionId = params.get('discussion_id') || src?.source_discussion_id || '';
+  const autoExtract = params.get('auto_extract') === '1' || !!storedSource;
+
+  // sessionStorage 丢了 / 只有 plan 太短：用讨论 API 补全完整 transcript
+  const needFetch = plazaId && discussionId && (
+    !src || !(src.source_text || '').trim() || (src.source_text || '').trim().length < 40
+  );
+  if (needFetch) {
+    try {
+      const disc = await api(`/plaza/${encodeURIComponent(plazaId)}/discussions/${encodeURIComponent(discussionId)}`);
+      if (disc) {
+        const rebuilt = formatDiscussionAsExtractText(disc);
+        src = {
+          source_text: rebuilt || src?.source_text || '',
+          source_title: disc.topic || src?.source_title || '讨论萃取',
+          source_type: 'chat',
+          source_plaza_id: plazaId,
+          source_discussion_id: discussionId,
+          source_output_id: src?.source_output_id || '',
+          topic: disc.topic || '',
+          messages: (disc.messages || []).map((m, i) => ({
+            msg_id: m.id || m.msg_id || `m${i}`,
+            speaker_id: m.agent_id || `spk_${i}`,
+            speaker_name: m.agent_name || m.name || `Speaker${i + 1}`,
+            role: m.role || m.niche_role || 'participant',
+            niche_role: m.niche_role || 'analyst',
+            ritual_signal: m.ritual_signal || m.signal || 'supplement',
+            round_number: m.round_number != null ? m.round_number : Math.floor(i / 4),
+            content: m.content || m.text || '',
+          })),
+        };
+      }
+    } catch (e) {
+      console.warn('fetch discussion for extract failed', e);
+    }
+  }
+
+  if (!src || !(src.source_text || '').trim()) {
+    if (plazaId && discussionId) {
+      addMessage('system', '⚠️ 未能载入议事厅讨论正文。请点「返回议事厅」或把讨论粘贴到上方后点「开始萃取」。');
+      showToast('未能载入讨论正文');
+    }
+    return;
+  }
+
+  document.getElementById('source-text').value = src.source_text || '';
+  document.getElementById('source-title').value = src.source_title || '';
+  document.getElementById('source-type').value = src.source_type || 'chat';
+  currentExtractSourceMeta = {
+    source_plaza_id: src.source_plaza_id || plazaId || '',
+    source_discussion_id: src.source_discussion_id || discussionId || '',
+    source_output_id: src.source_output_id || '',
+    topic: src.topic || src.source_title || '',
+  };
+  if (Array.isArray(src.messages) && src.messages.length) {
+    currentExtractSourceMeta.messages = src.messages;
+  }
+  renderPlazaSourceMeta(src);
+  const kis = document.getElementById('knowledge-input-section');
+  if (kis) kis.classList.remove('collapsed');
+  addMessage(
+    'system',
+    `📥 已载入议事厅讨论「${escapeHtml(src.source_title || '')}」（${(src.source_text || '').length} 字` +
+    `${src.messages?.length ? ` · ${src.messages.length} 条发言` : ''}），即将启动 TSE 萃取…`
+  );
+
+  if (autoExtract) {
+    // 等 team chip / currentTeamId 就绪再开萃（避免「请先选择团队」静默失败）
+    setTimeout(() => maybeAutoStartExtraction(0), 400);
+  }
+}
+
+function formatDiscussionAsExtractText(disc) {
+  const lines = [];
+  const topic = disc.topic || disc.title || '讨论萃取';
+  lines.push(`Topic: ${topic}`);
+  if (disc.goal) lines.push(`Goal: ${disc.goal}`);
+  (disc.messages || []).forEach((m, i) => {
+    const content = String(m.content || m.text || '').trim();
+    if (!content) return;
+    const round = m.round_number != null ? m.round_number : Math.floor(i / 4);
+    const name = m.agent_name || m.speaker_name || m.name || `Speaker${i + 1}`;
+    const role = m.role || m.niche_role || 'participant';
+    const signal = m.ritual_signal || m.signal || 'supplement';
+    lines.push(`[Round ${round}] ${name} (${role}, signal=${signal}): ${content}`);
+  });
+  if (disc.summary) {
+    lines.push('');
+    lines.push('--- Summary ---');
+    lines.push(String(disc.summary).trim());
+  }
+  const plan = disc.plan?.content || (typeof disc.plan === 'string' ? disc.plan : '');
+  if (plan) {
+    lines.push('');
+    lines.push('--- Execution Plan ---');
+    lines.push(String(plan).trim());
+  }
+  return lines.join('\n').trim();
+}
+
+async function maybeAutoStartExtraction(attempt) {
+  const text = (document.getElementById('source-text')?.value || '').trim();
+  if (!text || text.length < 10) return;
+  if (!currentTeamId) {
+    if (attempt < 15) {
+      setTimeout(() => maybeAutoStartExtraction(attempt + 1), 300);
+    } else {
+      showToast('请先选择团队，再点「开始萃取」');
+      addMessage('system', '⚠️ 讨论正文已就绪，但尚未选中团队 — 请点顶部团队 chip 后点击「开始萃取」。');
+    }
+    return;
+  }
+  await startExtraction();
 }
 
 window.selectTeamChip = function(el, teamId) {
@@ -360,13 +538,16 @@ function handleSSE(data) {
       }
       break;
     case 'item_created':
-      queueItems.unshift(data.item);
+      if (data.item?.item_id) {
+        // 防 SSE 重连/重复推送叠两行
+        queueItems = queueItems.filter((q) => q.item_id !== data.item.item_id);
+        queueItems.unshift(data.item);
+      }
       renderQueue();
-      // Additional extracted skills arrive as item_created with ready_for_review status
+      // 待审只进右侧队列；不刷 3D/下方库（避免与队列重复）
       if (data.item?.status === 'ready_for_review') {
         const extraName = data.item.draft_name || '未命名';
-        addMessage('system', `⚗️ 发现额外技能「${escHtml(extraName)}」`);
-        rebuildSkillNodes();
+        addMessage('system', `📋 队列新增待审「${escHtml(extraName)}」→ 请在右侧审核`);
       } else {
         triggerExtractionVFX();
         onExtractionItemCreated();
@@ -378,26 +559,57 @@ function handleSSE(data) {
       updateQueueItemStatus(data);
       // SSE-driven progress: step 2/3
       if (data.status === 'llm_prefilling') {
-        document.getElementById('ep-fill').style.width = '60%';
-        document.getElementById('ep-text').textContent = '🔬 LLM 分析中…';
+        setExtractProgress({
+          width: '60%',
+          text: '🔬 TSE 分析中…',
+          engine: formatTseEngineLabel(data.llm_model_used || data.engine || 'tse'),
+        });
         updatePipelineStepper('draft');
-        addMessage('system', '🔬 <b>[①日志采集]</b> LLM 正在分析知识结构…识别知识簇中');
+        addMessage('system', '🔬 <b>[①日志采集 · TSE]</b> TCN-Skill-Extractor 正在分析知识结构…识别技能时刻');
       } else if (data.status === 'ready_for_review') {
-        document.getElementById('ep-fill').style.width = '90%';
-        document.getElementById('ep-text').textContent = '⚗️ 结晶化完成';
+        const engLabel = formatTseEngineLabel(data.llm_model_used || data.engine || '');
+        setExtractProgress({
+          width: '100%',
+          text: `📋 已入审核队列 · ${engLabel}`,
+          engine: engLabel,
+        });
         updatePipelineStepper('review');
-        const name = data.draft_name || '未命名技能';
+        const name = cleanDraftName(data.draft_name) || data.draft_name || '未命名技能';
         const conf = data.llm_confidence ? (data.llm_confidence * 100).toFixed(0) + '%' : '—';
-        const scopeHint = data.draft_scope === 'public' ? ' 🌐公共' : ' 🔒私有';
-        addMessage('system', `⚗️ <b>[②上下文补全]</b> 正在结晶化…置信度 ${conf}`);
-        addMessage('skill-card', `✨ 发现技能「${escHtml(name)}」${scopeHint}，请补全上下文后进行交叉复核`, data.item_id);
-        // rebuildSkillNodes (called by updateQueueItemStatus above) will spawn with animation
-        // Highlight the latest crystal
-        setTimeout(() => highlightLatestCrystal(), 300);
+        const scopeHint = data.draft_scope === 'public' ? ' 🌐建议公共' : ' 🔒建议私有';
+        // 单条系统消息 + 点右侧队列；不再插左侧 skill-card（与右侧重复）
+        addMessage(
+          'system',
+          `📋 <b>[②待审核]</b> 「${escHtml(name)}」${scopeHint} · ${escHtml(engLabel)} · 置信度 ${conf} — 请在右侧队列处理（不写入下方技能库，通过后才入库）`
+        );
+        stopExtractionVFX({ keepEngine: true, engine: engLabel });
       } else if (data.status === 'error') {
+        setExtractProgress({ engine: 'TSE · 失败', text: '⚠️ 萃取出错' });
+        stopExtractionVFX();
         addMessage('system', '⚠️ 萃取出错，请重试');
       }
       break;
+    case 'tse_extract_done': {
+      const eng = formatTseEngineLabel(data.model || data.engine || 'tse');
+      const n = data.skill_count != null ? data.skill_count : '?';
+      const ms = data.latency_ms != null ? Math.round(Number(data.latency_ms)) : null;
+      const utter = data.utterance_count != null ? data.utterance_count : null;
+      let detail = `TSE 完成 · ${n} 技能`;
+      if (ms != null) detail += ` · ${ms}ms`;
+      if (utter != null) detail += ` · ${utter} 句`;
+      setExtractProgress({
+        width: '85%',
+        text: `🧬 ${detail}`,
+        engine: eng,
+      });
+      addMessage(
+        'system',
+        `🧬 <b>[TSE]</b> ${escHtml(eng)} · 产出 ${n} 个技能候选`
+        + (ms != null ? ` · ${ms}ms` : '')
+        + (utter != null ? ` · ${utter} 句` : '')
+      );
+      break;
+    }
     case 'skill_approved':
       updateQueueItemStatus({ item_id: data.item_id, status: 'approved', status_icon: '◎', status_label: '已通过' });
       // 将后端返回的 skill_id 写回队列项，确保 resolveSkillId 能找到
@@ -427,6 +639,7 @@ function handleSSE(data) {
       }
       queueItems = queueItems.filter(i => i.item_id !== data.item_id);
       renderQueue();
+      if (currentTaxonomyTab === 'my') renderTaxonomy();
       if (viewMode === 'panorama') buildPanoramaView();
       break;
     case 'ping':
@@ -466,10 +679,9 @@ function updateQueueItemStatus(data) {
     if (data.draft_scope) item.draft_scope = data.draft_scope;
   }
   renderQueue();
-  // Update extraction VFX based on status
+  // 待审只更新队列；3D/下方库仅在已通过后由 loadSkills / skill_approved 刷新
   if (data.status === 'ready_for_review' || data.status === 'error') {
     stopExtractionVFX();
-    rebuildSkillNodes();
   }
 }
 
@@ -477,7 +689,13 @@ function updateQueueItemStatus(data) {
 async function loadQueue() {
   if (!currentTeamId) return;
   const items = await api(`/teams/${currentTeamId}/skill-extract/queue`);
-  if (items) { queueItems = items; renderQueue(); }
+  if (items) {
+    queueItems = items;
+    renderQueue();
+    // 队列变更后刷新下方空态提示（待审数），不把待审并进库
+    if (currentTaxonomyTab === 'my') renderTaxonomy();
+    else loadPublicLibrary(currentTaxonomyTab);
+  }
 }
 
 function _isCurrentSourceItem(item) {
@@ -513,11 +731,19 @@ function renderQueue() {
   }
 
   el.innerHTML = filtered.map(item => {
-    const scopeIs = item.skill_type || item.draft_scope || 'pending';
+    // 已批准用 skill_type；待审只用 LLM draft_scope 提示（personal≠特质）
+    let scopeIs = '';
+    if (item.status === 'approved') {
+      scopeIs = resolveSkillType(item);
+    } else if (item.skill_type) {
+      scopeIs = resolveSkillType(item);
+    } else if (item.draft_scope === 'public') {
+      scopeIs = 'public';
+    }
     const scopeBadges = {
-      trait: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.62 0.10 70/.15);color:oklch(0.78 0.08 70);border-radius:3px;margin-left:6px">🎯 特质</span>',
-      public: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.55 0.10 250/.15);color:oklch(0.78 0.08 250);border-radius:3px;margin-left:6px">🌍 公共</span>',
-      reserve: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.52 0.04 160/.15);color:oklch(0.72 0.06 160);border-radius:3px;margin-left:6px">📦 储备</span>',
+      trait: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.62 0.10 70/.15);color:oklch(0.55 0.1 70);border-radius:3px;margin-left:6px">🎯 特质</span>',
+      public: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.55 0.10 250/.15);color:oklch(0.45 0.1 250);border-radius:3px;margin-left:6px">🌍 公共</span>',
+      reserve: '<span style="font-size:9px;padding:1px 5px;background:oklch(0.52 0.04 160/.15);color:oklch(0.42 0.06 160);border-radius:3px;margin-left:6px">📦 储备</span>',
     };
     const scopeBadge = scopeBadges[scopeIs] || '';
     const stageMap = { pending:'①采集', llm_prefilling:'①采集', ready_for_review:'②补全', approved:'④发布', rejected:'①采集' };
@@ -527,7 +753,7 @@ function renderQueue() {
          onclick="window._openDetail('${item.item_id}')" data-id="${item.item_id}">
       <span class="status-dot ${item.status === 'approved' ? 'st-approved' : item.status === 'rejected' ? 'st-rejected' : item.status === 'ready_for_review' ? 'st-review' : 'st-pending'}">${item.status === 'approved' ? '◎' : item.status === 'rejected' ? '✕' : item.status === 'ready_for_review' ? '◈' : '○'}</span>
       <div class="qi-body">
-        <div class="qi-name">${item.draft_name || item.source_title || '未命名'}${scopeBadge}</div>
+        <div class="qi-name">${formatDraftNameHtml(item)}${scopeBadge}</div>
         <div class="qi-meta">
           <span>${item.status_label || item.status}</span>
           <span style="font-size:9px;padding:1px 4px;background:oklch(0.62 0.1 70/.1);color:oklch(0.7 0.06 70);border-radius:2px">${stageTag}</span>
@@ -553,40 +779,73 @@ window.setQueueFilter = function(btn, filter) {
 };
 
 // ── Submission ──────────────────────────────────────────────────
+let _extractInFlight = false;
 window.startExtraction = async function() {
   const text = document.getElementById('source-text').value.trim();
   if (!text || text.length < 10) { showToast('请输入至少 10 个字符的文本'); return; }
   if (!currentTeamId) { showToast('请先选择一个团队'); return; }
+  if (_extractInFlight) { showToast('萃取进行中，请稍候…'); return; }
+  _extractInFlight = true;
 
   const title = document.getElementById('source-title').value.trim();
   const type = document.getElementById('source-type').value;
-  const body = { source_text: text, source_title: title, source_type: type };
-  if (currentExtractSourceMeta && (currentExtractSourceMeta.source_plaza_id || currentExtractSourceMeta.source_discussion_id || currentExtractSourceMeta.source_output_id)) {
-    body.source_meta = currentExtractSourceMeta;
+  // force=true：清墓碑 + 清同来源旧草稿后再开新任务（避免回退草稿叠一堆）
+  const body = { source_text: text, source_title: title, source_type: type, force: true };
+  if (currentExtractSourceMeta && (currentExtractSourceMeta.source_plaza_id || currentExtractSourceMeta.source_discussion_id || currentExtractSourceMeta.source_output_id || currentExtractSourceMeta.messages)) {
+    body.source_meta = { ...currentExtractSourceMeta, force_reextract: true };
+  } else {
+    body.source_meta = { force_reextract: true };
   }
 
   document.getElementById('btn-extract').disabled = true;
   document.getElementById('btn-extract').textContent = '萃取中…';
 
-  const result = await api(`/teams/${currentTeamId}/skill-extract/start`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-
-  document.getElementById('btn-extract').disabled = false;
-  document.getElementById('btn-extract').textContent = '🩸 开始萃取';
+  let result = null;
+  try {
+    result = await api(`/teams/${currentTeamId}/skill-extract/start`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } finally {
+    _extractInFlight = false;
+    document.getElementById('btn-extract').disabled = false;
+    document.getElementById('btn-extract').textContent = '🩸 开始萃取';
+  }
 
   if (result) {
-    // Check if this was a dedup return (existing item with status beyond 'pending')
-    if (result.status && result.status !== 'pending') {
-      showToast(`⏭️ 已有相同萃取: ${result.draft_name || result.source_title || result.item_id}`);
-      addMessage('system', `⏭️ 该文本已萃取过技能「${result.draft_name || '—'}」(${result.status})，无需重复萃取`);
+    // force 重萃会删旧项：立刻拉齐队列
+    try { await loadQueue(); } catch (_) {}
+    // 去重返回：仅当仍有活跃任务时提示打开旧项；墓碑/拒绝不应再出现
+    if (result.reviewer_notes === 'source_deleted_tombstone') {
+      showToast('来源曾被删除，正在强制重萃…若仍失败请硬刷新');
+      addMessage('system', '⚠️ 来源墓碑仍在拦截。请硬刷新页面后重试「开始萃取」。');
+    } else if (result.status && result.status !== 'pending' && result.status !== 'llm_prefilling') {
+      const st = result.status;
+      if (st === 'ready_for_review' || st === 'approved') {
+        showToast(`队列中已有相同来源: ${result.draft_name || result.source_title || result.item_id}`);
+        addMessage('system', `⏭️ 相同文本已在队列（${st}）「${escapeHtml(result.draft_name || '—')}」— 可在右侧打开，或先 🗑️ 再点开始萃取强制新开。`);
+        if (result.item_id && typeof window._openDetail === 'function') {
+          try { window._openDetail(result.item_id); } catch (_) {}
+        }
+      } else {
+        // rejected / error 等：后端 force 下不应返回；若返回则提示
+        showToast(`状态 ${st}，请再点一次开始萃取`);
+        addMessage('system', `ℹ️ 返回了 ${st} 项；已带 force 重萃，请再试一次或硬刷新。`);
+      }
     } else {
       showToast(`萃取已启动: ${result.item_id}`);
+      addMessage('system', `🩸 萃取任务已入队 <code>${escapeHtml(result.item_id)}</code>，右侧审核队列将更新（TSE 预填中…）`);
       triggerExtractionVFX();
     }
-    document.getElementById('source-text').value = '';
-    document.getElementById('source-title').value = '';
+    // 保留正文便于对照；仅折叠输入区，避免用户以为「什么都没提交」
+    const kis = document.getElementById('knowledge-input-section');
+    if (kis) kis.classList.add('collapsed');
+    loadQueue();
+    loadSkills();
+  } else {
+    const err = (window.api && window.api._lastError) || {};
+    showToast('萃取启动失败：' + (err.message || '请检查登录/团队/文本长度'));
+    addMessage('system', `❌ 萃取未启动：${escapeHtml(err.message || '未知错误')}。请确认已登录、已选团队，文本 ≥10 字。`);
   }
 };
 
@@ -601,7 +860,7 @@ window._openDetail = async function(itemId) {
   if (!detail) return;
 
   document.getElementById('modal-icon').textContent = detail.draft_icon || '⚡';
-  document.getElementById('modal-title').textContent = detail.draft_name || '技能详情';
+  document.getElementById('modal-title').textContent = cleanDraftName(detail.draft_name) || '技能详情';
   // Format source text with page breaks
   const srcEl = document.getElementById('modal-source');
   const srcText = detail.source_text || '';
@@ -610,7 +869,7 @@ window._openDetail = async function(itemId) {
     .replace(/^(--- 第 \d+ 页 ---)$/gm, '<div style="text-align:center;color:oklch(0.45 0.06 250);font-size:10px;margin:12px 0;padding:4px 0;border-top:1px dashed oklch(0.3 0.02 250);border-bottom:1px dashed oklch(0.3 0.02 250)">$1</div>')
     .replace(/^(ROUND \d+)$/gm, '<div style="font-weight:700;color:oklch(0.7 0.08 200);margin:10px 0 4px">$1</div>')
     .replace(/^(PM|ARCHITECT|RESEARCHER|DEVELOPER|TESTER|DEPLOYER|技术研究员|测试工程师|全栈开发)(.*)$/gm, '<span style="font-weight:700;color:oklch(0.65 0.06 140)">$1</span>$2');
-  document.getElementById('edit-name').value = detail.draft_name || '';
+  document.getElementById('edit-name').value = cleanDraftName(detail.draft_name) || '';
   document.getElementById('edit-desc').value = detail.draft_description || '';
   document.getElementById('edit-category').value = detail.draft_category || 'general';
   document.getElementById('edit-icon').value = detail.draft_icon || '';
@@ -892,7 +1151,93 @@ async function loadEvolveSuggestions() {
     data.map(s => `<div style="padding:4px 0;border-bottom:1px solid oklch(0.15 0.005 110)">${s.reason} — <b>${s.name || ''}</b> <span style="color:oklch(0.4 0.005 110)">[${s.action}]</span></div>`).join('');
 }
 
+function _resetEvolvePanelStyles() {
+  const newEl = document.getElementById('evolve-new');
+  const errEl = document.getElementById('evolve-error');
+  const logEl = document.getElementById('evolve-changelog');
+  const langEl = document.getElementById('evolve-lang-badge');
+  const intentEl = document.getElementById('evolve-intent');
+  const acceptBtn = document.getElementById('btn-accept-evolve');
+  if (newEl) {
+    newEl.style.background = '#F3F9F5';
+    newEl.style.color = '#1A2030';
+    newEl.style.borderLeft = '';
+    newEl.disabled = false;
+  }
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (logEl) { logEl.style.display = 'none'; logEl.innerHTML = ''; }
+  if (langEl) { langEl.style.display = 'none'; langEl.textContent = ''; }
+  if (intentEl) intentEl.textContent = '';
+  if (acceptBtn) acceptBtn.disabled = false;
+}
+
+function _renderEvolveResult(result, { allowApply } = { allowApply: true }) {
+  const diffEl = document.getElementById('evolve-diff');
+  const oldEl = document.getElementById('evolve-old');
+  const newEl = document.getElementById('evolve-new');
+  const errEl = document.getElementById('evolve-error');
+  const logEl = document.getElementById('evolve-changelog');
+  const langEl = document.getElementById('evolve-lang-badge');
+  const intentEl = document.getElementById('evolve-intent');
+  const acceptBtn = document.getElementById('btn-accept-evolve');
+  if (!diffEl || !oldEl || !newEl) return;
+
+  _resetEvolvePanelStyles();
+  diffEl.style.display = 'block';
+  oldEl.textContent = result.original_instructions || '';
+
+  const lang = result.language || '';
+  if (langEl && lang) {
+    const map = { zh: '中文', en: 'English', mixed: '混合' };
+    langEl.style.display = 'inline-block';
+    langEl.textContent = `语言 · ${map[lang] || lang}`;
+  }
+  if (intentEl && result.preserved_intent) {
+    intentEl.textContent = `意图：${result.preserved_intent}`;
+  }
+
+  const logs = Array.isArray(result.changelog) ? result.changelog : [];
+  if (logEl && logs.length) {
+    logEl.style.display = 'block';
+    logEl.innerHTML = '<b style="color:#1F6B4A">变更要点</b><ul style="margin:6px 0 0;padding-left:18px">'
+      + logs.map((c) => `<li>${escHtml(String(c))}</li>`).join('')
+      + '</ul>';
+  }
+
+  const canApply = allowApply && !!result.improved_instructions && !result.error && !result.llm_degraded && !result.language_flip;
+  if (acceptBtn) acceptBtn.disabled = !canApply;
+
+  if (!canApply) {
+    const detail = result.error_detail || result.error || '演化未生成可用改进稿';
+    if (errEl) {
+      errEl.style.display = 'block';
+      errEl.textContent = '⚠️ ' + detail;
+    }
+    newEl.value = result.improved_instructions
+      ? result.improved_instructions
+      : ('（无改进稿）\n' + detail);
+    newEl.style.background = 'rgba(196,75,75,0.06)';
+    newEl.style.color = '#8B1E1E';
+    newEl.style.borderLeft = '3px solid #C44B4B';
+    if (!result.improved_instructions) newEl.disabled = true;
+    return;
+  }
+
+  newEl.value = result.improved_instructions || '';
+  if (result.language_repaired && errEl) {
+    errEl.style.display = 'block';
+    errEl.style.color = '#8A6615';
+    errEl.style.background = 'rgba(166,124,26,.1)';
+    errEl.textContent = 'ℹ️ 检测到语言翻转，已自动改回原文主体语言，请审阅后再应用。';
+  }
+}
+
+let _evolveInFlight = false;
 window.triggerEvolve = async function() {
+  if (_evolveInFlight) {
+    showToast('演化进行中，请稍候…');
+    return;
+  }
   if (!selectedItemId) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
   if (!item) return;
@@ -901,34 +1246,54 @@ window.triggerEvolve = async function() {
   const registered = !!(skillId && allSkills?.some(s => s.slug === item.draft_slug || s.skill_id === skillId || s.slug === skillId));
   if ((item.status !== 'approved' && !registered) || !skillId) { promptRegisterFirst('演化'); return; }
   const btn = document.getElementById('btn-evolve');
-  btn.textContent = '⏳ 演化中...';
+  _evolveInFlight = true;
+  const started = Date.now();
+  btn.textContent = '⏳ 演化中…';
   btn.disabled = true;
+  // 前端硬超时 90s（后端单次 LLM 60s × 最多 2 次）
+  const FRONT_TIMEOUT_MS = 90000;
+  let timer = null;
   try {
-    const result = await api('/skill-library/evolve', {
-      method: 'POST',
-      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-    });
-    if (!result || result.error) {
-      const msg = result?.error === 'llm_degraded'
-        ? '演化失败: ' + (result.error_detail || 'LLM 服务不可用')
-        : '演化失败: ' + (result?.error || 'unknown');
-      showToast(msg);
-      // 如果有原始指令但无改进指令，显示提示
-      if (result?.error === 'llm_degraded') {
-        const diffEl = document.getElementById('evolve-diff');
-        diffEl.style.display = 'block';
-        document.getElementById('evolve-old').textContent = result.original_instructions || '';
-        document.getElementById('evolve-new').textContent = '⚠️ ' + (result.error_detail || 'LLM 不可用，无法生成演化建议');
-      }
+    const result = await Promise.race([
+      api('/skill-library/evolve', {
+        method: 'POST',
+        body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+      }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('evolve_frontend_timeout')), FRONT_TIMEOUT_MS);
+      }),
+    ]);
+    if (!result) {
+      showToast('演化失败: 无响应');
       return;
     }
     _evolveCache = result;
+    // language_flip 时仍可展示 partial 稿供手改
+    const canApply = !!(result.improved_instructions) && !result.llm_degraded && result.error !== 'llm_degraded' && result.error !== 'llm_unusable' && result.error !== 'empty_instructions' && !result.language_flip;
+    _renderEvolveResult(result, { allowApply: canApply });
+    if (result.language_flip && result.improved_instructions) {
+      showToast('演化稿语言异常，可手改后应用或重试');
+    } else if (result.error || result.llm_degraded || !result.improved_instructions) {
+      showToast('演化失败: ' + (result.error_detail || result.error || 'unknown'));
+    } else {
+      const sec = Math.round((Date.now() - started) / 1000);
+      showToast(`🧬 演化完成（${sec}s），请审阅`);
+    }
+  } catch (e) {
+    const msg = (e && e.message === 'evolve_frontend_timeout')
+      ? '演化超时（>90s），请检查模型连通后重试'
+      : ('演化异常: ' + (e?.message || e));
+    showToast(msg);
+    const errEl = document.getElementById('evolve-error');
     const diffEl = document.getElementById('evolve-diff');
-    diffEl.style.display = 'block';
-    document.getElementById('evolve-old').textContent = result.original_instructions || '';
-    document.getElementById('evolve-new').textContent = result.improved_instructions || '';
-    showToast('🧬 演化完成，请审阅');
+    if (diffEl) diffEl.style.display = 'block';
+    if (errEl) {
+      errEl.style.display = 'block';
+      errEl.textContent = '⚠️ ' + msg;
+    }
   } finally {
+    if (timer) clearTimeout(timer);
+    _evolveInFlight = false;
     btn.textContent = '⚡ 触发演化';
     btn.disabled = false;
   }
@@ -940,29 +1305,44 @@ window.acceptEvolution = async function() {
   const skillId = resolveSkillId(item);
   if (!skillId) return;
 
+  const newEl = document.getElementById('evolve-new');
+  const edited = (newEl && 'value' in newEl ? newEl.value : _evolveCache.improved_instructions) || '';
+  if (!edited.trim()) {
+    showToast('改进指令为空，无法应用');
+    return;
+  }
+  if (_evolveCache.error || _evolveCache.llm_degraded || _evolveCache.language_flip) {
+    showToast('当前演化草稿不可用，请重新触发演化');
+    return;
+  }
+
   // Find the crystal node for this skill before applying
   const skillName = item?.draft_name || '';
   const targetNode = skillNodes.find(n => n.userData.skill?.skill_id === skillId || n.userData.skill?.name === skillName);
 
   const result = await api('/skill-library/apply-evolution', {
     method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: _evolveCache.improved_instructions }),
+    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: edited }),
   });
   if (result && !result.error) {
     showToast('✅ 演化已应用 v' + result.version);
     document.getElementById('evolve-diff').style.display = 'none';
     _evolveCache = null;
+    _resetEvolvePanelStyles();
 
     // Evolution VFX: light beam → shrink → expand
     if (targetNode) triggerEvolutionVFX(targetNode);
 
     await loadQueue(); await loadSkills();
+  } else {
+    showToast('应用失败: ' + (result?.reason || result?.error || 'unknown'));
   }
 };
 
 window.discardEvolution = function() {
   document.getElementById('evolve-diff').style.display = 'none';
   _evolveCache = null;
+  _resetEvolvePanelStyles();
   showToast('已丢弃演化草稿');
 };
 
@@ -972,8 +1352,8 @@ function triggerEvolutionVFX(node) {
   // Light beam from above
   const beamGeo = new THREE.CylinderGeometry(0.02, 0.15, 4, 8, 1, true);
   const beamMat = new THREE.MeshBasicMaterial({
-    color: 0xD4A574, transparent: true, opacity: 0.5,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    color: TASTE3D.publicSoft, transparent: true, opacity: 0.42,
+    depthWrite: false, side: THREE.DoubleSide
   });
   const beam = new THREE.Mesh(beamGeo, beamMat);
   beam.position.set(pos.x, pos.y + 2.5, pos.z);
@@ -981,7 +1361,7 @@ function triggerEvolutionVFX(node) {
   extractionGroup.add(beam);
 
   // Flash point light
-  const flash = new THREE.PointLight(0xD4A574, 3, 5);
+  const flash = new THREE.PointLight(TASTE3D.public, 1.8, 5);
   flash.position.set(pos.x, pos.y + 1, pos.z);
   extractionGroup.add(flash);
 
@@ -1118,9 +1498,38 @@ function renderUsageEmpty(msg) {
 
 function escHtml(s) {
   const d = document.createElement('div');
-  d.textContent = s;
+  d.textContent = s == null ? '' : String(s);
   return d.innerHTML;
 }
+// 兼容 window.escapeHtml / 模板里混用的 escapeHtml
+function escapeHtml(s) { return escHtml(s); }
+if (typeof window !== 'undefined') window.escapeHtml = escapeHtml;
+
+/** Strip legacy offline prefix; never show 「【回退草稿】」 as the skill title. */
+function cleanDraftName(name) {
+  let n = (name == null ? '' : String(name)).trim();
+  for (const p of ['【回退草稿】', '[回退草稿]', '回退草稿·', '回退草稿:']) {
+    if (n.startsWith(p)) n = n.slice(p.length).trim();
+  }
+  return n;
+}
+function isOfflineDraftModel(model) {
+  const m = String(model || '');
+  return m.startsWith('deterministic') || m.includes('offline');
+}
+/** HTML title + optional 离线 badge for queue / modal. */
+function formatDraftNameHtml(item) {
+  const raw = item?.draft_name || item?.source_title || '未命名';
+  const name = cleanDraftName(raw) || item?.source_title || '未命名';
+  const offline = isOfflineDraftModel(item?.llm_model_used)
+    || /离线占位|非正式技能名|LLM 不可用|解码失败/.test(String(item?.draft_description || item?.reviewer_notes || ''));
+  const badge = offline
+    ? '<span style="font-size:9px;padding:1px 5px;background:oklch(0.55 0.06 70/.12);color:oklch(0.45 0.08 70);border-radius:3px;margin-left:6px">离线</span>'
+    : '';
+  return `${escHtml(name)}${badge}`;
+}
+
+// bump cache-buster note: skill-extract.html script query can stay; hard refresh picks up JS
 
 window.refreshUsageTab = function() { loadUsageTab(); showToast('🔄 已刷新'); };
 
@@ -1276,7 +1685,7 @@ window.triggerVerify = async function() {
     const r = targetNode.geometry?.parameters?.radius || 0.3;
     scanRing = new THREE.Mesh(
       new THREE.TorusGeometry(r * 1.5, 0.015, 8, 32),
-      new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: TASTE3D.publicSoft, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
     );
     scanRing.position.copy(pos);
     scanRing.userData._scanRing = true;
@@ -1295,13 +1704,13 @@ window.triggerVerify = async function() {
   if (scanRing) {
     if (result && result.status === 'verified') {
       // Solidify to green verify ring
-      scanRing.material.color.set(0x4CAF50);
+      scanRing.material.color.set(TASTE3D.accentBright);
       scanRing.material.opacity = 0.35;
       scanRing.userData._scanRing = false;
       scanRing.userData.isVerifyRing = true;
     } else {
       // Shatter the scan ring into particles
-      scanRing.material.color.set(0xFF4444);
+      scanRing.material.color.set(TASTE3D.danger);
       const ringPos = scanRing.position.clone();
       const shatterCount = 20;
       const shatterGeo = new THREE.BufferGeometry();
@@ -1321,8 +1730,8 @@ window.triggerVerify = async function() {
       }
       shatterGeo.setAttribute('position', new THREE.BufferAttribute(shatterPos, 3));
       const shatterMat = new THREE.PointsMaterial({
-        color: 0xFF4444, size: 0.04, transparent: true, opacity: 0.8,
-        blending: THREE.AdditiveBlending, depthWrite: false
+        color: TASTE3D.danger, size: 0.04, transparent: true, opacity: 0.75,
+        depthWrite: false
       });
       const shatterPts = new THREE.Points(shatterGeo, shatterMat);
       shatterPts.userData._shatter = { velocities: shatterVels, startTime: (performance.now() - animStartMs) / 1000, duration: 1.2 };
@@ -1345,11 +1754,51 @@ window.triggerVerify = async function() {
   document.getElementById('verify-failed').textContent = result.failed ?? 0;
   const detailsEl = document.getElementById('verify-details');
 
-  // Build detailed results including process log
-  let html = '<div style="margin-top:8px"><b>测试场景:</b></div><div style="max-height:200px;overflow-y:auto;margin:4px 0">';
-  html += (result.test_details || []).map((t, i) =>
-    `<div style="padding:4px 0;border-bottom:1px solid oklch(0.15 0.005 110)">${t.passed ? '✅' : '❌'} 测试${(t.test_index || i + 1)}: ${t.scenario}</div>`
-  ).join('');
+  const statusLabel = result.status === 'verified'
+    ? '<span style="color:#1F6B4A;font-weight:700">✅ VERIFIED</span>'
+    : `<span style="color:#B33A3A;font-weight:700">❌ ${escHtml(result.status || 'failed')}</span>`;
+  // Build detailed results: semantic + sandbox + twin A/B
+  let html = `<div style="margin-bottom:8px;font-size:12px">${statusLabel}`;
+  if (result.requires_review) html += ' · <span style="color:#8A6615">需人工复核 (Token Gate warn)</span>';
+  html += '</div>';
+
+  const twin = (result.verification_evidence && result.verification_evidence.twin_ab) || result.twin_ab || {};
+  if (twin && (twin.status || twin.skipped || twin.passed != null)) {
+    html += '<div style="margin:10px 0;padding:10px 12px;border:1px solid rgba(31,107,74,.2);border-radius:8px;background:rgba(31,107,74,.04)">';
+    html += '<div style="font-weight:700;margin-bottom:6px;color:#1F6B4A">🧬 数字孪生 A/B 对照</div>';
+    if (twin.skipped) {
+      html += `<div style="font-size:11px;color:#6B7280">已跳过：${escHtml(twin.reason || '')} — ${escHtml(twin.detail || '')}</div>`;
+    } else if (twin.status === 'error') {
+      html += `<div style="font-size:11px;color:#B33A3A">错误：${escHtml(twin.error || 'unknown')}</div>`;
+    } else {
+      const b = twin.baseline || {};
+      const t = twin.treatment || {};
+      const passTwin = twin.passed ? '✅ PASS' : '❌ FAIL';
+      html += `<div style="font-size:11px;margin-bottom:6px">场景 <b>${escHtml(twin.scenario_id || '')}</b> · 目标技能 <b>${escHtml(twin.target_skill || '')}</b> · 种子 ${escHtml(String(twin.n_seeds || ''))} · ${passTwin}</div>`;
+      html += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+      html += '<tr style="text-align:left;color:#6B7280"><th style="padding:3px 6px"></th><th style="padding:3px 6px">baseline</th><th style="padding:3px 6px">treatment</th><th style="padding:3px 6px">Δ</th></tr>';
+      html += `<tr><td style="padding:3px 6px">目标技能成功率</td><td style="padding:3px 6px">${((b.target_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((t.target_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px;font-weight:700;color:${(twin.target_gain || 0) >= 0 ? '#1F6B4A' : '#B33A3A'}">${(twin.target_gain_pp != null ? twin.target_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.target_gain_pp != null ? twin.target_gain_pp : 0))}pp</td></tr>`;
+      html += `<tr><td style="padding:3px 6px">团队整体成功率</td><td style="padding:3px 6px">${((b.all_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((t.all_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${(twin.all_gain_pp != null ? twin.all_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.all_gain_pp != null ? twin.all_gain_pp : 0))}pp</td></tr>`;
+      html += `<tr><td style="padding:3px 6px">目标 skill 使用次数</td><td style="padding:3px 6px">${escHtml(String(b.target_uses || 0))}</td><td style="padding:3px 6px">${escHtml(String(t.target_uses || 0))}</td><td style="padding:3px 6px">—</td></tr>`;
+      html += '</table>';
+      if (twin.criteria) html += `<div style="font-size:10px;color:#6B7280;margin-top:6px">${escHtml(twin.criteria)}</div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '<div style="margin-top:8px"><b>检查项</b>（语义 / 沙箱 / twin-ab）:</div><div style="max-height:240px;overflow-y:auto;margin:4px 0">';
+  html += (result.test_details || []).map((t, i) => {
+    const layer = t.layer || t.source || 'check';
+    const layerColor = String(layer).includes('semantic') ? '#1F6B4A' : (String(layer).includes('mock') ? '#8A6615' : '#4A5568');
+    return `<div style="padding:5px 0;border-bottom:1px solid rgba(0,0,0,.06);display:flex;gap:8px;align-items:flex-start">
+      <span>${t.passed ? '✅' : '❌'}</span>
+      <span style="font-size:9px;padding:1px 6px;border-radius:999px;background:rgba(0,0,0,.04);color:${layerColor};white-space:nowrap">${escHtml(layer)}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;color:#1A2030">${escHtml(t.scenario || ('check_' + (i + 1)))}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:2px">${escHtml(t.message || '')}</div>
+      </div>
+    </div>`;
+  }).join('');
   html += '</div>';
 
   // Show process log for transparency
@@ -1656,17 +2105,33 @@ window.approveAs = async function(skillType) {
   const idx = queueItems.findIndex(q => q.item_id === selectedItemId);
   if (idx >= 0) {
     Object.assign(queueItems[idx], r);
+    queueItems[idx].skill_type = skillType || r.skill_type || 'reserve';
+    queueItems[idx]._skill_type = queueItems[idx].skill_type;
     // 写回 skill_id，确保切换演化/验证/版本 Tab 时身份解析一次命中
     queueItems[idx].skill_draft = { skill_id: r.skill_id || r.draft_slug, ...(r.skill || {}) };
   }
   await loadSkills();
   renderQueue();
+  // 批准后切到对应成果 tab，避免「点了储备却还停在特质」
+  try {
+    const tabBtn = document.querySelector(`.taxonomy-tab[data-tab="${skillType === 'trait' ? 'my' : skillType}"]`);
+    if (tabBtn && typeof window.switchTaxonomyTab === 'function') {
+      window.switchTaxonomyTab(tabBtn, skillType === 'trait' ? 'my' : skillType);
+    }
+  } catch (_) { /* ignore */ }
 
   // ── Closed-loop: suggest best agent for auto-injection ──
   const skillId = r.draft_slug || r.skill_id;
   if (skillId && skillType !== 'trait') {
-    // trait already assigned to specific agent; for public/reserve, suggest
-    _showInjectionSuggestion(skillId, r.draft_name || edits.name);
+    // trait already assigned; public/reserve → 智能注入建议（定义在 router 段，挂 window）
+    const showSuggest = window._showInjectionSuggestion;
+    if (typeof showSuggest === 'function') {
+      try {
+        await showSuggest(skillId, r.draft_name || edits.name);
+      } catch (e) {
+        console.warn('injection suggestion skip:', e);
+      }
+    }
   }
 };
 
@@ -1695,8 +2160,22 @@ window._quickApprove = async function(itemId, skillType = 'reserve') {
         await publishSkillWithGate(skillId, r.draft_name);
       }
     }
-    showToast(`${icons[skillType]} 已批准为${labels[skillType]}`);
-    loadQueue(); loadSkills();
+    const idx = queueItems.findIndex((q) => q.item_id === itemId);
+    if (idx >= 0) {
+      Object.assign(queueItems[idx], r);
+      queueItems[idx].skill_type = skillType || r.skill_type || 'reserve';
+      queueItems[idx]._skill_type = queueItems[idx].skill_type;
+    }
+    showToast(`${icons[skillType] || '📦'} 已批准为${labels[skillType] || '储备技能'}`);
+    await loadQueue();
+    await loadSkills();
+    try {
+      const tabKey = skillType === 'trait' ? 'my' : skillType;
+      const tabBtn = document.querySelector(`.taxonomy-tab[data-tab="${tabKey}"]`);
+      if (tabBtn && typeof window.switchTaxonomyTab === 'function') {
+        window.switchTaxonomyTab(tabBtn, tabKey);
+      }
+    } catch (_) { /* ignore */ }
   }
 };
 
@@ -1710,56 +2189,133 @@ window._deleteItem = async function(itemId) {
 };
 
 // ── Skills (Taxonomy) ───────────────────────────────────────────
+// 分工：
+//   右侧队列 = 待审/全流程
+//   下方栏   = 本页「萃取并已通过」的技能（不含内置 builtin / 团队全库，避免添乱）
+//   三 tab 与批准 disposition 对齐：
+//     特质 = skill_type=trait（赋予单个智能体）
+//     储备 = skill_type=reserve（默认入库，不赋予）
+//     公共 = skill_type=public
+//   注意：draft_scope 只是 LLM 建议（personal/public），≠ 批准类型
+//   全量技能库请到「智能体团队 / 技能」页管理
+
+/** Resolve approve disposition for an extracted skill. Default = reserve (G1-2 / backend). */
+function resolveSkillType(skillOrQueue) {
+  if (!skillOrQueue) return 'reserve';
+  const raw = String(
+    skillOrQueue.skill_type
+    || skillOrQueue._skill_type
+    || ''
+  ).toLowerCase().trim();
+  if (raw === 'trait' || raw === 'public' || raw === 'reserve') return raw;
+  // Legacy: only explicit public scope maps to public; never treat personal as trait
+  const scope = String(
+    skillOrQueue._draft_scope
+    || skillOrQueue.draft_scope
+    || skillOrQueue.visibility
+    || skillOrQueue.scope
+    || ''
+  ).toLowerCase();
+  if (scope === 'public') return 'public';
+  // Approved extracts without skill_type → 储备（与 approve 默认 / classification seed 一致）
+  return 'reserve';
+}
+
+function skillTypeLabel(st) {
+  return ({ trait: '特质', public: '公共', reserve: '储备' })[st] || '储备';
+}
+
 async function loadSkills() {
   if (!currentTeamId) return;
-  // Fetch real registered skills from backend
   let registeredSkills = [];
   try {
     registeredSkills = await listApi(`/teams/${currentTeamId}/skills`);
-  } catch(e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
+  if (!Array.isArray(registeredSkills)) registeredSkills = [];
 
-  // Build from queue items (both review & approved)
   const seen = new Set();
   const merged = [];
-  queueItems.forEach(q => {
-    if (q.status !== 'ready_for_review' && q.status !== 'approved') return;
+
+  // 仅：萃取队列里 status=approved 的项（本页产出）
+  queueItems.forEach((q) => {
+    if (q.status !== 'approved') return;
     const slug = q.draft_slug || q.item_id;
-    if (seen.has(slug)) return;
+    if (!slug || seen.has(slug)) return;
     seen.add(slug);
-    // If approved, try to enrich with real backend data
-    const reg = registeredSkills.find(s => s.slug === slug);
+    const reg = registeredSkills.find((s) => s.slug === slug || s.skill_id === slug || s.name === q.draft_name);
+    const st = resolveSkillType(q);
     merged.push({
       skill_id: reg?.skill_id || slug,
       name: q.draft_name || q.source_title || '未命名',
       icon: q.draft_icon || '⚡',
       category: q.draft_category || 'general',
-      slug: slug,
+      slug,
       description: q.draft_description || '',
       instructions: q.draft_instructions || '',
       required_tools: q.draft_required_tools || [],
       source: 'distilled',
-      lifecycle_stage: q.status === 'approved' ? 'team_local' : 'draft',
+      lifecycle_stage: reg?.lifecycle_stage || 'team_local',
       usage_count: reg?.usage_count || 0,
       effectiveness: reg?.effectiveness || 0,
       version: reg?.version || 1,
+      skill_type: st,
+      _skill_type: st,
       _from_queue: true,
-      _queue_status: q.status,
-      _draft_scope: q.draft_scope || 'personal',
+      _queue_status: 'approved',
+      _draft_scope: st === 'public' ? 'public' : (q.draft_scope || 'personal'),
+      _extract_origin: true,
     });
   });
+
+  // 补充：注册表里 source=distilled 且本队列曾批准的同 slug（防刷新后 queue 未载全）
+  // 仍排除 builtin / is_default，避免 task_decomposition 等内置技能占满底栏
+  registeredSkills.forEach((s) => {
+    const src = String(s.source || '').toLowerCase();
+    if (s.is_default) return;
+    if (src && src !== 'distilled' && src !== 'extracted' && src !== 'skill_extract') return;
+    // 无 source 字段的旧数据：仅当 slug/name 已在 approved 队列出现过才收（上面已处理）
+    if (!src) return;
+    const slug = s.slug || s.skill_id || s.name;
+    if (!slug || seen.has(slug) || (s.skill_id && seen.has(s.skill_id))) return;
+    seen.add(slug);
+    if (s.skill_id) seen.add(s.skill_id);
+    // Prefer queue skill_type if same slug was approved
+    const qMatch = queueItems.find(
+      (q) => q.status === 'approved' && (q.draft_slug === slug || q.draft_slug === s.slug || q.draft_name === s.name)
+    );
+    const st = resolveSkillType(qMatch || s);
+    merged.push({
+      ...s,
+      skill_id: s.skill_id || slug,
+      name: s.name || slug,
+      skill_type: st,
+      _skill_type: st,
+      _from_queue: false,
+      _queue_status: 'registered',
+      _draft_scope: st === 'public' || s.visibility === 'public' || s.scope === 'public' ? 'public' : 'personal',
+      _extract_origin: true,
+    });
+  });
+
   allSkills = merged;
-  renderTaxonomy(); updateSkillCounts(); rebuildSkillNodes();
+  renderTaxonomy();
+  updateSkillCounts();
+  rebuildSkillNodes();
+  if (currentTaxonomyTab === 'public' || currentTaxonomyTab === 'reserve') {
+    loadPublicLibrary(currentTaxonomyTab);
+  }
 }
 
 function classifySkill(skill) {
-  // Heuristic: classify into atomic / trait / composite
+  // Prefer approve disposition over old atomic/trait/composite heuristic
+  const st = resolveSkillType(skill);
+  if (skill?._extract_origin || skill?.source === 'distilled' || skill?.source === 'extracted') {
+    return st; // trait | reserve | public
+  }
   const tools = skill.required_tools || [];
   const isDefault = skill.is_default;
-  const source = skill.source || '';
-
-  if (source === 'distilled') return 'trait';        // Extracted = trait (个人特质)
-  if (tools.length >= 3) return 'composite';          // Multi-tool = composite
-  if (isDefault && tools.length <= 1) return 'atomic'; // Simple default = atomic
+  if (tools.length >= 3) return 'composite';
+  if (isDefault && tools.length <= 1) return 'atomic';
   if (skill.category === 'domain_knowledge') return 'trait';
   if (tools.length >= 2) return 'composite';
   return 'atomic';
@@ -1767,52 +2323,70 @@ function classifySkill(skill) {
 
 function renderTaxonomy() {
   const body = document.getElementById('taxonomy-body');
+  if (!body) return;
+
+  // 待审数量提示（只在右侧处理，不在下方重复列卡）
+  const pendingReview = queueItems.filter(
+    (q) => q.status === 'ready_for_review' || q.status === 'llm_prefilling' || q.status === 'pending'
+  ).length;
+
   if (!allSkills.length) {
-    body.innerHTML = '<div style="padding:10px;font-size:11px;color:oklch(0.4 0.005 110)">暂无萃取出的技能。请在上方输入知识文本并点击「开始萃取」。</div>';
+    body.innerHTML = `
+      <div style="padding:12px 14px;font-size:11px;line-height:1.65;color:oklch(0.45 0.005 110)">
+        <div style="font-weight:600;margin-bottom:4px;color:oklch(0.55 0.01 110)">📚 本页萃取成果（已通过）</div>
+        此处<strong>不展示</strong>团队内置技能（如 task_decomposition），避免和「智能体团队」技能库重复。<br>
+        流程：右侧审核 → 🎯特质 / 📦储备 / 🌍公共 通过 → 出现在对应 tab。
+        ${pendingReview ? `<div style="margin-top:8px;color:oklch(0.62 0.08 70)">⏳ 当前有 ${pendingReview} 项在右侧待处理</div>` : ''}
+      </div>`;
     return;
   }
 
-  const atomics = [], traits = [], composites = [];
-  allSkills.forEach(s => {
-    const type = classifySkill(s);
-    if (type === 'atomic') atomics.push(s);
-    else if (type === 'trait') traits.push(s);
-    else composites.push(s);
-  });
+  // 特质 tab：仅 skill_type=trait（赋予单个智能体），不是「所有非公共」
+  const mine = allSkills.filter((s) => resolveSkillType(s) === 'trait');
 
-  const renderCards = (skills, type) => skills.map(s => {
-    const statusBadge = s._from_queue
-      ? (s._queue_status === 'approved'
-        ? '<span style="font-size:9px;padding:1px 4px;background:oklch(0.45 0.12 145/.2);color:oklch(0.65 0.1 145);border-radius:3px;margin-left:4px">✅ 已批准</span>'
-        : '<span style="font-size:9px;padding:1px 4px;background:oklch(0.56 0.08 60/.15);color:oklch(0.65 0.06 60);border-radius:3px;margin-left:4px">⏳ 待审核</span>')
-      : '';
-    const scopeBadge = s._draft_scope === 'public'
-      ? '<span style="font-size:9px;padding:1px 4px;background:oklch(0.55 0.12 250/.2);color:oklch(0.7 0.1 250);border-radius:3px;margin-left:4px">🌐</span>'
+  const renderCards = (skills) => skills.map((s) => {
+    const st = resolveSkillType(s);
+    const statusBadge = s._queue_status === 'approved' || s.lifecycle_stage
+      ? '<span style="font-size:9px;padding:1px 4px;background:oklch(0.45 0.12 145/.2);color:oklch(0.65 0.1 145);border-radius:3px;margin-left:4px">✅ 已入库</span>'
       : '';
     return `
-    <div class="skill-card ${type}" data-skill-id="${s.skill_id}">
-      <span class="sc-type">${type === 'atomic' ? '原子' : type === 'trait' ? '特质' : '组合'}</span>
+    <div class="skill-card ${st}" data-skill-id="${s.skill_id}">
+      <span class="sc-type">${skillTypeLabel(st)}</span>
       <div class="sc-icon">${s.icon || '⚡'}</div>
-      <div class="sc-name">${s.name}${scopeBadge}${statusBadge}</div>
-      <div class="sc-desc">${s.description || ''}</div>
-      <div class="sc-source">${s.source || 'distilled'} · ${(s.required_tools || []).length} tools</div>
+      <div class="sc-name">${escapeHtml(cleanDraftName(s.name) || s.name || '')}${statusBadge}</div>
+      <div class="sc-desc">${escapeHtml(s.description || '')}</div>
+      <div class="sc-source">${escapeHtml(s.source || 'team')} · ${(s.required_tools || []).length} tools</div>
     </div>
-  `}).join('');
+  `;
+  }).join('');
 
-  body.innerHTML = renderCards(atomics, 'atomic') + renderCards(traits, 'trait') + renderCards(composites, 'composite');
+  const hint = pendingReview
+    ? `<div style="padding:6px 12px;font-size:10px;color:oklch(0.58 0.06 70);border-bottom:1px solid oklch(1 0 0/.06)">⏳ ${pendingReview} 项待审在右侧 · 本栏仅「🎯 特质」批准项（赋予单个智能体）</div>`
+    : `<div style="padding:6px 12px;font-size:10px;color:oklch(0.42 0.005 110);border-bottom:1px solid oklch(1 0 0/.06)">📚 特质 = 批准时选「特质技能」并赋予智能体 · 默认储备请看「📦 储备」tab</div>`;
+
+  if (!mine.length) {
+    body.innerHTML = hint + `<div style="padding:10px;font-size:11px;color:oklch(0.4 0.005 110)">暂无「特质」技能。若你点的是 📦 储备入库，请切换到「📦 储备」tab 查看。</div>`;
+    return;
+  }
+
+  body.innerHTML = hint + renderCards(mine);
 }
 
 function updateSkillCounts() {
-  let a = 0, t = 0, c = 0;
-  allSkills.forEach(s => {
-    const type = classifySkill(s);
-    if (type === 'atomic') a++;
-    else if (type === 'trait') t++;
-    else c++;
+  let trait = 0, reserve = 0, pub = 0;
+  allSkills.forEach((s) => {
+    const st = resolveSkillType(s);
+    if (st === 'trait') trait++;
+    else if (st === 'public') pub++;
+    else reserve++;
   });
-  document.getElementById('count-atomic').textContent = a;
-  document.getElementById('count-trait').textContent = t;
-  document.getElementById('count-composite').textContent = c;
+  const elA = document.getElementById('count-atomic');
+  const elT = document.getElementById('count-trait');
+  const elC = document.getElementById('count-composite');
+  // Reuse existing count slots: atomic→储备, trait→特质, composite→公共（若 DOM 仍是旧标签）
+  if (elA) elA.textContent = reserve;
+  if (elT) elT.textContent = trait;
+  if (elC) elC.textContent = pub;
 }
 
 window.toggleTaxonomy = function() {
@@ -1827,32 +2401,66 @@ let publicSkills = [];
 
 window.switchTaxonomyTab = function(btn, tab) {
   currentTaxonomyTab = tab;
-  document.querySelectorAll('.taxonomy-tab').forEach(b => {
-    b.style.borderBottomColor = 'transparent';
-    b.style.color = 'oklch(0.5 0.005 110)';
+  // 只用 class 切换样式，禁止写死 --shironeri（浅色壳下近白字贴白底）
+  document.querySelectorAll('.taxonomy-tab').forEach((b) => {
+    b.classList.toggle('active', b === btn);
+    b.style.borderBottomColor = '';
+    b.style.color = '';
   });
-  btn.style.borderBottomColor = 'var(--koke)';
-  btn.style.color = 'var(--shironeri)';
 
+  const bodyMine = document.getElementById('taxonomy-body');
+  const bodyPub = document.getElementById('taxonomy-body-public');
   if (tab === 'my') {
-    document.getElementById('taxonomy-body').style.display = '';
-    document.getElementById('taxonomy-body-public').style.display = 'none';
+    if (bodyMine) bodyMine.style.display = '';
+    if (bodyPub) bodyPub.style.display = 'none';
+    renderTaxonomy();
   } else {
-    document.getElementById('taxonomy-body').style.display = 'none';
-    document.getElementById('taxonomy-body-public').style.display = '';
-    loadPublicLibrary();
+    // reserve / public 共用 public body，按 tab 过滤已入库
+    if (bodyMine) bodyMine.style.display = 'none';
+    if (bodyPub) bodyPub.style.display = '';
+    loadPublicLibrary(tab);
   }
 };
 
-async function loadPublicLibrary() {
-  // Only show current session queue items marked as public scope
+async function loadPublicLibrary(tab) {
+  const mode = tab || currentTaxonomyTab || 'public';
   publicSkills = [];
   const seen = new Set();
-  queueItems.forEach(q => {
-    if (q.status !== 'ready_for_review' && q.status !== 'approved') return;
-    if ((q.draft_scope || 'personal') !== 'public') return;
+
+  // 已入库：按 skill_type 分流（储备 / 公共），不再把「非公共」全塞进储备
+  allSkills.forEach((s) => {
+    const st = resolveSkillType(s);
+    if (mode === 'public' && st !== 'public') return;
+    if (mode === 'reserve' && st !== 'reserve') return;
+    const key = s.skill_id || s.slug || s.name;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    publicSkills.push({
+      skill_id: s.skill_id || key,
+      name: s.name || key,
+      icon: s.icon || '⚡',
+      category: s.category || 'general',
+      description: s.description || '',
+      lifecycle_stage: s.lifecycle_stage || 'team_local',
+      origin_team_id: s.origin_team_id || currentTeamId,
+      usage_count: s.usage_count || 0,
+      adopted_by: s.adopted_by || [],
+      skill_type: st,
+      _skill_type: st,
+      _is_own: true,
+      _from_queue: !!s._from_queue,
+      _queue_status: s._queue_status || 'registered',
+    });
+  });
+
+  // 队列补丁（防注册表尚未同步）
+  queueItems.forEach((q) => {
+    if (q.status !== 'approved') return;
+    const st = resolveSkillType(q);
+    if (mode === 'public' && st !== 'public') return;
+    if (mode === 'reserve' && st !== 'reserve') return;
     const slug = q.draft_slug || q.item_id;
-    if (seen.has(slug)) return;
+    if (!slug || seen.has(slug)) return;
     seen.add(slug);
     publicSkills.push({
       skill_id: slug,
@@ -1860,36 +2468,48 @@ async function loadPublicLibrary() {
       icon: q.draft_icon || '⚡',
       category: q.draft_category || 'general',
       description: q.draft_description || '',
-      lifecycle_stage: q.status === 'approved' ? 'team_local' : 'draft',
+      lifecycle_stage: 'team_local',
       origin_team_id: currentTeamId,
+      skill_type: st,
+      _skill_type: st,
       _is_own: true,
       _from_queue: true,
-      _queue_status: q.status,
+      _queue_status: 'approved',
     });
   });
-  renderPublicLibrary();
+  renderPublicLibrary(mode);
 }
 
-function renderPublicLibrary() {
+function renderPublicLibrary(mode) {
   const body = document.getElementById('taxonomy-body-public');
+  if (!body) return;
+  const label = mode === 'reserve'
+    ? '储备（已入库·未赋予智能体）'
+    : '公共（已入库·全队可用）';
+  const pendingReview = queueItems.filter((q) => q.status === 'ready_for_review').length;
   if (!publicSkills.length) {
-    body.innerHTML = '<div style="padding:10px;font-size:11px;color:oklch(0.4 0.005 110)">暂无萃取出的公共技能。萃取时 LLM 会自动推荐公共/私有分类。</div>';
+    body.innerHTML = `<div style="padding:12px 14px;font-size:11px;line-height:1.65;color:oklch(0.4 0.005 110)">
+      暂无${label}技能。<br>
+      待审草稿请到<strong>右侧审核队列</strong>点 ${mode === 'reserve' ? '📦 储备' : '🌍 公共'} 通过后再出现在此。
+      ${pendingReview ? `<div style="margin-top:8px;color:oklch(0.62 0.08 70)">⏳ 右侧仍有 ${pendingReview} 项待审核</div>` : ''}
+    </div>`;
     return;
   }
-  body.innerHTML = publicSkills.map(s => {
+  body.innerHTML = `<div style="padding:6px 12px;font-size:10px;color:oklch(0.42 0.005 110);border-bottom:1px solid oklch(1 0 0/.06)">📚 ${label} · ${publicSkills.length} 项</div>` + publicSkills.map((s) => {
     const isOwn = s._is_own || s.origin_team_id === currentTeamId;
     const adopted = (s.adopted_by || []).includes(currentTeamId);
-    const stageLabels = { draft:'胚胎', team_local:'新生', published:'发布', verified:'已验证', solidified:'固化', degraded:'退化' };
-    const stage = stageLabels[s.lifecycle_stage] || s.lifecycle_stage || '';
+    const st = resolveSkillType(s);
+    const stageLabels = { draft: '胚胎', team_local: '新生', published: '发布', verified: '已验证', solidified: '固化', degraded: '退化' };
+    const stage = stageLabels[s.lifecycle_stage] || s.lifecycle_stage || '已入库';
     return `
       <div class="skill-card" style="border-color:${isOwn ? 'oklch(0.56 0.05 70/.3)' : adopted ? 'oklch(0.55 0.10 250/.3)' : 'oklch(1 0 0/.06)'}">
-        <span class="sc-type" style="color:oklch(0.6 0.005 110)">${stage}</span>
+        <span class="sc-type" style="color:oklch(0.6 0.005 110)">${skillTypeLabel(st)} · ${stage}</span>
         <div class="sc-icon">${s.icon || '⚡'}</div>
-        <div class="sc-name">${s.name}</div>
-        <div class="sc-desc">${s.description || ''}</div>
+        <div class="sc-name">${escapeHtml(cleanDraftName(s.name) || s.name || '')}</div>
+        <div class="sc-desc">${escapeHtml(s.description || '')}</div>
         <div class="sc-source" style="display:flex;justify-content:space-between;align-items:center">
-          <span>${s.origin_team_id ? '团队 ' + s.origin_team_id.slice(0, 6) : 'builtin'} · 使用 ${s.usage_count || 0}</span>
-          ${!isOwn && !adopted ? `<button class="btn btn-sm" onclick="importSkill('${s.skill_id}')" style="font-size:9px;padding:2px 8px">引入</button>` : ''}
+          <span>${s.origin_team_id ? '团队 ' + String(s.origin_team_id).slice(0, 8) : 'team'} · 使用 ${s.usage_count || 0}</span>
+          ${!isOwn && !adopted ? `<button class="btn btn-sm" onclick="importSkill('${escapeHtml(s.skill_id)}')" style="font-size:9px;padding:2px 8px">引入</button>` : ''}
           ${adopted ? '<span style="color:var(--koke);font-size:9px">✓ 已引入</span>' : ''}
         </div>
       </div>
@@ -1969,13 +2589,13 @@ async function buildPanoramaView() {
   }
   panoramaGroup = new THREE.Group();
 
-  // Center: public library pool (golden glow)
+  // Center: public library pool (Taste warn amber — semantic "public", not AI gold neon)
   const poolGeo = new THREE.CircleGeometry(5, 64);
   const poolMat = new THREE.MeshPhysicalMaterial({
-    color: 0xC8B468, roughness: 0.3, metalness: 0.1,
-    transmission: 0.6, thickness: 0.5, ior: 1.3,
-    emissive: new THREE.Color(0xC8B468), emissiveIntensity: 0.15,
-    transparent: true, opacity: 0.4,
+    color: TASTE3D.publicSoft, roughness: 0.45, metalness: 0.06,
+    transmission: 0.35, thickness: 0.4, ior: 1.3,
+    emissive: new THREE.Color(TASTE3D.public), emissiveIntensity: 0.08,
+    transparent: true, opacity: 0.38,
   });
   const pool = new THREE.Mesh(poolGeo, poolMat);
   pool.rotation.x = -Math.PI / 2;
@@ -1983,16 +2603,13 @@ async function buildPanoramaView() {
   panoramaGroup.add(pool);
 
   // Pool glow light
-  const poolLight = new THREE.PointLight(0xC8B468, 0.6, 30);
+  const poolLight = new THREE.PointLight(TASTE3D.public, 0.35, 28);
   poolLight.position.set(0, 2, 0);
   panoramaGroup.add(poolLight);
 
-  // Pool label
-  const poolTex = new THREE.CanvasTexture(makeSkillLabel('🌐', '公共技能'));
-  poolTex.minFilter = THREE.LinearFilter;
-  const poolLabel = new THREE.Sprite(new THREE.SpriteMaterial({ map: poolTex, transparent: true, depthTest: false }));
+  // Pool label — plaza team-label scale
+  const poolLabel = makeSpriteLabel(makeSkillLabel('🌐', '公共技能'), 'team');
   poolLabel.position.set(0, 3, 0);
-  poolLabel.scale.set(3, 0.75, 1);
   panoramaGroup.add(poolLabel);
 
   // Public skills in center pool
@@ -2006,14 +2623,14 @@ async function buildPanoramaView() {
       const skillMesh = new THREE.Mesh(
         new THREE.TorusGeometry(pTorusR, pTorusTube, 12, 32),
         new THREE.MeshBasicMaterial({
-          color: 0xC8B468, transparent: true, opacity: 0.7, side: THREE.DoubleSide,
+          color: TASTE3D.public, transparent: true, opacity: 0.72, side: THREE.DoubleSide,
         })
       );
       skillMesh.position.set(Math.cos(a) * r, size + 0.1, Math.sin(a) * r);
       // Panorama skill glow
       const pGlow = new THREE.Mesh(
         new THREE.TorusGeometry(pTorusR, pTorusTube * 3.5, 12, 32),
-        new THREE.MeshBasicMaterial({ color: 0xC8B468, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
+        new THREE.MeshBasicMaterial({ color: TASTE3D.publicSoft, transparent: true, opacity: 0.14, side: THREE.DoubleSide })
       );
       pGlow.position.copy(skillMesh.position);
       panoramaGroup.add(pGlow);
@@ -2029,37 +2646,34 @@ async function buildPanoramaView() {
     const tz = Math.sin(angle) * teamRadius;
     const isCurrentTeam = team.team_id === currentTeamId;
 
-    // Mini petri dish
-    const dishColor = isCurrentTeam ? 0xD4A574 : 0x88AABA;
+    // Mini petri dish — current team forest accent, others cool slate
+    const dishColor = isCurrentTeam ? TASTE3D.accent : TASTE3D.slate;
+    // Team dish plate — solid cool white with clear edge against floor
     const dish = new THREE.Mesh(
       new THREE.CircleGeometry(4, 48),
       new THREE.MeshStandardMaterial({
-        color: 0x1A2026, roughness: 0.9, metalness: 0,
-        transparent: true, opacity: 0.7,
+        color: isCurrentTeam ? TASTE3D.surfaceHi : TASTE3D.surface, roughness: 0.72, metalness: 0.04,
       })
     );
     dish.rotation.x = -Math.PI / 2;
-    dish.position.set(tx, 0.005, tz);
+    dish.position.set(tx, 0.02, tz);
     panoramaGroup.add(dish);
 
-    // Dish rim
+    // Dish rim — opaque, thicker when current team
     const rim = new THREE.Mesh(
-      new THREE.RingGeometry(3.8, 4.2, 48),
+      new THREE.RingGeometry(3.65, 4.15, 48),
       new THREE.MeshBasicMaterial({
-        color: dishColor, transparent: true, opacity: isCurrentTeam ? 0.5 : 0.2,
+        color: dishColor, transparent: true, opacity: isCurrentTeam ? 0.95 : 0.72,
         side: THREE.DoubleSide,
       })
     );
     rim.rotation.x = -Math.PI / 2;
-    rim.position.set(tx, 0.01, tz);
+    rim.position.set(tx, 0.03, tz);
     panoramaGroup.add(rim);
 
-    // Team label
-    const teamTex = new THREE.CanvasTexture(makeSkillLabel(isCurrentTeam ? '🔬' : '🧫', team.name || team.team_id));
-    teamTex.minFilter = THREE.LinearFilter;
-    const teamLabel = new THREE.Sprite(new THREE.SpriteMaterial({ map: teamTex, transparent: true, depthTest: false }));
+    // Team label — plaza team-label scale
+    const teamLabel = makeSpriteLabel(makeSkillLabel(isCurrentTeam ? '🔬' : '🧫', team.name || team.team_id), 'team');
     teamLabel.position.set(tx, 5, tz);
-    teamLabel.scale.set(3, 0.75, 1);
     panoramaGroup.add(teamLabel);
 
     // Team light
@@ -2076,11 +2690,11 @@ async function buildPanoramaView() {
       const sa = (si / Math.max(skillCount, 1)) * Math.PI * 2;
       const sr = 1.2 + Math.random() * 2;
       const isPublic = si < publicCount;
-      const sColor = isPublic ? 0xC8B468 : (isCurrentTeam ? 0xD4A574 : 0x88AABA);
+      const sColor = isPublic ? TASTE3D.public : (isCurrentTeam ? TASTE3D.accent : VIVID_AGENT_COLORS[si % VIVID_AGENT_COLORS.length]);
       const sNode = new THREE.Mesh(
         new THREE.TorusGeometry(0.10, 0.015, 8, 24),
         new THREE.MeshBasicMaterial({
-          color: sColor, transparent: true, opacity: isPublic ? 0.8 : 0.5, side: THREE.DoubleSide,
+          color: sColor, transparent: true, opacity: isPublic ? 0.82 : 0.55, side: THREE.DoubleSide,
         })
       );
       sNode.position.set(tx + Math.cos(sa) * sr, 0.2, tz + Math.sin(sa) * sr);
@@ -2102,7 +2716,7 @@ async function buildPanoramaView() {
       const arcCurve = new THREE.CatmullRomCurve3(arcPts);
       const arcGeo = new THREE.TubeGeometry(arcCurve, 20, 0.03, 4, false);
       const arcMat = new THREE.MeshBasicMaterial({
-        color: 0xC8B468, transparent: true, opacity: 0.08 + publicCount * 0.04,
+        color: TASTE3D.publicSoft, transparent: true, opacity: 0.07 + publicCount * 0.03,
       });
       panoramaGroup.add(new THREE.Mesh(arcGeo, arcMat));
     }
@@ -3262,16 +3876,19 @@ function updateStepperForItem(item) {
 
 function initScene() {
   const canvas = document.getElementById('three-canvas');
+  // Taste light arena — page theme lock light (tg-bg / fog)
+  const SK_BG = TASTE3D.bg;
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-  renderer.setClearColor(0x1A2026);
+  renderer.setClearColor(SK_BG);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
+  renderer.toneMappingExposure = 1.02;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1A2026);
-  scene.fog = new THREE.FogExp2(0x1A2026, 0.016);
+  scene.background = new THREE.Color(SK_BG);
+  // Light fog must be weak — strong FogExp2 washes pale geometry to invisible
+  scene.fog = new THREE.Fog(TASTE3D.fog, 40, 100);
 
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
   camera.position.set(0, 10, 22);
@@ -3286,18 +3903,25 @@ function initScene() {
 
   animStartMs = performance.now();
 
-  // Lighting
-  scene.add(new THREE.AmbientLight(0x2A2828, 0.18));
-  const mainLight = new THREE.DirectionalLight(0x554840, 0.45);
+  // Soft daylight — cold neutrals, no tinted neon fill
+  scene.add(new THREE.AmbientLight(TASTE3D.ambient, 0.58));
+  const mainLight = new THREE.DirectionalLight(0xFFFFFF, 0.82);
   mainLight.position.set(5, 25, 8);
   scene.add(mainLight);
-  scene.add(new THREE.HemisphereLight(0x2A2828, 0x181614, 0.08));
+  scene.add(new THREE.HemisphereLight(TASTE3D.hemiSky, TASTE3D.hemiGround, 0.42));
+  const fill = new THREE.DirectionalLight(TASTE3D.fill, 0.32);
+  fill.position.set(-8, 12, -6);
+  scene.add(fill);
+  // Subtle accent key (forest) — single accent, low intensity
+  const accentKey = new THREE.DirectionalLight(TASTE3D.accentSoft, 0.12);
+  accentKey.position.set(-3, 18, 4);
+  scene.add(accentKey);
 
   // Ground — hexagonal platform
   buildPlatform();
 
-  // Human figure (center) — used in router/赋予 mode as selected agent
-  humanFigure = createAgentFigure('智能体', 0xD4A574);
+  // Human figure (center) — forest accent agent (taste accent lock)
+  humanFigure = createAgentFigure('智能体', TASTE3D.accent);
   humanFigure.visible = false; // Hidden in extraction mode by default
   scene.add(humanFigure);
 
@@ -3315,31 +3939,53 @@ function initScene() {
   animate();
 }
 
-// ── Platform — 培养皿基质 ────────────────────────────────────────
+// ── Platform — 培养皿基质（Taste cold slate + forest accent）────
 function buildPlatform() {
-  // 基质层
+  // 基质层 — mid-cool plate (clearly darker than sky)
   const substrate = new THREE.Mesh(
     new THREE.CircleGeometry(25, 48),
-    new THREE.MeshStandardMaterial({ color: 0x1A2026, roughness: 0.96, metalness: 0, transparent: true, opacity: 0.85 })
+    new THREE.MeshStandardMaterial({ color: TASTE3D.plate, roughness: 0.9, metalness: 0.02 })
   );
   substrate.rotation.x = -Math.PI / 2;
   scene.add(substrate);
 
-  // 培养皿边缘
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(25, 0.15, 6, 48),
-    new THREE.MeshBasicMaterial({ color: 0x1E1A16, transparent: true, opacity: 0.6 })
+  // Inner polished disc for hierarchy
+  const pad = new THREE.Mesh(
+    new THREE.CircleGeometry(12, 48),
+    new THREE.MeshStandardMaterial({ color: TASTE3D.plateHi, roughness: 0.74, metalness: 0.03 })
   );
-  rim.rotation.x = -Math.PI / 2; rim.position.y = 0.08;
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.y = 0.004;
+  scene.add(pad);
+
+  // 培养皿边缘 — cooler slate, restrained metal
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(25, 0.22, 8, 64),
+    new THREE.MeshStandardMaterial({ color: TASTE3D.rim, roughness: 0.58, metalness: 0.12 })
+  );
+  rim.rotation.x = -Math.PI / 2; rim.position.y = 0.1;
   scene.add(rim);
 
-  // 同心纹理
-  [5, 10, 15, 20].forEach(r => {
+  // Outer thin ring accent — forest only
+  const accentRing = new THREE.Mesh(
+    new THREE.TorusGeometry(25.35, 0.05, 6, 64),
+    new THREE.MeshBasicMaterial({ color: TASTE3D.accent })
+  );
+  accentRing.rotation.x = -Math.PI / 2; accentRing.position.y = 0.12;
+  scene.add(accentRing);
+
+  // 同心纹理 — slate + soft forest (no neon)
+  [5, 10, 15, 20].forEach((r, i) => {
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(r - 0.02, r + 0.02, 48),
-      new THREE.MeshBasicMaterial({ color: 0x221E18, transparent: true, opacity: 0.08 })
+      new THREE.RingGeometry(r - 0.04, r + 0.04, 64),
+      new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? TASTE3D.ring : TASTE3D.accentSoft,
+        transparent: true,
+        opacity: i % 2 === 0 ? 0.26 : 0.16,
+        side: THREE.DoubleSide,
+      })
     );
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002;
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.006;
     scene.add(ring);
   });
 }
@@ -3352,8 +3998,12 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   group.userData.labelColor = `#${col.getHexString()}`;
   group.userData.bubbleOffsetY = (isChairman ? 3.15 : 2.9) * scale;
 
-  const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
-  const glowMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+  // Taste silhouette: solid outline + soft non-neon body wash (less additive bloom)
+  const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.96, side: THREE.DoubleSide });
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: 0.18, side: THREE.DoubleSide,
+    depthWrite: false,
+  });
 
   // Head ring
   const headR = 0.34 * scale, headTube = 0.035 * scale;
@@ -3362,7 +4012,7 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   group.add(head);
   group.userData.head = head;
 
-  // Head glow
+  // Head glow (twin-style wider halo)
   const headGlow = new THREE.Mesh(new THREE.TorusGeometry(headR, headTube * 4, 12, 32), glowMat);
   headGlow.position.copy(head.position);
   group.add(headGlow);
@@ -3377,43 +4027,96 @@ function createAgentFigure(name, hexColor, isChairman = false) {
   group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.035 * scale, 8, false), outlineMat));
   group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.12 * scale, 8, false), glowMat));
 
-  // Light
-  const pLight = new THREE.PointLight(col, isChairman ? 0.95 : 0.55, isChairman ? 8 : 5.5);
+  // Point light — restrained
+  const pLight = new THREE.PointLight(col, isChairman ? 0.55 : 0.32, isChairman ? 7 : 5);
   pLight.position.y = 1.4 * scale;
   group.add(pLight);
 
   // Ground ring
   const glowRing = new THREE.Mesh(
     new THREE.RingGeometry(0.35 * scale, 0.55 * scale, 32),
-    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({
+      color: col, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
+      depthWrite: false,
+    })
   );
   glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = 0.01;
   group.add(glowRing);
   group.userData.glowRing = glowRing;
+  group.userData.agentColor = col.getHex();
 
-  // Name
-  const tex = new THREE.CanvasTexture(makeLabel(name));
-  tex.minFilter = THREE.LinearFilter;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  // Name — same recipe as plaza.js (light scene, dark ink, no chip plate)
+  const sprite = makeSpriteLabel(makeTextCanvas(name, '#1A2030'), 'agent');
   sprite.position.y = (isChairman ? 3.12 : 2.84) * scale;
-  sprite.scale.set(2.7, 0.72, 1);
+  if (scale !== 1) sprite.scale.multiplyScalar(scale);
   group.add(sprite);
 
   group.position.set(0, 0, 0);
   return group;
 }
 
-function makeLabel(text) {
+/**
+ * 3D 文字标签 — 对齐 plaza.js makeTextCanvas
+ * 浅色场景：800 34px 深墨字，透明底，sprite 比例与议事厅一致
+ */
+function makeTextCanvas(text, color) {
   const c = document.createElement('canvas');
-  c.width = 384; c.height = 96;
+  c.width = 384;
+  c.height = 104;
   const ctx = c.getContext('2d');
-  ctx.clearRect(0, 0, 384, 96);
-  ctx.font = '700 30px "Noto Sans SC", sans-serif';
+  ctx.clearRect(0, 0, 384, 104);
+  ctx.font = '800 34px "Noto Sans SC", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#D4A574';
-  ctx.fillText(text, 192, 48);
+  ctx.fillStyle = color || '#1A2030';
+  ctx.fillText(String(text || ''), 192, 52);
   return c;
+}
+
+function makeLabel(text, colorHex) {
+  return makeTextCanvas(text, colorHex || '#1A2030');
+}
+
+function makeSkillLabel(icon, name) {
+  const raw = `${icon || ''} ${name || ''}`.trim() || '技能';
+  const text = raw.length > 18 ? raw.slice(0, 16) + '…' : raw;
+  // 长名略加宽，字重/字号与 plaza 一致
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = '800 34px "Noto Sans SC", sans-serif';
+  const tw = measure.measureText(text).width;
+  const c = document.createElement('canvas');
+  c.width = Math.max(384, Math.ceil(tw + 56));
+  c.height = 104;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.font = '800 34px "Noto Sans SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#1A2030';
+  ctx.fillText(text, c.width / 2, 52);
+  return c;
+}
+
+/** plaza sprite scales: agent 2.7×0.72 · team 2.5×0.6 · skill 略同 agent */
+function makeSpriteLabel(mapCanvas, kind) {
+  const tex = new THREE.CanvasTexture(mapCanvas);
+  tex.minFilter = THREE.LinearFilter;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+  }));
+  const wRatio = (mapCanvas.width || 384) / 384;
+  if (kind === 'team') {
+    sprite.scale.set(2.5 * wRatio, 0.6, 1);
+  } else if (kind === 'skill') {
+    sprite.scale.set(2.6 * wRatio, 0.68, 1);
+  } else {
+    // agent (plaza default)
+    sprite.scale.set(2.7 * wRatio, 0.72, 1);
+  }
+  sprite.renderOrder = 20;
+  return sprite;
 }
 
 // ── 菌丝网络 — 递归分枝，半透明玻璃质感 ────────────────────────
@@ -3438,14 +4141,18 @@ function buildVesselNerveScaffold() {
       pts.push(current.clone());
     }
     const curve = new THREE.CatmullRomCurve3(pts);
-    const depthRatio = 1 - depth / maxDepth;
+    const depthRatio = 1 - depth / Math.max(maxDepth, 1);
+    // 浅底：主干高不透明，梢端略透；色相按深度 teal 渐变
     const mat = new THREE.MeshBasicMaterial({
-      color: myceliumColor,
-      transparent: true, opacity: 0.06 + depthRatio * 0.18,
-      side: THREE.DoubleSide
+      color: myceliumColorAtDepth(depth, maxDepth),
+      transparent: true,
+      opacity: 0.52 + depthRatio * 0.38, // 0.52–0.90
+      side: THREE.DoubleSide,
+      depthWrite: false,
     });
+    const tubeR = thickness * (1.55 + depthRatio * 0.35);
     myceliumGroup.add(new THREE.Mesh(
-      new THREE.TubeGeometry(curve, Math.max(steps * 2, 4), thickness, 3, false), mat
+      new THREE.TubeGeometry(curve, Math.max(steps * 2, 4), tubeR, 6, false), mat
     ));
     const endPt = pts[pts.length - 1];
     const branches = depth < 2 ? 2 : 1;
@@ -3463,8 +4170,8 @@ function buildVesselNerveScaffold() {
   }
 
   [0, 1.57, 3.14, 4.71].forEach(angle => {
-    growHypha(new THREE.Vector3(0, 0.06, 0), new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)),
-      3.0 + Math.random() * 1.2, 0.035 + Math.random() * 0.012, 0, 4);
+    growHypha(new THREE.Vector3(0, 0.08, 0), new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)),
+      4.2 + Math.random() * 1.6, 0.065 + Math.random() * 0.02, 0, 4);
   });
 
   // 萃取粒子系统 — 螺旋吸收 → 再分配
@@ -3477,10 +4184,11 @@ function buildExtractionParticles() {
   const colors = new Float32Array(EXTRACT_PARTICLE_COUNT * 3);
   extractParticleData = [];
 
+  // 萃取粒子跟菌丝 teal 系，不跟 forest 技能环抢色
   const typeColors = [
-    new THREE.Color(0xB898C8), // atomic
-    new THREE.Color(0xC8B468), // trait
-    new THREE.Color(0x88AABA), // composite
+    new THREE.Color(MYC.trunk),
+    new THREE.Color(MYC.branch),
+    new THREE.Color(MYC.tip),
   ];
 
   for (let i = 0; i < EXTRACT_PARTICLE_COUNT; i++) {
@@ -3491,7 +4199,7 @@ function buildExtractionParticles() {
     positions[i * 3 + 2] = Math.sin(angle) * r;
 
     const colorIdx = i % 3;
-    const c = typeColors[colorIdx].clone().lerp(myceliumColor, 0.3);
+    const c = typeColors[colorIdx].clone().lerp(myceliumTip, 0.25);
     colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
 
     extractParticleData.push({
@@ -3588,14 +4296,15 @@ function growIncrementalMycelium(targetPos) {
   }
   const curve = new THREE.CatmullRomCurve3(pts);
   const mat = new THREE.MeshBasicMaterial({
-    color: myceliumColor,
+    color: myceliumColorAtDepth(1, 4),
     transparent: true, opacity: 0.0, // Start invisible, animate in
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    depthWrite: false,
   });
   const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, Math.max(steps * 2, 4), 0.015 + Math.random() * 0.01, 3, false), mat
+    new THREE.TubeGeometry(curve, Math.max(steps * 2, 4), 0.028 + Math.random() * 0.012, 5, false), mat
   );
-  tube.userData._targetOpacity = 0.18;
+  tube.userData._targetOpacity = 0.72;
   tube.userData._growing = true;
   tube.userData._growStart = (performance.now() - animStartMs) / 1000;
   myceliumGroup.add(tube);
@@ -3621,16 +4330,62 @@ function growIncrementalMycelium(targetPos) {
       subPts.push(subCur.clone());
     }
     const subCurve = new THREE.CatmullRomCurve3(subPts);
-    const subMat = mat.clone();
-    subMat.opacity = 0.0;
+    const subMat = new THREE.MeshBasicMaterial({
+      color: myceliumColorAtDepth(3, 4),
+      transparent: true, opacity: 0.0,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
     const subTube = new THREE.Mesh(
-      new THREE.TubeGeometry(subCurve, 8, 0.008, 4, false), subMat
+      new THREE.TubeGeometry(subCurve, 8, 0.016, 5, false), subMat
     );
-    subTube.userData._targetOpacity = 0.12;
+    subTube.userData._targetOpacity = 0.58;
     subTube.userData._growing = true;
     subTube.userData._growStart = (performance.now() - animStartMs) / 1000 + 0.5; // Delayed
     myceliumGroup.add(subTube);
     myceliumEndpoints.push(subPts[subPts.length - 1].clone());
+  }
+}
+
+// ── Extract progress bar helpers (TSE engine badge) ──────────────
+/** Map llm_model_used / engine field → short badge for progress bar. */
+function formatTseEngineLabel(modelOrEngine) {
+  const m = String(modelOrEngine || '').trim();
+  if (!m) return 'TSE';
+  const low = m.toLowerCase();
+  if (low.startsWith('deterministic') || low.includes('offline-placeholder')) return '离线占位';
+  if (low.includes('local') && low.includes('tse')) return 'TSE · 本地';
+  if (low.startsWith('tse+local')) return 'TSE · 本地';
+  if (low.startsWith('tse+')) {
+    const rest = m.slice(4).replace(/^\(|\)$/g, '').trim();
+    return rest ? `TSE · ${rest.slice(0, 28)}` : 'TSE';
+  }
+  if (low === 'tse' || low === 'engine' || m === 'TSE') return 'TSE';
+  if (low.includes('tse')) return m.length > 36 ? `TSE · ${m.slice(0, 28)}…` : m;
+  // Non-TSE legacy path (should be rare)
+  return m.slice(0, 32);
+}
+
+function setExtractProgress({ text, width, engine } = {}) {
+  const bar = document.getElementById('extract-progress');
+  const fill = document.getElementById('ep-fill');
+  const txt = document.getElementById('ep-text');
+  const eng = document.getElementById('ep-engine');
+  if (bar && !bar.classList.contains('visible')) bar.classList.add('visible');
+  if (text != null && txt) txt.textContent = text;
+  if (width != null && fill) fill.style.width = width;
+  if (engine != null && eng) {
+    const label = String(engine);
+    eng.textContent = label;
+    eng.hidden = !label;
+    eng.title = `萃取引擎: ${label}`;
+    const low = label.toLowerCase();
+    let mode = 'tse';
+    if (low.includes('离线') || low.includes('deterministic') || low.includes('占位')) mode = 'offline';
+    else if (low.includes('本地') || low.includes('local')) mode = 'local';
+    else if (low.includes('失败') || low.includes('error')) mode = 'error';
+    else if (low.includes('tse')) mode = 'tse';
+    else mode = 'other';
+    eng.dataset.mode = mode;
   }
 }
 
@@ -3640,17 +4395,20 @@ function triggerExtractionVFX() {
   extractionActive = true;
   extractionStage = 1;
 
-  // Show progress indicator
-  document.getElementById('extract-progress').classList.add('visible');
-  document.getElementById('ep-fill').style.width = '10%';
-  document.getElementById('ep-text').textContent = '📥 培养基注入中…';
+  // Show progress indicator — 主路径为 TSE
+  setExtractProgress({
+    width: '10%',
+    text: '📥 培养基注入中…',
+    engine: 'TSE',
+  });
 
-  // Stage 1: 培养基注入（0-2s）— particles spiral inward, mycelium brightens
+  // Stage 1: 培养基注入 — 菌丝加亮（勿再压到 0.35，浅底会看不见）
   if (myceliumGroup) {
     myceliumGroup.children.forEach(mesh => {
       if (mesh.material) {
         mesh.userData._origOpacity = mesh.material.opacity;
-        mesh.material.opacity = Math.min(mesh.material.opacity * 2, 0.35);
+        mesh.material.opacity = Math.min((mesh.material.opacity || 0.6) * 1.15, 0.95);
+        if (mesh.material.color) mesh.material.color.lerp(myceliumTip, 0.15);
       }
     });
   }
@@ -3665,8 +4423,7 @@ function triggerExtractionVFX() {
   extractionTimer = setTimeout(() => {
     if (!extractionActive) return;
     extractionStage = 2;
-    document.getElementById('ep-fill').style.width = '25%';
-    document.getElementById('ep-text').textContent = '🧬 菌丝正在生长…';
+    setExtractProgress({ width: '25%', text: '🧬 TSE · 菌丝正在生长…', engine: 'TSE' });
 
     // Grow 2-3 new branches from existing endpoints
     collectMyceliumEndpoints();
@@ -3677,7 +4434,7 @@ function triggerExtractionVFX() {
     // Brighten mycelium more
     if (myceliumGroup) {
       myceliumGroup.children.forEach(mesh => {
-        if (mesh.material) mesh.material.opacity = Math.min(mesh.material.opacity * 1.5, 0.5);
+        if (mesh.material) mesh.material.opacity = Math.min((mesh.material.opacity || 0.7) * 1.1, 0.98);
       });
     }
   }, 2000);
@@ -3686,8 +4443,7 @@ function triggerExtractionVFX() {
   setTimeout(() => {
     if (!extractionActive) return;
     extractionStage = 3;
-    document.getElementById('ep-fill').style.width = '45%';
-    document.getElementById('ep-text').textContent = '⚗️ 知识簇正在聚集…';
+    setExtractProgress({ width: '45%', text: '⚗️ TSE · 技能时刻聚合中…', engine: 'TSE' });
   }, 4000);
 
   // Safety timeout: auto-stop if stuck for 60s
@@ -3703,28 +4459,41 @@ function onExtractionItemCreated() {
   // Called when SSE item_created arrives — enter stage 3→4
   if (extractionActive) {
     extractionStage = 4;
-    document.getElementById('ep-fill').style.width = '60%';
-    document.getElementById('ep-text').textContent = '🔬 正在结晶化…';
+    setExtractProgress({ width: '60%', text: '🔬 TSE 管线运行中…', engine: 'TSE' });
   }
 }
 
-function stopExtractionVFX() {
+function stopExtractionVFX(opts = {}) {
   extractionActive = false;
   extractionStage = 0;
   if (extractionTimer) { clearTimeout(extractionTimer); extractionTimer = null; }
 
-  document.getElementById('ep-fill').style.width = '100%';
-  document.getElementById('ep-text').textContent = '萃取完成';
+  const eng = opts.engine || (document.getElementById('ep-engine')?.textContent || 'TSE');
+  setExtractProgress({
+    width: '100%',
+    text: opts.keepEngine ? `萃取完成 · ${eng}` : '萃取完成',
+    engine: eng,
+  });
   setTimeout(() => {
-    document.getElementById('extract-progress').classList.remove('visible');
-    document.getElementById('ep-fill').style.width = '0%';
-    document.getElementById('ep-text').textContent = '正在萃取…';
+    document.getElementById('extract-progress')?.classList.remove('visible');
+    const fill = document.getElementById('ep-fill');
+    const txt = document.getElementById('ep-text');
+    const engEl = document.getElementById('ep-engine');
+    if (fill) fill.style.width = '0%';
+    if (txt) txt.textContent = '正在萃取…';
+    if (engEl) {
+      engEl.textContent = 'TSE';
+      engEl.dataset.mode = 'tse';
+    }
   }, 2000);
 
-  // Restore mycelium opacity
+  // Restore mycelium opacity (浅底默认保持可读，勿 *0.33 压没)
   if (myceliumGroup) {
     myceliumGroup.children.forEach(mesh => {
-      if (mesh.material) mesh.material.opacity = mesh.userData._origOpacity || mesh.material.opacity * 0.33;
+      if (mesh.material) {
+        const o = mesh.userData._origOpacity;
+        mesh.material.opacity = (typeof o === 'number' && o > 0.2) ? o : 0.72;
+      }
     });
   }
 
@@ -3749,63 +4518,86 @@ function spawnSkillNodeAnimated(skill) {
   // Grow mycelium toward the crystal position
   growIncrementalMycelium(targetPos);
 
-  // Spawn torus ring (agent-head style) with scale-up animation
+  // Spawn torus ring with self-emissive glow (additive)
   const col = new THREE.Color(v.color);
   const torusR = v.sphereR * 0.85;
   const torusTube = v.sphereR * 0.12;
   const outlineMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0, side: THREE.DoubleSide });
-  const glowMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0, side: THREE.DoubleSide });
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
   const mesh = new THREE.Mesh(new THREE.TorusGeometry(torusR, torusTube, 12, 32), outlineMat);
   mesh.position.set(x, v.sphereR, z);
   mesh.scale.set(0.01, 0.01, 0.01); // Start tiny
   mesh.rotation.x = -Math.PI / 2; // Start flat (lying down)
-  // Glow halo ring
-  const glowRing = new THREE.Mesh(new THREE.TorusGeometry(torusR, torusTube * 3.5, 12, 32), glowMat);
+  // Outer emissive bloom ring
+  const glowRing = new THREE.Mesh(new THREE.TorusGeometry(torusR, torusTube * 5.5, 12, 32), glowMat);
   glowRing.position.copy(mesh.position);
-  glowRing.rotation.x = -Math.PI / 2; // Start flat too
+  glowRing.rotation.x = -Math.PI / 2;
   extractionGroup.add(glowRing);
+  // Mid bloom
+  const glowMid = new THREE.Mesh(
+    new THREE.TorusGeometry(torusR, torusTube * 2.8, 10, 28),
+    new THREE.MeshBasicMaterial({
+      color: col, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  glowMid.position.copy(mesh.position);
+  glowMid.rotation.x = -Math.PI / 2;
+  extractionGroup.add(glowMid);
   mesh.userData = {
     skill, type,
     spawnTime: (performance.now() - animStartMs) / 1000,
     lifecycle: v,
     blink: v.blink,
     degraded: v.degraded || false,
-    _animating: true,  // Growth animation flag
-    _targetOpacity: v.opacity,
-    _glowTargetOpacity: v.opacity * 0.25,
+    _animating: true,
+    _targetOpacity: Math.max(v.opacity, 0.75),
+    _glowTargetOpacity: Math.min(0.42, 0.16 + (v.emissive || 0.16) * 0.9),
     _targetScale: 1,
-    _glowBrighten: true, // Glow brightens gradually after growth
+    _glowBrighten: true,
     _glowRing: glowRing,
+    _glowMid: glowMid,
   };
   extractionGroup.add(mesh);
   skillNodes.push(mesh);
 
-  // Ground glow
+  // Ground glow — stronger additive puddle
   const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.8, 32),
-    new THREE.MeshBasicMaterial({ color: v.color, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false })
+    new THREE.CircleGeometry(1.1, 32),
+    new THREE.MeshBasicMaterial({
+      color: v.color, transparent: true, opacity: 0.12,
+      depthWrite: false,
+    })
   );
   glow.rotation.x = -Math.PI / 2;
   glow.position.set(x, 0.003, z);
   extractionGroup.add(glow);
+  mesh.userData._groundGlow = glow;
 
-  // Point light
-  const cLight = new THREE.PointLight(v.color, v.lightIntensity, 4);
-  cLight.position.set(x, 0.5, z);
+  // Point light — restrained self-glow
+  const cLight = new THREE.PointLight(v.color, (v.lightIntensity || 0.4) * 0.9, 5.5);
+  cLight.position.set(x, 0.65, z);
   extractionGroup.add(cLight);
+  mesh.userData._pointLight = cLight;
 
   // Halo ring for published
   if (v.halo) {
-    const haloMat = new THREE.MeshBasicMaterial({ color: v.color, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
-    const haloMesh = new THREE.Mesh(new THREE.RingGeometry(v.sphereR * 1.3, v.sphereR * 1.8, 32), haloMat);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: v.color, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const haloMesh = new THREE.Mesh(new THREE.RingGeometry(v.sphereR * 1.3, v.sphereR * 2.0, 32), haloMat);
     haloMesh.rotation.x = -Math.PI / 2;
     haloMesh.position.set(x, v.sphereR * 0.5, z);
     extractionGroup.add(haloMesh);
   }
 
-  // Public scope ring — cyan orbital ring
+  // Public scope ring — amber (public semantic)
   if (v.isPublic) {
-    const scopeMat = new THREE.MeshBasicMaterial({ color: 0x48C9B0, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const scopeMat = new THREE.MeshBasicMaterial({ color: TASTE3D.publicSoft, transparent: true, opacity: 0.32, side: THREE.DoubleSide });
     const scopeRing = new THREE.Mesh(new THREE.TorusGeometry(v.sphereR * 1.6, 0.018, 8, 48), scopeMat);
     scopeRing.position.set(x, v.sphereR, z);
     scopeRing.rotation.x = Math.PI / 5;
@@ -3813,9 +4605,9 @@ function spawnSkillNodeAnimated(skill) {
     extractionGroup.add(scopeRing);
   }
 
-  // Verify ring
+  // Verify ring — forest accent
   if (v.verifyRing) {
-    const vRingMat = new THREE.MeshBasicMaterial({ color: 0x4CAF50, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+    const vRingMat = new THREE.MeshBasicMaterial({ color: TASTE3D.accentBright, transparent: true, opacity: 0.38, side: THREE.DoubleSide });
     const vRing = new THREE.Mesh(new THREE.TorusGeometry(v.sphereR * 1.2, 0.02, 8, 32), vRingMat);
     vRing.position.set(x, v.sphereR, z);
     vRing.rotation.x = Math.PI / 3;
@@ -3823,9 +4615,9 @@ function spawnSkillNodeAnimated(skill) {
     extractionGroup.add(vRing);
   }
 
-  // Degraded: red warning ring (flickers in animate loop)
+  // Degraded: danger ring (taste danger, not pure #f00)
   if (v.degraded) {
-    const warnMat = new THREE.MeshBasicMaterial({ color: 0xFF4444, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+    const warnMat = new THREE.MeshBasicMaterial({ color: TASTE3D.danger, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
     const warnRing = new THREE.Mesh(new THREE.TorusGeometry(v.sphereR * 1.4, 0.012, 8, 32), warnMat);
     warnRing.position.set(x, v.sphereR, z);
     warnRing.rotation.x = Math.PI / 4;
@@ -3834,14 +4626,9 @@ function spawnSkillNodeAnimated(skill) {
     extractionGroup.add(warnRing);
   }
 
-  // Label sprite
-  const labelCanvas = makeSkillLabel(skill.icon || '⚡', skill.name || '');
-  const tex = new THREE.CanvasTexture(labelCanvas);
-  tex.minFilter = THREE.LinearFilter;
-  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  label.position.set(x, v.sphereR * 2 + 0.6, z);
-  const scaleX = 2 * (labelCanvas.width / 256);
-  label.scale.set(scaleX, 0.5, 1);
+  // Label — plaza-style ink text (same font/scale language as 议事厅)
+  const label = makeSpriteLabel(makeSkillLabel(skill.icon || '⚡', skill.name || ''), 'skill');
+  label.position.set(x, v.sphereR * 2 + 0.9, z);
   extractionGroup.add(label);
   mesh.userData._label = label;
 }
@@ -3902,50 +4689,54 @@ function shatterSkillNode(skillId) {
 // ── Skill Node 3D — 生命周期6阶段视觉差异 ───────────────────────
 function getLifecycleVisuals(skill) {
   const stage = skill.lifecycle_stage || 'team_local';
-  const type = classifySkill(skill);
+  const type = classifySkill(skill); // trait | reserve | public | atomic | composite
+  const st = resolveSkillType(skill);
   const scope = skill.visibility || skill.draft_scope || 'private';
-  const isPublic = scope === 'public' || scope === 'shared';
+  const isPublic = st === 'public' || scope === 'public' || scope === 'shared';
   let baseColor, sphereR, orbR;
 
   if (isPublic) {
-    // Public skills: cool blue-cyan palette
-    if (type === 'atomic') { baseColor = 0x6AB0E8; sphereR = 0.25; orbR = 3 + Math.random() * 1.5; }
-    else if (type === 'trait') { baseColor = 0x48C9B0; sphereR = 0.32; orbR = 5 + Math.random() * 2; }
-    else { baseColor = 0x5DADE2; sphereR = 0.4; orbR = 7 + Math.random() * 2; }
+    // Public — warn amber family only (semantic, not multi-accent rainbow)
+    baseColor = TASTE3D.public; sphereR = 0.34; orbR = 6 + Math.random() * 2;
+  } else if (st === 'trait' || type === 'trait') {
+    // Trait — forest accent (bound to one agent)
+    baseColor = TASTE3D.accent; sphereR = 0.32; orbR = 5 + Math.random() * 2;
+  } else if (st === 'reserve' || type === 'reserve') {
+    // Reserve — slate (stored only)
+    baseColor = TASTE3D.slateDark; sphereR = 0.28; orbR = 4 + Math.random() * 1.5;
+  } else if (type === 'atomic') {
+    baseColor = TASTE3D.accentSoft; sphereR = 0.25; orbR = 3 + Math.random() * 1.5;
   } else {
-    // Personal skills: warm palette (original)
-    if (type === 'atomic') { baseColor = 0xB898C8; sphereR = 0.25; orbR = 3 + Math.random() * 1.5; }
-    else if (type === 'trait') { baseColor = 0xC8B468; sphereR = 0.32; orbR = 5 + Math.random() * 2; }
-    else { baseColor = 0x88AABA; sphereR = 0.4; orbR = 7 + Math.random() * 2; }
+    baseColor = TASTE3D.slateMid; sphereR = 0.4; orbR = 7 + Math.random() * 2;
   }
 
   // Scale by usage_count (Phase 4 mapping)
   const usageScale = 1 + Math.min((skill.usage_count || 0) / 20, 0.6);
   sphereR *= usageScale;
 
-  // Lifecycle-specific material params
+  // Lifecycle — restrained emissive (Taste: no neon bloom arms race)
   const params = { color: baseColor, sphereR, orbR, geo: 'sphere', isPublic };
   switch (stage) {
-    case 'draft':       // 胚胎: 半透明闪烁虚影
-      Object.assign(params, { opacity: 0.25, emissive: 0.03, transmission: 0.85, blink: true, lightIntensity: 0.08 });
+    case 'draft':
+      Object.assign(params, { opacity: 0.5, emissive: 0.08, transmission: 0.75, blink: true, lightIntensity: 0.22 });
       break;
-    case 'team_local':  // 新生: 微弱发光实体
-      Object.assign(params, { opacity: 0.7, emissive: 0.10, transmission: 0.6, blink: false, lightIntensity: 0.2 });
+    case 'team_local':
+      Object.assign(params, { opacity: 0.88, emissive: 0.16, transmission: 0.5, blink: false, lightIntensity: 0.42 });
       break;
-    case 'published':   // 发布: 明亮脉动+光环
-      Object.assign(params, { opacity: 1.0, emissive: 0.20, transmission: 0.5, blink: false, lightIntensity: 0.4, halo: true });
+    case 'published':
+      Object.assign(params, { opacity: 1.0, emissive: 0.22, transmission: 0.42, blink: false, lightIntensity: 0.58, halo: true });
       break;
-    case 'verified':    // 验证: 稳定明亮+绿色验证环
-      Object.assign(params, { opacity: 1.0, emissive: 0.25, transmission: 0.4, blink: false, lightIntensity: 0.5, verifyRing: true });
+    case 'verified':
+      Object.assign(params, { opacity: 1.0, emissive: 0.26, transmission: 0.35, blink: false, lightIntensity: 0.68, verifyRing: true });
       break;
-    case 'solidified':  // 固化: 晶莹剔透+几何切面
-      Object.assign(params, { opacity: 1.0, emissive: 0.30, transmission: 0.8, blink: false, lightIntensity: 0.6, geo: 'icosa' });
+    case 'solidified':
+      Object.assign(params, { opacity: 1.0, emissive: 0.28, transmission: 0.55, blink: false, lightIntensity: 0.75, geo: 'icosa' });
       break;
-    case 'degraded':    // 退化: 暗淡+微颤
-      Object.assign(params, { opacity: 0.4, emissive: 0.02, transmission: 0.3, blink: false, lightIntensity: 0.05, degraded: true });
+    case 'degraded':
+      Object.assign(params, { opacity: 0.48, emissive: 0.05, transmission: 0.28, blink: false, lightIntensity: 0.12, degraded: true });
       break;
     default:
-      Object.assign(params, { opacity: 0.7, emissive: 0.10, transmission: 0.6, blink: false, lightIntensity: 0.2 });
+      Object.assign(params, { opacity: 0.88, emissive: 0.16, transmission: 0.5, blink: false, lightIntensity: 0.42 });
   }
   return params;
 }
@@ -3956,47 +4747,67 @@ function spawnSkillNode(skill) {
   const v = getLifecycleVisuals(skill);
   const col = new THREE.Color(v.color);
 
-  // Torus ring geometry (agent-head style)
+  // Torus + self-emissive additive glow
   const torusR = v.sphereR * 0.85;
   const torusTube = v.sphereR * 0.12;
-  const outlineMat2 = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: v.opacity, side: THREE.DoubleSide });
+  const outlineMat2 = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: Math.max(v.opacity, 0.75), side: THREE.DoubleSide,
+  });
   const mesh = new THREE.Mesh(new THREE.TorusGeometry(torusR, torusTube, 12, 32), outlineMat2);
   const x = Math.cos(angle) * v.orbR;
   const z = Math.sin(angle) * v.orbR;
   mesh.position.set(x, v.sphereR, z);
-  // Glow halo ring
   const glowRing2 = new THREE.Mesh(
-    new THREE.TorusGeometry(torusR, torusTube * 3.5, 12, 32),
-    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: v.opacity * 0.25, side: THREE.DoubleSide })
+    new THREE.TorusGeometry(torusR, torusTube * 5.5, 12, 32),
+    new THREE.MeshBasicMaterial({
+      color: col, transparent: true,
+      opacity: Math.min(0.45, 0.18 + (v.emissive || 0.16) * 0.9),
+      side: THREE.DoubleSide, depthWrite: false,
+    })
   );
   glowRing2.position.copy(mesh.position);
   extractionGroup.add(glowRing2);
-  mesh.userData._glowRing = glowRing2;
-  mesh.userData = { skill, type, spawnTime: (performance.now() - animStartMs) / 1000, lifecycle: v, blink: v.blink, degraded: v.degraded || false };
+  mesh.userData = {
+    skill, type, spawnTime: (performance.now() - animStartMs) / 1000,
+    lifecycle: v, blink: v.blink, degraded: v.degraded || false,
+    _glowRing: glowRing2,
+  };
   extractionGroup.add(mesh);
   skillNodes.push(mesh);
 
-  // 地面光斑
+  // 地面光斑 — additive self-glow
   const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.6, 12),
-    new THREE.MeshBasicMaterial({ color: v.color, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false })
+    new THREE.CircleGeometry(1.0, 16),
+    new THREE.MeshBasicMaterial({
+      color: v.color, transparent: true, opacity: 0.12,
+      depthWrite: false,
+    })
   );
   glow.rotation.x = -Math.PI / 2;
   glow.position.set(x, 0.003, z);
   extractionGroup.add(glow);
 
+  // Point light — restrained
+  const cLight = new THREE.PointLight(v.color, (v.lightIntensity || 0.4) * 0.9, 5.5);
+  cLight.position.set(x, 0.65, z);
+  extractionGroup.add(cLight);
+  mesh.userData._pointLight = cLight;
+
   // Halo ring for published stage
   if (v.halo) {
-    const haloMat = new THREE.MeshBasicMaterial({ color: v.color, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
-    const haloMesh = new THREE.Mesh(new THREE.RingGeometry(v.sphereR * 1.3, v.sphereR * 1.8, 16), haloMat);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: v.color, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const haloMesh = new THREE.Mesh(new THREE.RingGeometry(v.sphereR * 1.3, v.sphereR * 2.0, 24), haloMat);
     haloMesh.rotation.x = -Math.PI / 2;
     haloMesh.position.set(x, v.sphereR * 0.5, z);
     extractionGroup.add(haloMesh);
   }
 
-  // Public scope ring — cyan orbital ring
+  // Public scope ring — amber (public semantic)
   if (v.isPublic) {
-    const scopeMat = new THREE.MeshBasicMaterial({ color: 0x48C9B0, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const scopeMat = new THREE.MeshBasicMaterial({ color: TASTE3D.publicSoft, transparent: true, opacity: 0.32, side: THREE.DoubleSide });
     const scopeRing = new THREE.Mesh(new THREE.TorusGeometry(v.sphereR * 1.6, 0.018, 4, 16), scopeMat);
     scopeRing.position.set(x, v.sphereR, z);
     scopeRing.rotation.x = Math.PI / 5;
@@ -4004,9 +4815,9 @@ function spawnSkillNode(skill) {
     extractionGroup.add(scopeRing);
   }
 
-  // Verify ring for verified stage — green ring
+  // Verify ring for verified stage — forest accent
   if (v.verifyRing) {
-    const vRingMat = new THREE.MeshBasicMaterial({ color: 0x4CAF50, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+    const vRingMat = new THREE.MeshBasicMaterial({ color: TASTE3D.accentBright, transparent: true, opacity: 0.38, side: THREE.DoubleSide });
     const vRing = new THREE.Mesh(new THREE.TorusGeometry(v.sphereR * 1.2, 0.02, 4, 16), vRingMat);
     vRing.position.set(x, v.sphereR, z);
     vRing.rotation.x = Math.PI / 3;
@@ -4014,36 +4825,14 @@ function spawnSkillNode(skill) {
     extractionGroup.add(vRing);
   }
 
-  // Label sprite
-  const labelCanvas = makeSkillLabel(skill.icon || '⚡', skill.name || '');
-  const tex = new THREE.CanvasTexture(labelCanvas);
-  tex.minFilter = THREE.LinearFilter;
-  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  label.position.set(x, v.sphereR * 2 + 0.6, z);
-  const scaleX = 2 * (labelCanvas.width / 256);
-  label.scale.set(scaleX, 0.5, 1);
+  // Label — plaza-style ink text
+  const label = makeSpriteLabel(makeSkillLabel(skill.icon || '⚡', skill.name || ''), 'skill');
+  label.position.set(x, v.sphereR * 2 + 0.9, z);
   extractionGroup.add(label);
   mesh.userData._label = label;
 }
 
-function makeSkillLabel(icon, name) {
-  const c = document.createElement('canvas');
-  const ctx = c.getContext('2d');
-  const font = '500 22px "Noto Sans SC", sans-serif';
-  ctx.font = font;
-  const text = `${icon} ${name}`;
-  const measured = ctx.measureText(text).width;
-  const pad = 32;
-  c.width = Math.max(256, Math.ceil(measured + pad));
-  c.height = 64;
-  ctx.clearRect(0, 0, c.width, c.height);
-  ctx.font = font;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#B0A898';
-  ctx.fillText(text, c.width / 2, 32);
-  return c;
-}
+// makeSkillLabel / makeTextCanvas aligned with plaza.js
 
 function rebuildSkillNodes() {
   // Clear ALL children from extractionGroup (meshes, lights, sprites, glow circles)
@@ -4075,6 +4864,10 @@ function rebuildSkillNodes() {
       description: q.draft_description || '',
       visibility: q.draft_scope || 'private',
       draft_scope: q.draft_scope || 'private',
+      skill_type: q.skill_type || (q.status === 'approved' ? resolveSkillType(q) : ''),
+      _skill_type: q.skill_type || '',
+      source: 'distilled',
+      _extract_origin: true,
       _from_queue: true,
     });
   });
@@ -4141,8 +4934,8 @@ function _doHighlight(latest) {
   const r = latest.geometry?.parameters?.radius || 0.3;
   const pulseGeo = new THREE.RingGeometry(r * 1.2, r * 2.5, 48);
   const pulseMat = new THREE.MeshBasicMaterial({
-    color: 0xFFD700, transparent: true, opacity: 0.5,
-    side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+    color: TASTE3D.publicSoft, transparent: true, opacity: 0.45,
+    side: THREE.DoubleSide, depthWrite: false,
   });
   const pulseRing = new THREE.Mesh(pulseGeo, pulseMat);
   pulseRing.position.copy(pos);
@@ -4206,8 +4999,8 @@ function buildLineageLines() {
     const pts = curve.getPoints(20);
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
     const mat = new THREE.LineBasicMaterial({
-      color: 0xD4A574, transparent: true, opacity: 0.2,
-      blending: THREE.AdditiveBlending, depthWrite: false
+      color: TASTE3D.publicSoft, transparent: true, opacity: 0.22,
+      depthWrite: false
     });
     const line = new THREE.Line(geo, mat);
     line.userData._lineageLine = true;
@@ -4215,21 +5008,51 @@ function buildLineageLines() {
   });
 }
 
-// ── Ambient Dust ────────────────────────────────────────────────
+// ── Firefly dust — warm blink + float ───────────────────────────
 function buildAmbientDust() {
-  const count = 120;
+  const count = 90;
   const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  // Fireflies — desaturated forest + soft amber + cool mist (no neon lime/pink)
+  const palette = [
+    new THREE.Color(TASTE3D.accentSoft),
+    new THREE.Color(TASTE3D.publicSoft),
+    new THREE.Color(TASTE3D.coolMist),
+    new THREE.Color(TASTE3D.accentBright),
+    new THREE.Color(0xD4C49A),
+    new THREE.Color(0x9BB5A8),
+  ];
+  fireflyData = [];
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 50;
-    positions[i * 3 + 1] = Math.random() * 10 + 0.5;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 50;
+    const x = (Math.random() - 0.5) * 42;
+    const y = 0.4 + Math.random() * 7.5;
+    const z = (Math.random() - 0.5) * 42;
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+    const c = palette[i % palette.length];
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+    fireflyData.push({
+      baseX: x, baseY: y, baseZ: z,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.35 + Math.random() * 0.9,
+      blink: 1.2 + Math.random() * 2.4,
+      amp: 0.15 + Math.random() * 0.45,
+      drift: 0.2 + Math.random() * 0.55,
+    });
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const mat = new THREE.PointsMaterial({
-    color: 0x584838, size: 0.1, transparent: true, opacity: 0.3
+    size: 0.18, vertexColors: true, transparent: true, opacity: 0.55,
+    sizeAttenuation: true, depthWrite: false,
   });
-  scene.add(new THREE.Points(geo, mat));
+  fireflyPoints = new THREE.Points(geo, mat);
+  fireflyPoints.userData.mat = mat;
+  scene.add(fireflyPoints);
 }
 
 // ── Animation Loop ──────────────────────────────────────────────
@@ -4241,22 +5064,70 @@ function animate() {
 
   const metabolic = Math.sin(animTime * 0.4) * 0.5 + 0.5;
 
-  // Human breathing + glow
+  // Human breathing + sexy twin glow pulse
   if (humanFigure) {
     humanFigure.position.y = Math.sin(animTime * 0.5) * 0.03;
     const head = humanFigure.userData.head;
-    if (head) head.material.opacity = 0.5 + metabolic * 0.2;
+    if (head) head.material.opacity = 0.72 + metabolic * 0.25;
+    if (humanFigure.userData.glowRing) {
+      const pulse = 0.24 + metabolic * 0.42;
+      humanFigure.userData.glowRing.material.opacity = pulse;
+      const rs = 1 + metabolic * 0.12;
+      humanFigure.userData.glowRing.scale.set(rs, rs, rs);
+    }
     humanFigure.children.forEach(child => {
       if (child.type === 'PointLight') {
-        child.intensity = 0.4 + metabolic * 0.3;
+        child.intensity = 0.45 + metabolic * 0.35;
       }
     });
   }
 
-  // Mycelium pulsation (throttled to every 6th frame)
+  // Fireflies — float + independent blink (萤火虫感)
+  if (fireflyPoints && fireflyData.length) {
+    const pos = fireflyPoints.geometry.attributes.position.array;
+    let sumOp = 0;
+    for (let i = 0; i < fireflyData.length; i++) {
+      const f = fireflyData[i];
+      const t = animTime * f.speed + f.phase;
+      pos[i * 3] = f.baseX + Math.sin(t * 0.7) * f.drift;
+      pos[i * 3 + 1] = f.baseY + Math.sin(t) * f.amp;
+      pos[i * 3 + 2] = f.baseZ + Math.cos(t * 0.55) * f.drift * 0.7;
+      // Blink envelope: mostly dim, occasional bright flash
+      const blink = Math.pow(Math.max(0, Math.sin(animTime * f.blink + f.phase)), 8);
+      sumOp += 0.18 + blink * 0.82;
+    }
+    fireflyPoints.geometry.attributes.position.needsUpdate = true;
+    if (fireflyPoints.material) {
+      fireflyPoints.material.opacity = Math.min(1, sumOp / fireflyData.length * 1.35);
+      fireflyPoints.material.size = 0.18 + Math.sin(animTime * 1.3) * 0.04;
+    }
+  }
+
+  // Skill self-emissive pulse on glow rings
+  if (skillNodes.length && (animFrame & 1) === 0) {
+    skillNodes.forEach((node, ni) => {
+      const gr = node.userData._glowRing;
+      if (!gr || !gr.material || node.userData._animating) return;
+      const life = node.userData.lifecycle || {};
+      const base = Math.min(0.9, 0.32 + (life.emissive || 0.2) * 1.5);
+      const pulse = 0.55 + 0.45 * Math.sin(animTime * 1.8 + ni * 0.7);
+      gr.material.opacity = base * pulse;
+      if (node.userData._glowMid && node.userData._glowMid.material) {
+        node.userData._glowMid.material.opacity = base * 0.55 * pulse;
+      }
+      if (node.userData._pointLight) {
+        node.userData._pointLight.intensity = (life.lightIntensity || 0.6) * (0.85 + pulse * 0.55);
+      }
+      if (node.userData._groundGlow && node.userData._groundGlow.material) {
+        node.userData._groundGlow.material.opacity = 0.1 + pulse * 0.12;
+      }
+    });
+  }
+
+  // Mycelium pulsation — teal breath，浅底保持高对比（勿压到 0.4 以下）
   if (myceliumGroup && (animFrame & 5) === 0) {
     const wave = Math.sin(animTime * 0.6) * 0.5 + 0.5;
-    const baseOp = 0.05 + wave * 0.12 + metabolic * 0.04;
+    const baseOp = 0.62 + wave * 0.22 + metabolic * 0.08; // ~0.62–0.92
     myceliumGroup.children.forEach((mesh) => {
       if (mesh.material && !mesh.userData._growing) {
         if (!extractionActive) mesh.material.opacity = baseOp;
@@ -4325,11 +5196,16 @@ function animate() {
       // Rotate from flat (-PI/2) to upright (0)
       const tiltEased = 1 - Math.pow(1 - Math.min(growAge * 1.2, 1), 4); // ease-out quartic, slightly ahead
       node.rotation.x = -Math.PI / 2 * (1 - tiltEased);
-      // Glow ring stays dim during growth, brightens after
+      // Glow rings scale with crystal; soft bloom during growth
       if (node.userData._glowRing) {
         node.userData._glowRing.scale.set(eased, eased, eased);
         node.userData._glowRing.rotation.x = node.rotation.x;
-        node.userData._glowRing.material.opacity = 0; // keep dark during growth
+        node.userData._glowRing.material.opacity = 0.12 * eased;
+      }
+      if (node.userData._glowMid) {
+        node.userData._glowMid.scale.set(eased, eased, eased);
+        node.userData._glowMid.rotation.x = node.rotation.x;
+        node.userData._glowMid.material.opacity = 0.08 * eased;
       }
       if (growAge >= 1) {
         node.userData._animating = false;
@@ -4343,6 +5219,10 @@ function animate() {
           node.userData._glowRing.scale.set(1, 1, 1);
           node.userData._glowRing.rotation.x = 0;
         }
+        if (node.userData._glowMid) {
+          node.userData._glowMid.scale.set(1, 1, 1);
+          node.userData._glowMid.rotation.x = 0;
+        }
       }
     }
 
@@ -4350,18 +5230,23 @@ function animate() {
     if (node.userData._glowBrighten && node.userData._glowRing && node.userData._glowBrightenStart) {
       const glowAge = Math.min((animTime - node.userData._glowBrightenStart) / 2.0, 1);
       const glowEased = glowAge * glowAge; // ease-in quadratic
-      const targetOp = node.userData._glowTargetOpacity || 0.15;
+      const targetOp = node.userData._glowTargetOpacity || 0.55;
       node.userData._glowRing.material.opacity = targetOp * glowEased;
+      if (node.userData._glowMid) {
+        node.userData._glowMid.material.opacity = targetOp * 0.55 * glowEased;
+      }
       if (glowAge >= 1) {
         node.userData._glowBrighten = false; // done brightening
         node.userData._glowRing.material.opacity = targetOp;
+        if (node.userData._glowMid) node.userData._glowMid.material.opacity = targetOp * 0.55;
       }
     }
 
     if (node.userData.blink) {
-      // Draft: blink (opacity oscillates 0.1–0.35)
-      node.material.opacity = 0.1 + Math.abs(Math.sin(age * 2.5)) * 0.25;
-      if (node.userData._glowRing) node.userData._glowRing.material.opacity = node.material.opacity * 0.3;
+      // Draft: blink — stronger emissive flash on light floor
+      node.material.opacity = 0.25 + Math.abs(Math.sin(age * 2.5)) * 0.45;
+      if (node.userData._glowRing) node.userData._glowRing.material.opacity = node.material.opacity * 0.75;
+      if (node.userData._glowMid) node.userData._glowMid.material.opacity = node.material.opacity * 0.4;
     } else if (node.userData.degraded) {
       // Degraded: micro-shake
       node.position.x += (Math.random() - 0.5) * 0.003;
@@ -4403,7 +5288,7 @@ function animate() {
         const growStart = mesh.userData._growStart || 0;
         if (animTime < growStart) return; // Delayed start
         const growAge = Math.min((animTime - growStart) / 1.0, 1);
-        mesh.material.opacity = (mesh.userData._targetOpacity || 0.18) * growAge;
+        mesh.material.opacity = (mesh.userData._targetOpacity || 0.7) * growAge;
         if (growAge >= 1) mesh.userData._growing = false;
       }
     });
@@ -4565,8 +5450,26 @@ ctxMenu.addEventListener('click', async (e) => {
       if (lin) addMessage('system', `🔗 谱系: ${JSON.stringify(lin.lineage || [], null, 1)}`);
       break;
     case 'delete':
-      if (qItem) window._deleteItem(qItem.item_id);
-      else { showConfirm(`确认删除技能「${s.name}」？`, () => { shatterSkillNode(s.skill_id || s.name); showToast('🗑️ 已删除'); }); }
+      if (qItem) {
+        window._deleteItem(qItem.item_id);
+      } else {
+        showConfirm(`确认删除技能「${s.name}」？此操作不可撤销。`, async () => {
+          const sid = encodeURIComponent(String(s.skill_id || s.slug || '').trim());
+          if (!sid || !currentTeamId) {
+            showToast('无法删除：缺少 skill_id / 团队', 'error');
+            return;
+          }
+          const r = await api(`/teams/${currentTeamId}/skills/${sid}`, { method: 'DELETE' });
+          if (r && (r.status === 'deleted' || r.skill_id)) {
+            shatterSkillNode(s.skill_id || s.name);
+            showToast('🗑️ 已删除');
+            loadSkills();
+            if (typeof loadQueue === 'function') loadQueue();
+          } else {
+            showToast((r && (r.detail || r.error)) || '删除失败', 'error');
+          }
+        });
+      }
       break;
   }
 });
@@ -4856,10 +5759,11 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       }
     });
     // Parse color
-    let colorHex = 0xD4A574;
+    let colorHex = nextVividColor();
     if (hexColor) {
-      if (hexColor.startsWith('#')) colorHex = parseInt(hexColor.slice(1), 16);
+      if (typeof hexColor === 'string' && hexColor.startsWith('#')) colorHex = parseInt(hexColor.slice(1), 16);
       else if (typeof hexColor === 'number') colorHex = hexColor;
+      else if (typeof hexColor === 'string' && /^[0-9a-fA-F]{6}$/.test(hexColor)) colorHex = parseInt(hexColor, 16);
     }
     humanFigure = createAgentFigure(name, colorHex);
     humanFigure.position.copy(pos);
@@ -5013,25 +5917,42 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const rs = r.retrieval_score != null ? r.retrieval_score : r.score;
       const rk = r.rerank_score != null ? r.rerank_score : r.score;
       const reasonTag = (t) => {
-        const lo = t.toLowerCase();
+        const lo = String(t).toLowerCase();
         let reason = 'semantic';
-        if (lo.includes('name') || lo.includes('名称')) reason = 'name';
+        if (lo.includes('生命周期') || lo.includes('lifecycle')) reason = 'lifecycle';
+        else if (lo.includes('name') || lo.includes('名称')) reason = 'name';
         else if (lo.includes('desc') || lo.includes('描述')) reason = 'desc';
         else if (lo.includes('categ') || lo.includes('类别')) reason = 'category';
-        return `<span class="rr-tag" data-reason="${reason}">${t}</span>`;
+        return `<span class="rr-tag" data-reason="${reason}">${escHtml(String(t))}</span>`;
       };
+      const stage = String(r.lifecycle_stage || '').toLowerCase();
+      const mult = r.lifecycle_mult != null ? Number(r.lifecycle_mult) : 1;
+      let lcStyle = 'background:rgba(75,85,104,.1);color:#4B5568';
+      let lcLabel = stage || 'unknown';
+      if (mult > 1 || ['verified', 'solidified', 'published'].includes(stage)) {
+        lcStyle = 'background:rgba(31,107,74,.12);color:#1F6B4A';
+        lcLabel = stage || 'boost';
+      } else if (mult < 1 || ['draft', 'degraded'].includes(stage)) {
+        lcStyle = 'background:rgba(166,124,26,.12);color:#8A6615';
+        lcLabel = stage === 'degraded' ? 'degraded' : (stage || 'draft');
+      }
+      const lcTitle = r.lifecycle_note || (mult !== 1 ? `×${mult}` : 'lifecycle');
+      const lcBadge = `<span class="rr-lc-badge" title="${escHtml(lcTitle)}" style="font-size:9px;padding:1px 6px;border-radius:999px;margin-left:6px;font-weight:700;${lcStyle}">${escHtml(lcLabel)}${mult !== 1 && Number.isFinite(mult) ? ' ×' + mult.toFixed(2) : ''}</span>`;
+      // Prefer non-lifecycle reasons in tags; lifecycle has dedicated badge
+      const tags = (r.match_reasons || []).filter((t) => !String(t).includes('生命周期')).slice(0, 3);
       return `
       <div class="rr-item${routerSelectedSkills.has(r.skill_id || r.name) ? ' sel' : ''}" data-idx="${i}" onclick="window._toggleRouterResult(this, ${i})">
         <span class="rr-check">✓</span>
         <span class="rr-icon">${r.icon || '⚡'}</span>
         <div class="rr-body">
-          <div class="rr-name">${r.name}${(r.version || r.origin_team_id) ? `<span style="font-size:9px;margin-left:6px;padding:1px 5px;border-radius:3px;background:oklch(0.3 0.01 250/.4);color:oklch(0.7 0.04 250)">${r.version ? 'v' + r.version : ''}${r.version && r.origin_team_id ? ' · ' : ''}${r.origin_team_id ? '团队' + String(r.origin_team_id).slice(0, 6) : (r.source || '')}</span>` : ''}</div>
-          <div class="rr-desc">${r.description || r.match_reasons?.join(', ') || ''}</div>
-          <div class="rr-tags">${(r.match_reasons || []).slice(0, 3).map(t => reasonTag(t)).join('')}</div>
+          <div class="rr-name">${escHtml(r.name || '')}${lcBadge}${(r.version || r.origin_team_id) ? `<span style="font-size:9px;margin-left:6px;padding:1px 5px;border-radius:3px;background:oklch(0.3 0.01 250/.4);color:oklch(0.7 0.04 250)">${r.version ? 'v' + r.version : ''}${r.version && r.origin_team_id ? ' · ' : ''}${r.origin_team_id ? '团队' + String(r.origin_team_id).slice(0, 6) : (r.source || '')}</span>` : ''}</div>
+          <div class="rr-desc">${escHtml(r.description || '')}</div>
+          <div class="rr-tags">${tags.map(t => reasonTag(t)).join('')}${(r.lifecycle_note ? reasonTag(r.lifecycle_note) : '')}</div>
         </div>
         <div class="rr-scores">
           <div class="rr-score-row"><span class="rr-score-label">R1</span><div class="rr-score-bar"><div class="rr-score-fill retrieve" style="width:${(rs*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rs*100).toFixed(0)}</span></div>
           <div class="rr-score-row"><span class="rr-score-label">R2</span><div class="rr-score-bar"><div class="rr-score-fill rerank" style="width:${(rk*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rk*100).toFixed(0)}</span></div>
+          <div class="rr-score-row"><span class="rr-score-label">Σ</span><div class="rr-score-bar"><div class="rr-score-fill" style="width:${((r.score||0)*100).toFixed(0)}%;background:var(--tg-accent,#1F6B4A)"></div></div><span class="rr-score-val">${((r.score||0)*100).toFixed(0)}</span></div>
         </div>
       </div>`;
     }).join('');
@@ -5141,8 +6062,10 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   }
 
   // ── Closed-loop: Post-approval injection suggestion ──
-  async function _showInjectionSuggestion(skillId, skillName) {
+  // 必须挂 window：approveAs 在外层作用域调用，嵌套 function 对其不可见
+  window._showInjectionSuggestion = async function(skillId, skillName) {
     try {
+      if (!skillId || !currentTeamId) return;
       const result = await routerApi('/suggest', {
         method: 'POST',
         body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, top_k: 3 }),
@@ -5152,33 +6075,31 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const suggestions = result.suggestions.filter(s => !s.already_has && s.affinity > 0.1);
       if (suggestions.length === 0) return;
 
-      // Build suggestion toast with inject buttons
       const top = suggestions[0];
       const othersHtml = suggestions.slice(1).map(s =>
-        `<span class="suggest-alt" data-agent="${s.agent_id}" data-skill="${skillId}" onclick="_quickInject('${s.agent_id}','${skillId}')" title="${s.match_reasons.join(', ')}">${s.agent_name} (${Math.round(s.affinity * 100)}%)</span>`
+        `<span class="suggest-alt" data-agent="${escHtml(s.agent_id)}" data-skill="${escHtml(skillId)}" onclick="window._quickInject('${escHtml(s.agent_id)}','${escHtml(skillId)}')" title="${escHtml((s.match_reasons || []).join(', '))}">${escHtml(s.agent_name)} (${Math.round(s.affinity * 100)}%)</span>`
       ).join(' ');
 
       const html = `
-        <div class="injection-suggest" id="injection-suggest-${skillId}">
+        <div class="injection-suggest" id="injection-suggest-${escHtml(skillId)}" style="position:relative">
           <div style="font-size:11px;color:oklch(0.65 0.02 110);margin-bottom:6px">
-            ◎ 智能赋予建议 — 「${skillName}」
+            ◎ 智能赋予建议 — 「${escHtml(skillName || skillId)}」
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <button class="btn btn-approve" onclick="_quickInject('${top.agent_id}','${skillId}')" style="font-size:11px;padding:4px 12px;background:oklch(0.55 0.12 145/.2);border-color:oklch(0.55 0.12 145/.4);color:oklch(0.8 0.08 145)">
-              ▷ 注入 → ${top.agent_name} <span style="opacity:.6">(${Math.round(top.affinity * 100)}% 匹配)</span>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn btn-approve" onclick="window._quickInject('${escHtml(top.agent_id)}','${escHtml(skillId)}')" style="font-size:11px;padding:4px 12px;background:oklch(0.55 0.12 145/.2);border-color:oklch(0.55 0.12 145/.4);color:oklch(0.8 0.08 145)">
+              ▷ 注入 → ${escHtml(top.agent_name)} <span style="opacity:.6">(${Math.round(top.affinity * 100)}% 匹配)</span>
             </button>
-            <span style="font-size:10px;color:oklch(0.45 0.01 110)">${top.match_reasons[0] || ''}</span>
+            <span style="font-size:10px;color:oklch(0.45 0.01 110)">${escHtml((top.match_reasons && top.match_reasons[0]) || '')}</span>
           </div>
           ${othersHtml ? `<div style="font-size:10px;color:oklch(0.5 0.01 110)">其他: ${othersHtml}</div>` : ''}
-          <button onclick="this.parentElement.remove()" style="position:absolute;top:4px;right:6px;background:none;border:none;color:oklch(0.5 0.01 110);cursor:pointer;font-size:12px">✕</button>
+          <button type="button" onclick="this.closest('.injection-suggest')?.remove()" style="position:absolute;top:4px;right:6px;background:none;border:none;color:oklch(0.5 0.01 110);cursor:pointer;font-size:12px">✕</button>
         </div>
       `;
-      // Insert into message log
-      addMessage('system', html, true);
+      addMessage('system', html);
     } catch (e) {
       console.warn('Injection suggestion failed:', e);
     }
-  }
+  };
 
   window._quickInject = async function(agentId, skillId) {
     const result = await routerApi('/assign', {
@@ -5506,7 +6427,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     const origColor = head.material.color.clone();
     const origEmissive = head.material.emissive ? head.material.emissive.clone() : null;
     head.material.color.setHex(0xffffff);
-    if (head.material.emissive) head.material.emissive.setHex(0x88ffcc);
+    if (head.material.emissive) head.material.emissive.setHex(TASTE3D.accentSoft);
 
     // Expand ring briefly
     const origScale = head.scale.clone();

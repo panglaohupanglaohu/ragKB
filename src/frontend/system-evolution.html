@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-obc-theme="dusk">
+<html lang="zh-CN" data-obc-theme="day" class="taste-light">
 <head>
 <meta charset="UTF-8"/>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
@@ -7,7 +7,7 @@
 <title>系统演进 — AgentsGroup2026</title>
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/topbar-ws.css">
 <style>
 :root{
@@ -207,6 +207,7 @@ a{color:var(--koke);text-decoration:none}
 }
 </style>
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 <div class="app">
@@ -240,14 +241,14 @@ a{color:var(--koke);text-decoration:none}
         <h1 id="panel-title">演进概览</h1>
         <span id="panel-badge" style="font-size:11px;padding:2px 8px;background:oklch(0.52 0.04 160/.1);color:var(--koke);font-family:var(--font-mono)"></span>
       </div>
-      <nav class="topbar-ws__nav" aria-label="主导航">
-        <a href="/agent-team-config.html">智能体团队</a>
-        <a href="/plaza.html">议事广场</a>
-        <a href="/skill-extract.html">技能萃取/赋予</a>
-        <a href="/Agent-digital-twin.html">数字孪生</a>
-        <span class="cur">系统演进</span>
-        <a href="/cost-dashboard.html">成本监控</a>
-      </nav>
+      <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
+  </nav>
       <div class="topbar-ws__right">
         <span id="last-audit" style="font-size:11px;color:var(--muted)"></span>
         <button class="btn btn-sm" onclick="refreshAll()">↻ 刷新</button>
@@ -621,6 +622,7 @@ a{color:var(--koke);text-decoration:none}
 
 <script src="/js/utils.js"></script>
   <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="agents"></script>
   <script src="/js/evidence-runs.js"></script>
   <script src="/js/ag-context.js"></script>
   <script src="/js/system-evolution.js"></script>

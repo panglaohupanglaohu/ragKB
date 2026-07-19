@@ -644,6 +644,44 @@ class SkillLibrary:
         """列出技能的所有版本快照."""
         return self._version_snapshots.get(skill_id, [])
 
+    def purge_version_snapshots(
+        self,
+        *,
+        skill_ids: Any = None,
+        slugs: Any = None,
+        names: Any = None,
+    ) -> int:
+        """Remove version history for deleted skills (by id / slug / name)."""
+        keys = set()
+        for collection in (skill_ids, slugs, names):
+            if not collection:
+                continue
+            for raw in collection:
+                k = str(raw or "").strip()
+                if k:
+                    keys.add(k)
+        if not keys:
+            return 0
+        if not getattr(self, "_version_snapshots", None):
+            self._load_snapshots()
+        removed = 0
+        # direct key hits
+        for k in list(keys):
+            if k in self._version_snapshots:
+                del self._version_snapshots[k]
+                removed += 1
+        # scan by name inside snapshots
+        for sid, snaps in list(self._version_snapshots.items()):
+            if not isinstance(snaps, list) or not snaps:
+                continue
+            names_in = {str(s.get("name") or "") for s in snaps if isinstance(s, dict)}
+            if names_in & keys:
+                del self._version_snapshots[sid]
+                removed += 1
+        if removed:
+            self._save_snapshots()
+        return removed
+
     def rollback_version(self, team_id: str, skill_id: str, target_version: int) -> Dict[str, Any]:
         """回滚技能到指定版本."""
         versions = self._version_snapshots.get(skill_id, [])

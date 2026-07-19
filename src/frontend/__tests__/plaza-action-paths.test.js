@@ -24,6 +24,9 @@ describe('plaza action paths', () => {
     expect(source).toContain('STRUCTURED OUTPUT');
     expect(source).toContain('renderStructuredOutput(r.output || (r.outputs || [])[0])');
     expect(source).toContain('window.extractFromDisc = async function(event, discId)');
+    expect(source).toContain('function buildDiscExtractText(disc)');
+    expect(source).toContain('disc.messages');
+    expect(source).toContain('auto_extract');
     expect(source).toContain('/outputs`,');
     expect(source).toContain("output_type: 'skill_candidate'");
     expect(source).toContain("sessionStorage.setItem('plaza_structured_output'");

@@ -578,6 +578,8 @@ class TestDiscussionLifecycle:
         assert abort_msg.niche_role == "moderator"
         assert abort_msg.round_number == 2
         assert "LLM 当前不可用" in abort_msg.content
+        # 无上游细节时也应给出可操作提示
+        assert "模型与连接" in abort_msg.content or "原因" in abort_msg.content
         assert broadcasts[0][0] == disc.id
         assert broadcasts[0][1]["type"] == "message"
         assert broadcasts[0][1]["message"]["seq"] == 0

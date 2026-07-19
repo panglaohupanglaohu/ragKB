@@ -5,14 +5,23 @@
 > Last updated: 2026-06-12
 
 ## User Preferences
+- [2026-07-16] **Taste Skill 官方源** = https://www.tasteskill.dev （`npx skills add Leonxlnx/taste-skill --skill design-taste-frontend`；本地 `.agents/skills/design-taste-frontend/SKILL.md`）。规则要点：Page Theme Lock / Color Consistency Lock（单 accent）/ 禁 AI-purple·mesh / off-white+off-black 勿纯色。产品台浅色壳：`html.taste-light` + `css/taste-light.css`（除数字孪生暗色沉浸）；Skill 原文偏 landing，控制台取 cockpit 密度 dials。
+- [2026-07-16] skill-extract 3D 用 **TASTE3D**（`skill-extract.js`）：背景 `#F3F5F8`、accent `#1F6B4A`、冷 slate 基质；技能私有=forest 系、公共=warn amber 语义色；**禁止** twin sexy 彩虹（紫/粉/霓虹青）。数字孪生页仍可暗色沉浸，勿与 skill-extract 浅色培养皿混用同一套 neon palette。
+- [2026-07-16] 浅色壳对比度：任何「近白字 #EEF2F5 / shironeri」在白底 modal 上必须重映射；skill-extract 详情 tab（编辑/演化/验证/效果/版本/智线）用 `--modal-tab-fg*` 变量，active=accent 绿，禁止白字。
+- [2026-07-16] 衰老 senescence_rate 属 **Agent 生命史**（metabolism），不是环境选择压；勿与 habitat / evolution_pressure 混装。UI：A 生境 / B 环境 Darwin / C Agent 衰老。
 
 <!-- How the user likes things done. Code style, tools, patterns, communication. -->
+- [2026-07-15] Token 治理杠杆区：长文只在 README；UI 一行管线（接线/启用/试跑/旋钮）；算法参数必须进 settings.params 并真接 prepare（含 budget alert_threshold）。
+- [2026-07-15] 论文/research 线（paper/、*.md 研究流水线、research-state）用户明确要求 agent 不要参合；除非用户再点名，禁止改 paper/ 与研究稿。
 - [2026-07-04] 数字孪生统一办公室里的 Agent 造型必须复用 plaza 的 agent 模型骨架/视觉语言；不要做成黑色圆柱、棋子或“站桩胶囊”。参考 Marvis 办公室时保持极简白空间，但 Agent 本体用 plaza 风格。
 - [2026-07-05] 统一办公室里的猫不是静态摆件；需要有 Agent↔猫互动过程。基础规则：离猫最近的 Agent 会转身面向猫，并通过闪烁/放大的脚下光圈吸引猫。
 - [2026-07-05] 猫「按有效技能数跳到 Agent 桌上」的逻辑用户明确不要，已撤销；不要再加回。猫互动只保留最近 Agent 转身+光圈吸引。
 - [2026-07-11] 用户世界观（物竞天择，最高设计约束）：Agent 不是人类模仿，应有自己的生态/沟通/繁衍/成长方式；以「感知-意图-行为」存在；skill 与协作过程都是被环境选择的可遗传单元（不是 skill 选路径、不是主动换协作方式）；主动学习是盲目的、选择是客观的；生存时长是唯一适应度，禁止人工评分。办公室视图(?office3d=1)=物竞天择试验田：右侧演练菜单整体换成生境控制台，3D 窗口必须始终保留且有内容。
 - [2026-07-11] 演练类页面右侧菜单重构时用户要求「完全与以前不一样」，不接受在旧 SECS 菜单上叠加小块——要整面板替换。
 - [2026-07-14] 用户 UX：生境参数应在数字孪生左侧用「音量式旋钮」调节（非抽象按钮名）；团队+智能体合并树状；pet-config 保留深参实验室。旋钮语义=客观环境强度，不是评分。
+- [2026-07-15] cost 页 UX：顶部导航与下方全链步骤必须合并为一层（cost-shell），禁止 topbar 序号 + 再画一条 pipe 重复；动作栏并入壳右侧，筛选+OpenCost 并入 detail-bar。
+- [2026-07-15] Token 治理 v2：禁止「四卡片演示皮」。业界四车道=归因(Helicone式)/缓存(exact+semantic-lite)/路由(model+skill)/预算；上下文工程=simplify+compress+compact。统一 `TokenGovernanceService.prepare_request` 接 chat_harness；UI 单工作台 `token-workbench.js` + `/dashboard`。Taste Skill：控制台 density 高、单 accent、无紫渐变。Plaza 仍不做 token 优化。
+- [2026-07-15] SkillRouter.route 返回 **RoutingSession 对象**（非 dict）；`_skill_hint` 必须读 `.results`/`.skill_id`。pool=0 时关键词回退团队 skills。prepare 节省 JSONL + `GET .../savings`；usage 可观测行 phase=`tg_prepare` total=0。
 
 - [2026-07-14] 数字办公室 3D 不展示生境「当前需求」蓝柱黄球图腾，也不默认播觅食光点——办公室没有「觅食」孪生语义；需求 skill 用右侧控制台 chips/反馈台表达。实验可视化仅 window.__ECO_HABITAT_3D__=true。
 
@@ -24,7 +33,31 @@
 
 
 ## Key Learnings
+- [2026-07-18] 技能验证 Twin A/B：skill_twin_ab 按 metadata.scenario+target_skill（或 code_delivery→code_review_delivery）跑 baseline/treatment 熟练度+instructions override；增益≥5pp 为 twin 通过；UI 展示对照表。env: AG_SKILL_TWIN_AB_SEEDS/GAIN/MAX_STEPS。
+- [2026-07-18] 技能验证=语义层(步骤/工具落地与 mock/场景对齐/拒离线占位)+沙箱结构；hard_fail 挡回退草稿。路由结果含 lifecycle_stage/note/mult，UI 徽章展示。
+- [2026-07-18] SkillRouter：retrieve+rerank 后乘 lifecycle（verified/solidified↑ draft/degraded↓）；affinity/feedback 持久化 storage/skill_router_state.json。
+- [2026-07-18] 技能演化=证据→JSON草稿(improved_instructions/changelog/preserved_intent)→语言硬守卫(flip 拒绝交付)→人审可编辑 apply；禁止自由散文英文化 SOP。验证=沙箱结构启发式非业务实跑。路由=BM25/IDF 两段词法检索（名 Bi/Cross 实非神经网络）。
+- [2026-07-18] 萃取成果三 tab = **skill_type**（trait/reserve/public），不是 draft_scope。默认批准=**reserve**；personal≠特质。classifySkill(distilled→trait) 已废，禁止再用「非公共=特质」。
 
+- [2026-07-18] 技能萃取失败占位：**禁止** draft_name 带「【回退草稿】」；优先 TSE `synthesize_skills_local`；最后兜底 1 条议题名离线占位 + model=`deterministic-fallback`/`tse+local(offline)`；UI 用 cleanDraftName 剥历史前缀并标「离线」。
+
+- [2026-07-17] 技能萃取 LLM 必须 **跳过 TG model_route**：agent_id∈{skill_extractor,tse_skill_extractor,tse_silver} 或 phase=extract，并 `model_override=provider.model`（如 qwen-36）。否则 cost_tier 改写成 deepseek-v4-flash/pro → 上游 not supported → 假离线 → 回退草稿。已修 chat_harness + TSE decoder。
+
+- [2026-07-17] TSE **训练链路**（无 torch）：`silver` 银标 → `PlazaExtractionDataset` JSONL → `train_tse` 多任务 loss(AE=1.0, cat=0.1, tools=0.1) 更新 query_vectors+heads(+TCN W_out) → `storage/tse/checkpoints/latest.npz`；推理 `get_tse_pipeline(load_checkpoint=True)` 自动加载。CLI：`PYTHONPATH=src/backend python3 scripts/train_tse.py --demo`。Active learning：`active.py` 按 category 熵选人审。
+
+- [2026-07-16] 技能萃取主路径 = **TSE** (`agents/tse/`): transcript→hash encoder→TCN(d=1,2,4)→5-field skill-query cross-attn→ChatHarness constrained JSON。`skill_extractor._llm_prefill` 调用 `tse.extract_skills`；telemetry 写 `source_meta.tse`。无 torch 时 pure-numpy；CodeLLaMA/QLoRA 为训练向可选，运行时解码走系统 LLM。
+
+- [2026-07-16] 物竞 Darwin 扩展四键：`sexual_selection_strength`（性选择×mate_choosiness+COURT/互补质量）、`freq_dep_strength`（负频率依赖防 skill 垄断）、`epistasis_strength`（demand 相邻 skill 对非加性）、`senescence_rate`（μ×age 防不死垄断）。EcoDrill economics 默认 0 零回归；生产走 evolution_pressure → `_habitat_params` 注入。B 加压旋钮 11（性选择/频依/上位等）；C=metabolism.senescence。
+
+
+- [2026-07-15] Token 治理 R9：真省不靠页面罗列。prepare 管线=simplify→ponytail/caveman→rtk_tool→compress→progressive_mem→codegraph→cache→skill→cost_tier+model→budget。rtk 压缩 tool 噪声；claude-mem 式折叠旧轮次；codegraph MIT CLI+本地符号切片；flowork cost_tier 推 economy。OpenWolf 仅模仿思想（AGPL 不拷源码）。
+
+- [2026-07-15] Token 治理 KPI：`saved_tokens_est` 与 counters 只认 prepare 净 before→after；`cache_mode=observe` 的 HIT 不计入已省（serve 短路才计）。skill 注入可能使 after>before，净省=0 但分杠杆仍可显示 simplify/compress 省量。
+
+- [2026-07-15] 治理杠杆权威源=lever_catalog.py（industry.inspired_by + ours.module/algorithm + exec_path）；GET /levers 必须带 catalog+architecture；UI 只渲染 catalog，禁止前端硬编码空开关文案。试跑结果写回卡片 data-sim-slot + 全字段表（kind/module/before→after/saved）。
+
+
+- [2026-07-16] **编辑模型「测试连接」≠ 全局测连接**：`POST /llm/test-model` 必须 `model_override=编辑框 name`，且 agent_id=`__model_test__` 跳过 TG `model_route`。否则 cost_tier 短句 → economy → 硬编码 `deepseek-v4-flash`，上游报 model_not_found，UI 却显示 requested_model=用户填的 qwen 名（假象）。响应字段：`requested_model`（编辑框）+ `sent_model`（实际上游）。
 - [2026-07-11] 密钥有两类槽位：全局默认 provider 槽（PUT /llm/provider → secret store __default__，cat-speak/广场/萃取等默认调用读它）与团队模型槽（编辑模型保存 → teams 段）。用户在编辑模型里存 key 不会自动喂饱默认 provider（除非 _sync_default_model_to_harness 同步 api_key——XB-8.2 待验证）。排查"LLM 未连接"先分清调用方读哪个槽。
 - [2026-07-11] 判断线上行为是否为旧代码：先比对后端进程启动时间与相关文件 git 提交时间（XC-6.1 建议在 /health 暴露 git rev）。旧任务的会话 lines 缓存会回放旧引擎日志头，易被误判为"改了没生效"。
 
@@ -36,6 +69,8 @@
 - 任务执行三条路径：tool 角色→`_run_tool_loop`；文本角色(_TEXT_ONLY_ROLES)→`_run_openai_compatible`；其余→`_should_use_direct_api` 决定直连 vs 本地 CLI。`_run_openai_compatible` 用 urlparse(base_url) 拼 `{path}/chat/completions`，deepseek/codebuddy 的 base（有无 /v1 均可）兼容。
 
 ## Do-Not-Repeat
+
+- [2026-07-17] 技能删除必须同时：team.skills + agent 绑定 + skill_store + registry + **萃取队列 approved 项** + skill_versions；否则 `_rehydrate_approved_skill` 启动复活。队列是 dict[item_id→item]，勿 `for item in q` 当 list。墓碑 `deleted_skill_keys` / `_skill_tombstones.json`。
 
 - [2026-07-11] 给用户交付后端改动时必须显式说明『此改动在 XX:XX 落盘，需要在此之后的重启』；更好的做法已落地——start.sh 默认 uvicorn --reload，后端与前端一样热更（AG_NO_RELOAD=1 关闭）。连环后端修复期间不要让用户手动追重启。
 
@@ -96,3 +131,5 @@
 - [2026-07-14] locked BidCandidate：SkillRouter.assign 静默写 agent.skills（lock 时绑适者 + 任务提交再幂等）；skip_locked_skill_bind 可关；失败不挡 lock/submit。
 - [2026-07-14] XF+XC 统一验收：`scripts/verify_eco_feedback_xf.py` 含静态+离线+活后端 BidCandidate（create→PATCH→quality→lock 拒绝/成功→GET production）；离线用 tempfile 不碰真存储；live 用 `task_xc_verify_live` + 空 dominant_skills 避免 SkillRouter 写真身。PASS≈51。
 - [2026-07-14] cost-dashboard 与物竞结合：`#eco-hub` **始终可见**（不依赖 deep-link）；团队下拉默认 aws-ops 拉 BidCandidate + production locked；旧达尔文棘轮标「副轴」。孪生顶栏「物竞×成本」+ 步骤 ④ `ecoGoCostStep` 双向深链。
+- [2026-07-15] 用户校正：cost 页主题=**任务 Token 治理**（非物竞主轴）。全链序号固定 1团队→2议事→3寻技能→4物竞→**5 Token治理**→6生产注入。物竞 BidCandidate 用 `<details>` **默认折叠**。主轴四能力：计量(by_task) / 缓存+压缩(prompt_cache) / ModelRouter / BudgetGuard+verify。API 前缀 `/api/v1/cost/token-governance/*`。chat_harness 默认 compress（`AG_PROMPT_COMPRESS=0` 关）。
+- [2026-07-15] 任务 token 归因：contextvar 不跨线程 → 用 `AG_TASK_ID`/`AG_TEAM_ID` + session 字段；tool_loop 与直连 API 写 `phase=task`+`scenario_id=task_id`。`submit_task` 预算 halt 返回 402（`metadata.skip_token_budget` 跳过）。历史 unscoped 大盘不回写，只告警。

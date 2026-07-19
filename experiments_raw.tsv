@@ -1,0 +1,46 @@
+run	agent	pop	T	skill_pct	collab_pct	residual_pct	skill_list	bestT	gens	run_skill_mean	run_collab_mean	tournament	regime	abundance	predator_pressure	drift_prob	niche_capacity	dominant	n_dominant
+aws-solo-division	aws_mon	aws-ops	45	0.0	0.0233	0.9767	['monitor_alarms_setup']	45	1	0.0	0.009	solo	base					[]	0
+aws-solo-division	aws_oper	aws-ops	44	0.0	0.0233	0.9767	['aws_cli_script_authoring']	45	1	0.0	0.009	solo	base					[]	0
+aws-solo-division	aws_lead	aws-ops	42	0.0	0.0	1.0	['aws_es_scaling_orchestration', 'progress_tracking']	45	1	0.0	0.009	solo	base					[]	0
+aws-solo-division	aws_arch	aws-ops	37	0.0	0.0	1.0	['aws_es_capacity_planning']	45	1	0.0	0.009	solo	base					[]	0
+aws-solo-division	aws_cost	aws-ops	37	0.0	0.0	1.0	['cost_ri_advisor']	45	1	0.0	0.009	solo	base					[]	0
+build-solo-division	build_architect	build_system	75	0.2877	0.0	0.7123	['architecture_design', 'interface_definition', 'pattern_selection', 'progress_tracking']	75	2	0.107	0.152	solo	base					[]	0
+build-solo-division	bad20104	build_system	64	0.0	0.25	0.75	['debugging', 'aws_ops_monitoring']	75	2	0.107	0.152	solo	base					[]	0
+build-solo-division	build_pm	build_system	62	0.2459	0.0656	0.6885	['task_decomposition', 'progress_tracking', 'blocker_resolution', 'test_design']	75	2	0.107	0.152	solo	base					[]	0
+build-solo-division	83fd1cf0	build_system	59	0.0	0.2203	0.7797	['test_execution', 'blocker_resolution']	75	2	0.107	0.152	solo	base					[]	0
+build-solo-division	build_researcher	build_system	54	0.0	0.2222	0.7778	['web_research', 'competitive_analysis', 'requirements_analysis']	75	2	0.107	0.152	solo	base					[]	0
+aws+build-division	aws_lead	aws-ops	69	0.2206	0.0294	0.75	['aws_es_scaling_orchestration', 'coverage_analysis', 'architecture_design']	69	1	0.068	0.15	division	base					[]	0
+aws+build-division	83fd1cf0	build_system	60	0.0	0.1833	0.8167	['test_design']	69	1	0.068	0.15	division	base					[]	0
+aws+build-division	build_pm	build_system	59	0.1207	0.1207	0.7586	['task_decomposition', 'progress_tracking', 'blocker_resolution', 'interface_definition']	69	1	0.068	0.15	division	base					[]	0
+aws+build-division	aws_mon	aws-ops	57	0.0	0.2281	0.7719	['monitor_alarms_setup', 'api_documentation']	69	1	0.068	0.15	division	base					[]	0
+aws+build-division	bad20104	build_system	54	0.0	0.1887	0.8113	[]	69	1	0.068	0.15	division	base					[]	0
+aws+build-confrontation	aws_lead	aws-ops	77	0.1842	0.0395	0.7763	['aws_es_scaling_orchestration', 'changelog_management']	77	1	0.088	0.106	confrontation	base					[]	0
+aws+build-confrontation	ba74e93f	build_system	72	0.0833	0.0139	0.9028	['interface_definition']	77	1	0.088	0.106	confrontation	base					[]	0
+aws+build-confrontation	aws_mon	aws-ops	71	0.1714	0.1143	0.7143	['monitor_alarms_setup']	77	1	0.088	0.106	confrontation	base					[]	0
+aws+build-confrontation	bad20104	build_system	64	0.0	0.2063	0.7937	['debugging']	77	1	0.088	0.106	confrontation	base					[]	0
+aws+build-confrontation	aws_region	aws-ops	58	0.0	0.1579	0.8421	['compliance_region_guard']	77	1	0.088	0.106	confrontation	base					[]	0
+aws+build-mixed	aws_lead	aws-ops	57	0.1964	0.0714	0.7322	['aws_es_scaling_orchestration', 'e21d7092']	57	9	0.05	0.082	mixed	base					['coverage_analysis', 'aws_es_scaling_orchestration', 'interface_definition', 'monitor_alarms_setup', 'e21d7092']	5
+aws+build-mixed	aws_mon	aws-ops	57	0.0536	0.0714	0.875	['monitor_alarms_setup', 'coverage_analysis']	57	9	0.05	0.082	mixed	base					['coverage_analysis', 'aws_es_scaling_orchestration', 'interface_definition', 'monitor_alarms_setup', 'e21d7092']	5
+aws+build-mixed	aws_cost	aws-ops	54	0.0	0.1111	0.8889	['cost_ri_advisor', 'changelog_management', 'e5ce8ab1']	57	9	0.05	0.082	mixed	base					['coverage_analysis', 'aws_es_scaling_orchestration', 'interface_definition', 'monitor_alarms_setup', 'e21d7092']	5
+aws+build-mixed	aws_region	aws-ops	53	0.0	0.0566	0.9434	['compliance_region_guard', 'coverage_analysis']	57	9	0.05	0.082	mixed	base					['coverage_analysis', 'aws_es_scaling_orchestration', 'interface_definition', 'monitor_alarms_setup', 'e21d7092']	5
+aws+build-mixed	build_researcher	build_system	50	0.0	0.1	0.9	['web_research', 'competitive_analysis', 'requirements_analysis']	57	9	0.05	0.082	mixed	base					['coverage_analysis', 'aws_es_scaling_orchestration', 'interface_definition', 'monitor_alarms_setup', 'e21d7092']	5
+habitat-pressure-aws+build	aws_mon	aws-ops	67	0.1364	0.1061	0.7575	['monitor_alarms_setup']	67	1	0.079	0.132	division	pressure	0.55	0.16	0.18	3.0	[]	0
+habitat-pressure-aws+build	83fd1cf0	build_system	65	0.0938	0.0781	0.8281	['architecture_design', 'test_execution']	67	1	0.079	0.132	division	pressure	0.55	0.16	0.18	3.0	[]	0
+habitat-pressure-aws+build	aws_cost	aws-ops	64	0.0	0.2381	0.7619	['cost_ri_advisor', 'coverage_analysis']	67	1	0.079	0.132	division	pressure	0.55	0.16	0.18	3.0	[]	0
+habitat-pressure-aws+build	aws_lead	aws-ops	63	0.1639	0.1148	0.7213	['aws_es_scaling_orchestration']	67	1	0.079	0.132	division	pressure	0.55	0.16	0.18	3.0	[]	0
+habitat-pressure-aws+build	aws_region	aws-ops	57	0.0	0.1228	0.8772	['compliance_region_guard', 'e5ce8ab1']	67	1	0.079	0.132	division	pressure	0.55	0.16	0.18	3.0	[]	0
+habitat-scarce-aws+build	aws_lead	aws-ops	61	0.1864	0.0508	0.7628	['aws_es_scaling_orchestration', 'coverage_analysis']	61	1	0.037	0.136	division	scarce	0.45	0.18	0.2	3.0	[]	0
+habitat-scarce-aws+build	aws_cost	aws-ops	57	0.0	0.2321	0.7679	['cost_ri_advisor']	61	1	0.037	0.136	division	scarce	0.45	0.18	0.2	3.0	[]	0
+habitat-scarce-aws+build	ba74e93f	build_system	57	0.0	0.1053	0.8947	['617172b1']	61	1	0.037	0.136	division	scarce	0.45	0.18	0.2	3.0	[]	0
+habitat-scarce-aws+build	bad20104	build_system	57	0.0	0.1754	0.8246	['code_implementation', '4c87d92f']	61	1	0.037	0.136	division	scarce	0.45	0.18	0.2	3.0	[]	0
+habitat-scarce-aws+build	aws_oper	aws-ops	53	0.0	0.1154	0.8846	['aws_cli_script_authoring']	61	1	0.037	0.136	division	scarce	0.45	0.18	0.2	3.0	[]	0
+habitat-harsh-aws+build	build_architect	build_system	60	0.2414	0.0517	0.7069	['architecture_design', 'interface_definition', 'pattern_selection']	60	1	0.048	0.025	division	harsh	0.35	0.22	0.28	2.0	[]	0
+habitat-harsh-aws+build	83fd1cf0	build_system	56	0.0	0.0179	0.9821	[]	60	1	0.048	0.025	division	harsh	0.35	0.22	0.28	2.0	[]	0
+habitat-harsh-aws+build	aws_oper	aws-ops	53	0.0	0.0189	0.9811	['aws_cli_script_authoring']	60	1	0.048	0.025	division	harsh	0.35	0.22	0.28	2.0	[]	0
+habitat-harsh-aws+build	bad20104	build_system	53	0.0	0.0192	0.9808	['web_research']	60	1	0.048	0.025	division	harsh	0.35	0.22	0.28	2.0	[]	0
+habitat-harsh-aws+build	aws_arch	aws-ops	52	0.0	0.0192	0.9808	['aws_es_capacity_planning', 'compliance_region_guard']	60	1	0.048	0.025	division	harsh	0.35	0.22	0.28	2.0	[]	0
+habitat-abundant-aws+build	aws_lead	aws-ops	86	0.0814	0.0349	0.8837	['aws_es_scaling_orchestration', 'container_management', 'requirements_analysis']	86	2	0.028	0.049	division	abundant	1.4	0.04	0.05	3.0	[]	0
+habitat-abundant-aws+build	build_architect	build_system	69	0.0435	0.0	0.9565	['architecture_design', 'interface_definition', 'pattern_selection', 'aws_cli_script_authoring']	86	2	0.028	0.049	division	abundant	1.4	0.04	0.05	3.0	[]	0
+habitat-abundant-aws+build	bad20104	build_system	59	0.0169	0.0169	0.9662	['interface_definition']	86	2	0.028	0.049	division	abundant	1.4	0.04	0.05	3.0	[]	0
+habitat-abundant-aws+build	aws_region	aws-ops	58	0.0	0.0862	0.9138	['compliance_region_guard']	86	2	0.028	0.049	division	abundant	1.4	0.04	0.05	3.0	[]	0
+habitat-abundant-aws+build	83fd1cf0	build_system	56	0.0	0.1071	0.8929	['6ad54b23', 'blocker_resolution', 'aws_cli_script_authoring']	86	2	0.028	0.049	division	abundant	1.4	0.04	0.05	3.0	[]	0

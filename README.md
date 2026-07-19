@@ -25,9 +25,9 @@
 
 **数字孪生沙箱（Twin Sandbox）** — 核心差异化能力：让团队先在仿真世界里犯错。`world_state` 把真实团队/任务/资源二次映射成世界快照，`twin_loop` spawn 出 Agent 孪生副本做并行 What-if 推演（支持混沌注入：断网、成员离场、技能退化、模型幻觉…），`orchestrator` 串起 快照→仿真→评估→对齐 全管线，试炼（trial）支持分支对比与代际演进，场景（scenario）把房间建模为业务阶段（状态机约束迁移）。产出是被验证过的策略/SOP，而不是猜测。模块：`sandbox/`；API：`/api/v1/sandbox`、`/api/v1/twin-trials`、`/api/v1/scenarios`。
 
-**技能体系（Skills）** — 把「演练中学到的东西」变成可复用资产，这是省 token 的根本手段：好技能让便宜模型也能干对事。SkillClaw 流水线（Filter→Improve→Verify→Solidify）从演练/执行轨迹提取技能，`skill_verifier` 验证后入库，`skill_router` 用 BM25/TF-IDF 两阶段检索重排把 top-K 技能注入 Agent 提示词，`skill_tracker` 跟踪命中率反哺路由。模块：`skill_library.py`、`skill_router.py`、`skill_extractor.py`、`skill_evolver.py`；API：`/api/v1/skill-router`、`/api/v1/extraction`、`/api/v1/skill-classification`。
+**技能体系（Skills）** — 把「演练中学到的东西」变成可复用资产，这是省 token 的根本手段：好技能让便宜模型也能干对事。**从 Plaza 讨论萃取技能**走 **TSE 管线**（TCN 时序神经 + Skill Query Attention + 约束 JSON 解码，见 [技能萃取（TSE 管线）](#技能萃取tse-管线)）；入库后 `skill_verifier` 验证，`skill_router` 用 BM25/TF-IDF 两阶段检索重排把 top-K 技能注入 Agent 提示词，`skill_tracker` 跟踪命中率反哺路由。模块：`agents/tse/`、`skill_extractor.py`、`skill_library.py`、`skill_router.py`、`skill_evolver.py`；API：`/api/v1/teams/{team_id}/skill-extract/*`、`/api/v1/skill-router`、`/api/v1/extraction`、`/api/v1/skill-classification`。页面：`skill-extract`。
 
-**成本与 Token 门禁（Cost）** — 北极星指标的度量与执法。所有 LLM 调用 token 经 `token_context` 归因到 团队/阶段/run_id，`cost_aggregator` 汇总，budget guard 扣减预算，cost-gate 在预算超限时阻断。演练消耗与生产消耗分列。旧的 Terraform 资源成本体系（`cost_policy.py`）为 LEGACY。API：`/api/v1/cost`、`/api/v1/cost-gate`、`/api/v1/token-factory`。
+**成本与 Token 门禁（Cost）** — 北极星指标的度量与执法。所有 LLM 调用 token 经 `token_context` 归因到 团队/阶段/run_id；**任务 Token 治理**在 `prepare_request` 管线做简化/压缩/缓存/路由/预算（详见 [任务 Token 治理](#任务-token-治理)）。budget guard 扣减预算，cost-gate 在预算超限时阻断。Plaza 讨论阶段**不做** token 优化。旧的 Terraform 资源成本体系（`cost_policy.py`）为 LEGACY。API：`/api/v1/cost`、`/api/v1/cost/token-governance/*`、`/api/v1/cost-gate`。
 
 **系统演进（Evolution）** — 闭环的马达。`evolution/`（fitness/mutator/optimizer）对策略与技能做变异-评估-择优，**Ratchet 棘轮**保证只进不退：新策略必须在孪生对比中胜过基线才能锁定为新的代际（generation），成本效率棘轮同理。API：`/api/v1/twin-evolution`、`/api/v1/ratchet`、`/api/v1/sustainability`。
 
@@ -81,8 +81,9 @@ npm run test:frontend   # vitest
 | [docs/物竞闭环评估报告-aws-build.md](docs/物竞闭环评估报告-aws-build.md) | AWS×Build 闭环 LOOP 评估样例 |
 | [docs/全仓库分阶段重构路线.md](docs/全仓库分阶段重构路线.md) | 工程收口重构路线 |
 | [docs/archive/root-legacy](docs/archive/root-legacy) | 历史 README 与旧计划（仅参考） |
+| 下文 [技能萃取（TSE 管线）](#技能萃取tse-管线) | Plaza→技能：TSE 架构、与 LLM 关系、可用性与训练 |
 
-根 README 内嵌公式摘要见上文 **「物竞天择：适应度、加压 8 钮与公式」**。
+根 README 内嵌公式摘要见上文 **「物竞天择：适应度、加压 12 钮与公式」**。
 
 `docs/` 下 plan/todos 文件需签名头，规则见 [docs/SIGNING_RULE.md](docs/SIGNING_RULE.md)，校验：`node scripts/check-docs-signoff.cjs --strict`。
 
@@ -122,7 +123,7 @@ npm run test:frontend   # vitest
 
 详细设计与路线图见 [docs/宠物团队生态仿真plan.md](docs/宠物团队生态仿真plan.md)（§10 Phase I 是泛化路线），任务追踪见 [docs/宠物团队生态仿真todos.md](docs/宠物团队生态仿真todos.md)。
 
-## 物竞天择：适应度、加压 8 钮与公式
+## 物竞天择：适应度、加压 12 钮与公式
 
 办公室视图试验田（[`Agent-digital-twin.html?office3d=1`](src/frontend/Agent-digital-twin.html)）把团队放入**自然选择生境**：任务契约是客观考卷（同一 demand 过滤），**不是天选任务**。环境不打分；只通过健康账本与生存时长筛选「匹配且干活的 skill」与「稀缺时能救命的协作」。内核：`sandbox/eco_drill.py`；配置：`storage/eco_runtime_config.json`（`GET/PUT /api/v1/eco-runtime/config`）；左侧音量旋钮与 [`pet-config.html`](src/frontend/pet-config.html) 深参同键。
 
@@ -145,6 +146,7 @@ H_{i,t}
 - m
 - c\cdot |G_i|
 - \lambda\cdot \mathbf{1}\{\mathrm{can\_serve}\land \mathrm{REST}\}
+- \mu_{\mathrm{sen}}\cdot T_i^{\mathrm{so\,far}}
 - C(\mathrm{act}_{i,t})
 + R_{i,t}
 - P_{i,t}
@@ -156,8 +158,9 @@ H_{i,t}
 | \(G_i\) | skill 基因组 | agent 携带 skills |
 | \(c\) | 每 skill 每 tick 囤积税 | `evolution_pressure.genome_carry_cost` |
 | \(\lambda\) | 能 serve 却 REST 的闲置税 | `evolution_pressure.skill_idle_penalty` |
+| \(\mu_{\mathrm{sen}}\) | 衰老：每已存活 tick 额外代谢（**Agent 侧**） | `metabolism.senescence_rate` |
 | \(C\) | 动作成本（觅食 miss / 信号 / 避险等） | `drill_economics.*` |
-| \(R\) | 觅食命中、收分享等收益 | 见下 |
+| \(R\) | 觅食命中（含频依/上位放大）、收分享等收益 | 见下 |
 | \(P\) | 事故/捕食伤害 | 生境 `predator_pressure` + 偏压 \(\beta\) |
 
 \(H\le 0\Rightarrow\) 死亡，\(T_i\) 封顶。
@@ -245,7 +248,7 @@ T_i = T_i^{\mathrm{skill}} + T_i^{\mathrm{collab}} + T_i^{\mathrm{residual}}
 
 实现：`sandbox/survival_decompose.py`。skill tick ≈ can_serve 且觅食成功；collab tick ≈ 收分享/跟随等；其余为 residual。
 
-### 旋钮对照：A 生境 4 + B 加压 8
+### 旋钮对照：A 生境 4 + B 加压 12
 
 左侧试验田旋钮与配置 JSON **同键**（盘下灰字为字段名）。
 
@@ -270,6 +273,44 @@ T_i = T_i^{\mathrm{skill}} + T_i^{\mathrm{collab}} + T_i^{\mathrm{residual}}
 | 无技偏压 | `predator_bias_unskilled` | 事故加权打 \(\neg\)can_serve |
 | 稀缺分享 | `scarce_share_boost` | abundance&lt;1 时分享放大 |
 | 同队分享 | `same_pop_share_bias` | 0~1 优先同 population 分享 |
+| 性选择 | `sexual_selection_strength` | Darwin 第二机制：×`mate_choosiness`，按 COURT/生存/互补 skill 加权择偶 |
+| 稀有利 | `freq_dep_strength` | 负频率依赖：稀有 skill 觅食优势（防垄断） |
+| 技能协同 | `epistasis_strength` | 上位：持有 demand 相邻 skill 对时非加性加成 |
+
+**C · `metabolism`（Agent 生命史，非环境选择压）**
+
+| 中文 | 键 | 作用 |
+| --- | --- | --- |
+| 衰老率 | `senescence_rate` | \(\mu\times\mathrm{age}\) 个体代谢递增（防不死垄断基因池） |
+
+### 性选择 / 频依 / 上位 / 衰老
+
+\[
+\mathrm{eff\_choose}
+=
+\min\bigl(1,\; \mathrm{mate\_choosiness}\cdot \alpha_{\mathrm{ss}}\bigr)
+\]
+
+\(\alpha_{\mathrm{ss}}=\) `sexual_selection_strength`。挑剔时按展示质量 \(Q\)（生存 + COURT 诚实信号 + skill 互补）加权抽样伴侣。
+
+\[
+R^{\mathrm{forage}}
+\;\times\;
+\bigl(1 + \phi\cdot(1-f_s)\bigr)
+\;\times\;
+\bigl(1 + E(G)\bigr)
+\]
+
+- \(\phi=\) `freq_dep_strength`，\(f_s=\) 存活种群中 skill \(s\) 的频率  
+- \(E(G)=\min(0.5,\; \varepsilon\cdot \#\{\text{synergy pairs}\subseteq G\})\)，\(\varepsilon=\) `epistasis_strength`
+
+\[
+C^{\mathrm{sen}}_{i,t}
+=
+\mu_{\mathrm{sen}}\cdot T_i^{\mathrm{so\,far}}
+\]
+
+\(\mu_{\mathrm{sen}}=\) `metabolism.senescence_rate`（Agent 侧，与环境加压分离）。
 
 ### 加压链（一句）
 
@@ -277,6 +318,8 @@ T_i = T_i^{\mathrm{skill}} + T_i^{\mathrm{collab}} + T_i^{\mathrm{residual}}
 \underbrace{\lambda,\pi,\beta,c}_{\text{逼用对 skill、罚躺/囤/无技}}
 +
 \underbrace{s,\gamma}_{\text{稀缺协作值钱、偏同队}}
++
+\underbrace{\alpha_{\mathrm{ss}},\phi,\varepsilon,\mu_{\mathrm{sen}}}_{\text{性选择·频依·上位·衰老}}
 +
 \underbrace{S_{\min},G_{\min}}_{\text{够长才选得出来}}
 \;\Longrightarrow\;
@@ -293,10 +336,198 @@ T_i = T_i^{\mathrm{skill}} + T_i^{\mathrm{collab}} + T_i^{\mathrm{residual}}
 
 **与演进式成本优化结合（先适者，后省钱）**：任务挂载 → 物竞 \(T_i\) 过线 → ③ 适者反馈写回 Skill/协作 → 成本页在过线构型内比 token 并棘轮锁定。设计见 [docs/物竞与成本优化结合plan.md](docs/物竞与成本优化结合plan.md)，执行清单 [docs/物竞与成本优化结合todos.md](docs/物竞与成本优化结合todos.md)。
 
+## 任务 Token 治理
+
+> 页面：`cost-dashboard.html` 工作台杠杆区（**一行管线 + 旋钮**）。长文与出处在此；UI 不堆调研海报。  
+> 设计：`docs/任务Token治理plan.md` · 清单：`docs/任务Token治理todos.md`
+
+### 北极星
+
+- **对象** = 任务执行路径的 LLM token（`chat_harness` / `tool_loop`）。  
+- **Plaza 集体讨论阶段不优化**（智慧无价；成本纪律从执行计划之后开始）。  
+- **真省**：算法进 `TokenGovernanceService.prepare_request`；计量认净 `before→after`；`cache_mode=observe` 的 HIT **不计入**已省（仅 `serve` 短路计）。
+
+### prepare 管线与接线
+
+```
+simplify → ponytail/caveman → rtk_tool → compress → progressive_mem →
+codegraph → cache → skill → cost_tier+model → budget
+```
+
+| 接线点 | 说明 |
+|--------|------|
+| `chat_harness.chat` | 每轮对话 prepare 后调 LLM |
+| `tool_loop` 每轮 | 工具环同样 prepare |
+| `POST /api/v1/cost/token-governance/simulate` | 与生产同一 prepare（试跑） |
+
+配置：`config/settings.json` → `token_governance`（开关 + `params`）与 `budget`（限额/告警）。
+
+### 杠杆对照（算法 · 模块 · 可调参数）
+
+| 杠杆 | 借鉴（摘要） | 本仓模块 | 可调参数（旋钮） |
+|------|--------------|----------|------------------|
+| 提示词简化 | BCG 去冗 / 稳定 prefix | `prompt_simplify.simplify_messages` | 开关 |
+| Ponytail+Caveman | ponytail YAGNI · flowork caveman | `behavior_inject` | `ponytail_level` / `caveman_level` |
+| RTK tool 压缩 | rtk-ai/rtk 滤噪去重截断 | `rtk_tool_compress` | `max_tool_chars`（默认 2200） |
+| 内容压缩 | tool compaction · 无 LLM 摘要 | `prompt_cache.compress_messages` | `system_max_chars` 6000 · `msg_max_chars` 4000 |
+| 渐进历史 | claude-mem index | `progressive_history` | `keep_recent` · `min_total_for_collapse` · `index_max_chars` |
+| CodeGraph | MIT codegraph + 本地符号 | `codegraph_bridge` | `min_blob_chars` |
+| 缓存 | Portkey exact+semantic-lite | `PromptCache` | `cache_mode` observe/serve/off · `cache_max_size` |
+| Skill 路由 | SkillRouter + 缩短 system | `service._apply_skill_shorten` | `skill_system_max_chars` |
+| 模型路由 | LiteLLM 档 · flowork cost_tier | `ModelRouter` + `cost_tier` | `cost_tier_route` |
+| 预算门禁 | Portkey budgets · FinOps | `BudgetGuard` | **`alert_threshold` 默认 0.8** · `on_exceed` · session/agent/team 日限 |
+
+权威目录代码：`src/backend/agents/token_governance/lever_catalog.py` + `lever_params.py`。
+
+### API
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/v1/cost/token-governance/levers` | catalog + 开关 + **params 当前值** + budget |
+| POST | `/api/v1/cost/token-governance/levers` | 写开关 + `params`（budget 键双写 `settings.budget`） |
+| POST | `/api/v1/cost/token-governance/simulate` | 同 prepare 试跑（选 task 或 fixture） |
+| POST | `/api/v1/cost/token-governance/budget` | 预算限额（与杠杆旋钮同源） |
+| GET | `/api/v1/cost/token-governance/dashboard` | KPI / by_task / savings |
+| GET | `/api/v1/cost/token-governance/savings` | prepare 节省 JSONL 按 task |
+
+### 计量规则（诚实）
+
+| 量 | 规则 |
+|----|------|
+| `saved_tokens_est` | `max(0, before − after)` 净减 |
+| 各 lever `saved` | 分步真实 before/after |
+| observe cache HIT | 只记统计，**不计省** |
+| serve cache HIT | 短路才计省 |
+
+### 前端约定
+
+- 杠杆区：**一行** = 顺序 · 名称 · 接线 · 启用 · 试跑槽 · **参数旋钮**。  
+- 业界出处 / 算法步骤 / 模块路径 **不在页面展开**（本 README + plan）。  
+- 保存 → `POST /levers` → 下一轮 `prepare_request` 立即使用新参数。
+
+## 技能萃取（TSE 管线）
+
+**状态（2026-07）：可用。** 入口页面 `skill-extract`；后端 `skill_extractor._llm_prefill` 主路径调用 TSE。验收特征：`llm_model_used` 以 `tse+` 开头（如 `tse+qwen-36`），`source_meta.tse` 含 `focus_indices` / `stage_timings`。
+
+### 它解决什么
+
+Plaza 讨论是 **时间序列**（`utterance_1 … utterance_N`），技能定义往往 **跨多轮、嵌在寒暄与争论之间**。TSE（TCN-Skill-Extractor）用时序卷积 + 可学习 skill query 找到「技能时刻」，再 **约束解码** 成结构化 skill JSON，进入人审队列后入库。
+
+设计文档见仓库 `methodology.md` / `reasoning.md`；实现包：`src/backend/agents/tse/`。
+
+### 架构（神经编码 + LLM 解码，串联而非二选一）
+
+```
+Plaza transcript D = {m_1, …, m_N}
+  m_i = {speaker, role, niche, ritual_signal, round, content}
+
+[Stage 1] Utterance Encoder（token/句编码）
+  每句 → 向量 h_i（生产：hash n-gram；训练设计可接 Longformer CLS）
+  + speaker/role/signal/niche/round 辅助 embedding
+
+[Stage 2] TCN Temporal Module（Bai 2018 膨胀卷积）
+  d ∈ {1,2,4}，receptive field 覆盖约 3–5 轮讨论
+  depthwise-separable + residual + LayerNorm
+  {h_i} → Z ∈ R^{N×H}
+
+[Stage 3] Skill Query Cross-Attention
+  5 个可学习 query：name / description / category / tools / instructions
+  各自对 Z 做 multi-head cross-attention → 字段表征 + 聚焦 utterance 下标
+
+[Stage 4] Constrained JSON Decoder
+  skill 时刻片段 + 字段 hints → 合法 skill JSON
+  生产：ChatHarness 系统 LLM（如 qwen-36）+ schema 校验 / 一次重试
+  方法论中的 CodeLLaMA-7B+QLoRA 为训练向目标；无权重时由系统 LLM 顶同一角色
+  LLM 不可用时：tse+local 本地合成（仍基于 Stage 1–3 聚焦，非泛化模板）
+```
+
+| 阶段 | 谁在算 | 负责什么 | 不负责什么 |
+| --- | --- | --- | --- |
+| 1–3 神经 | pure-numpy（可加载 `storage/tse/checkpoints/*.npz`） | **何时/何处**在定义技能；字段先验；压缩讨论 | 不写长篇 instructions 散文 |
+| 4 解码 | 系统配置 LLM（`ChatHarness`） | **写成** name/desc/instructions/tools 的合法 JSON | 不单独做跨轮时序建模 |
+| 人审 | `skill-extract` 队列 | 通过才写入 skill 库 / 团队技能表 | — |
+
+**和「纯 LLM 萃取」的差别：** 旧路径把大段原文塞进 prompt；TSE 先用 TCN+Attention 筛 **skill-moments** 再解码，时序结构与字段对齐由神经侧承担。
+
+### `llm_model_used` 标签含义
+
+| 值 | 含义 | 是否可当正式候选 |
+| --- | --- | --- |
+| `tse+<model>`（如 `tse+qwen-36`） | Stage 1–3 已跑 + Stage 4 用配置模型解码成功 | ✅ 是 |
+| `tse+local(...)` | Stage 1–3 已跑，LLM 失败，本地按聚焦句合成 skill | ⚠️ 可审，质量弱于真解码 |
+| `deterministic-fallback` | 智能链路未产出可用 skill 时的 **占位回退草稿**（常带「【回退草稿】」） | ❌ 勿当正式技能 |
+
+萃取调用 **跳过 Token 治理的 `model_route`**（`agent_id` ∈ `skill_extractor` / `tse_skill_extractor`，或 `phase=extract`），并 `model_override` 为用户配置的默认模型名，避免被改写成上游不存在的 `deepseek-v4-flash/pro` 导致假离线。
+
+### 产品链路与 API
+
+```
+Plaza 共识 / 手工粘贴讨论
+  → POST /api/v1/teams/{team_id}/skill-extract/start
+  → TSE.extract_skills → 审核队列（SSE: .../skill-extract/stream）
+  → 人 approve → skill_registry + 团队 skills
+```
+
+| 动作 | 方法 |
+| --- | --- |
+| 开始萃取 | `POST .../skill-extract/start` body: `source_text`, `source_title`, `source_type`, `source_meta` |
+| 队列 | `GET .../skill-extract/queue` |
+| 详情 / 编辑 / 通过 / 拒绝 / 删除 | `GET|POST|DELETE .../skill-extract/{item_id}/...` |
+
+前端：`src/frontend/skill-extract.html`（及配套 JS）。遥测：`source_meta.tse`（`focus_indices`、`category_hint`、`tools_hint`、`latency_ms`、`stage_timings`）。
+
+### 入库后：演化 · 验证 · 路由（速查）
+
+```
+人审 approve → skill 库
+  ├─ 演化 POST /skill-library/evolve → JSON 草稿 + 语言守卫 → 人确认 apply-evolution
+  ├─ 验证 POST /skill-library/verify → 沙箱结构检查 → lifecycle=verified（非业务实跑）
+  └─ 路由 POST /skill-router/route → BM25/IDF 两段检索 + lifecycle 加权 → assign 赋予
+```
+
+| 能力 | 实现要点 | 边界 |
+| --- | --- | --- |
+| **演化** `skill_evolver` | 证据包 → 强制 JSON（instructions/changelog/intent）→ 中文原文禁整段英文化 → 人审可编辑后 apply；`__skill_evolver__` 跳过 TG model_route | 不自动写库；不做孪生 A/B 反哺 |
+| **验证** `skill_verifier` | 语义层 + 沙箱 mock + **孪生 A/B 全量**（`skill_twin_ab`：baseline 低熟练度 vs treatment 高熟练度+instructions 覆盖，默认 5 种子）→ pass_rate≥0.7 且 twin 达增益阈值 → VERIFIED | Twin 需可绑定 scenario（metadata.scenario + target_skill，或 code_delivery→`code_review_delivery`）；非匹配场景会 skip 而不挡语义通过 |
+| **路由** `skill_router` | Stage1 词法检索 + Stage2 字段重排 + **lifecycle 加权**（verified↑ draft/degraded↓）+ 反馈 affinity（落盘 `storage/skill_router_state.json`）；UI 展示 lifecycle 徽章与 match_reasons | 名 Bi/Cross-Encoder，实为本地 BM25/IDF，无 GPU embedding |
+
+API：`/api/v1/skill-library/evolve|apply-evolution|verify` · `/api/v1/skill-router/route|assign`。页面：`skill-extract` 详情 tab「演化 / 验证」与路由模式。
+
+### 训练（银标 → 多任务 → checkpoint）
+
+多任务 loss（与 methodology 一致）：
+
+`L = 1.0 · field_AE + 0.1 · CE(category) + 0.1 · BCE(tools)`
+
+```bash
+# 离线 demo：内置讨论 + 银标 + 训练，写出 latest.npz
+PYTHONPATH=src/backend python3 scripts/train_tse.py --demo --epochs 8
+
+# 用系统 LLM 打银标
+PYTHONPATH=src/backend python3 scripts/train_tse.py --demo --use-llm --epochs 5
+
+# 自有 JSONL
+PYTHONPATH=src/backend python3 scripts/train_tse.py --data storage/tse/silver/train.jsonl
+```
+
+| 路径 | 内容 |
+| --- | --- |
+| `storage/tse/silver/train.jsonl` | `(transcript, skills)` 银标/金标 |
+| `storage/tse/checkpoints/latest.npz` | 推理自动加载（`get_tse_pipeline(load_checkpoint=True)`） |
+| `storage/tse/active/review_queue.json` | active learning 不确定样本（可选） |
+
+单测：`tests/test_tse_pipeline.py`、`tests/test_tse_train.py`。
+
+### 使用注意
+
+1. 后端需已配置 **可用的默认 LLM**（模型与连接页 / `ChatHarness` provider；模型名须被上游接受）。  
+2. 浏览器打开技能萃取页，硬刷新后再跑；队列里历史「【回退草稿】」可删。  
+3. Plaza 讨论阶段 **不做 token 优化**（两阶段经济学）；萃取本身在讨论结束后发生，走 `phase=extract`。
+
 ## 核心概念速查
 
 - **TwinLoop**（`sandbox/twin_loop.py`）：snapshot_world → spawn_twins → run_simulation → evaluate_outcomes → inject_best_strategy 的仿真在环闭环；支持混沌注入与熟练度结算。
-- **物竞天择 / EcoDrill**（`sandbox/eco_drill.py`）：生存时长 \(T_i\) 唯一适应度；任务契约 demand 过滤；加压 8 钮见上文公式节；办公室视图 `?office3d=1` 左侧 A 生境 4 + B 加压 8 音量旋钮。
+- **物竞天择 / EcoDrill**（`sandbox/eco_drill.py`）：生存时长 \(T_i\) 唯一适应度；任务契约 demand 过滤；加压 12 钮见上文公式节（含性选择/频依/上位/衰老）；办公室视图 `?office3d=1` 左侧 A 生境 4 + B 加压 12 音量旋钮。
 - **SECS 演练**：团队 + 场景驱动的 演练→评估→进化 循环，SSE 实时推流到 3D 前端。
 - **SkillRouter**：BM25/TF-IDF 双阶段检索重排，把 top-K 技能注入 agent system prompt（无 GPU 依赖）。
 - **SkillClaw 流水线**：Filter → Improve → Verify → Solidify，从演练轨迹提取技能并验证后入库。

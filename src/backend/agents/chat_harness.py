@@ -421,12 +421,35 @@ class ChatSession:
         self.history.add("assistant_message", f"turn={self.turn_count}")
 
     def compact_if_needed(self) -> None:
-        """Keep conversation manageable by dropping old turns."""
-        if len(self.messages) > self.compact_after:
-            # Keep system prompt context (first msg if system) + last N messages
-            keep = self.compact_after // 2
+        """Keep conversation manageable by dropping old turns.
+
+        R3：预算感知 — 接近 session 限额时提前收紧保留窗口。
+        """
+        threshold = self.compact_after
+        keep = max(4, threshold // 2)
+        # 预算感知：session token 已用过线则更激进 compact
+        try:
+            from .budget import get_budget_guard
+            guard = get_budget_guard()
+            lim = int(guard.budget.per_session_max or 0)
+            used = int(self.total_usage.total_tokens or 0)
+            if lim > 0:
+                ratio = used / float(lim)
+                if ratio >= 0.85:
+                    threshold = max(6, threshold // 3)
+                    keep = max(3, threshold // 2)
+                elif ratio >= 0.6:
+                    threshold = max(8, threshold // 2)
+                    keep = max(4, threshold // 2)
+        except Exception:
+            pass
+        if len(self.messages) > threshold:
             sys_msgs = [m for m in self.messages[:1] if m.role == "system"]
             self.messages = sys_msgs + self.messages[-keep:]
+            self.history.add(
+                "compact",
+                f"kept={len(self.messages)} threshold={threshold}",
+            )
 
     def build_openai_messages(self) -> List[Dict[str, Any]]:
         """Build the messages array for OpenAI-compatible API calls."""
@@ -1048,8 +1071,9 @@ class ChatHarness:
     ) -> TurnResult:
         """Execute a single chat turn. This is the main entry point."""
         self._total_calls += 1
-        # 全局 override 优先级最高（压过显式 config_override）；未设则按 config_override→per-agent→default
-        config = self._global_override or config_override or self.get_provider_config(agent_id)
+        # 显式 config_override 优先（演化/单模型测试需钉死最新 Key）；
+        # 否则 global_override → per-agent → default（广场/默认调用走全局模型）
+        config = config_override or self._global_override or self.get_provider_config(agent_id)
         client = LLMClient(config)
 
         session = self.get_or_create_session(session_id, agent_id, system_prompt)
@@ -1057,8 +1081,114 @@ class ChatHarness:
         session.compact_if_needed()
 
         messages = session.build_openai_messages()
+        # TG v2：统一治理管线（simplify→compress→cache→skill→model→budget）
+        _tg_prep = None
+        try:
+            from .token_context import get_token_ctx
+            from .token_governance import get_token_governance
+            _ctx = get_token_ctx() or {}
+            _tid = str(_ctx.get("task_id") or _ctx.get("scenario_id") or os.environ.get("AG_TASK_ID") or "")
+            _team = str(team_id or _ctx.get("team_id") or os.environ.get("AG_TEAM_ID") or "")
+            _aid = str(agent_id or _ctx.get("agent_id") or "")
+            if _tid:
+                try:
+                    from .token_governance.task_messages import save_prepare_messages
+                    save_prepare_messages(
+                        _tid, messages,
+                        team_id=_team, agent_id=_aid,
+                        phase=str(_ctx.get("phase") or "task"),
+                        source="chat_harness",
+                        extra={"session_id": session.session_id},
+                    )
+                except Exception:
+                    pass
+            _tg_prep = get_token_governance().prepare_request(
+                messages,
+                task_id=_tid,
+                team_id=_team,
+                agent_id=_aid,
+                session_id=session.session_id,
+                phase=str(_ctx.get("phase") or "task"),
+                query_for_skill=prompt or "",
+                estimated_extra_tokens=int(config.max_tokens or 0) // 4,
+            )
+            messages = _tg_prep.get("messages") or messages
+            # skill 路由提示注入 system（与 tool_loop 对齐）
+            _skills = (_tg_prep.get("skill_hint") or {}).get("skill_ids") or []
+            if _skills and messages and messages[0].get("role") == "system":
+                _tag = "[TG_SKILL_HINT]"
+                _sys = str(messages[0].get("content") or "")
+                if _tag not in _sys:
+                    messages = list(messages)
+                    messages[0] = {
+                        **messages[0],
+                        "content": _sys + f"\n{_tag} prefer skills: {', '.join(_skills[:5])}",
+                    }
+            if _tg_prep.get("saved_tokens_est"):
+                session.history.add(
+                    "token_governance",
+                    f"saved≈{_tg_prep.get('saved_tokens_est')} levers={[x.get('kind') for x in (_tg_prep.get('levers') or [])]}",
+                )
+            if _tg_prep.get("budget") and not _tg_prep["budget"].get("allowed", True):
+                error_msg = "Token budget exceeded"
+                evs = _tg_prep["budget"].get("events") or []
+                if evs:
+                    error_msg = evs[0].get("message") or error_msg
+                fallback = self._budget_blocked_text(error_msg)
+                session.add_assistant_message(fallback)
+                session.history.add("budget_exceeded", error_msg)
+                return TurnResult(
+                    prompt=prompt,
+                    response=fallback,
+                    stop_reason="budget_exceeded",
+                    model=model_override or config.model,
+                    provider=config.provider.value,
+                    error=error_msg,
+                )
+        except Exception as _tg_err:
+            logger.debug("token_governance prepare skip: %s", _tg_err)
+
         model = model_override or config.model
+        # 连接测试 / 显式 model_override：禁止 token 治理 cost_tier 把 model 改写成
+        # deepseek-v4-flash 等 economy 默认名（否则「编辑模型测试连接」会测错模型）。
+        # 议事广场 (phase=plaza)：产品铁律不走 token 省路由，禁止改写用户配置的模型。
+        _phase = ""
+        try:
+            from .token_context import get_token_ctx as _gtc
+            _phase = str((_gtc() or {}).get("phase") or "")
+        except Exception:
+            _phase = ""
+        # 技能萃取 / TSE 必须用用户配置的默认模型名（如 qwen-36），禁止被
+        # cost_tier 改写成 deepseek-v4-flash/pro（上游 sub2api 无这些 model id → 假离线）。
+        _extract_agents = (
+            "skill_extractor",
+            "tse_skill_extractor",
+            "tse_silver",
+        )
+        _skip_model_route = bool(model_override) or _phase in ("plaza", "extract") or (
+            isinstance(agent_id, str)
+            and (
+                agent_id.startswith("__")
+                or agent_id in ("__test__", "__model_test__")
+                or agent_id in _extract_agents
+            )
+        )
+        if (
+            not _skip_model_route
+            and _tg_prep
+            and (_tg_prep.get("model") or {}).get("model")
+        ):
+            # 仅当 settings.model_route 且未显式 override 时采用路由模型名（provider 仍用当前 config）
+            try:
+                from .token_governance.settings import load_tg_settings
+                if load_tg_settings().get("model_route", True):
+                    routed = str(_tg_prep["model"].get("model") or "")
+                    if routed:
+                        model = routed
+            except Exception:
+                pass
         budget_guard = get_budget_guard()
+        # prepare 已做 budget；此处保留兼容二次检查（轻量）
         budget_check = self._check_turn_budget(
             budget_guard,
             session=session,

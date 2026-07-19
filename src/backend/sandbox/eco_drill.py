@@ -19,6 +19,12 @@ v2 新增（在 CodeBuddy ND-1~ND-6 基座上）：
   - 修复 v1 重复方法定义缺陷（ratchet_lock / inject_predator_pressure ×2）
   - gene_pool_snapshot 语义化（dominant=存活高频，deprecated=随死者消亡）
 
+演化机制扩展（nature-audit 建议实现，默认 economics=0 零回归）：
+  - Sexual Selection：mate_choosiness × sexual_selection_strength → 展示质量加权择偶
+  - Frequency-Dependent Selection：稀有 skill 觅食优势（防 skill 池垄断）
+  - Epistatic Skill Synergy：demand 相邻 skill 对非加性加成
+  - Senescence：μ×survival_ticks 代谢递增（防不死个体垄断基因池）
+
 编排既有零件（不重造）：
   - 感知 + H/F/L 意图仲裁 → agents.runtime.eco_loop（Claude 已有）
   - 代谢红线 + 生存时长 → agents.runtime.health_ledger（Claude 已有）
@@ -226,16 +232,26 @@ class EcoDrill:
             "predator_bias_unskilled": 0.0,  # >0：捕食加权偏向无法 serve 当前 demand 的个体
             "scarce_share_boost": 0.0,       # abundance<1 时分享让渡 ×(1+boost×(1-ab))
             "same_pop_share_bias": 0.0,      # 0~1：优先把份额让给同 population（团队演化）
+            # Darwin 第二机制 + 定量遗传学扩展（默认 0=零回归；生产 evolution_pressure 注入）
+            "sexual_selection_strength": 0.0,  # >0：择偶按展示质量加权；× mate_choosiness
+            "freq_dep_strength": 0.0,          # 负频率依赖：稀有 skill 觅食优势
+            "epistasis_strength": 0.0,         # 技能上位/协同：持有 synergy pair 时加成
+            "senescence_rate": 0.0,            # 衰老：每 survival_tick 额外代谢 μ×age
         }
+        _ECON_EXTRA = (
+            "skill_idle_penalty",
+            "predator_bias_unskilled",
+            "scarce_share_boost",
+            "same_pop_share_bias",
+            "sexual_selection_strength",
+            "freq_dep_strength",
+            "epistasis_strength",
+            "senescence_rate",
+            "prefer_forage_when_can_serve",
+        )
         if economics:
             for k, v in economics.items():
-                if k in self._econ or k in (
-                    "skill_idle_penalty",
-                    "predator_bias_unskilled",
-                    "scarce_share_boost",
-                    "same_pop_share_bias",
-                    "prefer_forage_when_can_serve",
-                ):
+                if k in self._econ or k in _ECON_EXTRA:
                     if k == "prefer_forage_when_can_serve":
                         continue
                     try:
@@ -395,6 +411,75 @@ class EcoDrill:
             return self._rng.choice(same)
         return self._rng.choice(needy)
 
+    def _skill_frequency(self, skill: str) -> float:
+        """存活种群中持有某 skill 的频率（0~1）。用于负频率依赖选择。"""
+        living = self.living()
+        if not living or not skill:
+            return 0.0
+        n = sum(1 for c in living if skill in c.skill_genome)
+        return n / len(living)
+
+    def _synergy_pairs(self) -> List[tuple]:
+        """上位/协同 skill 对：生态位 demand 中相邻 skill 成对（组合 > 加和）。"""
+        skills = list(self.env.demanded_skills or [])
+        if self._niches:
+            for n in self._niches:
+                for s in n.get("demanded_skills") or []:
+                    if s not in skills:
+                        skills.append(s)
+        pairs: List[tuple] = []
+        for i in range(len(skills) - 1):
+            a, b = skills[i], skills[i + 1]
+            if a != b:
+                pairs.append((a, b))
+        # 去重（无序对）
+        seen = set()
+        out: List[tuple] = []
+        for a, b in pairs:
+            key = tuple(sorted((a, b)))
+            if key not in seen:
+                seen.add(key)
+                out.append((a, b))
+        return out
+
+    def _epistasis_bonus(self, genome: List[str]) -> float:
+        """持有协同 skill 对时的非加性加成（epistasis_strength 每对累加，上限 0.5）。"""
+        strength = float(self._econ.get("epistasis_strength") or 0.0)
+        if strength <= 0 or not genome:
+            return 0.0
+        gset = set(genome)
+        bonus = 0.0
+        for a, b in self._synergy_pairs():
+            if a in gset and b in gset:
+                bonus += strength
+        return min(0.5, bonus)
+
+    def _mate_quality(self, candidate: "Creature", chooser: "Creature") -> float:
+        """性选择展示质量：生存 + COURT 诚实信号 + skill 互补。
+
+        仅用于 sexual_selection_strength>0 时的加权择偶；不另造适应度评分。
+        """
+        hs = self._ledger.get(candidate.agent_id)
+        surv = float(hs.survival_ticks) if hs else 0.0
+        # COURT 诚实信号：近期求偶展示（有代谢成本）抬高质量
+        court_bonus = 0.0
+        court_step = self._court_log.get(candidate.agent_id)
+        if court_step is not None:
+            age = max(0, self._step_index - int(court_step))
+            court_bonus = 25.0 if age <= 30 else (10.0 if age <= 80 else 2.0)
+        # skill 互补：chooser 缺、candidate 有 → 性选择偏好「补全」
+        chooser_set = set(chooser.skill_genome)
+        cand_set = set(candidate.skill_genome)
+        demand = set(self.env.demanded_skills or [])
+        complement = len((cand_set - chooser_set) & demand) if demand else len(cand_set - chooser_set)
+        # 协同对完整度：双方合起来覆盖 synergy pair
+        pair_cov = 0.0
+        for a, b in self._synergy_pairs():
+            union = chooser_set | cand_set
+            if a in union and b in union:
+                pair_cov += 1.0
+        return max(0.01, surv + court_bonus + 8.0 * complement + 5.0 * pair_cov)
+
     # ── 单步生境 tick ──
     def step(self) -> Dict[str, Any]:
         """一个生境 tick：受限感知（含信号板）→ H/F/L 意图 → 行为表达 → 代谢结算 → 死亡淘汰."""
@@ -503,8 +588,22 @@ class EcoDrill:
                     if niche_role and c.role and niche_role.strip().lower() in str(c.role).lower():
                         prof = min(0.98, prof * self._role_affinity)
                     p_ok = 0.3 + 0.6 * prof + (self._econ["follow_bonus"] if followed else 0.0)
+                    # Epistatic Skill Synergy：持有 demand 相邻 skill 对时成功率非加性抬升
+                    epi = self._epistasis_bonus(c.skill_genome)
+                    p_ok += epi
+                    # Frequency-Dependent Selection：稀有 skill 略抬 p_ok（负频率依赖）
+                    fd = float(self._econ.get("freq_dep_strength") or 0.0)
+                    if fd > 0 and demand:
+                        p_ok += 0.15 * fd * (1.0 - self._skill_frequency(demand))
                     if self._rng.random() < max(0.25, min(0.97, p_ok)):
-                        reward += self._econ["forage_gain"] * self.env.abundance
+                        base_gain = self._econ["forage_gain"] * self.env.abundance
+                        # 负频率依赖：稀有性状在收益上也享有优势 → 防 skill 池垄断
+                        if fd > 0 and demand:
+                            base_gain *= 1.0 + fd * (1.0 - self._skill_frequency(demand))
+                        # 上位协同：组合命中时收益也略放大（涌现团队优势）
+                        if epi > 0:
+                            base_gain *= 1.0 + epi
+                        reward += base_gain
                         outcome = True
                         c.skill_proficiency[demand] = min(0.98, c.skill_proficiency.get(demand, 0.5) + 0.02)
                     else:
@@ -576,6 +675,13 @@ class EcoDrill:
             # ── 基因携带成本：技能囤积被环境惩罚（世界观 §4）──
             if self._genome_carry_cost > 0:
                 action_cost += self._genome_carry_cost * len(c.skill_genome)
+
+            # ── 衰老 (Senescence)：μ 随 survival_ticks 线性递增，防不死个体垄断基因池 ──
+            sen = float(self._econ.get("senescence_rate") or 0.0)
+            if sen > 0:
+                hs_age = self._ledger.get(c.agent_id)
+                age = float(hs_age.survival_ticks) if hs_age else 0.0
+                action_cost += sen * age
 
             result = self._ledger.tick(c.agent_id, action_cost=action_cost, reward=reward)
             # 只有觅食尝试(成功/失败)才计入恐惧窗口；休息/避险不算"失败"，避免恐惧误升。
@@ -859,8 +965,11 @@ class EcoDrill:
     def _pick_mate(self, p1: Creature, parents: List[Dict[str, Any]]) -> Creature:
         """择偶：候选限于亲本池（保持"后代基因只来自适者"不变式）.
 
-        choosiness 高 → 倾向选池内生存排名最高的异体；低 → 池内随机。
-        COURT 登记者优先（求偶展示是有代价的诚实信号）。
+        Darwin 性选择（Sexual Selection）：
+        - mate_choosiness 高 → 挑剔择偶；低 → 近随机
+        - sexual_selection_strength>0 时按展示质量加权（生存 + COURT 诚实信号 + skill 互补）
+        - strength=0 时退化为：choosiness 高取池顶 / 低随机（兼容旧测试）
+        COURT 登记者优先作候选池（求偶展示有代谢成本 → 诚实信号）。
         v3 混合竞争：_allow_cross_pop_mating=True 时允许跨 population 配对（基因流）。
         """
         others = [p for p in parents if p["agent_id"] != p1.agent_id]
@@ -873,8 +982,33 @@ class EcoDrill:
             return p1
         courted = [p for p in others if p["agent_id"] in self._court_log]
         pool = courted or others
-        if self._rng.random() < p1.collab_genome.mate_choosiness:
-            chosen = pool[0]  # ranking 已按 survival_ticks 降序
+        choosiness = float(p1.collab_genome.mate_choosiness)
+        ss = float(self._econ.get("sexual_selection_strength") or 0.0)
+        # 有效挑剔度：基因 × 环境性选择强度（强度 0 → 纯基因；强度 1 → 原 choosiness）
+        eff_choose = min(1.0, choosiness * ss) if ss > 0 else choosiness
+
+        if ss > 0 and eff_choose > 0 and len(pool) > 1:
+            # 展示质量加权抽样：挑剔时更可能选高质量 mate
+            creatures = [self._creatures[p["agent_id"]] for p in pool]
+            qualities = [self._mate_quality(c, p1) for c in creatures]
+            # 挑剔度抬高质量指数 → 赢家通吃趋势（Fisherian runaway 轻量版）
+            power = 1.0 + 3.0 * eff_choose
+            weights = [max(0.01, q) ** power for q in qualities]
+            # 以 (1-eff_choose) 概率退回均匀，保证基因多样性
+            if self._rng.random() < eff_choose:
+                total = sum(weights) or 1.0
+                r = self._rng.random() * total
+                acc = 0.0
+                for p, w in zip(pool, weights):
+                    acc += w
+                    if r <= acc:
+                        return self._creatures[p["agent_id"]]
+                return self._creatures[pool[-1]["agent_id"]]
+            return self._creatures[self._rng.choice(pool)["agent_id"]]
+
+        # 基线路径（ss=0 或单候选）：choosiness 高 → 池顶（ranking 已降序）
+        if self._rng.random() < choosiness:
+            chosen = pool[0]
         else:
             chosen = self._rng.choice(pool)
         return self._creatures[chosen["agent_id"]]
@@ -1123,12 +1257,24 @@ def _habitat_params() -> Dict[str, Any]:
             econ["skill_idle_penalty"] = float(evo["skill_idle_penalty"])
         if evo.get("prefer_forage_when_can_serve") is not None:
             econ["prefer_forage_when_can_serve"] = int(evo["prefer_forage_when_can_serve"])
-        for ek in ("predator_bias_unskilled", "scarce_share_boost", "same_pop_share_bias"):
+        for ek in (
+            "predator_bias_unskilled", "scarce_share_boost", "same_pop_share_bias",
+            "sexual_selection_strength", "freq_dep_strength", "epistasis_strength",
+        ):
             if evo.get(ek) is not None:
                 try:
                     econ[ek] = float(evo[ek])
                 except (TypeError, ValueError):
                     pass
+        # 衰老：Agent 侧生命史，权威源=metabolism；兼容旧配置落在 evolution_pressure
+        sen = meta.get("senescence_rate")
+        if sen is None:
+            sen = evo.get("senescence_rate")
+        if sen is not None:
+            try:
+                econ["senescence_rate"] = float(sen)
+            except (TypeError, ValueError):
+                pass
         params.update({
             "health_max": float(meta.get("health_max", 100.0)),
             "metabolic_rate": float(meta.get("metabolic_rate", 1.0)),

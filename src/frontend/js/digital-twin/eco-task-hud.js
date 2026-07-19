@@ -85,25 +85,32 @@
   }
 
   function _renderRightChips(activeIdx) {
+    // 压力台只显示 demand skills，禁止任务/步骤标题（与挂载任务区重复且无选择压语义）
     var nb = $('eco2-env-niches');
     if (!nb || !_isTaskExamActive()) return;
     var niches = _niches();
-    nb.innerHTML = niches.map(function (n, i) {
-      var idx = n.index != null ? n.index : i;
-      var sk = (n.demanded_skills || []).map(function (s) { return _sk(s); }).join(' · ');
-      var active = idx === activeIdx;
-      var done = idx < activeIdx;
-      var bg = active
-        ? 'background:rgba(34,211,238,.18);border-color:var(--cyan);color:var(--cyan)'
-        : done
-          ? 'background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.4);color:var(--green)'
-          : '';
-      return '<span class="eco2-chip eco2-niche-chip" data-niche-idx="' + idx + '" title="'
-        + esc(sk || '（无技能）') + '" style="' + bg + '">'
-        + (done ? '✓ ' : active ? '▶ ' : '')
-        + esc((idx) + '. ' + (n.title || n.step_id || '步骤'))
-        + '</span>';
-    }).join(' ') || '<span style="color:var(--dim)">（无考卷步骤）</span>';
+    var active = _findNiche(activeIdx) || niches[0] || {};
+    var skillSet = {};
+    var ordered = [];
+    niches.forEach(function (n) {
+      (n.demanded_skills || []).forEach(function (s) {
+        var name = _sk(s);
+        if (!name || skillSet[name]) return;
+        skillSet[name] = 1;
+        ordered.push(name);
+      });
+    });
+    var activeSkills = {};
+    (active.demanded_skills || []).forEach(function (s) { activeSkills[_sk(s)] = 1; });
+    nb.innerHTML = ordered.length
+      ? ordered.slice(0, 24).map(function (name) {
+          var on = !!activeSkills[name];
+          var st = on
+            ? 'background:rgba(34,211,238,.18);border-color:var(--cyan);color:var(--cyan)'
+            : '';
+          return '<span class="eco2-chip" title="demand skill" style="' + st + '">' + esc(name) + '</span>';
+        }).join(' ')
+      : '<span style="color:var(--dim);font-size:10px">无 demand skill</span>';
   }
 
   function _renderHud() {

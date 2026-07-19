@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="taste-light">
 <head>
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SECS 协同沙箱 — 在孪生环境里演练 Agent 协作</title>
+<title>数字孪生 · 协同沙箱 — AgentsGroup2026</title>
 <script type="importmap">
 {
   "imports": {
@@ -15,10 +15,11 @@
 </script>
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/topbar-ws.css">
   <link rel="stylesheet" href="/css/sandbox-twin.css">
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 
@@ -30,22 +31,13 @@
     <h1>🏖️ SECS 演练总台</h1>
     <span class="subject-badge">在孪生环境里演练 Agent 协作</span>
   </div>
-  <nav class="topbar-ws__nav nav-grouped" aria-label="主导航">
-    <div class="nav-group">
-      <span class="nav-group__label">演练</span>
-      <span class="cur">沙箱</span>
-      <a href="/Agent-digital-twin.html">孪生</a>
-    </div>
-    <div class="nav-group">
-      <span class="nav-group__label">资产</span>
-      <a href="/agent-team-config.html">智能体</a>
-      <a href="/skill-extract.html">技能</a>
-      <a href="/plaza.html">广场</a>
-    </div>
-    <div class="nav-group">
-      <span class="nav-group__label">观测</span>
-      <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
-    </div>
+  <nav class="topbar-ws__nav nav-grouped" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
   </nav>
   <div class="topbar-ws__right">
     <span class="refresh-indicator" id="refresh-indicator" title="每 30s 自动刷新">⏱ 自动刷新</span>
@@ -480,6 +472,7 @@
 <div class="toast-container" id="toast-container"></div>
 
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="digital-twin"></script>
 <script src="/js/sandbox-twin.js" defer></script>
 <script type="module" src="/js/sandbox-twin-3d.js?v=20260616"></script>
 

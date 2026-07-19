@@ -40,3 +40,6 @@ src/docs/agent_handoffs/
 /.idea/modules.xml
 /.idea/libraries/MPLUSRounded1c_Regular_typeface_json.xml
 /.idea/vcs.xml
+
+# CodeGraph local index (MIT CLI)
+.codegraph/

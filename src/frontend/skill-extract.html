@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="taste-light">
 <head>
 <meta charset="UTF-8"/>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://ga.jspm.io; media-src 'self' data: blob:; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>技能萃取/赋予 — AgentsGroup2026</title>
+<title>技能萃取 — AgentsGroup2026</title>
 
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.1/dist/es-module-shims.js"></script>
 <script type="importmap">
@@ -17,9 +17,10 @@
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/theme.css">
 <link rel="stylesheet" href="/css/components.css">
-<link rel="stylesheet" href="/css/skill-extract.css">
+<link rel="stylesheet" href="/css/skill-extract.css?v=20260718-tse-progress">
 <link rel="stylesheet" href="/css/topbar-ws.css">
 <style>:root{--ag-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;--ag-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{font-family:var(--ag-font-sans)}code,pre,kbd{font-family:var(--ag-font-mono)}</style>
+  <link rel="stylesheet" href="/css/taste-light.css?v=20260718-tse-progress">
 </head>
 
 <body>
@@ -35,13 +36,14 @@
         <button data-mode="router" onclick="window._switchPageMode('router')">赋予</button>
       </div>
     </div>
-    <nav class="topbar-ws__nav" aria-label="主导航">
-      <a href="/agent-team-config.html">智能体团队</a>
-      <a href="/plaza.html">议事广场</a>
-      <span class="cur">技能萃取/赋予</span>
-      <a href="/Agent-digital-twin.html">数字孪生</a>
-      <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
-    </nav>
+    <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
+  </nav>
     <div class="topbar-ws__right">
       <div class="team-chips" id="team-chips" style="position:relative"></div>
       <div class="topbar-ws__user">
@@ -109,6 +111,7 @@
   <div class="viewport" id="viewport">
     <div class="extract-progress" id="extract-progress">
       <span class="ep-icon">🩸</span>
+      <span class="ep-engine" id="ep-engine" data-mode="tse" title="萃取引擎">TSE</span>
       <span class="ep-text" id="ep-text">正在萃取…</span>
       <div class="ep-bar"><div class="ep-fill" id="ep-fill" style="width:0%"></div></div>
     </div>
@@ -151,9 +154,10 @@
       <button data-filter="approved" onclick="setQueueFilter(this,'approved')">已通过</button>
       <button data-filter="rejected" onclick="setQueueFilter(this,'rejected')">已拒绝</button>
     </div>
+    <div style="padding:6px 12px 0;font-size:10px;color:oklch(0.48 0.01 110);line-height:1.4">待审草稿只在此处理 · 通过后进入下方「已入库」</div>
     <div class="queue-list" id="queue-list">
       <div style="text-align:center;padding:40px 20px;color:oklch(0.4 0.005 110);font-size:12px">
-        暂无萃取项目<br><span style="font-size:10px;margin-top:4px;display:block">提交知识文本后，萃取结果将出现在此</span>
+        暂无萃取项目<br><span style="font-size:10px;margin-top:4px;display:block">提交知识文本后，待审项出现在此（不会重复铺到下方技能库）</span>
       </div>
     </div>
   </div>
@@ -237,13 +241,14 @@
     </div>
   </div>
 
-  <!-- ── Bottom: Taxonomy Bar (双标签: 特质技能 / 公共技能) ──── -->
+  <!-- ── Bottom: 已入库技能库（待审只在右侧队列，不在此重复） ──── -->
   <div class="taxonomy-bar" id="taxonomy-bar">
     <div class="taxonomy-header">
-      <div style="display:flex;gap:2px">
-        <button class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--koke);color:var(--shironeri);cursor:pointer;font-family:var(--font-sans)">🎯 特质技能</button>
-        <button class="taxonomy-tab" data-tab="reserve" onclick="switchTaxonomyTab(this,'reserve')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">📦 储备技能</button>
-        <button class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')" style="padding:6px 14px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:oklch(0.5 0.005 110);cursor:pointer;font-family:var(--font-sans)">🌍 公共技能</button>
+      <div style="display:flex;gap:2px;align-items:center">
+        <span class="taxonomy-label" title="仅本页萃取并通过的技能；不含团队内置技能库">📚 萃取成果</span>
+        <button type="button" class="taxonomy-tab active" data-tab="my" onclick="switchTaxonomyTab(this,'my')">🎯 特质</button>
+        <button type="button" class="taxonomy-tab" data-tab="reserve" onclick="switchTaxonomyTab(this,'reserve')">📦 储备</button>
+        <button type="button" class="taxonomy-tab" data-tab="public" onclick="switchTaxonomyTab(this,'public')">🌍 公共</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <span style="font-size:10px;color:#8CBEB2">● <b id="count-atomic">0</b></span>
@@ -266,7 +271,7 @@
       <button class="close-btn" onclick="closeDetail()">✕</button>
     </div>
     <!-- Modal tabs -->
-    <div class="modal-tabs-bar" style="display:flex;gap:2px;border-bottom:1px solid #4A535C;margin:0 24px;padding-top:4px">
+    <div class="modal-tabs-bar" style="display:flex;gap:2px;border-bottom:1px solid var(--tg-border,#D8DEE8);margin:0 24px;padding-top:4px">
       <button class="modal-tab active" data-tab="edit" onclick="switchModalTab('edit')"><span class="tab-icon">✎</span>编辑</button>
       <button class="modal-tab" data-tab="evolve" onclick="switchModalTab('evolve')"><span class="tab-icon">⟳</span>演化</button>
       <button class="modal-tab" data-tab="verify" onclick="switchModalTab('verify')"><span class="tab-icon">◈</span>验证</button>
@@ -418,15 +423,27 @@
         <button class="btn btn-approve" onclick="triggerEvolve()" id="btn-evolve">⚡ 触发演化</button>
       </div>
       <div id="evolve-stats" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono);color:oklch(0.6 0.005 110)"></div>
-      <div id="evolve-diff" style="display:none;border:1px solid oklch(0.2 0.005 110);border-radius:8px;overflow:hidden">
-        <div style="padding:8px 12px;background:oklch(0.12 0.005 110);font-size:11px;color:oklch(0.5 0.005 110)">📊 指令对比 (旧 → 新)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:oklch(0.2 0.005 110)">
-          <pre id="evolve-old" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.01 0/0.5);color:oklch(0.6 0.02 20);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
-          <pre id="evolve-new" style="margin:0;padding:12px;font-size:10px;background:oklch(0.08 0.02 140/0.3);color:oklch(0.7 0.02 140);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+      <div id="evolve-diff" style="display:none;border:1px solid var(--tg-border,#D8DEE8);border-radius:8px;overflow:hidden;background:#fff">
+        <div style="padding:8px 12px;background:var(--tg-bg-soft,#EBF0F5);font-size:11px;color:var(--tg-ink-2,#4B5568);font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span>📊 指令对比 (旧 → 新)</span>
+          <span id="evolve-lang-badge" style="display:none;font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(31,107,74,.12);color:#1F6B4A;font-weight:700"></span>
         </div>
-        <div style="padding:8px 12px;display:flex;gap:8px;justify-content:flex-end">
+        <div id="evolve-changelog" style="display:none;padding:8px 12px;font-size:11px;line-height:1.55;color:#4A5568;border-bottom:1px solid var(--tg-border,#D8DEE8);background:#FAFBFC"></div>
+        <div id="evolve-error" style="display:none;padding:10px 12px;font-size:12px;line-height:1.5;color:#8B1E1E;background:rgba(196,75,75,.08);border-bottom:1px solid rgba(196,75,75,.2)"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--tg-border,#D8DEE8)">
+          <div>
+            <div style="padding:6px 12px;font-size:10px;color:#6B7280;background:#F0F2F5">原文（只读）</div>
+            <pre id="evolve-old" style="margin:0;padding:12px;font-size:11px;line-height:1.5;background:#F8F9FB;color:#1A2030;white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+          </div>
+          <div>
+            <div style="padding:6px 12px;font-size:10px;color:#6B7280;background:#EAF5EE">改进稿（可编辑后再应用）</div>
+            <textarea id="evolve-new" rows="12" style="display:block;width:100%;box-sizing:border-box;margin:0;padding:12px;font-size:11px;line-height:1.5;background:#F3F9F5;color:#1A2030;border:none;resize:vertical;min-height:200px;font-family:var(--font-mono,ui-monospace,monospace)"></textarea>
+          </div>
+        </div>
+        <div style="padding:8px 12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
+          <span id="evolve-intent" style="flex:1;font-size:10px;color:#6B7280"></span>
           <button class="btn btn-reject" onclick="discardEvolution()">❌ 丢弃</button>
-          <button class="btn btn-approve" onclick="acceptEvolution()">✅ 接受演化</button>
+          <button class="btn btn-approve" id="btn-accept-evolve" onclick="acceptEvolution()">✅ 接受演化</button>
         </div>
       </div>
       <div id="evolve-suggestions" style="font-size:11px"></div>
@@ -438,17 +455,17 @@
         <button class="btn" onclick="triggerVerify()" id="btn-verify">🧪 开始验证</button>
       </div>
       <div id="verify-status" style="padding:16px;text-align:center;font-size:12px;color:oklch(0.5 0.005 110)">
-        尚未执行验证
+        尚未执行验证 · 语义层（步骤/工具/场景对齐）+ 沙箱 mock tools
       </div>
       <div id="verify-results" style="display:none">
-        <div style="display:flex;gap:16px;margin-bottom:12px">
+        <div style="display:flex;gap:16px;margin-bottom:12px;align-items:center">
           <div id="verify-pass-rate" style="font-size:28px;font-family:var(--font-mono);color:oklch(0.7 0.1 140)"></div>
           <div style="font-size:11px;color:oklch(0.5 0.005 110);display:flex;flex-direction:column;justify-content:center">
             <div>通过: <span id="verify-passed" style="color:oklch(0.7 0.1 140)">0</span></div>
             <div>失败: <span id="verify-failed" style="color:oklch(0.7 0.1 25)">0</span></div>
           </div>
         </div>
-        <div id="verify-details" style="font-size:10px;font-family:var(--font-mono)"></div>
+        <div id="verify-details" style="font-size:11px;line-height:1.45;color:#1A2030"></div>
       </div>
     </div>
     <!-- Tab: Usage / Before-After -->
@@ -797,9 +814,10 @@ A：北极星指标：配置变更引发的事故数降至每季度≤1次；辅
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="skill-extract"></script>
 <script src="/js/ag-context.js"></script>
 <script src="/js/evidence-runs.js"></script>
-<script src="/js/skill-extract.js" type="module"></script>
+<script src="/js/skill-extract.js?v=20260718-tse-progress" type="module"></script>
 <script>
 // Topbar user sync
 (function () {

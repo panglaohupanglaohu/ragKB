@@ -1,39 +1,84 @@
 /**
- * AgentsGroup2026 — Unified Navigation (single source of truth)
- * Renders the shared page set into:
- *   - .topbar-ws__nav   (primary horizontal topbar — recommended shell)
- *   - .global-nav       (legacy flat nav — kept for back-compat / tests)
- * Usage: <script src="/js/nav.js" data-page="plaza"></script>
- * data-page must match a PAGE id below.
+ * AgentsGroup2026 — Unified site navigation (single source of truth)
  *
- * Also wires the user chip (.topbar-ws__user-name / -avatar / logout btn)
- * and exposes window._agLogout (back-compat with global-nav.js).
+ * Injects the same page set into:
+ *   - .topbar-ws__nav   (primary horizontal topbar)
+ *   - .global-nav       (legacy flat nav)
+ *   - [data-ag-site-nav] (optional hooks, e.g. cost shell)
+ *
+ * Usage:
+ *   <script src="/js/nav.js" data-page="plaza"></script>
+ * data-page should match a PAGE id; if omitted, path is auto-detected.
+ *
+ * Always overwrites target nav containers so hardcoded HTML cannot drift.
+ * Also wires .topbar-ws__user-* and window._agLogout.
  */
 (function () {
   'use strict';
 
-  // Single shared page set (matches global-nav.js)
+  /** Canonical site map — labels and hrefs must stay identical on every page. */
   var PAGES = [
-    { id: 'agents',        label: '智能体团队',     href: '/agent-team-config.html' },
-    { id: 'plaza',         label: '议事广场',       href: '/plaza.html' },
-    { id: 'skill-extract', label: '技能萃取/赋予',  href: '/skill-extract.html' },
-    { id: 'digital-twin',  label: '数字孪生',       href: '/Agent-digital-twin.html' },
-    { id: 'cost',          label: '💰 演进式成本优化', href: '/cost-dashboard.html' },
-    { id: 'pet',           label: '🐾 仿生生态',     href: '/pet-config.html' }
+    { id: 'agents',        label: '智能体团队', href: '/agent-team-config.html' },
+    { id: 'plaza',         label: '议事广场',   href: '/plaza.html' },
+    { id: 'skill-extract', label: '技能萃取',   href: '/skill-extract.html' },
+    { id: 'digital-twin',  label: '数字孪生',   href: '/Agent-digital-twin.html?office3d=1' },
+    { id: 'cost',          label: 'Token节省',  href: '/cost-dashboard.html' },
+    { id: 'pet',           label: '生态配置',   href: '/pet-config.html' }
   ];
 
-  function currentPageId() {
-    var s = document.querySelector('script[data-page]');
-    return s ? s.getAttribute('data-page') : '';
+  /** Path → page id (secondary pages map to nearest primary). */
+  var PATH_MAP = [
+    { re: /agent-team-config/i, id: 'agents' },
+    { re: /plaza\.html/i, id: 'plaza' },
+    { re: /skill-extract|extraction-pipeline/i, id: 'skill-extract' },
+    { re: /Agent-digital-twin|digital-twin-cli|sandbox-twin/i, id: 'digital-twin' },
+    { re: /cost-dashboard|datacenter-ratchet/i, id: 'cost' },
+    { re: /pet-config/i, id: 'pet' },
+    { re: /system-evolution/i, id: 'agents' },
+    { re: /tasks\.html/i, id: 'agents' }
+  ];
+
+  function detectPageIdFromPath() {
+    var path = '';
+    try {
+      path = (window.location && window.location.pathname) || '';
+    } catch (e) { /* ignore */ }
+    for (var i = 0; i < PATH_MAP.length; i++) {
+      if (PATH_MAP[i].re.test(path)) return PATH_MAP[i].id;
+    }
+    return '';
   }
 
-  // Build link set HTML; current page is non-clickable <span class="cur">.
+  function currentPageId() {
+    var scripts = document.querySelectorAll('script[src*="nav.js"][data-page], script[data-page]');
+    var fromScript = '';
+    for (var i = 0; i < scripts.length; i++) {
+      var src = scripts[i].getAttribute('src') || '';
+      var page = scripts[i].getAttribute('data-page') || '';
+      if (page && (src.indexOf('nav.js') >= 0 || scripts[i].src && String(scripts[i].src).indexOf('nav.js') >= 0)) {
+        fromScript = page;
+        break;
+      }
+      if (!fromScript && page && !src) fromScript = page;
+    }
+    // Prefer explicit data-page on nav.js; fall back to any data-page then path
+    if (!fromScript) {
+      var s = document.querySelector('script[src*="nav.js"]');
+      if (s) fromScript = s.getAttribute('data-page') || '';
+    }
+    if (!fromScript) {
+      var any = document.querySelector('script[data-page]');
+      if (any) fromScript = any.getAttribute('data-page') || '';
+    }
+    return fromScript || detectPageIdFromPath();
+  }
+
   function buildNavHTML(currentId) {
     var html = '';
     for (var i = 0; i < PAGES.length; i++) {
       var p = PAGES[i];
       if (p.id === currentId) {
-        html += '<span class="cur">' + p.label + '</span>';
+        html += '<span class="cur" aria-current="page">' + p.label + '</span>';
       } else {
         html += '<a href="' + p.href + '">' + p.label + '</a>';
       }
@@ -41,41 +86,35 @@
     return html;
   }
 
-  // Inject into every nav container on the page.
   function injectNav() {
     var currentId = currentPageId();
     var html = buildNavHTML(currentId);
-    var targets = document.querySelectorAll('.topbar-ws__nav, .global-nav');
+    var targets = document.querySelectorAll('.topbar-ws__nav, .global-nav, [data-ag-site-nav]');
     for (var i = 0; i < targets.length; i++) {
-      // Only overwrite if empty OR explicitly marked data-nav-auto
-      var el = targets[i];
-      if (el.hasAttribute('data-nav-auto') || el.children.length === 0) {
-        el.innerHTML = html;
-      }
+      targets[i].innerHTML = html;
     }
     syncUserChip();
   }
 
-  // Sync user chip from localStorage('ag-user')
   function syncUserChip() {
-    var user = localStorage.getItem('ag-user');
+    var user = null;
+    try { user = localStorage.getItem('ag-user'); } catch (e) { /* ignore */ }
     var name = (user && user !== 'guest') ? user : 'guest';
     var initial = name ? name.charAt(0).toUpperCase() : 'U';
-    var nameEls = document.querySelectorAll('.topbar-ws__user-name');
-    var avatarEls = document.querySelectorAll('.topbar-ws__user-avatar');
+    var nameEls = document.querySelectorAll('.topbar-ws__user-name, #topbar-user');
+    var avatarEls = document.querySelectorAll('.topbar-ws__user-avatar, #topbar-avatar');
     for (var i = 0; i < nameEls.length; i++) nameEls[i].textContent = name;
     for (var j = 0; j < avatarEls.length; j++) avatarEls[j].textContent = initial;
   }
 
-  // Logout — back-compat with global-nav.js (window._agLogout)
   window._agLogout = function () {
     if (window.api && window.api.logout) {
       window.api.logout().then(function () {
-        localStorage.removeItem('ag-user');
+        try { localStorage.removeItem('ag-user'); } catch (e) { /* ignore */ }
         window.location.href = '/login.html';
       });
     } else {
-      localStorage.removeItem('ag-user');
+      try { localStorage.removeItem('ag-user'); } catch (e) { /* ignore */ }
       window.location.href = '/login.html';
     }
   };
@@ -86,6 +125,11 @@
     injectNav();
   }
 
-  // Expose for reuse / tests
-  window.AG_NAV = { PAGES: PAGES, buildNavHTML: buildNavHTML, injectNav: injectNav };
+  window.AG_NAV = {
+    PAGES: PAGES,
+    buildNavHTML: buildNavHTML,
+    injectNav: injectNav,
+    currentPageId: currentPageId,
+    detectPageIdFromPath: detectPageIdFromPath
+  };
 })();

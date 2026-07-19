@@ -655,8 +655,10 @@ def update_model(team_id: str, model_id: str, req: CreateModelRequest) -> Dict[s
     # Sync to chat harness
     _sync_default_model_to_harness(team)
     _save_model_pool()
-    # P6: 如果是 default 模型且有 key，也持久化到 settings.json
-    if req.is_default and req.api_key:
+    # 若正是全局模型，用新 Key/名称刷新 override（广场/萃取依赖它）
+    refreshed_global = _refresh_global_override_for_model(team_id, model_id)
+    # P6: default 模型且有 key → 持久化 settings.json；全局模型已在 refresh 里写过
+    if req.is_default and req.api_key and not refreshed_global:
         try:
             import json as _json
             import os as _os
@@ -673,10 +675,16 @@ def update_model(team_id: str, model_id: str, req: CreateModelRequest) -> Dict[s
             llm["temperature"] = req.temperature
             with open(_settings_path, "w", encoding="utf-8") as f:
                 _json.dump(settings, f, ensure_ascii=False, indent=2)
+            try:
+                from .secret_store import save_default_llm_api_key
+                save_default_llm_api_key(req.api_key)
+            except Exception:
+                pass
         except Exception:
             pass
-    return model.to_dict()
-    return model.to_dict()
+    out = model.to_dict()
+    out["global_override_refreshed"] = bool(refreshed_global)
+    return out
 
 
 @router.put(
@@ -1536,43 +1544,262 @@ def edit_skill(team_id: str, skill_id: str, req: EditSkillRequest = Body(default
     summary="Delete skill from team",
 )
 def delete_skill(team_id: str, skill_id: str) -> Dict[str, Any]:
+    """删除技能：支持 skill_id / slug / 同名副本 / 仅在 registry 或 skill_store。
+
+    UI 有时传萃取队列 item_id、draft_slug 或另一团队副本 id，只 pop 精确 key 会 404。
+    解析后：1) 所有团队副本 2) agent 绑定 3) skill_store 4) skill_registry 5) 萃取队列幽灵项。
+    """
+    from urllib.parse import unquote
+    skill_id = unquote(skill_id or "").strip()
     _get_team_or_404(team_id)
-    # 技能可能是共享技能（多团队持有副本）、可能只在技能库(skill_store)里、
-    # 也可能只是内置技能的 agent 绑定引用。删除必须：
-    # 1) 从所有团队移除副本；2) 解绑所有 agent 引用；3) 从技能库删除；全无才 404。
+    if not skill_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="skill_id required")
+
+    ids_to_remove: set = {skill_id}
+    slugs_to_remove: set = set()
+    names_to_remove: set = set()
+
+    def _consider(skill) -> None:
+        if skill is None:
+            return
+        sid = getattr(skill, "skill_id", None) or ""
+        slug = getattr(skill, "slug", None) or ""
+        name = getattr(skill, "name", None) or ""
+        if sid:
+            ids_to_remove.add(sid)
+        if slug:
+            slugs_to_remove.add(slug)
+        if name:
+            names_to_remove.add(name)
+
+    team0 = _tm().get_team(team_id)
+    if team0:
+        if skill_id in team0.skills:
+            _consider(team0.skills[skill_id])
+        else:
+            for s in team0.skills.values():
+                if s.skill_id == skill_id or s.slug == skill_id or s.name == skill_id:
+                    _consider(s)
+    try:
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib:
+            _consider(lib._find_skill(team_id, skill_id))
+    except Exception:
+        pass
+    try:
+        reg = _sr().get(skill_id)
+        if reg is None and hasattr(_sr(), "get_by_slug"):
+            reg = _sr().get_by_slug(skill_id)
+        _consider(reg)
+    except Exception:
+        pass
+    for team in _tm().list_teams():
+        for key, s in list(team.skills.items()):
+            if (
+                key in ids_to_remove
+                or s.skill_id in ids_to_remove
+                or (s.slug and s.slug in slugs_to_remove)
+                or (s.slug and s.slug == skill_id)
+                or s.skill_id == skill_id
+            ):
+                _consider(s)
+                ids_to_remove.add(key)
+
     removed_from_teams: List[str] = []
     removed_agent_bindings = 0
     removed_any_copy = False
+    removed_keys: List[str] = []
+
     for team in _tm().list_teams():
         team_touched = False
-        if team.skills.pop(skill_id, None) is not None:
+        for key in list(team.skills.keys()):
+            s = team.skills.get(key)
+            if s is None:
+                continue
+            hit = (
+                key in ids_to_remove
+                or s.skill_id in ids_to_remove
+                or (s.slug and (s.slug in slugs_to_remove or s.slug == skill_id))
+                or (s.name and s.name in names_to_remove)
+                or (s.name and s.name == skill_id)
+            )
+            if not hit:
+                continue
+            team.skills.pop(key, None)
             removed_any_copy = True
             team_touched = True
-        # team.agents 是 dict[id→AgentProfile]，须遍历 values
+            removed_keys.append(f"{team.team_id}:{key}")
+            ids_to_remove.add(key)
+            if s.skill_id:
+                ids_to_remove.add(s.skill_id)
+            if s.slug:
+                slugs_to_remove.add(s.slug)
+            if s.name:
+                names_to_remove.add(s.name)
+        bind_refs = set(ids_to_remove) | slugs_to_remove | names_to_remove
         for agent in team.agents.values():
-            if skill_id in agent.skills:
-                agent.skills.remove(skill_id)
-                removed_agent_bindings += 1
+            before = list(agent.skills or [])
+            agent.skills = [x for x in before if x not in bind_refs]
+            removed = len(before) - len(agent.skills)
+            if removed:
+                removed_agent_bindings += removed
                 team_touched = True
         if team_touched:
             removed_from_teams.append(team.team_id)
-    _tm()._persist()
-    # Also remove from skill store
+
+    if removed_from_teams or removed_any_copy or removed_agent_bindings:
+        _tm()._persist()
+
     store_deleted = False
     try:
         from .skill_library import get_skill_library
         lib = get_skill_library()
         if lib and lib._skill_store:
-            store_deleted = bool(lib._skill_store.delete(skill_id))
+            for rid in list(ids_to_remove):
+                if lib._skill_store.delete(rid):
+                    store_deleted = True
     except Exception:
         pass
-    if not removed_any_copy and removed_agent_bindings == 0 and not store_deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Skill not found in team or library")
+
+    registry_deleted = False
+    try:
+        for rid in list(ids_to_remove):
+            if _sr().delete_skill(rid):
+                registry_deleted = True
+        for slug in list(slugs_to_remove):
+            if hasattr(_sr(), "get_by_slug"):
+                s = _sr().get_by_slug(slug)
+                if s and _sr().delete_skill(s.skill_id):
+                    registry_deleted = True
+    except Exception:
+        pass
+
+    # ── 萃取队列幽灵：approved 项会在启动时 rehydrate 写回 registry/team ──
+    # 旧实现把 dict 当 list 迭代（只遍历 key 字符串），删不掉 → 删了又复活。
+    queue_deleted = 0
+    try:
+        from .skill_extractor import get_skill_extractor_engine
+        eng = get_skill_extractor_engine()
+        if eng is not None and hasattr(eng, "_queues"):
+            name_match = set(names_to_remove) | {skill_id}
+            for qtid, qmap in list(getattr(eng, "_queues", {}).items()):
+                if not isinstance(qmap, dict):
+                    # legacy list shape
+                    items_iter = list(qmap or [])
+                    qmap = {}
+                    for it in items_iter:
+                        iid = getattr(it, "item_id", "") or ""
+                        if iid:
+                            qmap[iid] = it
+                    eng._queues[qtid] = qmap
+                touched = False
+                for iid, item in list(qmap.items()):
+                    slug = getattr(item, "draft_slug", "") or ""
+                    name = getattr(item, "draft_name", "") or ""
+                    hit = (
+                        iid in ids_to_remove
+                        or iid == skill_id
+                        or (slug and (slug in slugs_to_remove or slug == skill_id))
+                        or (name and name in name_match)
+                    )
+                    if not hit:
+                        continue
+                    # 去掉 rehydrate 源：直接移出队列（比改 status 更干净）
+                    qmap.pop(iid, None)
+                    queue_deleted += 1
+                    touched = True
+                    if slug:
+                        slugs_to_remove.add(slug)
+                    if name:
+                        names_to_remove.add(name)
+                if touched and hasattr(eng, "_persist_queue"):
+                    try:
+                        eng._persist_queue(qtid)
+                    except Exception:
+                        pass
+            # 墓碑：防止同名/同 slug 再次从别处 rehydrate
+            if hasattr(eng, "tombstone_skill_keys"):
+                try:
+                    eng.tombstone_skill_keys(
+                        team_id,
+                        skill_ids=ids_to_remove,
+                        slugs=slugs_to_remove,
+                        names=names_to_remove,
+                    )
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 版本快照清理（skill_versions.json）
+    versions_purged = 0
+    try:
+        from .skill_library import get_skill_library
+        lib = get_skill_library()
+        if lib and hasattr(lib, "purge_version_snapshots"):
+            versions_purged = int(
+                lib.purge_version_snapshots(
+                    skill_ids=ids_to_remove,
+                    slugs=slugs_to_remove,
+                    names=names_to_remove,
+                ) or 0
+            )
+    except Exception:
+        pass
+
+    # 再扫 registry：按 name/slug 兜底（UI 传的 id 可能是旧副本）
+    try:
+        for s in list(_sr().list_all()):
+            sid = getattr(s, "skill_id", "") or ""
+            slug = getattr(s, "slug", "") or ""
+            name = getattr(s, "name", "") or ""
+            if (
+                sid in ids_to_remove
+                or (slug and slug in slugs_to_remove)
+                or (name and name in names_to_remove)
+                or name == skill_id
+                or slug == skill_id
+            ):
+                if _sr().delete_skill(sid):
+                    registry_deleted = True
+                    ids_to_remove.add(sid)
+    except Exception:
+        pass
+
+    if (
+        not removed_any_copy
+        and removed_agent_bindings == 0
+        and not store_deleted
+        and not registry_deleted
+        and queue_deleted == 0
+        and versions_purged == 0
+    ):
+        # 幂等：已删过再点删除 → 200 already_deleted，避免 UI 未刷新时二次点击 404
+        return {
+            "status": "already_deleted",
+            "skill_id": skill_id,
+            "removed_ids": sorted(ids_to_remove),
+            "removed_keys": [],
+            "removed_from_teams": [],
+            "removed_agent_bindings": 0,
+            "store_deleted": False,
+            "registry_deleted": False,
+            "queue_deleted": 0,
+            "versions_purged": 0,
+            "message": "技能已不存在（可能刚删过，列表将刷新）",
+        }
     return {
         "status": "deleted",
         "skill_id": skill_id,
+        "removed_ids": sorted(ids_to_remove),
+        "removed_keys": removed_keys,
         "removed_from_teams": removed_from_teams,
         "removed_agent_bindings": removed_agent_bindings,
+        "store_deleted": store_deleted,
+        "registry_deleted": registry_deleted,
+        "queue_deleted": queue_deleted,
+        "versions_purged": versions_purged,
     }
 
 
@@ -1663,6 +1890,10 @@ async def skill_extract_start(team_id: str, body: Dict[str, Any] = {}) -> Dict[s
     source_title = body.get("source_title", "")
     source_type = body.get("source_type", "chat")
     source_meta = body.get("source_meta") if isinstance(body.get("source_meta"), dict) else {}
+    # 页面手动开始默认 force；自动管线可传 force=false 保留墓碑
+    force = body.get("force", True)
+    if isinstance(force, str):
+        force = force.strip().lower() not in ("0", "false", "no")
     if not source_text or len(source_text) < 10:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="source_text must be at least 10 characters")
     item = await engine.start_extraction(
@@ -1671,6 +1902,7 @@ async def skill_extract_start(team_id: str, body: Dict[str, Any] = {}) -> Dict[s
         source_title=source_title,
         source_type=source_type,
         source_meta=source_meta,
+        force=bool(force),
     )
     return item.to_dict()
 
@@ -2681,7 +2913,7 @@ def _start_first_workflow_step(task: AgentTask, team_id: str, workflow: List[Dic
         first_step["key"],
         agent.name,
     )
-    _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+    _start_claude_session(sid, step_prompt, cfg, agent, task.task_id, team_id=team_id)
     first_step["session_id"] = sid
     task.metadata["workflow"] = workflow
     _emit_pipeline_event(task.task_id, "step_started", {
@@ -2725,7 +2957,9 @@ def _start_workflow_step_session(
         step["key"],
         agent.name,
     )
-    _start_claude_session(sid, step_prompt, _code_implementation_skill_config(), agent, task.task_id)
+    _start_claude_session(
+        sid, step_prompt, _code_implementation_skill_config(), agent, task.task_id, team_id=team_id,
+    )
     step["session_id"] = sid
     task.metadata["workflow"] = workflow
     return sid
@@ -2808,7 +3042,9 @@ async def _real_task_executor(task) -> Any:
             step_prompt = _build_step_prompt(task, first_step, wf)
             _harness_log.info("[Executor] Starting Claude session %s for task %s step '%s'",
                               sid, task.task_id, first_step["key"])
-            _start_claude_session(sid, step_prompt, cfg, agent, task.task_id)
+            _start_claude_session(
+                sid, step_prompt, cfg, agent, task.task_id, team_id=task.team_id,
+            )
             first_step["session_id"] = sid
             task.metadata["workflow"] = wf
 
@@ -2834,6 +3070,28 @@ async def submit_task(team_id: str, req: SubmitTaskRequest) -> Dict[str, Any]:
     _get_team_or_404(team_id)
     if req.agent_id:
         _get_agent_or_404(team_id, req.agent_id)
+    # TG-5：预算 halt 硬门禁（提交前预检；metadata.skip_token_budget 可关）
+    _meta0 = dict(req.metadata or {})
+    if not _meta0.get("skip_token_budget"):
+        _est = _estimate_prompt_tokens(
+            f"{req.title or ''}\n{req.description or ''}"
+        ) + 2000  # 预留首轮上下文
+        _pre = _precheck_team_token_budget(
+            team_id, estimated_tokens=_est, agent_id=req.agent_id or "",
+        )
+        if not _pre.get("allowed"):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "token_budget_exceeded",
+                    "message": "团队/Agent token 预算已触顶（BudgetGuard halt）",
+                    "budget": _pre.get("budget"),
+                    "events": _pre.get("events"),
+                    "hint": "打开 cost-dashboard「任务 Token 工作台 → 预算与门禁」调高限额，或 metadata.skip_token_budget=true",
+                    "workbench": "/cost-dashboard.html#tg-hub",
+                },
+            )
     engine = await _ensure_task_engine_running()
     token_ready = await _check_token_factory_ready("submit_task")
     task = _build_task_from_request(team_id, req)
@@ -3706,7 +3964,9 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                                 skill = sr.get_by_slug("code_implementation")
                                 cfg = dict(skill.config or {}) if skill else {}
                                 step_prompt = _build_step_prompt(task, active_step, wf)
-                                _start_claude_session(new_sid, step_prompt, cfg, agent, task_id)
+                                _start_claude_session(
+                                    new_sid, step_prompt, cfg, agent, task_id, team_id=team_id,
+                                )
                                 active_step["session_id"] = new_sid
                                 task.metadata["workflow"] = wf
                                 _harness_log.info("[Harness] Late-started session %s for step %s",
@@ -3791,7 +4051,9 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                 agent = tm.get_agent(team_id, active_step["agent_id"]) if active_step.get("agent_id") else None
                 if agent:
                     step_prompt = _build_step_prompt(task, active_step, wf)
-                    _start_claude_session(new_sid, step_prompt, cfg, agent, task_id)
+                    _start_claude_session(
+                        new_sid, step_prompt, cfg, agent, task_id, team_id=team_id,
+                    )
                     active_step["session_id"] = new_sid
                     task.metadata["workflow"] = wf
                     _harness_log.info(f"[Harness] Retry started with session {new_sid}")
@@ -4203,7 +4465,9 @@ def _harness_monitor(task_id: str, team_id: str) -> None:
                                     "prev_step": active_step["key"],
                                     "collab_path": _hgate.get("reason"),
                                 })
-                                _start_claude_session(new_sid, step_prompt, cfg, agent, task_id)
+                                _start_claude_session(
+                                    new_sid, step_prompt, cfg, agent, task_id, team_id=team_id,
+                                )
                                 next_step["session_id"] = new_sid
                             except Exception as start_err:
                                 _harness_log.exception(
@@ -6312,7 +6576,107 @@ def _should_use_direct_api(role: str) -> bool:
     return role in _TEXT_ONLY_ROLES
 
 
-def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_id: str) -> None:
+def _estimate_prompt_tokens(text: str) -> int:
+    """粗估 prompt tokens（与 prompt_cache 一致：~2 chars/token）."""
+    if not text:
+        return 0
+    return max(1, (len(text) + 1) // 2)
+
+
+def _precheck_team_token_budget(team_id: str, *, estimated_tokens: int = 0, agent_id: str = "") -> Dict[str, Any]:
+    """任务提交前预算预检。halt 且超限 → allowed=False。"""
+    try:
+        guard = get_budget_guard()
+        check = guard.check(
+            session_id=f"submit:{team_id}",
+            agent_id=agent_id or f"team:{team_id}",
+            team_id=team_id,
+            estimated_tokens=max(0, int(estimated_tokens or 0)),
+        )
+        return {
+            "allowed": bool(check.allowed),
+            "events": [
+                {
+                    "scope": e.scope,
+                    "scope_id": e.scope_id,
+                    "level": e.level,
+                    "value": e.value,
+                    "limit": e.limit,
+                    "message": e.message,
+                }
+                for e in (check.events or [])
+            ],
+            "budget": guard.budget.to_dict(),
+        }
+    except Exception as exc:
+        _harness_log.warning("budget precheck failed: %s", exc)
+        return {"allowed": True, "events": [], "error": str(exc)}
+
+
+def _record_session_token_usage(
+    session: Dict[str, Any],
+    *,
+    model: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
+) -> None:
+    """任务会话记账：强制 phase=task + scenario_id=task_id + team_id。"""
+    tot = int(total_tokens or (input_tokens + output_tokens))
+    if tot <= 0:
+        return
+    try:
+        from .budget import UsageRecord, get_budget_guard
+        from .chat_harness import ChatHarness
+        from .token_context import get_token_ctx
+        ctx = get_token_ctx() or {}
+        task_id = str(
+            session.get("task_id")
+            or ctx.get("task_id")
+            or ctx.get("scenario_id")
+            or _os.environ.get("AG_TASK_ID")
+            or ""
+        )
+        agent = session.get("_agent")
+        agent_id = str(
+            getattr(agent, "agent_id", "")
+            or session.get("agent_id")
+            or ctx.get("agent_id")
+            or ""
+        )
+        team_id = str(
+            session.get("team_id")
+            or getattr(agent, "team_id", "")
+            or getattr(agent, "origin_team_id", "")
+            or ctx.get("team_id")
+            or _os.environ.get("AG_TEAM_ID")
+            or ""
+        )
+        if not team_id:
+            _harness_log.warning(
+                "task token record missing team_id task=%s session=%s — 分析台 by_team 将看不到",
+                task_id, session.get("session_id"),
+            )
+        get_budget_guard().record_usage(UsageRecord(
+            session_id=str(session.get("session_id") or ""),
+            agent_id=agent_id,
+            team_id=team_id,
+            model=model or "",
+            input_tokens=int(input_tokens or 0),
+            output_tokens=int(output_tokens or 0),
+            total_tokens=tot,
+            cost_usd=ChatHarness._estimate_cost_usd(model or "", tot),
+            phase="task",
+            scenario_id=task_id,
+            run_id=str(session.get("session_id") or ""),
+        ))
+    except Exception as exc:
+        _harness_log.debug("session token record skip: %s", exc)
+
+
+def _start_claude_session(
+    session_id: str, prompt: str, cfg: Dict, agent, task_id: str, team_id: str = "",
+) -> None:
     """Start a session for build team tasks.
 
     Text-only roles (PM, researcher, docs) use DeepSeek API directly for
@@ -6342,9 +6706,13 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
     if auto_test and not use_direct_api:
         full_prompt += "完成后运行: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -q --tb=short\n"
 
+    _tid = str(team_id or getattr(agent, "team_id", "") or getattr(agent, "origin_team_id", "") or "")
     session: Dict[str, Any] = {
         "session_id": session_id,
         "task_id": task_id,
+        "agent_id": str(getattr(agent, "agent_id", "") or ""),
+        "team_id": _tid,
+        "_agent": agent,
         "status": "running",
         "lines": deque(maxlen=20000),
         "started_at": _time.time(),
@@ -6352,6 +6720,12 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
         "error": "",
         "proc": None,
     }
+    # TG：线程内归因（contextvar 不跨线程，用 env + session + token_scope）
+    # 任务维优化要求：team_id + task_id 必须进入 usage_log，分析台才认
+    if task_id:
+        _os.environ["AG_TASK_ID"] = str(task_id)
+    if _tid:
+        _os.environ["AG_TEAM_ID"] = _tid
     _claude_sessions[session_id] = session
 
     # Echo the prompt to the terminal buffer so users can see what was sent
@@ -6360,6 +6734,7 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
     method_label = "配置模型 ({} / {})".format(_provider_name or "?", _model_name or "?")
     session["lines"].append(f"{'─'*60}\n")
     session["lines"].append(f"📋 任务: {task_id}\n")
+    session["lines"].append(f"🏷 团队: {_tid or '（未传 team_id — 将无法进分析台 by_team）'}\n")
     session["lines"].append(f"🤖 Agent: {agent.name} ({agent.role})\n")
     session["lines"].append(f"📂 工作目录: {working_dir}\n")
     session["lines"].append(f"🔧 执行方式: {method_label}\n")
@@ -6371,7 +6746,18 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
     session["lines"].append(f"{'─'*60}\n")
 
     def _run():
+        # 工作线程内再注 env + token_scope（contextvar 不跨线程）
+        if task_id:
+            _os.environ["AG_TASK_ID"] = str(task_id)
+        if _tid:
+            _os.environ["AG_TEAM_ID"] = str(_tid)
+        _agent_id = str(getattr(agent, "agent_id", "") or session.get("agent_id") or "")
         try:
+            from .token_context import token_scope as _token_scope
+        except Exception:
+            _token_scope = None  # type: ignore
+
+        def _run_body() -> None:
             # XC-1.1: CLI 逃生舱——仅 AG_ENABLE_LOCAL_CLI=1 时可达
             _cli_escape = _os.getenv("AG_ENABLE_LOCAL_CLI") == "1"
             if _cli_escape and not use_direct_api:
@@ -6381,7 +6767,6 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
 
             # XC-1.1: 统一执行引擎——文本角色走直连 API，其余全部走 tool_loop
             if use_direct_api:
-                # 文本角色 → 直连 API（harness provider）
                 api_key, api_base_url, model = _get_deepseek_credentials()
                 if api_key:
                     session["lines"].append(f"⚡ 正在调用配置模型 ({model})...\n\n")
@@ -6397,14 +6782,14 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
                     _complete_session_with_llm_degraded_output(session, task_id, "No LLM credentials configured")
                 return
 
-            # 其余全部角色（含 devops/deployer）→ 工具循环（harness provider）
             api_key, api_base_url, model = _get_deepseek_credentials()
             if api_key:
                 session["lines"].append(
                     f"🛠 正在调用配置模型 ({model}) — 工具循环模式 (read/grep/write/exec)...\n\n"
                 )
-                # XC-3.2: 注入 task 环境变量供 deploy_exec 读取
-                _os.environ["AG_TASK_ID"] = task_id
+                _os.environ["AG_TASK_ID"] = str(task_id or "")
+                if _tid:
+                    _os.environ["AG_TEAM_ID"] = str(_tid)
                 try:
                     import json as _json_env
                     _os.environ["AG_TASK_METADATA"] = _json_env.dumps(
@@ -6419,10 +6804,23 @@ def _start_claude_session(session_id: str, prompt: str, cfg: Dict, agent, task_i
                     temperature=float(cfg.get("temperature", 0.2)),
                     max_iterations=int(cfg.get("max_iterations", 25)),
                 )
-                return  # tool-loop handles its own status
+                return
+            session["lines"].append(f"⚠️ 未找到配置模型凭据，请检查「模型与连接」页配置。\n\n")
+            _complete_session_with_llm_degraded_output(session, task_id, "No LLM credentials configured")
+
+        try:
+            if _token_scope is not None:
+                with _token_scope(
+                    task_id=str(task_id or ""),
+                    team_id=str(_tid or ""),
+                    agent_id=_agent_id,
+                    phase="task",
+                    run_id=str(session_id or ""),
+                    scenario_id=str(task_id or ""),
+                ):
+                    _run_body()
             else:
-                session["lines"].append(f"⚠️ 未找到配置模型凭据，请检查「模型与连接」页配置。\n\n")
-                _complete_session_with_llm_degraded_output(session, task_id, "No LLM credentials configured")
+                _run_body()
         except Exception as run_err:
             import traceback as _tb
             err_text = f"{run_err.__class__.__name__}: {run_err}"
@@ -6641,6 +7039,13 @@ def _run_tool_loop(
         "重要：禁止整文件覆盖大文件（>200行），改用新建模块或 patch_file。"
     )
 
+    # TG：任务维归因 + 预算作用域（agent/team/session）
+    _agent_id = str(getattr(session.get("_agent"), "agent_id", "") or session.get("agent_id") or "")
+    _team_id = str(session.get("team_id") or "")
+    _task_id = str(session.get("task_id") or _os.environ.get("AG_TASK_ID") or "")
+    # 保证 env 中有 task_id，供 tool_loop 归因
+    if _task_id:
+        _os.environ["AG_TASK_ID"] = _task_id
     result = run_tool_loop_sync_with_provider(
         prompt=prompt,
         api_key=api_key,
@@ -6649,6 +7054,9 @@ def _run_tool_loop(
         role=role, system_prompt=system,
         max_iterations=max_iterations,
         max_tokens=max_tokens, temperature=temperature,
+        agent_id=_agent_id,
+        team_id=_team_id,
+        session_id=str(session.get("session_id") or ""),
         on_event=on_event,
     )
 
@@ -6742,6 +7150,8 @@ def _run_openai_compatible(
             chunk_count = 0
             last_chunk_time = _time.time()
             done = False
+            out_chars = 0
+            usage_from_api: Dict[str, int] = {}
             while True:
                 now = _time.time()
                 if now > deadline:
@@ -6771,7 +7181,16 @@ def _run_openai_compatible(
                             delta = obj.get("choices", [{}])[0].get("delta", {})
                             content = delta.get("content", "")
                             if content:
+                                out_chars += len(content)
                                 session["lines"].append(content)
+                            # 部分兼容流在最终 chunk 带 usage
+                            u = obj.get("usage") or {}
+                            if u:
+                                usage_from_api = {
+                                    "prompt_tokens": int(u.get("prompt_tokens") or 0),
+                                    "completion_tokens": int(u.get("completion_tokens") or 0),
+                                    "total_tokens": int(u.get("total_tokens") or 0),
+                                }
                         except _json.JSONDecodeError:
                             pass
                 if done:
@@ -6781,6 +7200,21 @@ def _run_openai_compatible(
             session["exit_code"] = 0
             session["lines"].append(f"\n\n{'─'*60}\n")
             session["lines"].append(f"✅ {model} 完成\n")
+            # TG：任务维 token 记账（流式 API 无 usage 时用字符粗估）
+            if usage_from_api.get("total_tokens"):
+                _record_session_token_usage(
+                    session, model=model,
+                    input_tokens=usage_from_api.get("prompt_tokens", 0),
+                    output_tokens=usage_from_api.get("completion_tokens", 0),
+                    total_tokens=usage_from_api.get("total_tokens", 0),
+                )
+            else:
+                _inp = _estimate_prompt_tokens(prompt)
+                _out = max(1, (out_chars + 1) // 2) if out_chars else 0
+                _record_session_token_usage(
+                    session, model=model,
+                    input_tokens=_inp, output_tokens=_out, total_tokens=_inp + _out,
+                )
             conn.close()
             return
 
@@ -7012,7 +7446,9 @@ async def execute_skill(
             # Start streaming session instead of blocking
             import uuid
             session_id = str(uuid.uuid4())[:12]
-            _start_claude_session(session_id, req.prompt, cfg, agent, req.task_id)
+            _start_claude_session(
+                session_id, req.prompt, cfg, agent, req.task_id, team_id=team_id,
+            )
             result["status"] = "streaming"
             result["session_id"] = session_id
             result["stream_url"] = f"/api/v1/agent-config/claude-sessions/{session_id}/stream"
@@ -8507,20 +8943,47 @@ def agent_model_status(agent_id: str) -> Dict[str, Any]:
 
 @router.post("/llm/test", summary="Test LLM connection")
 async def test_llm_connection() -> Dict[str, Any]:
-    """Send a test message to verify the LLM provider is working."""
+    """Send a test message to verify the **global default** LLM provider is working.
+
+    注意：此接口测的是 ChatHarness 当前全局默认（/llm/provider 或 global_model），
+    不是编辑弹窗里某一条团队模型。测某条模型请用 POST /llm/test-model。
+    """
     harness = get_chat_harness()
+    cfg = harness.get_provider_config()
+    # model_override 钉死全局默认模型名，避免 TG model_route 改写成 deepseek-v4-flash
     result = await harness.chat(
         "用一句话介绍你自己。",
         agent_id="__test__",
         system_prompt="你是 AgentsGroup2026 系统的 AI 助手。",
+        model_override=cfg.model or "",
     )
+    base = ""
+    try:
+        base = cfg.resolve_base_url() if hasattr(cfg, "resolve_base_url") else (cfg.api_base_url or "")
+    except Exception:
+        base = cfg.api_base_url or ""
+    err = result.error or ""
+    sent = result.model or cfg.model
+    # 网关 model_not_found 时常误以为「key 错了」——把实际请求的 model 写进 tip
+    tip = ""
+    if "model_not_found" in err or "not supported" in err.lower() or "is not supported" in err:
+        tip = (
+            f"实际上游收到的模型是「{sent}」。"
+            f"若你刚配的是另一模型名，请到该模型编辑弹窗点「测试连接」(POST /llm/test-model)，"
+            f"并确认「模型名称」与上游一致；本按钮只测全局默认。"
+        )
     return {
         "success": not bool(result.error),
-        "response": result.response[:200],
-        "model": result.model,
-        "provider": result.provider,
+        "response": (result.response or "")[:200],
+        "model": sent,
+        "provider": result.provider or (cfg.provider.value if hasattr(cfg.provider, "value") else str(cfg.provider)),
+        "base_url": base,
+        "requested_model": cfg.model,
+        "sent_model": sent,
         "latency_ms": result.latency_ms,
-        "error": result.error,
+        "error": err,
+        "tip": tip,
+        "scope": "global_default",
     }
 
 
@@ -8695,21 +9158,39 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
     # 留空回退：从已保存的团队模型取密钥与其余配置
     api_key = req.api_key
     provider_name = req.provider
-    name = req.name
-    api_base_url = req.api_base_url
-    if not api_key and req.team_id and req.model_id and _team_manager is not None:
+    name = (req.name or "").strip()
+    api_base_url = (req.api_base_url or "").strip()
+    if req.team_id and req.model_id and _team_manager is not None:
         stored = _team_manager.get_team(req.team_id)
         stored_model = stored.get_model(req.model_id) if stored else None
         if stored_model is not None:
-            api_key = stored_model.get_resolved_api_key() or api_key
-            provider_name = provider_name or stored_model.provider
-            name = name or stored_model.name
-            api_base_url = api_base_url or stored_model.api_base_url
+            if not api_key:
+                api_key = stored_model.get_resolved_api_key() or api_key
+            if not provider_name:
+                provider_name = stored_model.provider
+            if not name:
+                name = stored_model.name or name
+            if not api_base_url:
+                api_base_url = stored_model.api_base_url or api_base_url
+
+    if not name:
+        return {
+            "success": False,
+            "response": "",
+            "model": "",
+            "provider": provider_name,
+            "base_url": api_base_url,
+            "requested_model": "",
+            "latency_ms": 0,
+            "error": "模型名称为空：请在编辑框填写上游实际模型 ID（例如 qwen27b-abliterated-Fable-MTP），不要留空。",
+            "tip": "「模型名称」会原样作为 chat/completions 的 model 字段发给 Base URL。",
+            "scope": "model_edit",
+        }
 
     try:
         provider = LLMProvider(provider_name)
     except ValueError:
-        provider = LLMProvider.DEEPSEEK
+        provider = LLMProvider.OPENAI  # OpenAI-compatible 网关比 deepseek 默认更中性
 
     config = ProviderConfig(
         provider=provider,
@@ -8720,18 +9201,39 @@ async def test_model_config(req: TestModelRequest) -> Dict[str, Any]:
         temperature=req.temperature,
     )
     temp_harness = ChatHarness(default_config=config)
+    # 必须 model_override=编辑框名称：否则 TG model_route/cost_tier 会把短测试句
+    # 改写成 economy 默认 deepseek-v4-flash，UI 却显示 requested_model=用户填的名，
+    # 上游报错就会出现「明明写了 qwen 却说 deepseek-v4-flash」的假象。
     result = await temp_harness.chat(
         "用一句话介绍你自己。",
         agent_id="__model_test__",
         system_prompt="你是 AgentsGroup2026 系统的 AI 助手。请用中文回答。",
+        model_override=name,
     )
+    err = result.error or ""
+    sent = result.model or name
+    tip = ""
+    if "model_not_found" in err or "not supported" in err.lower() or "is not supported" in err:
+        tip = (
+            f"上游拒绝了模型「{sent}」（编辑框填写「{name}」）。"
+            f"请核对：① 编辑框「模型名称」是否等于上游允许的 id；"
+            f"② Base URL 是否对应正确分组（当前 {api_base_url or '(默认)'}）；"
+            f"③ Key 是否属于该分组且已开通此模型。"
+        )
+        if sent != name:
+            tip += f" 注意：实际发出的 model 与编辑框不一致（{name} → {sent}），请报告此为路由改写 bug。"
     return {
         "success": not bool(result.error),
-        "response": result.response[:200],
-        "model": result.model,
-        "provider": result.provider,
+        "response": (result.response or "")[:200],
+        "model": sent,
+        "provider": result.provider or provider.value,
+        "base_url": api_base_url or (config.resolve_base_url() if hasattr(config, "resolve_base_url") else ""),
+        "requested_model": name,
+        "sent_model": sent,
         "latency_ms": result.latency_ms,
-        "error": result.error,
+        "error": err,
+        "tip": tip,
+        "scope": "model_edit",
     }
 
 
@@ -8752,10 +9254,80 @@ def _build_provider_config_from_model(team_id: str, model_id: str):
         provider = LLMProvider(model.provider)
     except ValueError:
         provider = LLMProvider.DEEPSEEK
+    # 必须 get_resolved_api_key：env: 引用与内存中明文 key 都走这里
+    resolved = model.get_resolved_api_key() if hasattr(model, "get_resolved_api_key") else (model.api_key or "")
     return ProviderConfig(
-        provider=provider, api_key=model.api_key, api_base_url=model.api_base_url,
-        model=model.name, max_tokens=model.max_tokens, temperature=model.temperature,
+        provider=provider,
+        api_key=resolved,
+        api_base_url=model.api_base_url,
+        model=model.name,
+        max_tokens=model.max_tokens,
+        temperature=model.temperature,
     )
+
+
+def _read_global_model_sel() -> Optional[Dict[str, str]]:
+    import json as _json, os as _os
+    path = _os.path.join(_CONFIG_DIR, "settings.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            sel = _json.load(f).get("global_model")
+        if isinstance(sel, dict) and sel.get("team_id") and sel.get("model_id"):
+            return {"team_id": sel["team_id"], "model_id": sel["model_id"]}
+    except Exception:
+        pass
+    return None
+
+
+def _refresh_global_override_for_model(team_id: str, model_id: str) -> bool:
+    """若该模型正是 settings.global_model，用最新 key/name/base 刷新 harness 全局覆盖。
+
+    修复：编辑/测试连接只更新了团队模型槽，广场仍读旧的 global_override（旧 Key → INVALID_API_KEY）。
+    """
+    sel = _read_global_model_sel()
+    if not sel or sel.get("team_id") != team_id or sel.get("model_id") != model_id:
+        return False
+    cfg = _build_provider_config_from_model(team_id, model_id)
+    if cfg is None or not cfg.api_key:
+        return False
+    try:
+        from .chat_harness import get_chat_harness
+        team = _team_manager.get_team(team_id) if _team_manager else None
+        model = team.get_model(model_id) if team else None
+        get_chat_harness().set_global_override(cfg, {
+            "team_id": team_id,
+            "model_id": model_id,
+            "name": getattr(model, "name", model_id),
+        })
+        # 同步 settings.llm 默认（广场/萃取等读 harness 与 settings）
+        try:
+            import json as _json, os as _os
+            path = _os.path.join(_CONFIG_DIR, "settings.json")
+            with open(path, "r", encoding="utf-8") as f:
+                settings = _json.load(f)
+            llm = settings.setdefault("llm", {})
+            llm["provider"] = cfg.provider.value if hasattr(cfg.provider, "value") else str(cfg.provider)
+            llm["api_key"] = cfg.api_key
+            llm["api_base_url"] = cfg.api_base_url or ""
+            llm["model"] = cfg.model
+            llm["max_tokens"] = cfg.max_tokens
+            llm["temperature"] = cfg.temperature
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(settings, f, ensure_ascii=False, indent=2)
+            try:
+                from .secret_store import save_default_llm_api_key
+                save_default_llm_api_key(cfg.api_key)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        _logging.getLogger(__name__).info(
+            "🌐 全局模型覆盖已刷新: %s/%s model=%s", team_id, model_id, cfg.model,
+        )
+        return True
+    except Exception:
+        _logging.getLogger(__name__).warning("刷新 global_override 失败", exc_info=True)
+        return False
 
 
 def _persist_global_model(sel: Optional[Dict[str, str]]) -> None:
@@ -9913,6 +10485,14 @@ async def skill_library_verify(body: Dict[str, Any] = {}) -> Dict[str, Any]:
     skill_id = body.get("skill_id", "")
     if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
+    # optional: twin A/B seed count (1–30); default AG_SKILL_TWIN_AB_SEEDS / 5
+    n_seeds = body.get("n_seeds") or body.get("twin_seeds")
+    if n_seeds is not None:
+        try:
+            import os
+            os.environ["AG_SKILL_TWIN_AB_SEEDS"] = str(max(1, min(30, int(n_seeds))))
+        except (TypeError, ValueError):
+            pass
     result = await _get_skill_verifier().verify_skill(team_id, skill_id)
     return result.to_dict()
 

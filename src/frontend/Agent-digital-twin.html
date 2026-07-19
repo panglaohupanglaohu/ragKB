@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; media-src 'self' data: blob:; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智能体数字孪生 — AgentsGroup2026</title>
+<title>数字孪生 — AgentsGroup2026</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
 <style>
 /* ══════════════════════════════════════════════════════════════
@@ -891,15 +891,16 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
   <div class="topbar-ws" style="border-radius:0;flex-basis:100%">
     <div class="topbar-ws__left">
       <div class="logo" style="width:32px;height:32px;border-radius:6px;background:var(--cyan);color:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:var(--font-mono)">DT</div>
-      <h1>智能体数字孪生</h1>
+      <h1>数字孪生</h1>
     </div>
-    <nav class="topbar-ws__nav" aria-label="主导航">
-      <a href="/agent-team-config.html">智能体团队</a>
-      <a href="/plaza.html">议事广场</a>
-      <a href="/skill-extract.html">技能萃取/赋予</a>
-      <span class="cur">数字孪生</span>
-      <a id="nav-cost-eco" href="/cost-dashboard.html" title="物竞闭环④：先适者后省钱">物竞×成本</a><a href="/pet-config.html">🐾 仿生生态</a>
-    </nav>
+    <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
+  </nav>
     <div class="topbar-ws__right">
       <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
       <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
@@ -932,7 +933,7 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
     <div class="lp-tree" id="lp-tree" role="tree" aria-label="团队与智能体树">
       <div class="agent-list" id="agent-list"></div>
     </div>
-    <!-- 旋钮台：A 生境 habitat(4) + B 加压 evolution_pressure(8) 与 pet-config 同字段 -->
+    <!-- 旋钮台：A 生境 habitat(4) + B 加压 evolution_pressure(12) 与 pet-config 同字段 -->
     <div class="lp-knobs" id="lp-eco-knobs" style="display:none">
       <div class="lp-knobs-title">
         <span>🎛 试验田旋钮</span>
@@ -940,7 +941,8 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
       </div>
       <div class="lp-knobs-hint">
         <b>A 生境</b>=客观环境 4 项（右侧压力台同步）；
-        <b>B 加压</b>=pet-config 的 evolution_pressure 全部 8 字段（一一对应）。
+        <b>B 加压</b>=环境侧 evolution_pressure（性选择/频依/上位等）；
+        <b>C Agent</b>=metabolism.senescence_rate（生命史，非环境压）。
         旋钮＝音量盘；字段名见盘下灰字。
       </div>
       <div class="lp-knobs-sec">
@@ -948,13 +950,17 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
         <div class="lp-knobs-grid cols-2" id="lp-knobs-habitat"></div>
       </div>
       <div class="lp-knobs-sec">
-        <div class="lp-knobs-sec-title">B · 加压 evolution_pressure <span class="meta">8 钮 · 与深参页同键</span></div>
+        <div class="lp-knobs-sec-title">B · 加压 evolution_pressure <span class="meta">11 钮 · 环境选择压</span></div>
         <div class="lp-knobs-grid cols-2" id="lp-knobs-pressure"></div>
+      </div>
+      <div class="lp-knobs-sec">
+        <div class="lp-knobs-sec-title">C · Agent 生命 metabolism <span class="meta">衰老 · 非环境</span></div>
+        <div class="lp-knobs-grid cols-2" id="lp-knobs-agent"></div>
       </div>
       <!-- 兼容旧 id：合并查询用 -->
       <div id="lp-knobs-grid" style="display:none" aria-hidden="true"></div>
       <div class="lp-knobs-actions">
-        <button type="button" class="btn" id="lp-knob-pressure" title="A+B 加压预设（与 pet-config 一键加压同口径）">加压</button>
+        <button type="button" class="btn" id="lp-knob-pressure" title="A+B+C 加压预设（与 pet-config 一键加压同口径）">加压</button>
         <button type="button" class="btn" id="lp-knob-loose" title="宽松演示">宽松</button>
         <button type="button" class="btn" id="lp-knob-save" style="color:var(--green)">写回</button>
       </div>
@@ -1380,9 +1386,11 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
     <div class="rp-title" style="margin-bottom:6px">🌡 环境压力台
       <span id="eco2-env-status" style="font-size:9px;color:var(--dim);font-weight:400"></span>
     </div>
-    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">考卷步骤 <span class="meta">（任务型 · 挂接后显示）</span></div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">生态位 demand
+      <span class="meta">（只显示 skill · 任务名在「挂载任务」）</span>
+    </div>
     <div id="eco2-env-niches" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
-      <span style="color:var(--dim);font-size:10px">选择团队后加载生态位…</span>
+      <span style="color:var(--dim);font-size:10px">挂任务后显示 demand skills…</span>
     </div>
     <div class="eco2-slider-row"><span class="eco2-slider-label">🦅 事故压</span>
       <input type="range" id="eco2-env-predator" min="0" max="50" value="8" style="flex:1">
@@ -1396,6 +1404,24 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
     <div class="eco2-slider-row"><span class="eco2-slider-label">🥊 竞争名额</span>
       <input type="range" id="eco2-env-capacity" min="0" max="6" value="3" style="flex:1">
       <span class="eco2-slider-val" id="eco2-env-capacity-val">3</span></div>
+    <div style="font-size:10px;color:var(--cyan);font-weight:600;margin:10px 0 4px">🧬 环境 · Darwin 选择机制
+      <span style="font-weight:400;color:var(--dim);font-size:9px">（性选择 / 频依 / 上位 · 写 evolution_pressure）</span>
+    </div>
+    <div class="eco2-slider-row" title="sexual_selection_strength"><span class="eco2-slider-label">💘 性选择</span>
+      <input type="range" id="eco2-env-sexual" min="0" max="30" value="10" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-sexual-val">1.0</span></div>
+    <div class="eco2-slider-row" title="freq_dep_strength"><span class="eco2-slider-label">🎲 稀有利</span>
+      <input type="range" id="eco2-env-freqdep" min="0" max="40" value="10" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-freqdep-val">0.50</span></div>
+    <div class="eco2-slider-row" title="epistasis_strength"><span class="eco2-slider-label">🔗 技能协同</span>
+      <input type="range" id="eco2-env-epistasis" min="0" max="20" value="4" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-epistasis-val">0.20</span></div>
+    <div style="font-size:10px;color:var(--amber);font-weight:600;margin:10px 0 4px">⏳ Agent · 生命史
+      <span style="font-weight:400;color:var(--dim);font-size:9px">（非环境压 · 写 metabolism.senescence_rate）</span>
+    </div>
+    <div class="eco2-slider-row" title="metabolism.senescence_rate"><span class="eco2-slider-label">⏳ 衰老率</span>
+      <input type="range" id="eco2-env-senescence" min="0" max="20" value="3" style="flex:1">
+      <span class="eco2-slider-val" id="eco2-env-senescence-val">0.003</span></div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
       <span style="font-size:9px;color:var(--dim);align-self:center">剧本:</span>
       <button class="btn eco2-scenario-btn" onclick="eco2ApplyScenario('mild', this)" style="font-size:9px;padding:3px 8px" title="丰饶↑ 事故↓">🌿 温和</button>
@@ -1405,7 +1431,7 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
     </div>
     <div style="display:flex;gap:6px;margin-top:6px">
       <button class="btn" onclick="eco2SaveEnv()" style="font-size:10px;padding:4px 10px;color:var(--green)">💾 写回</button>
-      <a href="/pet-config.html#tab-runtime" class="btn" style="font-size:10px;padding:4px 10px;text-decoration:none" title="代谢/学习/LLM 提示词">⚙ 深参</a>
+      <a href="/pet-config.html#tab-runtime" class="btn" style="font-size:10px;padding:4px 10px;text-decoration:none" title="代谢/学习/LLM 提示词 + 全量 B12">⚙ 深参</a>
     </div>
   </div>
 
@@ -1586,6 +1612,7 @@ body.office-mode .eco2-step-active { background: rgba(34,197,94,.12); }
 <div id="toast-container" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none"></div>
 
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="digital-twin"></script>
 <script src="/js/ag-context.js"></script>
 <script src="/js/digital-twin-cli.js" defer></script>
 <script src="/js/digital-twin-cli-3d.js" type="module"></script>

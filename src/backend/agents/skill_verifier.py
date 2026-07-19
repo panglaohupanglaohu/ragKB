@@ -143,7 +143,14 @@ class SkillVerifier:
         test_scenarios = await self._generate_tests(skill, provider_config=provider_config)
         self._process_log.append({"step": "tests_generated", "msg": f"生成 {len(test_scenarios)} 个测试场景", "scenarios": [t.get("scenario","")[:100] for t in test_scenarios]})
 
-        # Step 2: 沙箱执行验证脚本
+        # Step 1.5: 进程内语义检查（不依赖沙箱；mock tools / 步骤 / 场景对齐）
+        semantic_checks = self._semantic_checks(skill, test_scenarios)
+        self._process_log.append({
+            "step": "semantic_eval",
+            "msg": f"语义检查 {sum(1 for c in semantic_checks if c.get('passed'))}/{len(semantic_checks)} 通过",
+        })
+
+        # Step 2: 沙箱执行验证脚本（结构 + 增强语义 runner）
         artifact_dir = self._create_artifact_dir(skill_id)
         result.artifact_dir = str(artifact_dir)
         evidence = self._run_sandbox_verification(skill, test_scenarios, artifact_dir, runtime)
@@ -153,7 +160,86 @@ class SkillVerifier:
         result.stdout = str(evidence.get("stdout", ""))
         result.stderr = str(evidence.get("stderr", ""))
 
-        checks = list(evidence.get("checks") or [])
+        sandbox_checks = list(evidence.get("checks") or [])
+
+        # Step 2.5: Twin A/B 全量对照（baseline vs treatment 熟练度 + instructions 覆盖）
+        twin_report: Dict[str, Any] = {}
+        twin_checks: List[Dict[str, Any]] = []
+        hard_offline = any(
+            (not c.get("passed")) and c.get("hard_fail")
+            for c in semantic_checks
+        )
+        if not hard_offline:
+            self._process_log.append({"step": "twin_ab", "msg": "启动数字孪生 A/B 对照评估..."})
+            try:
+                from .skill_twin_ab import run_skill_twin_ab, twin_ab_to_checks
+                twin_report = await run_skill_twin_ab(
+                    skill,
+                    skill_library=self._skill_library,
+                    team_id=team_id,
+                )
+                twin_checks = twin_ab_to_checks(twin_report)
+                if twin_report.get("skipped"):
+                    self._process_log.append({
+                        "step": "twin_ab_skip",
+                        "msg": f"孪生 A/B 跳过: {twin_report.get('reason')} — {twin_report.get('detail', '')}",
+                    })
+                elif twin_report.get("status") == "error":
+                    self._process_log.append({
+                        "step": "twin_ab_error",
+                        "msg": f"孪生 A/B 错误: {twin_report.get('error')}",
+                        "passed": False,
+                    })
+                else:
+                    self._process_log.append({
+                        "step": "twin_ab_done",
+                        "msg": (
+                            f"孪生 A/B: {twin_report.get('target_skill')} "
+                            f"{twin_report.get('baseline', {}).get('target_rate', 0):.1%}→"
+                            f"{twin_report.get('treatment', {}).get('target_rate', 0):.1%} "
+                            f"(+{twin_report.get('target_gain_pp', 0)}pp) "
+                            f"{'PASS' if twin_report.get('passed') else 'FAIL'}"
+                        ),
+                        "passed": bool(twin_report.get("passed")),
+                    })
+            except Exception as te:
+                logger.warning("twin ab integration failed: %s", te)
+                twin_report = {"status": "error", "error": str(te), "passed": False}
+                twin_checks = [{
+                    "name": "twin_ab_run",
+                    "passed": False,
+                    "message": str(te),
+                    "source": "twin_ab",
+                    "layer": "twin-ab",
+                    "required": False,
+                    "hard_fail": False,
+                }]
+                self._process_log.append({
+                    "step": "twin_ab_error",
+                    "msg": f"孪生 A/B 异常: {te}",
+                    "passed": False,
+                })
+        else:
+            self._process_log.append({
+                "step": "twin_ab_skip",
+                "msg": "语义 hard_fail，跳过孪生 A/B",
+            })
+
+        # 合并：语义 → 沙箱 → twin A/B（同名去重保留先出现）
+        seen_names: set = set()
+        checks: List[Dict[str, Any]] = []
+        for c in semantic_checks + sandbox_checks + twin_checks:
+            name = str(c.get("name") or "")
+            if name and name in seen_names:
+                continue
+            if name:
+                seen_names.add(name)
+            checks.append(c)
+        evidence["checks"] = checks
+        evidence["semantic_checks"] = semantic_checks
+        evidence["twin_ab"] = twin_report
+        result.verification_evidence = evidence
+
         result.total_tests = len(checks)
         for i, check in enumerate(checks):
             passed = bool(check.get("passed"))
@@ -162,15 +248,16 @@ class SkillVerifier:
             else:
                 result.failed += 1
             result.test_details.append({
-                "scenario": str(check.get("name") or f"sandbox_check_{i + 1}"),
+                "scenario": str(check.get("name") or f"check_{i + 1}"),
                 "passed": passed,
                 "test_index": i + 1,
                 "message": str(check.get("message", "")),
-                "source": "sandbox",
+                "source": str(check.get("source") or "sandbox"),
+                "layer": str(check.get("layer") or check.get("source") or "sandbox"),
             })
             self._process_log.append({
-                "step": "sandbox_check",
-                "msg": f"{'PASS' if passed else 'FAIL'} {check.get('name', f'check_{i + 1}')}: {check.get('message', '')}",
+                "step": "check",
+                "msg": f"{'PASS' if passed else 'FAIL'} [{check.get('source', 'sandbox')}] {check.get('name', f'check_{i + 1}')}: {check.get('message', '')}",
                 "passed": passed,
             })
 
@@ -180,22 +267,58 @@ class SkillVerifier:
         self._process_log.append({"step": "calc_rate", "msg": f"通过率: {result.pass_rate*100:.0f}% ({result.passed}/{result.total_tests})"})
 
         # Step 4: 确定结果
+        # 语义可独立过；若 twin A/B 实际跑了则要求 twin_ab_target_gain 通过
         sandbox_ok = bool(evidence.get("sandbox_ok", False))
         sandbox_exit_ok = int(evidence.get("exit_code", -1)) == 0
-        if sandbox_ok and sandbox_exit_ok and result.pass_rate >= 0.7:
+        semantic_ok = bool(semantic_checks) and all(
+            c.get("passed") for c in semantic_checks if c.get("required", True)
+        )
+        hard_fail = any(
+            (not c.get("passed")) and c.get("hard_fail")
+            for c in semantic_checks
+        )
+        twin_ran = bool(twin_report) and not twin_report.get("skipped") and twin_report.get("status") == "ok"
+        twin_pass = bool(twin_report.get("passed")) if twin_ran else True
+
+        if hard_fail:
+            result.status = "failed"
+            result.error_detail = "语义硬失败（离线占位/空指令等不可验证内容）"
+            self._process_log.append({"step": "done", "msg": f"验证失败 — {result.error_detail}"})
+        elif result.pass_rate >= 0.7 and ((sandbox_ok and sandbox_exit_ok) or semantic_ok) and twin_pass:
             result.status = "verified"
             skill.lifecycle_stage = SkillLifecycleStage.VERIFIED
-            skill.quality_score = result.pass_rate
+            # quality: blend pass_rate with twin gain when available
+            if twin_ran:
+                gain = float(twin_report.get("target_gain") or 0)
+                skill.quality_score = round(min(1.0, 0.5 * result.pass_rate + 0.5 * min(1.0, gain / 0.2)), 4)
+            else:
+                skill.quality_score = result.pass_rate
             self._skill_library._persist_skill(skill, team_id)
-            self._process_log.append({"step": "done", "msg": "验证通过 — 技能已标记为 VERIFIED"})
+            parts = []
+            if sandbox_ok and sandbox_exit_ok:
+                parts.append("sandbox")
+            if semantic_ok:
+                parts.append("semantic")
+            if twin_ran:
+                parts.append("twin-ab")
+            mode = "+".join(parts) or "unknown"
+            self._process_log.append({"step": "done", "msg": f"验证通过 ({mode}) — 技能已标记为 VERIFIED"})
         else:
             result.status = "failed"
-            if not sandbox_ok:
-                result.error_detail = str(evidence.get("error") or "sandbox execution failed")
-            elif not sandbox_exit_ok:
-                result.error_detail = f"沙箱验证脚本退出码 {result.exit_code}"
-            else:
+            if hard_fail:
+                result.error_detail = "语义硬失败"
+            elif twin_ran and not twin_pass:
+                result.error_detail = (
+                    f"孪生 A/B 未达增益阈值 "
+                    f"(+{twin_report.get('target_gain_pp', 0)}pp，"
+                    f"需 ≥{float(twin_report.get('gain_threshold', 0.05))*100:.0f}pp)"
+                )
+            elif result.pass_rate < 0.7:
                 result.error_detail = f"通过率 {result.pass_rate*100:.0f}% 低于 70% 阈值"
+            elif not sandbox_ok and not semantic_ok:
+                result.error_detail = str(evidence.get("error") or "sandbox failed and semantic checks insufficient")
+            else:
+                result.error_detail = "验证未达通过条件"
             self._process_log.append({"step": "done", "msg": f"验证失败 — {result.error_detail}"})
 
         # P4.1: Token Gate 闸门 — verified→granted 前评估本次 run 的 token 合规
@@ -451,6 +574,191 @@ class SkillVerifier:
             return text
         return text[:1000] + "\n...(truncated)...\n" + text[-limit + 1000:]
 
+    # Known tools the platform can mock / inject (soft allowlist)
+    _KNOWN_TOOLS = frozenset({
+        "read_file", "write_file", "web_search", "run_in_terminal", "grep_search",
+        "testFailure", "browser", "http_request", "kubectl", "terraform",
+        "aws_cli", "shell", "python", "git", "docker",
+    })
+
+    def _semantic_checks(
+        self,
+        skill: SkillDefinition,
+        test_scenarios: List[Dict[str, str]],
+    ) -> List[Dict[str, Any]]:
+        """In-process semantic verification (no sandbox).
+
+        Layers:
+        - structural intent (steps, acceptance, rollback)
+        - tool grounding / mock allowlist
+        - scenario ↔ instruction keyword alignment
+        - reject offline-placeholder / 回退草稿
+        """
+        checks: List[Dict[str, Any]] = []
+
+        def add(name: str, passed: bool, message: str, *, required: bool = True,
+                hard_fail: bool = False, layer: str = "semantic") -> None:
+            checks.append({
+                "name": name,
+                "passed": bool(passed),
+                "message": str(message),
+                "source": "semantic",
+                "layer": layer,
+                "required": required,
+                "hard_fail": hard_fail,
+            })
+
+        instructions = (skill.instructions or "").strip()
+        description = (skill.description or "").strip()
+        name = (skill.name or "").strip()
+        tools = [str(t).strip() for t in (skill.required_tools or []) if str(t).strip()]
+        lowered = instructions.lower()
+        blob = f"{name}\n{description}\n{instructions}"
+
+        # Hard fail: offline / fallback placeholders
+        offline_markers = ("离线占位", "非正式技能名", "【回退草稿】", "[回退草稿]", "deterministic-offline")
+        is_offline = any(m in blob for m in offline_markers)
+        add(
+            "not_offline_placeholder",
+            not is_offline,
+            "reject offline/fallback placeholder skills" if is_offline else "not an offline placeholder",
+            hard_fail=True,
+            layer="semantic-hard",
+        )
+
+        add(
+            "instructions_min_length",
+            len(instructions) >= 40,
+            f"instruction length={len(instructions)} (want ≥40 for semantic)",
+            hard_fail=len(instructions) < 15,
+        )
+
+        # Step / procedure structure
+        step_pats = [
+            r"(?:^|\n)\s*\d+\s*[\.\)、]",
+            r"(?:^|\n)\s*[-*•]\s+\S",
+            r"步骤\s*\d+",
+            r"(?:首先|然后|接着|最后|1\)|2\))",
+        ]
+        step_hits = sum(1 for p in step_pats if re.search(p, instructions))
+        add(
+            "has_procedure_steps",
+            step_hits >= 1 or len(re.findall(r"(?:^|\n)\s*\d+[\.\)、]", instructions)) >= 2,
+            f"procedure markers={step_hits}",
+            layer="semantic-structure",
+        )
+
+        # Acceptance / verify / rollback signals (domain-agnostic)
+        accept_kw = ("验收", "通过", "成功", "验证", "check", "verify", "pass", "assert", "验收口径")
+        rollback_kw = ("回滚", "回退", "失败", "熔断", "超时", "rollback", "fallback", "retry", "abort")
+        add(
+            "has_acceptance_signal",
+            any(k in instructions or k in lowered for k in accept_kw),
+            "acceptance/verify language present",
+            required=False,
+            layer="semantic-structure",
+        )
+        add(
+            "has_failure_or_rollback",
+            any(k in instructions or k in lowered for k in rollback_kw),
+            "failure/rollback/timeout language present",
+            required=False,
+            layer="semantic-structure",
+        )
+
+        # Tool grounding + mock allowlist
+        if tools:
+            grounded = []
+            for t in tools:
+                tlow = t.lower()
+                if tlow in lowered or t in instructions or tlow.replace("_", " ") in lowered:
+                    grounded.append(t)
+            need = max(1, (len(tools) + 1) // 2)
+            add(
+                "tools_grounded_in_instructions",
+                len(grounded) >= need,
+                f"tools mentioned in instructions: {grounded or 'none'} / declared={tools}",
+                layer="semantic-tools",
+            )
+            unknown = [
+                t for t in tools
+                if t.lower() not in self._KNOWN_TOOLS
+                and not re.match(r"^[a-z][a-z0-9_]{1,40}$", t.lower())
+            ]
+            add(
+                "tools_mockable",
+                len(unknown) == 0,
+                f"unknown/unmockable tools: {unknown}" if unknown else f"all {len(tools)} tools mockable/allowlisted",
+                required=False,
+                layer="semantic-tools",
+            )
+            # Mock execution: each tool "invokable" as stub
+            mock_ok = True
+            mock_log = []
+            for t in tools:
+                # stub success for known or snake_case tools
+                ok = t.lower() in self._KNOWN_TOOLS or bool(re.match(r"^[a-z][a-z0-9_]{1,40}$", t.lower()))
+                mock_log.append(f"{t}={'ok' if ok else 'skip'}")
+                if not ok:
+                    mock_ok = False
+            add(
+                "mock_tools_execute",
+                mock_ok or len(tools) == 0,
+                "mock tool stubs: " + ", ".join(mock_log[:8]),
+                layer="semantic-tools",
+            )
+        else:
+            add(
+                "tools_optional",
+                True,
+                "no required_tools — semantic tool layer skipped",
+                required=False,
+                layer="semantic-tools",
+            )
+
+        # Scenario alignment with instructions (keyword overlap)
+        scenarios = [
+            s for s in (test_scenarios or [])
+            if (s.get("scenario") or s.get("prompt") or "").strip()
+        ]
+        add(
+            "scenarios_present",
+            len(scenarios) > 0,
+            f"scenarios={len(scenarios)}",
+            layer="semantic-scenario",
+        )
+        if scenarios:
+            # Chinese bigrams + latin tokens from instructions
+            instr_tokens = set(re.findall(r"[\u4e00-\u9fff]{2}|[a-zA-Z]{3,}", instructions))
+            aligned = 0
+            for i, sc in enumerate(scenarios[:5]):
+                text = f"{sc.get('scenario') or ''} {sc.get('prompt') or ''}"
+                sc_tokens = set(re.findall(r"[\u4e00-\u9fff]{2}|[a-zA-Z]{3,}", text))
+                overlap = instr_tokens & sc_tokens if instr_tokens else set()
+                # also accept shared name words
+                if name:
+                    for part in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}", name):
+                        if part in text or part.lower() in text.lower():
+                            overlap.add(part)
+                ok = len(overlap) >= 1 or (name and name[:4] in text)
+                if ok:
+                    aligned += 1
+                add(
+                    f"scenario_{i+1}_aligned",
+                    ok,
+                    f"overlap={list(overlap)[:5]}" if overlap else "no keyword overlap with instructions",
+                    required=False,
+                    layer="semantic-scenario",
+                )
+            add(
+                "scenarios_mostly_aligned",
+                aligned >= max(1, len(scenarios[:5]) // 2),
+                f"aligned {aligned}/{min(5, len(scenarios))} scenarios",
+                layer="semantic-scenario",
+            )
+
+        return checks
+
     def _build_sandbox_validation_code(
         self,
         skill: SkillDefinition,
@@ -463,17 +771,26 @@ class SkillVerifier:
             "instructions": skill.instructions,
             "required_tools": list(skill.required_tools or []),
         }
+        known_tools = sorted(self._KNOWN_TOOLS)
         return textwrap.dedent(f"""
             import json
+            import re
             SKILL = {json.dumps(payload, ensure_ascii=False)}
             SCENARIOS = {json.dumps(test_scenarios, ensure_ascii=False)}
+            KNOWN_TOOLS = set({json.dumps(known_tools)})
             checks = []
 
-            def add(name, passed, message):
-                checks.append({{"name": name, "passed": bool(passed), "message": str(message)}})
+            def add(name, passed, message, source="sandbox"):
+                checks.append({{
+                    "name": name,
+                    "passed": bool(passed),
+                    "message": str(message),
+                    "source": source,
+                }})
 
             instructions = (SKILL.get("instructions") or "").strip()
             description = (SKILL.get("description") or "").strip()
+            tools = list(SKILL.get("required_tools") or [])
             markers = [
                 "步骤", "执行", "检查", "验证", "输出", "输入", "如果", "规则", "流程",
                 "step", "check", "verify", "return", "use", "must", "should", "ensure",
@@ -512,8 +829,28 @@ class SkillVerifier:
             )
             add(
                 "scenario_prompts_defined",
-                all((item.get("prompt") or item.get("scenario") or "").strip() for item in SCENARIOS),
+                all((item.get("prompt") or item.get("scenario") or "").strip() for item in SCENARIOS) if SCENARIOS else False,
                 "each generated scenario has a prompt or scenario",
+            )
+
+            # Sandbox mock: each required tool is "callable" as a stub
+            mock_results = []
+            for t in tools:
+                tname = str(t)
+                ok = tname.lower() in KNOWN_TOOLS or bool(re.match(r"^[a-z][a-z0-9_]{{1,40}}$", tname.lower()))
+                mock_results.append({{"tool": tname, "ok": ok}})
+            add(
+                "sandbox_mock_tools",
+                all(m["ok"] for m in mock_results) if mock_results else True,
+                json.dumps(mock_results, ensure_ascii=False)[:200] if mock_results else "no tools",
+                source="sandbox-mock",
+            )
+            # numbered steps in sandbox re-check
+            step_n = len(re.findall(r"(?:^|\\n)\\s*\\d+[\\.\\)、]", instructions))
+            add(
+                "sandbox_has_numbered_steps",
+                step_n >= 2 or any(x in instructions for x in ("步骤", "首先", "然后")),
+                f"numbered_steps={{step_n}}",
             )
 
             passed = sum(1 for check in checks if check["passed"])

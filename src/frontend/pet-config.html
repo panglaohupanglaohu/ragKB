@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="taste-light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>仿生生态配置 — AgentsGroup2026</title>
+<title>生态配置 — AgentsGroup2026</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/theme.css">
@@ -62,20 +62,21 @@ h1 { font-size: 20px; margin: 20px 0; }
 .eco-tri.tl { clip-path: polygon(0 0, 100% 0, 0 100%); align-items: flex-start; justify-content: flex-start; padding: 3px 0 0 6px; }
 .eco-tri.br { clip-path: polygon(100% 0, 100% 100%, 0 100%); align-items: flex-end; justify-content: flex-end; padding: 0 6px 3px 0; }
 </style>
+  <link rel="stylesheet" href="/css/taste-light.css">
 </head>
 <body>
 <div class="topbar-ws">
   <div class="topbar-ws__left">
     <div class="logo" style="width:32px;height:32px;border-radius:6px;background:#e8a020;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">🐾</div>
-    <h1>仿生生态配置</h1>
+    <h1>生态配置</h1>
   </div>
-  <nav class="topbar-ws__nav">
+  <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
     <a href="/agent-team-config.html">智能体团队</a>
     <a href="/plaza.html">议事广场</a>
-    <a href="/skill-extract.html">技能萃取/赋予</a>
-    <a href="/Agent-digital-twin.html">数字孪生</a>
-    <a href="/cost-dashboard.html">演进式成本优化</a>
-    <span class="cur">🐾 仿生生态</span>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
   </nav>
 </div>
 
@@ -122,6 +123,7 @@ h1 { font-size: 20px; margin: 20px 0; }
 <div id="toast" class="toast"></div>
 
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="pet"></script>
 <script>
 let config = { pets: [], ecosystem: { chase_pairs: [], flee_pairs: [], coexistence: [] } };
 let _ttsVoices = [];        // edge-tts voices from backend
@@ -606,6 +608,10 @@ const RUNTIME_FIELD_CTRL = {
   predator_bias_unskilled: { min: 0, max: 8, step: 0.1, unit: '' },
   scarce_share_boost: { min: 0, max: 4, step: 0.1, unit: '' },
   same_pop_share_bias: { min: 0, max: 1, step: 0.05, unit: '' },
+  sexual_selection_strength: { min: 0, max: 3, step: 0.1, unit: '' },
+  freq_dep_strength: { min: 0, max: 2, step: 0.05, unit: '' },
+  epistasis_strength: { min: 0, max: 1, step: 0.05, unit: '' },
+  senescence_rate: { min: 0, max: 0.02, step: 0.001, unit: 'μ/t' },
   timeout_s: { min: 15, max: 180, step: 5, unit: 's' },
   max_chars: { min: 200, max: 4000, step: 50, unit: '字' },
 };
@@ -625,11 +631,12 @@ const RUNTIME_META = {
     hunger_threshold: '饥饿觅食阈值（H 超此值→forage 认领/执行任务）',
     libido_threshold: '繁殖意图阈值（L 超此值→mate）',
   }},
-  metabolism: { title: '🩸 Health 代谢账本', desc: '唯一选择压力来源：代谢红线 + 生存时长隐式适应度（plan §3）', fields: {
+  metabolism: { title: '🩸 Health 代谢账本 · Agent 侧', desc: '个体代谢红线 + 生存时长 + 生命史（衰老属 Agent，非环境选择压）', fields: {
     health_max: '满血值 health_max',
     metabolic_rate: '每 tick 基础代谢消耗',
     revive_ratio: '复活恢复到满血的比例（0~1）',
     saturation_threshold: '「饱暖」判定阈值（Health 占比）',
+    senescence_rate: '衰老 μ×survival_ticks：个体生命史，防不死垄断基因池（非环境旋钮）',
   }},
   learning: { title: '🎲 盲目学习 + 特征抽象', desc: '探索期衰减 + 净收益驱动技能提炼（plan §4）；学习是盲目的，选择是客观的（物竞天择 v2 §3.2）', fields: {
     exploration_base_rate: '新 Agent 初始探索率（0~1，越高越盲目）',
@@ -655,7 +662,7 @@ const RUNTIME_META = {
     help_hunger: '饥饿超过此值才发 HELP 信号（0~1）',
     skill_idle_penalty: '能匹配 demand 却 REST 的额外代谢（抬高 skill% 的关键旋钮）',
   }},
-  evolution_pressure: { title: '🎛 演化加压（深参）', desc: '日常请在数字孪生左侧「生境旋钮」调节；本页为全量深参。idle 税 / 捕食偏无技能 / 稀缺分享 / 同队分享', fields: {
+  evolution_pressure: { title: '🎛 演化加压（环境侧）', desc: '日常请在数字孪生「环境压力台」调节；本节是选择压/环境机制。衰老在 metabolism（Agent 侧）', fields: {
     skill_idle_penalty: '同 drill_economics：能 serve 却 REST 的惩罚（生产路径优先读本节）',
     genome_carry_cost: '每携带 1 个 skill 的每 tick 额外代谢（覆盖 learning 节）',
     min_steps_when_contract: '绑定任务契约时至少步数/代（避免 2 代残差主导）',
@@ -664,6 +671,9 @@ const RUNTIME_META = {
     predator_bias_unskilled: '捕食加权偏向无法 serve 当前 demand 的个体（抬 Skill 选择压）',
     scarce_share_boost: 'abundance<1 时分享让渡放大系数（抬协作对生存的贡献）',
     same_pop_share_bias: '0~1 优先同队分享概率（团队边界可被选择）',
+    sexual_selection_strength: '性选择强度：× mate_choosiness，按 COURT/生存/互补 skill 加权择偶',
+    freq_dep_strength: '负频率依赖：稀有 skill 觅食优势（防 skill 池垄断）',
+    epistasis_strength: '技能上位协同：持有 demand 相邻 skill 对时非加性加成',
   }},
   selection: { title: '⚖️ 物竞天择选择状态机', desc: 'skill dominant/deprecated 判定（防单次波动误杀）', fields: {
     dominant_min_streak: '连续正/负净收益判定长度（越大越稳）',
@@ -907,6 +917,12 @@ function applyEvolutionPressurePreset() {
     predator_bias_unskilled: 2.5,
     scarce_share_boost: 1.5,
     same_pop_share_bias: 0.75,
+    sexual_selection_strength: 1.2,
+    freq_dep_strength: 0.6,
+    epistasis_strength: 0.25,
+  });
+  _runtimeConfig.metabolism = Object.assign({}, _runtimeConfig.metabolism || {}, {
+    senescence_rate: 0.004,
   });
   _runtimeConfig.learning = Object.assign({}, _runtimeConfig.learning || {}, {
     genome_carry_cost: 0.1,
@@ -933,6 +949,12 @@ function applyLooseHabitatPreset() {
     prefer_forage_when_can_serve: 0,
     min_steps_when_contract: 40,
     min_gens_when_contract: 2,
+    sexual_selection_strength: 0,
+    freq_dep_strength: 0,
+    epistasis_strength: 0,
+  });
+  _runtimeConfig.metabolism = Object.assign({}, _runtimeConfig.metabolism || {}, {
+    senescence_rate: 0,
   });
   _runtimeDirty = true;
   renderRuntime();

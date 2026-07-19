@@ -77,6 +77,7 @@ class PlazaEngine:
         self._escalation_queue: List[Dict[str, Any]] = []  # failed tasks for human review
         self._llm_degraded_until: float = 0.0
         self._last_call_was_fallback: bool = False  # _generate_agent_content 设置，_agent_speak 读取
+        self._last_llm_error: str = ""  # 最近一次 LLM 失败原因（给用户提示用）
 
     def set_chat_fn(self, fn: Callable):
         """注入 ChatHarness.chat 异步函数."""
@@ -203,9 +204,11 @@ class PlazaEngine:
         )
         return any(marker in lowered for marker in markers)
 
-    def _mark_llm_degraded(self, seconds: float = 30.0) -> None:
+    def _mark_llm_degraded(self, seconds: float = 30.0, error: str = "") -> None:
         # 短窗口熔断：仅 30s，避免一次超时导致整场讨论所有 agent 都走 fallback
         self._llm_degraded_until = max(self._llm_degraded_until, time.monotonic() + seconds)
+        if error:
+            self._last_llm_error = str(error)[:400]
 
     def _has_actionable_plan(self, text: str) -> bool:
         if not text or self._is_unusable_llm_text(text):
@@ -731,19 +734,46 @@ class PlazaEngine:
         })
         disc.max_rounds = round_num
 
-    @staticmethod
     def _build_fallback_abort_message(
+        self,
         disc: Discussion,
         moderator: Optional[Participant],
         round_num: int,
     ) -> PlazaMessage:
+        detail = (self._last_llm_error or "").strip()
+        # 从常见网关 JSON 里抽出可读原因
+        hint = ""
+        low = detail.lower()
+        if "invalid_api_key" in low or "invalid api key" in low or "authentication" in low:
+            hint = (
+                "原因：API Key 无效或未通过上游鉴权。"
+                "请到「智能体团队 → 模型与连接」编辑当前全局/默认模型，"
+                "填入上游允许的 Key 与 Base URL，点「测试连接」通过后再发起讨论。"
+            )
+        elif "model_not_found" in low or "not supported" in low:
+            hint = (
+                "原因：上游不支持当前模型名。"
+                "请确认「模型名称」等于上游真实 id，并与 Base URL 分组一致。"
+            )
+        elif "timeout" in low:
+            hint = "原因：调用上游超时。可稍后重试，或检查网络/上游可用性。"
+        elif detail:
+            hint = f"原因：{detail[:220]}"
+        else:
+            hint = "原因：多次调用 LLM 失败（未拿到有效回复）。请检查模型与连接配置。"
+
+        content = (
+            "⚠️ LLM 当前不可用，讨论已提前终止。\n"
+            "已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。\n\n"
+            f"{hint}"
+        )
         return PlazaMessage(
             discussion_id=disc.id,
             agent_id=moderator.agent_id if moderator else "system",
             agent_name=(moderator.agent_name if moderator else "系统") or "系统",
             role="moderator",
             niche_role="moderator",
-            content="⚠️ LLM 当前不可用，讨论已提前终止。已有的发言记录已保存，可在 LLM 恢复后重新发起讨论。",
+            content=content,
             round_number=round_num,
         )
 
@@ -1466,16 +1496,29 @@ class PlazaEngine:
         prompt: str,
         result: Any,
     ) -> Optional[str]:
-        if not result or not result.response:
+        if not result:
+            return None
+        # TurnResult.error 优先：真实上游错误（如 INVALID_API_KEY）
+        err = getattr(result, "error", None) or ""
+        if err:
+            logger.warning(
+                "Agent %s LLM error: %s",
+                participant.agent_id, str(err)[:200],
+            )
+            self._mark_llm_degraded(error=str(err))
+            self._last_call_was_fallback = True
+            return self._build_fallback_agent_content(participant, prompt)
+        if not result.response:
             return None
         if self._is_unusable_llm_text(result.response):
             logger.warning(
                 "Agent %s received provider fallback text; using deterministic content",
                 participant.agent_id,
             )
-            self._mark_llm_degraded()
+            self._mark_llm_degraded(error=result.response[:200])
             self._last_call_was_fallback = True
             return self._build_fallback_agent_content(participant, prompt)
+        self._last_call_was_fallback = False
         return result.response
 
     def _timeout_agent_fallback(
@@ -1489,7 +1532,7 @@ class PlazaEngine:
         discussion_topic: str,
         round_number: int,
     ) -> str:
-        self._mark_llm_degraded()
+        self._mark_llm_degraded(error=str(error) if error else "timeout")
         self._escalate_failure(
             participant,
             prompt,

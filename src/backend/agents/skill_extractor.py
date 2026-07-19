@@ -106,7 +106,12 @@ class SkillReviewItem:
     draft_slug: str = ""
     draft_instructions: str = ""
     draft_required_tools: List[str] = field(default_factory=list)
-    draft_scope: str = "personal"   # "personal" or "public" — LLM recommendation
+    draft_scope: str = "personal"   # "personal" or "public" — LLM recommendation only
+
+    # Approval disposition (set on approve; not the same as draft_scope)
+    # trait = assign one agent · public = all agents · reserve = store only
+    skill_type: str = ""
+    target_agent_id: str = ""
 
     # LLM extraction metadata
     llm_model_used: str = ""
@@ -141,6 +146,8 @@ class SkillReviewItem:
             "draft_instructions": self.draft_instructions,
             "draft_required_tools": self.draft_required_tools,
             "draft_scope": self.draft_scope,
+            "skill_type": self.skill_type or "",
+            "target_agent_id": self.target_agent_id or "",
             "llm_model_used": self.llm_model_used,
             "llm_raw_response": self.llm_raw_response,
             "llm_confidence": self.llm_confidence,
@@ -256,6 +263,8 @@ class SkillExtractorEngine:
         # team_id → dict of item_id → SkillReviewItem
         self._queues: Dict[str, Dict[str, SkillReviewItem]] = {}
         self._deleted_sources: Dict[str, List[str]] = {}  # team_id -> deleted source fingerprints
+        # team_id → tombstone keys (skill_id / slug / name) so delete 后不会 rehydrate 复活
+        self._deleted_skill_keys: Dict[str, List[str]] = {}
         self._sse_queues: Dict[str, List[asyncio.Queue]] = {}  # team_id → queues
         self._locks: Dict[str, asyncio.Lock] = {}
         self._load_persisted_queues()
@@ -275,7 +284,19 @@ class SkillExtractorEngine:
         """Load queues from storage/skill_extract_queue/ on startup."""
         if not self.QUEUE_DIR.exists():
             return
+        # global skill tombstones (prevent rehydrate after delete)
+        try:
+            tomb_fp = self.QUEUE_DIR / "_skill_tombstones.json"
+            if tomb_fp.exists():
+                td = json.loads(tomb_fp.read_text(encoding="utf-8"))
+                keys = td.get("deleted_skill_keys") or []
+                if isinstance(keys, list):
+                    self._deleted_skill_keys["*"] = [str(x) for x in keys if str(x).strip()]
+        except Exception as e:
+            logger.warning("Failed to load skill tombstones: %s", e)
         for fp in self.QUEUE_DIR.glob("*.json"):
+            if fp.name.startswith("_"):
+                continue
             try:
                 data = json.loads(fp.read_text(encoding="utf-8"))
                 team_id = data.get("team_id", fp.stem)
@@ -284,19 +305,29 @@ class SkillExtractorEngine:
                 deleted_sources = data.get("deleted_sources", [])
                 if isinstance(deleted_sources, list):
                     self._deleted_sources[team_id] = [str(x) for x in deleted_sources if str(x).strip()]
+                deleted_skills = data.get("deleted_skill_keys", [])
+                if isinstance(deleted_skills, list):
+                    self._deleted_skill_keys[team_id] = [str(x) for x in deleted_skills if str(x).strip()]
                 approved_count = 0
+                skipped_tombstone = 0
                 for item_data in items:
                     item = SkillReviewItem.from_dict(item_data) if hasattr(SkillReviewItem, 'from_dict') else self._item_from_dict(item_data)
                     queue[item.item_id] = item
                     # Re-register approved skills into team tables on startup
                     if item.status == SkillReviewStatus.APPROVED and item.draft_slug:
+                        if self._is_skill_tombstoned(team_id, skill_id="", slug=item.draft_slug, name=item.draft_name):
+                            skipped_tombstone += 1
+                            continue
                         try:
                             skill_def = item.to_skill_definition()
                             self._rehydrate_approved_skill(team_id, skill_def)
                             approved_count += 1
                         except Exception as e:
                             logger.warning("Failed to rehydrate approved skill %s: %s", item.item_id, e)
-                logger.info("Loaded %d queued items for team %s (%d approved rehydrated)", len(items), team_id, approved_count)
+                logger.info(
+                    "Loaded %d queued items for team %s (%d approved rehydrated, %d tombstone-skipped)",
+                    len(items), team_id, approved_count, skipped_tombstone,
+                )
             except Exception as e:
                 logger.warning("Failed to load queue file %s: %s", fp, e)
 
@@ -309,6 +340,7 @@ class SkillExtractorEngine:
                 "team_id": team_id,
                 "items": [item.to_dict() for item in queue.values()],
                 "deleted_sources": list(self._deleted_sources.get(team_id, [])),
+                "deleted_skill_keys": list(self._deleted_skill_keys.get(team_id, [])),
             }
             fp = self.QUEUE_DIR / f"{self._safe_team_id(team_id)}.json"
             fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -353,6 +385,144 @@ class SkillExtractorEngine:
         if len(deleted) > 500:
             del deleted[: len(deleted) - 500]
 
+    def _clear_source_deleted(
+        self,
+        team_id: str,
+        source_type: str,
+        source_title: str,
+        source_meta: Dict[str, Any],
+        source_text: str,
+    ) -> bool:
+        """Remove tombstone so user can re-extract after cleaning test data."""
+        fp = self._source_fingerprint(source_type, source_title, source_meta, source_text)
+        deleted = self._deleted_sources.get(team_id, [])
+        if fp not in deleted:
+            return False
+        self._deleted_sources[team_id] = [x for x in deleted if x != fp]
+        return True
+
+    def _same_source_item(
+        self,
+        item: SkillReviewItem,
+        *,
+        source_type: str,
+        source_title: str,
+        source_meta: Dict[str, Any],
+        source_text: str,
+        incoming_key: str,
+        incoming_hash: str,
+    ) -> bool:
+        """Whether queue item is the same discussion/text source."""
+        if self._source_text_hash(item.source_text) != incoming_hash:
+            return False
+        existing_meta = item.source_meta if isinstance(item.source_meta, dict) else {}
+        existing_key = self._source_key(item.source_type, item.source_title, existing_meta)
+        if incoming_key and existing_key:
+            return incoming_key == existing_key
+        return (
+            self._norm_text(item.source_type) == self._norm_text(source_type)
+            and self._norm_text(item.source_title) == self._norm_text(source_title)
+        )
+
+    def _purge_same_source_queue(
+        self,
+        team_id: str,
+        *,
+        source_type: str,
+        source_title: str,
+        source_meta: Dict[str, Any],
+        source_text: str,
+        keep_statuses: Optional[set] = None,
+    ) -> List[str]:
+        """Remove non-approved queue items from the same source (force re-extract cleanup).
+
+        Keeps APPROVED by default so history isn't wiped; purges pending/review/rejected/error.
+        """
+        queue = self._ensure_team_queue(team_id)
+        incoming_key = self._source_key(source_type, source_title, source_meta)
+        incoming_hash = self._source_text_hash(source_text)
+        keep = keep_statuses or {SkillReviewStatus.APPROVED}
+        removed: List[str] = []
+        for iid, it in list(queue.items()):
+            if it.status in keep:
+                continue
+            if not self._same_source_item(
+                it,
+                source_type=source_type,
+                source_title=source_title,
+                source_meta=source_meta,
+                source_text=source_text,
+                incoming_key=incoming_key,
+                incoming_hash=incoming_hash,
+            ):
+                continue
+            del queue[iid]
+            removed.append(iid)
+        return removed
+
+    def _is_skill_tombstoned(
+        self,
+        team_id: str,
+        *,
+        skill_id: str = "",
+        slug: str = "",
+        name: str = "",
+    ) -> bool:
+        keys = set(self._deleted_skill_keys.get(team_id, []) or [])
+        # also check global-ish tombstones under "*" for cross-team registry deletes
+        keys |= set(self._deleted_skill_keys.get("*", []) or [])
+        for k in (skill_id, slug, name):
+            kk = str(k or "").strip()
+            if kk and kk in keys:
+                return True
+        return False
+
+    def tombstone_skill_keys(
+        self,
+        team_id: str,
+        *,
+        skill_ids: Any = None,
+        slugs: Any = None,
+        names: Any = None,
+    ) -> None:
+        """Record deleted skill ids/slugs/names so rehydrate will not resurrect them."""
+        bucket = self._deleted_skill_keys.setdefault(team_id or "*", [])
+        global_bucket = self._deleted_skill_keys.setdefault("*", [])
+        for collection in (skill_ids, slugs, names):
+            if not collection:
+                continue
+            for raw in collection:
+                k = str(raw or "").strip()
+                if not k:
+                    continue
+                if k not in bucket:
+                    bucket.append(k)
+                if k not in global_bucket:
+                    global_bucket.append(k)
+        if len(bucket) > 800:
+            del bucket[: len(bucket) - 800]
+        if len(global_bucket) > 1200:
+            del global_bucket[: len(global_bucket) - 1200]
+        try:
+            self._persist_queue(team_id or list(self._queues.keys())[0] if self._queues else "default")
+        except Exception:
+            pass
+        # persist global tombstones into a dedicated file if team_id is *
+        if team_id == "*" or True:
+            try:
+                self.QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+                tomb_fp = self.QUEUE_DIR / "_skill_tombstones.json"
+                tomb_fp.write_text(
+                    json.dumps(
+                        {"deleted_skill_keys": list(self._deleted_skill_keys.get("*", []))},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
     @staticmethod
     def _item_from_dict(d: Dict[str, Any]) -> SkillReviewItem:
         """Reconstruct a SkillReviewItem from a dict."""
@@ -373,10 +543,14 @@ class SkillExtractorEngine:
         item.draft_instructions = d.get("draft_instructions", "")
         item.draft_required_tools = d.get("draft_required_tools", [])
         item.draft_scope = d.get("draft_scope", "personal")
+        item.skill_type = str(d.get("skill_type") or "")
+        item.target_agent_id = str(d.get("target_agent_id") or "")
         item.llm_confidence = d.get("llm_confidence", 0)
         item.llm_raw_response = d.get("llm_raw_response", "")
         item.llm_model_used = d.get("llm_model_used", "")
         item.reviewer_notes = d.get("reviewer_notes", "")
+        item.reviewed_by = d.get("reviewed_by", "")
+        item.reviewed_at = d.get("reviewed_at", "")
         item.created_at = d.get("created_at", item.created_at)
         return item
 
@@ -419,10 +593,10 @@ class SkillExtractorEngine:
         )
         return any(marker in lowered for marker in markers)
 
-    def _fallback_skill_specs(self, item: SkillReviewItem) -> List[Dict[str, Any]]:
+    def _topic_label_from_item(self, item: SkillReviewItem) -> str:
+        """Short display topic from source title/text (no template prefix)."""
         import re
 
-        suffix = item.item_id.lower()
         source_title = (item.source_title or "").strip()
         source_text = (item.source_text or "").strip()
         text_for_keywords = f"{source_title}\n{source_text[:2500]}"
@@ -443,58 +617,120 @@ class SkillExtractorEngine:
             freq[t] = freq.get(t, 0) + 1
         top_terms = [k for k, _ in sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0])))[:3]]
 
-        topic_label = source_title or "当前议题"
-        if top_terms:
-            topic_label = " / ".join(top_terms[:2])
-        topic_excerpt = source_text[:260] or source_title or "议题原文"
+        # 标题优先；关键词过滤表格列名等噪声（「方案文档/执行记录」常来自执行计划表头）
+        noise = {
+            "方案文档", "执行记录", "验收结论", "负责人", "优先级", "依赖", "预期产出",
+            "序号", "任务", "输出", "输入", "步骤", "阶段",
+        }
+        clean_terms = [t for t in top_terms if t not in noise and t.lower() not in noise]
+        topic_label = source_title.strip() if source_title else ""
+        if not topic_label and clean_terms:
+            topic_label = " / ".join(clean_terms[:2])
+        if not topic_label:
+            topic_label = "当前议题"
+        # 截断过长标题，避免「方案文档 / 执行记录需求拆解…」式噪声名
+        if len(topic_label) > 28:
+            topic_label = topic_label[:28].rstrip() + "…"
+        # 剥离历史前缀，避免「【回退草稿】【回退草稿】…」叠写
+        for prefix in ("【回退草稿】", "[回退草稿]", "回退草稿·", "回退草稿:"):
+            if topic_label.startswith(prefix):
+                topic_label = topic_label[len(prefix):].strip()
+        return topic_label or "当前议题"
+
+    def _fallback_skill_specs(self, item: SkillReviewItem) -> List[Dict[str, Any]]:
+        """Last-resort offline placeholder when TSE local decode also fails.
+
+        Naming rule (user-facing): **never** put 「【回退草稿】」 in draft_name.
+        Mark offline status via description + llm_model_used=deterministic-fallback.
+        Prefer a single source-grounded skill (not 3 generic templates).
+        """
+        suffix = item.item_id.lower()[:8]
+        topic_label = self._topic_label_from_item(item)
+        source_text = (item.source_text or "").strip()
+        topic_excerpt = source_text[:260] or (item.source_title or "") or "议题原文"
+        name = topic_label[:48] if topic_label else "讨论技能草案"
 
         return [
             {
-                "name": f"{topic_label}需求拆解与约束澄清",
-                "description": "围绕当前议题提炼关键目标、边界条件和不可违反约束，形成可执行的问题定义。",
+                "name": name,
+                "description": (
+                    "离线占位草案（TSE/LLM 解码未成功，非正式技能名）。"
+                    "请编辑指令后审核，或修好模型后强制重萃。"
+                ),
                 "category": "research",
                 "icon": "🧭",
-                "slug": f"topic-constraint-clarification-{suffix}",
+                "slug": f"offline-placeholder-{suffix}",
                 "instructions": (
-                    f"基于原文片段『{topic_excerpt}』，先列业务目标与验收口径，再明确前置条件、依赖和不可变约束；"
-                    "输出时必须给出‘必须做/可选做/禁止做’三栏。"
+                    f"基于原文片段『{topic_excerpt}』：\n"
+                    "1. 列出业务目标与验收口径\n"
+                    "2. 明确前置条件、依赖与不可变约束\n"
+                    "3. 输出「必须做 / 可选做 / 禁止做」三栏\n"
+                    "4. 补最小验证步骤与回滚点"
                 ),
                 "required_tools": ["read_file", "web_search"],
-                "confidence": 0.36,
+                "confidence": 0.32,
                 "scope": "public",
-            },
-            {
-                "name": f"{topic_label}实施路径与风险防护",
-                "description": "将议题拆成最小可交付步骤，并为每步补齐回滚条件与风险触发阈值。",
-                "category": "automation",
-                "icon": "🛠️",
-                "slug": f"topic-delivery-risk-guard-{suffix}",
-                "instructions": (
-                    "把方案拆成 3-5 个顺序步骤；每步明确输入、输出、负责人与验证动作。"
-                    "对高风险步骤提供熔断条件与回滚指令，避免一次性大改。"
-                ),
-                "required_tools": ["run_in_terminal", "read_file", "grep_search"],
-                "confidence": 0.35,
-                "scope": "public",
-            },
-            {
-                "name": f"{topic_label}验收指标与复盘闭环",
-                "description": "为当前议题建立可量化验收标准，并沉淀复盘模板，保证后续可追踪改进。",
-                "category": "testing",
-                "icon": "✅",
-                "slug": f"topic-acceptance-retro-loop-{suffix}",
-                "instructions": (
-                    "定义最小验收集（功能、性能、稳定性、成本）；"
-                    "失败时记录 root cause 与 next action，并把可复用规则写入团队规范。"
-                ),
-                "required_tools": ["testFailure", "run_in_terminal"],
-                "confidence": 0.34,
-                "scope": "reserve",
+                "extraction_algorithm": "deterministic-offline",
             },
         ]
 
+    def _try_tse_local_skills(
+        self,
+        item: SkillReviewItem,
+        *,
+        focus_indices: Optional[List[int]] = None,
+        category_hint: str = "",
+        tools_hint: Optional[List[str]] = None,
+        transcript=None,
+    ) -> List[Dict[str, Any]]:
+        """Build discussion-grounded skills without ChatHarness (no 【回退草稿】 titles)."""
+        try:
+            from .tse.decoder import synthesize_skills_local
+            from .tse.transcript import parse_transcript
+
+            tr = transcript
+            if tr is None:
+                meta = item.source_meta if isinstance(item.source_meta, dict) else {}
+                tr = parse_transcript(
+                    item.source_text or "",
+                    source_title=item.source_title or "",
+                    source_meta=meta,
+                )
+            if not tr or not getattr(tr, "messages", None):
+                return []
+            idxs = list(focus_indices or [])
+            if not idxs:
+                idxs = list(range(min(8, len(tr.messages))))
+            skills = synthesize_skills_local(
+                tr,
+                focus_indices=idxs,
+                category_hint=category_hint or "",
+                tools_hint=list(tools_hint or []),
+            )
+            cleaned: List[Dict[str, Any]] = []
+            for s in skills or []:
+                if not isinstance(s, dict):
+                    continue
+                name = str(s.get("name") or "").strip()
+                # Guard: never surface legacy prefix even if upstream regresses
+                for prefix in ("【回退草稿】", "[回退草稿]"):
+                    if name.startswith(prefix):
+                        name = name[len(prefix):].strip()
+                if name:
+                    s = dict(s)
+                    s["name"] = name[:64]
+                cleaned.append(s)
+            return cleaned
+        except Exception as e:
+            logger.warning("TSE local synthesize failed: %s", e)
+            return []
+
     def _apply_skill_data(self, item: SkillReviewItem, skill_data: Dict[str, Any], raw_response: str, model: str) -> None:
-        item.draft_name = skill_data.get("name", "")[:64]
+        name = str(skill_data.get("name", "") or "")
+        for p in ("【回退草稿】", "[回退草稿]"):
+            if name.startswith(p):
+                name = name[len(p):].strip()
+        item.draft_name = name[:64]
         item.draft_description = skill_data.get("description", "")[:500]
         item.draft_category = skill_data.get("category", "general")
         item.draft_icon = skill_data.get("icon", "⚡")
@@ -512,39 +748,96 @@ class SkillExtractorEngine:
         item: SkillReviewItem,
         raw_response: str = "",
         reason: str = "llm_unavailable",
+        *,
+        tse_result=None,
     ) -> None:
-        """Create deterministic review candidates so the demo path can continue."""
+        """Create review candidates when Stage4 LLM path fails.
+
+        Order:
+          1) TSE local synthesize (discussion-grounded, real names) if possible
+          2) single offline placeholder (topic name, no 「【回退草稿】」 prefix)
+
+        Only ONE set per source: collapse same-source pending drafts first.
+        """
         queue = self._ensure_team_queue(item.team_id)
+        meta = item.source_meta if isinstance(item.source_meta, dict) else {}
+        key = self._source_key(item.source_type, item.source_title, meta)
+        h = self._source_text_hash(item.source_text)
+
+        # Collapse existing same-source non-approved drafts before writing
+        for iid, it in list(queue.items()):
+            if iid == item.item_id:
+                continue
+            if it.status == SkillReviewStatus.APPROVED:
+                continue
+            if not self._same_source_item(
+                it,
+                source_type=item.source_type,
+                source_title=item.source_title,
+                source_meta=meta,
+                source_text=item.source_text,
+                incoming_key=key,
+                incoming_hash=h,
+            ):
+                continue
+            model_used = (it.llm_model_used or "")
+            if model_used.startswith("deterministic") or model_used.startswith("tse+local") or it.status in (
+                SkillReviewStatus.READY_FOR_REVIEW,
+                SkillReviewStatus.ERROR,
+                SkillReviewStatus.REJECTED,
+                SkillReviewStatus.PENDING,
+                SkillReviewStatus.LLM_PREFILLING,
+            ):
+                del queue[iid]
+                try:
+                    await self._broadcast(item.team_id, "item_deleted", {"item_id": iid, "reason": "fallback_dedupe"})
+                except Exception:
+                    pass
+
+        # Prefer TSE local grounded skills over generic offline templates
+        focus = []
+        cat = ""
+        tools: List[str] = []
+        transcript = None
+        if tse_result is not None:
+            focus = list(getattr(tse_result, "focus_indices", None) or [])
+            cat = str(getattr(tse_result, "category_hint", "") or "")
+            tools = list(getattr(tse_result, "tools_hint", None) or [])
+            transcript = getattr(tse_result, "transcript", None)
+        if not focus and isinstance(meta.get("tse"), dict):
+            focus = list(meta["tse"].get("focus_indices") or [])
+            cat = cat or str(meta["tse"].get("category_hint") or "")
+            tools = tools or list(meta["tse"].get("tools_hint") or [])
+
+        local_skills = self._try_tse_local_skills(
+            item,
+            focus_indices=focus,
+            category_hint=cat,
+            tools_hint=tools,
+            transcript=transcript,
+        )
+        if local_skills:
+            raw = raw_response or json.dumps(
+                {"skills": local_skills, "source": "tse_local", "reason": reason},
+                ensure_ascii=False,
+            )
+            model_tag = "tse+local(offline)"
+            item.llm_model_used = model_tag
+            item.reviewer_notes = f"LLM 解码失败，已用 TSE 本地合成（讨论锚定）: {reason}"
+            await self._ingest_extracted_skills(item, local_skills, response_text=raw)
+            # ensure model tag survives ingest (ingest doesn't always set it)
+            item.llm_model_used = model_tag
+            item.llm_raw_response = raw
+            return
+
         specs = self._fallback_skill_specs(item)
         payload = {"skills": specs, "source": "deterministic_fallback", "reason": reason}
         raw = raw_response or json.dumps(payload, ensure_ascii=False)
+
         self._apply_skill_data(item, specs[0], raw, "deterministic-fallback")
-        item.reviewer_notes = f"LLM 不可用，系统已生成演示兜底候选: {reason}"
-        known_slugs = self._collect_known_slugs(item.team_id)
-        for spec in specs[1:]:
-            if spec.get("slug") in known_slugs:
-                continue
-            extra_item = SkillReviewItem(
-                team_id=item.team_id,
-                source_text=item.source_text,
-                source_title=item.source_title,
-                source_type=item.source_type,
-                status=SkillReviewStatus.READY_FOR_REVIEW,
-            )
-            self._apply_skill_data(extra_item, spec, raw, "deterministic-fallback")
-            extra_item.reviewer_notes = item.reviewer_notes
-            queue[extra_item.item_id] = extra_item
-            await self._broadcast(item.team_id, "item_created", {"item": extra_item.to_dict()})
-            await self._broadcast(item.team_id, "item_status_changed", {
-                "item_id": extra_item.item_id,
-                "status": extra_item.status.value,
-                "traffic_light": status_traffic_light(extra_item.status),
-                "status_icon": status_icon(extra_item.status),
-                "status_label": status_label(extra_item.status),
-                "llm_confidence": extra_item.llm_confidence,
-                "draft_name": extra_item.draft_name,
-                "draft_scope": extra_item.draft_scope,
-            })
+        item.reviewer_notes = f"TSE/LLM 均不可用，已生成单条离线占位草案: {reason}"
+        # Only primary offline placeholder (no multi-template stack)
+        return
 
     # ── SSE Subscription ──────────────────────────────────────────────
 
@@ -567,62 +860,97 @@ class SkillExtractorEngine:
         source_title: str = "",
         source_type: str = "chat",
         source_meta: Optional[Dict[str, Any]] = None,
+        *,
+        force: bool = False,
     ) -> SkillReviewItem:
-        """Create a queue item and start async LLM pre-filling."""
+        """Create a queue item and start async LLM pre-filling.
+
+        force=True（用户点「开始萃取」）: 清除来源墓碑，允许删测数据后重新萃取。
+        force=False（自动萃取）: 仍尊重 deleted_sources，避免删了又自动冒出来。
+        """
         queue = self._ensure_team_queue(team_id)
 
         incoming_meta: Dict[str, Any] = source_meta if isinstance(source_meta, dict) else {}
+        # 显式 force 或 meta 标记（技能萃取页始终带 force / force_reextract）
+        force = bool(force) or bool(incoming_meta.get("force") or incoming_meta.get("force_reextract"))
 
         if self._is_deleted_source(team_id, source_type, source_title, incoming_meta, source_text):
-            logger.info("⏭️ 删除墓碑拦截: 来源已被手动删除，跳过自动萃取")
-            await self._broadcast(team_id, "dedup_skipped", {
-                "existing_item_id": "",
-                "existing_name": source_title or "已删除来源",
-                "existing_status": SkillReviewStatus.REJECTED.value,
-                "message": "该来源已手动删除，默认不再自动萃取",
-            })
-            blocked = SkillReviewItem(
-                team_id=team_id,
-                source_text=source_text,
-                source_title=source_title,
-                source_type=source_type,
-                source_meta=incoming_meta,
-                status=SkillReviewStatus.REJECTED,
-            )
-            blocked.reviewer_notes = "source_deleted_tombstone"
-            return blocked
+            if force:
+                cleared = self._clear_source_deleted(
+                    team_id, source_type, source_title, incoming_meta, source_text
+                )
+                logger.info(
+                    "🔓 强制重萃: 已清除来源墓碑 team=%s cleared=%s title=%s",
+                    team_id, cleared, source_title,
+                )
+            else:
+                logger.info("⏭️ 删除墓碑拦截: 来源已被手动删除，跳过自动萃取")
+                await self._broadcast(team_id, "dedup_skipped", {
+                    "existing_item_id": "",
+                    "existing_name": source_title or "已删除来源",
+                    "existing_status": SkillReviewStatus.REJECTED.value,
+                    "message": "该来源已手动删除，默认不再自动萃取（手动点「开始萃取」可强制重萃）",
+                })
+                blocked = SkillReviewItem(
+                    team_id=team_id,
+                    source_text=source_text,
+                    source_title=source_title,
+                    source_type=source_type,
+                    source_meta=incoming_meta,
+                    status=SkillReviewStatus.REJECTED,
+                )
+                blocked.reviewer_notes = "source_deleted_tombstone"
+                return blocked
 
         incoming_key = self._source_key(source_type, source_title, incoming_meta)
         incoming_hash = self._source_text_hash(source_text)
 
-        # ── Dedup: same source context + same full text hash ──
-        # ponytail: this keeps dedup simple and deterministic; if we need near-duplicate matching later, upgrade to fuzzy hash.
-        for existing in queue.values():
-            existing_meta = existing.source_meta if isinstance(existing.source_meta, dict) else {}
-            existing_key = self._source_key(existing.source_type, existing.source_title, existing_meta)
-            existing_hash = self._source_text_hash(existing.source_text)
-            if incoming_hash != existing_hash:
-                continue
+        # ── force：先清同来源旧草稿，避免回退草稿叠 6 份 ──
+        if force:
+            purged = self._purge_same_source_queue(
+                team_id,
+                source_type=source_type,
+                source_title=source_title,
+                source_meta=incoming_meta,
+                source_text=source_text,
+            )
+            if purged:
+                logger.info("🧹 force 重萃清同来源旧项 team=%s n=%d ids=%s", team_id, len(purged), purged[:12])
+                self._persist_queue(team_id)
+                for pid in purged:
+                    try:
+                        await self._broadcast(team_id, "item_deleted", {"item_id": pid, "reason": "force_reextract_purge"})
+                    except Exception:
+                        pass
 
-            has_both_keys = bool(incoming_key and existing_key)
-            if has_both_keys and incoming_key != existing_key:
+        # ── Dedup: same source + same full text，仅对「仍在处理/待审」生效 ──
+        _ACTIVE = {
+            SkillReviewStatus.PENDING,
+            SkillReviewStatus.LLM_PREFILLING,
+            SkillReviewStatus.READY_FOR_REVIEW,
+        }
+        for existing in list(queue.values()):
+            if existing.status not in _ACTIVE:
                 continue
-
-            if (not has_both_keys) and (
-                self._norm_text(source_type) != self._norm_text(existing.source_type)
-                or self._norm_text(source_title) != self._norm_text(existing.source_title)
+            if not self._same_source_item(
+                existing,
+                source_type=source_type,
+                source_title=source_title,
+                source_meta=incoming_meta,
+                source_text=source_text,
+                incoming_key=incoming_key,
+                incoming_hash=incoming_hash,
             ):
                 continue
-
-                # Same source text already in queue
-                logger.info(f"⏭️ 去重跳过: 相同来源文本已在队列中 (item={existing.item_id})")
-                await self._broadcast(team_id, "dedup_skipped", {
-                    "existing_item_id": existing.item_id,
-                    "existing_name": existing.draft_name or existing.source_title,
-                    "existing_status": existing.status.value,
-                    "message": f"该文本已萃取过「{existing.draft_name or existing.source_title}」",
-                })
-                return existing
+            # Same source already actively in queue (non-force path, or leftover after purge)
+            logger.info(f"⏭️ 去重跳过: 相同来源文本已在队列中 (item={existing.item_id})")
+            await self._broadcast(team_id, "dedup_skipped", {
+                "existing_item_id": existing.item_id,
+                "existing_name": existing.draft_name or existing.source_title,
+                "existing_status": existing.status.value,
+                "message": f"该文本已在队列中「{existing.draft_name or existing.source_title}」({existing.status.value})，可删除后重萃或打开该项继续审核",
+            })
+            return existing
 
         item = SkillReviewItem(
             team_id=team_id,
@@ -663,7 +991,11 @@ class SkillExtractorEngine:
         return item
 
     async def _llm_prefill(self, item: SkillReviewItem) -> None:
-        """Async LLM call to pre-fill skill fields from source text."""
+        """Async pre-fill via TSE (TCN-Skill-Extractor) then review queue.
+
+        Pipeline: transcript → hash/Longformer encode → TCN → skill-query
+        cross-attention → constrained JSON decoder (ChatHarness).
+        """
         item.status = SkillReviewStatus.LLM_PREFILLING
         await self._broadcast(item.team_id, "item_status_changed", {
             "item_id": item.item_id,
@@ -671,140 +1003,87 @@ class SkillExtractorEngine:
             "traffic_light": status_traffic_light(item.status),
             "status_icon": status_icon(item.status),
             "status_label": status_label(item.status),
+            # 进度条：主路径固定 TSE（TCN-Skill-Extractor）
+            "engine": "TSE",
+            "llm_model_used": item.llm_model_used or "tse",
         })
 
         try:
             harness = get_chat_harness()
+            from .tse import extract_skills as tse_extract_skills
 
-            # Preprocess: identify knowledge clusters
-            clusters = preprocess_knowledge_clusters(item.source_text)
-            cluster_summary = "\n".join(
-                f"  Cluster {i+1}: 「{cl['title']}」({len(cl['content'])} chars)"
-                for i, cl in enumerate(clusters)
+            meta = dict(item.source_meta or {})
+            meta.setdefault("topic", item.source_title)
+            tse_result = await tse_extract_skills(
+                item.source_text,
+                source_title=item.source_title,
+                source_meta=meta,
+                harness=harness,
             )
 
-            prompt = f"""Analyze the following text using the three reverse-engineering algorithms (De-contextualization, Anti-Pattern Extraction, Critical Path) to extract multiple reusable skills.
+            # Telemetry for skill-extract UI / debugging
+            item.source_meta = {
+                **meta,
+                "tse": {
+                    "focus_indices": list(tse_result.focus_indices or []),
+                    "category_hint": tse_result.category_hint,
+                    "tools_hint": list(tse_result.tools_hint or []),
+                    "latency_ms": round(float(tse_result.latency_ms or 0.0), 2),
+                    "backend": tse_result.backend,
+                    "stage_timings": dict(tse_result.stage_timings or {}),
+                    "utterance_count": (
+                        len(tse_result.transcript.messages)
+                        if tse_result.transcript else 0
+                    ),
+                    "parse_error": tse_result.parse_error,
+                },
+            }
 
-Source title: {item.source_title}
-Source type: {item.source_type}
-
-Knowledge clusters identified ({len(clusters)} clusters):
-{cluster_summary}
-
---- BEGIN SOURCE TEXT ---
-{item.source_text[:12000]}
---- END SOURCE TEXT ---
-
-The text has been segmented into {len(clusters)} knowledge clusters.
-
-EXTRACTION INSTRUCTIONS:
-1. Apply Algorithm 1 (De-contextualization): Strip specific product/service names, extract abstract capabilities that are platform-agnostic. Each abstract pattern = 1 skill.
-2. Apply Algorithm 2 (Anti-Pattern Extraction): Find every pain point, failure case, FAQ objection. Invert each into a defensive skill with clear anti-patterns.
-3. Apply Algorithm 3 (Critical Path): Identify the 3-5 make-or-break decision points from any SOP/procedure described. Each decision point = 1 skill.
-
-Target: Extract {max(3, min(len(clusters) + 2, 8))} skills total. Each skill should be atomic (one capability), not a summary of the whole document.
-For each skill, set "extraction_algorithm" to indicate which algorithm produced it.
-Output ONLY valid JSON."""
-
-            result = await harness.chat(
-                prompt=prompt,
-                system_prompt=SKILL_EXTRACTION_SYSTEM_PROMPT,
-                agent_id="skill_extractor",
-            )
-
-            # Parse LLM response
-            response_text = result.response if hasattr(result, 'response') else (result.content if hasattr(result, 'content') else str(result))
+            response_text = tse_result.raw_response or ""
             item.llm_raw_response = response_text
-            item.llm_model_used = result.model if hasattr(result, 'model') else "unknown"
+            item.llm_model_used = tse_result.model or "tse"
 
-            # Extract JSON from response
-            parsed = None if self._is_unusable_llm_text(response_text) else self._parse_llm_json(response_text)
-            if self._is_unusable_llm_text(response_text):
-                await self._create_fallback_candidates(item, response_text, "provider_fallback")
-            elif parsed and parsed.get("skills"):
-                all_skills = parsed["skills"]
+            await self._broadcast(item.team_id, "tse_extract_done", {
+                "item_id": item.item_id,
+                "focus_indices": item.source_meta["tse"]["focus_indices"],
+                "utterance_count": item.source_meta["tse"]["utterance_count"],
+                "skill_count": len(tse_result.skills or []),
+                "latency_ms": item.source_meta["tse"]["latency_ms"],
+                "model": item.llm_model_used,
+                "engine": "TSE",
+                "backend": item.source_meta["tse"].get("backend"),
+                "parse_error": item.source_meta["tse"].get("parse_error"),
+            })
 
-                # ── Slug-level dedup: filter out skills that already exist ──
-                known_slugs = self._collect_known_slugs(item.team_id)
-                dedup_skills = []
-                for sd in all_skills:
-                    slug = sd.get("slug", "")
-                    if slug and slug in known_slugs:
-                        logger.info(f"⏭️ slug 去重: 「{sd.get('name', slug)}」已存在，跳过")
-                        await self._broadcast(item.team_id, "dedup_slug_skipped", {
-                            "item_id": item.item_id,
-                            "skipped_slug": slug,
-                            "skipped_name": sd.get("name", slug),
-                            "message": f"技能「{sd.get('name', slug)}」已存在，跳过重复萃取",
-                        })
+            if tse_result.skills:
+                # Strip legacy prefix if any model ever emits it
+                skills = []
+                for s in list(tse_result.skills):
+                    if isinstance(s, dict):
+                        n = str(s.get("name") or "")
+                        for p in ("【回退草稿】", "[回退草稿]"):
+                            if n.startswith(p):
+                                n = n[len(p):].strip()
+                                s = dict(s)
+                                s["name"] = n[:64]
+                        skills.append(s)
                     else:
-                        dedup_skills.append(sd)
-                all_skills = dedup_skills if dedup_skills else []  # Empty if all duplicates
-
-                if not all_skills:
-                    # ALL skills were duplicates — mark item as duplicate, don't enqueue
-                    item.status = SkillReviewStatus.REJECTED
-                    item.reviewer_notes = "所有萃取结果均为已有技能，自动跳过"
-                    item.draft_name = parsed["skills"][0].get("name", "")[:64] if parsed["skills"] else ""
-                    await self._broadcast(item.team_id, "dedup_all_skipped", {
-                        "item_id": item.item_id,
-                        "skipped_names": [s.get("name", s.get("slug", "")) for s in parsed["skills"]],
-                        "message": f"萃取的 {len(parsed['skills'])} 个技能均已存在，已自动跳过",
-                    })
-                    self._persist_queue(item.team_id)
-                    return
-
-                # Fill primary item with first skill
-                skill_data = all_skills[0]
-                item.draft_name = skill_data.get("name", "")[:64]
-                item.draft_description = skill_data.get("description", "")[:500]
-                item.draft_category = skill_data.get("category", "general")
-                item.draft_icon = skill_data.get("icon", "⚡")
-                item.draft_slug = skill_data.get("slug", "")
-                item.draft_instructions = skill_data.get("instructions", "")
-                item.draft_required_tools = skill_data.get("required_tools", [])
-                item.draft_scope = skill_data.get("scope", "personal")
-                item.llm_confidence = float(skill_data.get("confidence", 0.5))
-                item.status = SkillReviewStatus.READY_FOR_REVIEW
-
-                # Create additional items for skills 2+ (multi-skill extraction)
-                for extra_skill in all_skills[1:]:
-                    extra_item = SkillReviewItem(
-                        team_id=item.team_id,
-                        source_text=item.source_text,
-                        source_title=item.source_title,
-                        source_type=item.source_type,
-                        source_meta=dict(item.source_meta or {}),
-                        status=SkillReviewStatus.READY_FOR_REVIEW,
-                    )
-                    extra_item.draft_name = extra_skill.get("name", "")[:64]
-                    extra_item.draft_description = extra_skill.get("description", "")[:500]
-                    extra_item.draft_category = extra_skill.get("category", "general")
-                    extra_item.draft_icon = extra_skill.get("icon", "⚡")
-                    extra_item.draft_slug = extra_skill.get("slug", "")
-                    extra_item.draft_instructions = extra_skill.get("instructions", "")
-                    extra_item.draft_required_tools = extra_skill.get("required_tools", [])
-                    extra_item.draft_scope = extra_skill.get("scope", "personal")
-                    extra_item.llm_confidence = float(extra_skill.get("confidence", 0.5))
-                    extra_item.llm_raw_response = response_text
-                    extra_item.llm_model_used = item.llm_model_used
-                    queue = self._ensure_team_queue(item.team_id)
-                    queue[extra_item.item_id] = extra_item
-                    await self._broadcast(item.team_id, "item_created", {
-                        "item": extra_item.to_dict(),
-                    })
-                    await self._broadcast(item.team_id, "item_status_changed", {
-                        "item_id": extra_item.item_id,
-                        "status": extra_item.status.value,
-                        "traffic_light": status_traffic_light(extra_item.status),
-                        "status_icon": status_icon(extra_item.status),
-                        "status_label": status_label(extra_item.status),
-                        "llm_confidence": extra_item.llm_confidence,
-                        "draft_name": extra_item.draft_name,
-                        "draft_scope": extra_item.draft_scope,
-                    })
+                        skills.append(s)
+                await self._ingest_extracted_skills(
+                    item,
+                    skills,
+                    response_text=response_text,
+                )
             else:
-                await self._create_fallback_candidates(item, response_text, "json_parse_empty")
+                # Prefer TSE local again inside fallback; last resort = topic placeholder
+                if self._is_unusable_llm_text(response_text):
+                    reason = "provider_fallback"
+                else:
+                    pe = tse_result.parse_error or "tse_empty"
+                    reason = pe if str(pe).startswith("tse:") else f"tse:{pe}"
+                await self._create_fallback_candidates(
+                    item, response_text, reason, tse_result=tse_result
+                )
 
         except Exception as e:
             logger.error(f"LLM pre-fill failed for {item.item_id}: {e}")
@@ -819,8 +1098,95 @@ Output ONLY valid JSON."""
             "llm_confidence": item.llm_confidence,
             "draft_name": item.draft_name,
             "draft_scope": item.draft_scope,
+            "engine": "TSE",
+            "llm_model_used": item.llm_model_used or "",
         })
         self._persist_queue(item.team_id)
+
+    async def _ingest_extracted_skills(
+        self,
+        item: SkillReviewItem,
+        all_skills: List[Dict[str, Any]],
+        *,
+        response_text: str,
+    ) -> None:
+        """Dedup + write primary/extra review items from extracted skill dicts."""
+        known_slugs = self._collect_known_slugs(item.team_id)
+        original_skills = list(all_skills)
+        dedup_skills: List[Dict[str, Any]] = []
+        for sd in all_skills:
+            slug = sd.get("slug", "")
+            if slug and slug in known_slugs:
+                logger.info(f"⏭️ slug 去重: 「{sd.get('name', slug)}」已存在，跳过")
+                await self._broadcast(item.team_id, "dedup_slug_skipped", {
+                    "item_id": item.item_id,
+                    "skipped_slug": slug,
+                    "skipped_name": sd.get("name", slug),
+                    "message": f"技能「{sd.get('name', slug)}」已存在，跳过重复萃取",
+                })
+            else:
+                dedup_skills.append(sd)
+        all_skills = dedup_skills
+
+        if not all_skills:
+            item.status = SkillReviewStatus.REJECTED
+            item.reviewer_notes = "所有萃取结果均为已有技能，自动跳过"
+            item.draft_name = (original_skills[0].get("name", "")[:64] if original_skills else "")
+            await self._broadcast(item.team_id, "dedup_all_skipped", {
+                "item_id": item.item_id,
+                "skipped_names": [s.get("name", s.get("slug", "")) for s in original_skills],
+                "message": f"萃取的 {len(original_skills)} 个技能均已存在，已自动跳过",
+            })
+            self._persist_queue(item.team_id)
+            return
+
+        skill_data = all_skills[0]
+        item.draft_name = skill_data.get("name", "")[:64]
+        item.draft_description = skill_data.get("description", "")[:500]
+        item.draft_category = skill_data.get("category", "general")
+        item.draft_icon = skill_data.get("icon", "⚡")
+        item.draft_slug = skill_data.get("slug", "")
+        item.draft_instructions = skill_data.get("instructions", "")
+        item.draft_required_tools = skill_data.get("required_tools", [])
+        item.draft_scope = skill_data.get("scope", "personal")
+        item.llm_confidence = float(skill_data.get("confidence", 0.5))
+        item.status = SkillReviewStatus.READY_FOR_REVIEW
+
+        for extra_skill in all_skills[1:]:
+            extra_item = SkillReviewItem(
+                team_id=item.team_id,
+                source_text=item.source_text,
+                source_title=item.source_title,
+                source_type=item.source_type,
+                source_meta=dict(item.source_meta or {}),
+                status=SkillReviewStatus.READY_FOR_REVIEW,
+            )
+            extra_item.draft_name = extra_skill.get("name", "")[:64]
+            extra_item.draft_description = extra_skill.get("description", "")[:500]
+            extra_item.draft_category = extra_skill.get("category", "general")
+            extra_item.draft_icon = extra_skill.get("icon", "⚡")
+            extra_item.draft_slug = extra_skill.get("slug", "")
+            extra_item.draft_instructions = extra_skill.get("instructions", "")
+            extra_item.draft_required_tools = extra_skill.get("required_tools", [])
+            extra_item.draft_scope = extra_skill.get("scope", "personal")
+            extra_item.llm_confidence = float(extra_skill.get("confidence", 0.5))
+            extra_item.llm_raw_response = response_text
+            extra_item.llm_model_used = item.llm_model_used
+            queue = self._ensure_team_queue(item.team_id)
+            queue[extra_item.item_id] = extra_item
+            await self._broadcast(item.team_id, "item_created", {
+                "item": extra_item.to_dict(),
+            })
+            await self._broadcast(item.team_id, "item_status_changed", {
+                "item_id": extra_item.item_id,
+                "status": extra_item.status.value,
+                "traffic_light": status_traffic_light(extra_item.status),
+                "status_icon": status_icon(extra_item.status),
+                "status_label": status_label(extra_item.status),
+                "llm_confidence": extra_item.llm_confidence,
+                "draft_name": extra_item.draft_name,
+                "draft_scope": extra_item.draft_scope,
+            })
 
     def _parse_llm_json(self, text: str) -> Optional[Dict[str, Any]]:
         """Extract JSON object from LLM response, handling markdown fences."""
@@ -894,6 +1260,18 @@ Output ONLY valid JSON."""
         item.status = SkillReviewStatus.APPROVED
         item.reviewed_by = reviewer
         item.reviewed_at = datetime.now(timezone.utc).isoformat()
+        # Persist disposition so taxonomy tabs (特质/储备/公共) match approve choice
+        st = (skill_type or "reserve").strip().lower()
+        if st not in ("trait", "public", "reserve"):
+            st = "reserve"
+        item.skill_type = st
+        item.target_agent_id = (target_agent_id or "").strip()
+        # Align visibility hint with disposition (draft_scope is still LLM-era field)
+        if st == "public":
+            item.draft_scope = "public"
+        elif st in ("trait", "reserve") and item.draft_scope == "public":
+            # approving as non-public overrides a mistaken public draft hint
+            item.draft_scope = "personal"
 
         # Write to skill_registry + team skills table (skip if slug already registered)
         skill_def = item.to_skill_definition()
@@ -933,12 +1311,12 @@ Output ONLY valid JSON."""
                 team = _team_manager.get_team(team_id)
                 if team:
                     skill_id = skill_def.skill_id or skill_def.slug
-                    if skill_type == "trait" and target_agent_id:
-                        agent = team.agents.get(target_agent_id)
+                    if st == "trait" and item.target_agent_id:
+                        agent = team.agents.get(item.target_agent_id)
                         if agent and skill_id not in agent.skills:
                             agent.skills.append(skill_id)
-                            logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {target_agent_id}")
-                    elif skill_type == "public":
+                            logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {item.target_agent_id}")
+                    elif st == "public":
                         for agent in team.agents.values():
                             if skill_id not in agent.skills:
                                 agent.skills.append(skill_id)
@@ -954,15 +1332,15 @@ Output ONLY valid JSON."""
             "skill_id": skill_def.skill_id,
             "skill_name": skill_def.name,
             "approved_by": reviewer,
-            "skill_type": skill_type,
-            "target_agent_id": target_agent_id,
+            "skill_type": st,
+            "target_agent_id": item.target_agent_id,
             "skill": skill_def.to_dict(),
         })
         self._persist_queue(team_id)
 
         result = item.to_dict()
-        result["skill_type"] = skill_type
-        result["target_agent_id"] = target_agent_id
+        result["skill_type"] = st
+        result["target_agent_id"] = item.target_agent_id
         return result
 
     async def reject_item(
@@ -1094,6 +1472,18 @@ Output ONLY valid JSON."""
 
     def _rehydrate_approved_skill(self, team_id: str, skill_def: SkillDefinition) -> None:
         """Re-register an approved skill into in-memory tables on startup (sync, no broadcast)."""
+        if self._is_skill_tombstoned(
+            team_id,
+            skill_id=getattr(skill_def, "skill_id", "") or "",
+            slug=getattr(skill_def, "slug", "") or "",
+            name=getattr(skill_def, "name", "") or "",
+        ):
+            logger.info(
+                "Skip rehydrate tombstoned skill %s / %s",
+                getattr(skill_def, "slug", ""),
+                getattr(skill_def, "name", ""),
+            )
+            return
         try:
             from .api import _skill_registry
             if _skill_registry:

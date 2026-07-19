@@ -29,5 +29,12 @@ describe('skill extraction action paths', () => {
     expect(source).toContain('async function publishSkillWithGate(skillId, skillName)');
     expect(source).toContain("'/skill-library/publish-gate'");
     expect(source).toContain("'/skill-library/publish'");
+    expect(source).toContain('hydrateExtractSourceFromPlaza');
+    expect(source).toContain('formatDiscussionAsExtractText');
+    expect(source).toContain('maybeAutoStartExtraction');
+    // 交互分工：待审只在队列，taxonomy 不含 ready_for_review
+    expect(source).toContain("if (q.status !== 'approved') return");
+    expect(source).toContain('待审草稿请到');
+    expect(source).not.toContain("addMessage('skill-card'");
   });
 });

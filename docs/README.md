@@ -16,6 +16,8 @@
 | [物竞适者反馈调整台todos.md](物竞适者反馈调整台todos.md) | 反馈台 XF + 任务挂载 XF-6 + **XF-7 关系/通道** + 生态位可视化待讨论 | current |
 | [物竞与成本优化结合plan.md](物竞与成本优化结合plan.md) | **先适者（活得长）后省钱（token）** 竞标与棘轮设计 | current |
 | [物竞与成本优化结合todos.md](物竞与成本优化结合todos.md) | XC-0…XC-5 物竞×成本结合执行清单 | current |
+| [任务Token治理plan.md](任务Token治理plan.md) | **v2 调研重写**：业界四车道映射 · TokenGovernanceService · 单工作台（非两张皮） | current |
+| [任务Token治理todos.md](任务Token治理todos.md) | R0–R4：服务真接线 · dashboard · workbench UI | current |
 
 ## 需要验证的历史文档
 

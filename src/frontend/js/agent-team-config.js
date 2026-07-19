@@ -53,6 +53,29 @@ async function retryConnection(){
 }
 
 async function api(p,o){
+  // 统一走 window.api.request：带 CSRF 注入 + 403 失效重试，避免 DELETE/POST 被 CSRF 中间件拦成 403
+  if(window.api && typeof window.api.request === 'function'){
+    try{
+      const data = await window.api.request(p, o || {});
+      if(_offline){hideOfflineBanner()}
+      if(data === null && window.api._lastError){
+        api._lastError = Object.assign({}, window.api._lastError);
+        // 让调用方 toast 能读到 detail（含 CSRF / 业务 403）
+        return null;
+      }
+      api._lastError = null;
+      return data;
+    }catch(e){
+      console.error(`API error: ${p}`, e);
+      if(e.name==='TypeError'||(e.message&&e.message.includes('fetch'))){
+        _offline=true;
+        showOfflineBanner();
+      }
+      api._lastError={status:0,message:e.message,url:p,network:true};
+      return null;
+    }
+  }
+  // 兜底：无 window.api 时用原生 fetch（仍可能经 window.fetch 包装）
   try{
     const r=await fetch(p,o);
     if(_offline){hideOfflineBanner()}
@@ -60,16 +83,13 @@ async function api(p,o){
       let msg='';
       try{const d=await r.json();msg=d.detail||d.message||''}catch{}
       console.warn(`API ${r.status}: ${p}`,msg);
-      // Attach error info for callers that want it
-      const result=null;
       api._lastError={status:r.status,message:msg,url:p};
-      return result;
+      return null;
     }
     api._lastError=null;
     return await r.json();
   }catch(e){
     console.error(`API error: ${p}`,e);
-    // Network error — show offline banner
     if(e.name==='TypeError'||e.message?.includes('fetch')){
       _offline=true;
       showOfflineBanner();
@@ -169,6 +189,50 @@ async function loadSbAgents(){
   renderSbAgents(d);
 }
 function selectAgent(id){aid=id;switchView('agent',id)}
+window.selectAgent=selectAgent;
+/** 列表「编辑」：进入 Agent 设置 Tab */
+function editAgentFromList(id){
+  aid=id;
+  atab='ag-settings';
+  document.querySelectorAll('#agent-tabs .tab').forEach(x=>{
+    x.classList.toggle('active',x.dataset.at==='ag-settings');
+  });
+  switchView('agent',id);
+}
+window.editAgentFromList=editAgentFromList;
+/** 列表「删除」：可传 agent_id，不必先进入详情 */
+async function deleteAgentFromList(id,name){
+  const agentId=String(id||'').trim();
+  if(!agentId){toast('缺少 agent_id');return}
+  if(!confirm(`确定删除智能体「${name||agentId}」？此操作不可撤销。`))return;
+  let r=null;
+  const url=`${A}/teams/${tid}/agents/${encodeURIComponent(agentId)}`;
+  if(window.api&&typeof window.api.del==='function'){
+    r=await window.api.del(url);
+  }else{
+    r=await api(url,{method:'DELETE'});
+  }
+  if(r&&(r.deleted||r.status==='deleted'||r.agent_id||r.deleted===agentId)){
+    toast('已删除');
+    if(aid===agentId)aid='';
+    loadSbAgents();
+    if(document.querySelector('#view-overview:not(.hidden)'))loadOverview();
+    else switchView('overview');
+  }else{
+    const err=(window.api&&window.api._lastError)||api._lastError||{};
+    // DELETE 有时返回空 body 但 200 — 再按 status 判断
+    if(err.status===0||!err.status){
+      // 再刷列表确认是否已消失
+      toast('已提交删除');
+      if(aid===agentId)aid='';
+      loadSbAgents();
+      if(document.querySelector('#view-overview:not(.hidden)'))loadOverview();
+    }else{
+      toast('删除失败：'+(err.message||'未知错误'));
+    }
+  }
+}
+window.deleteAgentFromList=deleteAgentFromList;
 
 // ── Overview ──
 let _ovTimer=null;
@@ -199,7 +263,21 @@ async function loadOverview(){
     const tbody=el('ov-team-agents');tbody.innerHTML='';
     if(curTm&&curTm.agents){
       const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);
-      aa.forEach(a=>{tbody.innerHTML+=`<tr><td><b>${escapeHtml(a.name||a.agent_id)}</b></td><td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td><td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td><td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+s+'</span>').join('')}</td><td><button class="btn btn-sm btn-ghost" onclick="selectAgent('${a.agent_id}')">查看</button></td></tr>`});
+      aa.forEach(a=>{
+        const id=escapeHtml(a.agent_id||'');
+        const nm=escapeHtml(a.name||a.agent_id||'');
+        tbody.innerHTML+=`<tr>
+          <td><b>${nm}</b></td>
+          <td style="color:var(--muted)">${escapeHtml(a.role||'-')}</td>
+          <td><span class="st st-${a.state||'idle'}">${stL(a.state)}</span></td>
+          <td>${(a.skills||[]).slice(0,3).map(s=>'<span class="chip">'+escapeHtml(s)+'</span>').join('')}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-sm btn-ghost" onclick="selectAgent('${id}')" title="查看">查看</button>
+            <button class="btn btn-sm btn-ghost" onclick="editAgentFromList('${id}')" title="编辑">✏️ 编辑</button>
+            <button class="btn btn-sm btn-ghost" onclick="deleteAgentFromList('${id}','${nm.replace(/'/g,'&#39;')}')" title="删除" style="color:var(--pink)">🗑️ 删除</button>
+          </td>
+        </tr>`;
+      });
     }
     if(!tbody.innerHTML)tbody.innerHTML='<tr><td colspan="5" style="color:var(--dim)">暂无</td></tr>';
     _ovTimer=setInterval(()=>{
@@ -394,13 +472,24 @@ async function saveLLMConfig(){
 }
 async function testLLM(){
   const rc=el('llm-test-result');rc.classList.remove('hidden');
-  el('llm-test-content').innerHTML='<p style="color:var(--dim)">正在测试连接...</p>';
+  el('llm-test-content').innerHTML='<p style="color:var(--dim)">正在测试<strong>全局默认</strong> LLM 连接（非单条模型编辑）...</p>';
   const r=await api(`${A}/llm/test`,{method:'POST'});
   if(!r){el('llm-test-content').innerHTML='<p style="color:var(--pink)">请求失败，请检查后端</p>';return}
+  const meta=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-top:8px">
+    <div><b>实际模型:</b> ${escapeHtml(r.model||r.requested_model||'—')}</div>
+    <div><b>提供商:</b> ${escapeHtml(r.provider||'—')}</div>
+    <div style="grid-column:1/-1"><b>Base URL:</b> <code style="word-break:break-all">${escapeHtml(r.base_url||'—')}</code></div>
+    <div><b>延迟:</b> ${r.latency_ms!=null?Number(r.latency_ms).toFixed(0)+'ms':'—'}</div>
+    <div><b>范围:</b> 全局默认 (scope=${escapeHtml(r.scope||'global')})</div>
+  </div>`;
   if(r.success){
-    el('llm-test-content').innerHTML=`<div style="color:var(--lime);margin-bottom:8px">✅ 连接成功！</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><b>模型:</b> ${escapeHtml(r.model)}</div><div><b>提供商:</b> ${escapeHtml(r.provider)}</div><div><b>延迟:</b> ${r.latency_ms.toFixed(0)}ms</div></div><div style="margin-top:12px;padding:12px;background:rgba(232,240,250,0.7);border-radius:0;font-size:13px;color:var(--text)">${escapeHtml(r.response)}</div>`;
+    el('llm-test-content').innerHTML=`<div style="color:var(--lime);margin-bottom:8px">✅ 连接成功！</div>${meta}<div style="margin-top:12px;padding:12px;background:rgba(232,240,250,0.7);border-radius:0;font-size:13px;color:var(--text)">${escapeHtml(r.response)}</div>`;
   } else {
-    el('llm-test-content').innerHTML=`<div style="color:var(--pink);margin-bottom:8px">❌ 连接失败</div><div style="padding:12px;background:rgba(224,27,36,0.06);border-radius:0;font-size:12px;color:var(--red);word-break:break-all">${escapeHtml(r.error||'未知错误')}</div><div style="margin-top:12px;padding:12px;background:rgba(232,240,250,0.7);border-radius:0;font-size:13px;color:var(--text)">${escapeHtml(r.response)}</div><div style="margin-top:12px;color:var(--muted);font-size:12px">💡 提示: 请确认 API Key 已正确填入，或检查本地模型服务是否运行中</div>`;
+    el('llm-test-content').innerHTML=`<div style="color:var(--pink);margin-bottom:8px">❌ 连接失败</div>
+      ${meta}
+      <div style="margin-top:10px;padding:12px;background:rgba(224,27,36,0.06);border-radius:0;font-size:12px;color:var(--red);word-break:break-all">${escapeHtml(r.error||'未知错误')}</div>
+      ${r.response?`<div style="margin-top:10px;padding:12px;background:rgba(232,240,250,0.7);border-radius:0;font-size:13px;color:var(--text)">${escapeHtml(r.response)}</div>`:''}
+      <div style="margin-top:12px;color:var(--muted);font-size:12px;line-height:1.55">💡 ${escapeHtml(r.tip||'本按钮测的是全局默认模型。若你刚在某条模型里改了 Key/URL，请打开该模型编辑弹窗点「测试连接」，并确认「模型名称」是上游真实 id（例如 qwen27b-…），而不是 deepseek-v4-flash。')}</div>`;
   }
 }
 
@@ -548,26 +637,48 @@ async function submitEditModel(){
 async function testModelInEdit(){
   const rb=el('em-test-result');rb.classList.remove('hidden');
   rb.style.background='rgba(232,240,250,0.7)';rb.style.color='var(--muted)';
-  rb.innerHTML='⏳ 正在测试连接...';
+  const modelName=(el('em-name').value||'').trim();
+  const baseUrl=(el('em-url').value||'').trim();
+  if(!modelName){
+    rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';
+    rb.innerHTML='❌ 模型名称为空 — 请填写上游真实模型 ID（例如 <code>qwen27b-abliterated-Fable-MTP</code>），不要留空或沿用 deepseek-v4-flash';
+    return;
+  }
+  rb.innerHTML=`⏳ 正在测试 <b>${escapeHtml(modelName)}</b> @ <code style="font-size:11px">${escapeHtml(baseUrl||'(默认 base)')}</code> …`;
   const btn=el('em-test-btn');btn.disabled=true;
   // 测试前先按勾选框同步记忆，并用有效密钥(输入框→记住的key)发请求，留空也能用已记密钥测
   _syncRememberKey(tid,_editModelId);
-  const body={provider:el('em-prov').value,name:el('em-name').value.trim(),api_key:_effectiveKey(tid,_editModelId),api_base_url:el('em-url').value,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,team_id:tid,model_id:_editModelId};
+  const body={provider:el('em-prov').value,name:modelName,api_key:_effectiveKey(tid,_editModelId),api_base_url:baseUrl,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,team_id:tid,model_id:_editModelId};
   const r=await api(`${A}/llm/test-model`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   btn.disabled=false;
   if(!r){rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';rb.innerHTML='❌ 请求失败，请检查后端是否运行';return}
+  const sentModel=r.sent_model||r.model||modelName;
+  const reqModel=r.requested_model||modelName;
+  const routeWarn=(sentModel&&reqModel&&sentModel!==reqModel)
+    ?`<div style="margin-top:4px;color:var(--warn,#A67C1A);font-size:11px">⚠ 编辑框「${escapeHtml(reqModel)}」与实际上游 model「${escapeHtml(sentModel)}」不一致（可能被 Token 治理路由改写）</div>`
+    :'';
+  const meta=`<div style="margin-top:6px;font-size:11px;color:var(--muted);line-height:1.5">编辑框 model=<code>${escapeHtml(reqModel)}</code> · 实际上游 model=<code>${escapeHtml(sentModel)}</code> · base=<code style="word-break:break-all">${escapeHtml(r.base_url||baseUrl||'—')}</code></div>${routeWarn}`;
   if(r.success){
     rb.style.background='rgba(38,162,105,0.08)';rb.style.color='var(--lime)';
-    rb.innerHTML=`✅ 连接成功 — 模型: ${escapeHtml(r.model)} · 延迟: ${r.latency_ms.toFixed(0)}ms<div style="margin-top:8px;padding:10px;background:rgba(232,240,250,0.6);border-radius:6px;color:var(--text);font-size:12px">${escapeHtml(r.response)}</div>`;
+    rb.innerHTML=`✅ 连接成功 — 模型: ${escapeHtml(sentModel)} · 延迟: ${Number(r.latency_ms||0).toFixed(0)}ms${meta}<div style="margin-top:8px;padding:10px;background:rgba(232,240,250,0.6);border-radius:6px;color:var(--text);font-size:12px">${escapeHtml(r.response)}</div>`;
     // Auto-save after successful test（body.api_key 已是 _effectiveKey 结果）
     if(_editModelId){
-      const sb={provider:el('em-prov').value,name:el('em-name').value.trim(),max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:body.api_key,api_base_url:el('em-url').value};
+      const sb={provider:el('em-prov').value,name:modelName,max_tokens:parseInt(el('em-tok').value)||8192,temperature:parseFloat(el('em-temp').value)||0.7,is_default:el('em-def').value==='true',api_key:body.api_key,api_base_url:baseUrl};
       const sr=await api(`${A}/teams/${tid}/models/${_editModelId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sb)});
-      if(sr){rb.innerHTML+='<div style="margin-top:8px;color:var(--lime);font-size:12px">💾 配置已自动保存</div>';loadModels();if(sb.is_default){loadSbAgents();if(aid)loadAgent()}}
+      if(sr){
+        let saveNote='💾 配置已自动保存';
+        if(sr.global_override_refreshed){
+          saveNote+=' · 已同步到全局默认（广场/萃取将使用此连接）';
+        }else{
+          saveNote+=' · 若议事广场仍报 LLM 不可用，请点「设为全局默认」再试';
+        }
+        rb.innerHTML+=`<div style="margin-top:8px;color:var(--lime);font-size:12px">${saveNote}</div>`;
+        loadModels();if(sb.is_default){loadSbAgents();if(aid)loadAgent()}
+      }
     }
   } else {
     rb.style.background='rgba(224,27,36,0.06)';rb.style.color='var(--red)';
-    rb.innerHTML=`❌ 连接失败<div style="margin-top:6px;font-size:12px;word-break:break-all">${escapeHtml(r.error||'未知错误')}</div><div style="margin-top:8px;color:var(--muted);font-size:11px">💡 请确认 API Key 正确，或检查本地模型服务是否运行</div>`;
+    rb.innerHTML=`❌ 连接失败${meta}<div style="margin-top:6px;font-size:12px;word-break:break-all">${escapeHtml(r.error||'未知错误')}</div><div style="margin-top:8px;color:var(--muted);font-size:11px;line-height:1.55">💡 ${escapeHtml(r.tip||'请确认：模型名称=上游 id；Base URL 与 Key 属于同一分组；Key 已开通该模型。')}</div>`;
   }
 }
 
@@ -649,9 +760,27 @@ async function submitEditSkill(skillId){
   if(r){toast('✅ 技能已更新');const m=document.getElementById('modal-edit-skill');if(m)m.remove();loadSkills()}else toast('更新失败')
 }
 async function deleteSkill(skillId,skillName){
-  if(!confirm(`确认删除技能「${skillName}」？此操作不可撤销。`))return;
-  const r=await api(`${A}/teams/${tid}/skills/${skillId}`,{method:'DELETE'});
-  if(r){toast('✅ 技能已删除');loadSkills()}else toast('删除失败')
+  // tools-skills.js 后加载会覆盖为带防连点版本；此处作兜底
+  const rawId=String(skillId||'').trim();
+  if(!rawId){toast('缺少 skill_id');return}
+  if(!confirm(`确认删除技能「${skillName||rawId}」？此操作不可撤销。`))return;
+  const sid=encodeURIComponent(rawId);
+  let r=null;
+  if(window.api&&typeof window.api.del==='function'){
+    r=await window.api.del(`${A}/teams/${tid}/skills/${sid}`);
+  }else{
+    r=await api(`${A}/teams/${tid}/skills/${sid}`,{method:'DELETE'});
+  }
+  const err=(window.api&&window.api._lastError)||api._lastError||{};
+  const ok=r&&(r.status==='deleted'||r.status==='already_deleted'||r.skill_id);
+  const gone=err.status===404;
+  if(ok||gone){
+    toast(gone||(r&&r.status==='already_deleted')?'技能已不存在，已刷新列表':'✅ 技能已删除');
+    loadSkills();
+  }else{
+    toast('删除失败：'+(err.message||(r&&r.detail)||'未知错误')+(err.status===403?'（可硬刷新后重试）':''));
+    try{loadSkills()}catch(_){}
+  }
 }
 
 // ── Skills (Clawith-style) ──
@@ -1085,7 +1214,13 @@ async function testAgentLLM(){
     }
   }catch(e){rc.innerHTML=`<p style="color:var(--pink)">请求异常: ${escapeHtml(e.message)}</p>`}
 }
-async function delAgent(){if(!confirm('确定删除？'))return;await fetch(`${A}/teams/${tid}/agents/${aid}`,{method:'DELETE'});toast('已删除');aid='';loadSbAgents();switchView('overview')}
+async function delAgent(){
+  // 详情页删除：复用列表删除（CSRF 安全）
+  if(!aid){toast('未选中智能体');return}
+  const nameEl=document.getElementById('set-name');
+  const name=nameEl?nameEl.value:(aid);
+  await deleteAgentFromList(aid,name);
+}
 async function startStop(cur){const act=cur==='working'?'stop':'start';const r=await api(`${A}/teams/${tid}/agents/${aid}/${act}`,{method:'POST'});if(r){toast(act==='start'?'Agent 已启动':'Agent 已停止');loadSbAgents();loadAgent()}else toast('操作失败')}
 
 // ══════════════════════════════════

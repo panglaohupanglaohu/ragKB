@@ -95,6 +95,12 @@ def check_static_frontend() -> None:
         ("XC-4.3 棘轮 lock UI", "lock" in cost.lower() and ("ratchet" in cost.lower() or "棘轮" in cost)),
         ("XC cost 物竞主轴常驻", "eco-hub" in cost and "initEcoHub" in cost and "loadEcoProduction" in cost),
         ("XC 试验田④跳转", "ecoGoCostStep" in eco_fb),
+        ("TG 主轴 Token 治理", "tg-hub" in cost and "tgRefreshAll" in cost and "token-governance" in cost),
+        ("TG 全链序号 1–6", "cost-shell__pipe" in cost and "Token 治理" in cost and "生产注入" in cost),
+        ("TG 顶栏合并导航", "cost-shell" in cost and "cost-shell__pipe" in cost and "cost-detail-bar" in cost and 'class="tg-pipe"' not in cost and 'class="ev-action-bar"' not in cost and 'class="topbar-ws"' not in cost),
+        ("TG 物竞侧支折叠", "eco-hub-details" in cost and "<details" in cost),
+        ("TG v2 workbench", "token-workbench.js" in cost and "tg-kpi-row" in cost and "tg-lever-panel" in cost),
+        ("TG v2 service module", (ROOT / "src/backend/agents/token_governance/service.py").exists()),
     ]
     for name, ok in checks:
         (_ok if ok else _fail)(name, "ok" if ok else "missing symbol")

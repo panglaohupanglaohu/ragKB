@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智能体数字孪生 — AgentsGroup2026</title>
+<title>数字孪生 — AgentsGroup2026</title>
 <link href="https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css" rel="stylesheet">
 <style>
 /* ══════════════════════════════════════════════════════════════
@@ -340,16 +340,16 @@ body {
   <div class="topbar-ws" style="border-radius:0;flex-basis:100%">
     <div class="topbar-ws__left">
       <div class="logo" style="width:32px;height:32px;border-radius:6px;background:var(--cyan);color:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:var(--font-mono)">DT</div>
-      <h1>智能体数字孪生</h1>
+      <h1>数字孪生</h1>
     </div>
-    <nav class="topbar-ws__nav" aria-label="主导航">
-      <a href="/agent-team-config.html">智能体团队</a>
-      <a href="/plaza.html">议事广场</a>
-      <a href="/skill-extract.html">技能萃取/赋予</a>
-      <span class="cur">数字孪生</span>
-      <a href="/Agent-digital-twin.html">SECS沙箱</a>
-      <a href="/cost-dashboard.html">演进式成本优化</a><a href="/pet-config.html">🐾 仿生生态</a>
-    </nav>
+    <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+    <a href="/agent-team-config.html">智能体团队</a>
+    <a href="/plaza.html">议事广场</a>
+    <a href="/skill-extract.html">技能萃取</a>
+    <a href="/Agent-digital-twin.html?office3d=1">数字孪生</a>
+    <a href="/cost-dashboard.html">Token节省</a>
+    <a href="/pet-config.html">生态配置</a>
+  </nav>
     <div class="topbar-ws__right">
       <div class="status-indicator"><span class="dot"></span> 系统运行中</div>
       <button class="btn" onclick="importSnapshot()" style="font-size:11px;padding:5px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导入</button>
@@ -587,6 +587,7 @@ body {
 </div>
 
 <script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="digital-twin"></script>
 <script src="/js/digital-twin-cli.js" defer></script>
 <script src="/js/digital-twin-cli-3d.js" type="module"></script>
 

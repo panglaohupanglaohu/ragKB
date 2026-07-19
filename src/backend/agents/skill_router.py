@@ -12,6 +12,7 @@ Semantic enhancement: Chinese n-gram sliding window, synonym expansion, instruct
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -20,6 +21,7 @@ import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,19 @@ logger = logging.getLogger(__name__)
 # BM25 parameters
 BM25_K1 = 1.5
 BM25_B = 0.75
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ROUTER_STATE_PATH = _REPO_ROOT / "storage" / "skill_router_state.json"
+
+# lifecycle multipliers applied after retrieve+rerank (verified skills rank higher)
+_LIFECYCLE_MULT = {
+    "solidified": 1.14,
+    "verified": 1.12,
+    "published": 1.08,
+    "team_local": 1.0,
+    "draft": 0.90,
+    "degraded": 0.72,
+}
 
 # Synonym/related term groups for Chinese tech/ops domain
 _SYNONYM_GROUPS = [
@@ -71,6 +86,9 @@ class RouteResult:
     rerank_score: float
     instructions_preview: str = ""
     match_reasons: List[str] = field(default_factory=list)
+    lifecycle_stage: str = ""
+    lifecycle_note: str = ""
+    lifecycle_mult: float = 1.0
 
 
 @dataclass
@@ -106,6 +124,7 @@ class SkillRouter:
         self._feedback: Dict[str, List[RoutingFeedback]] = {}
         # Learned affinity boosts: (agent_id, skill_category) → boost value
         self._affinity_boosts: Dict[Tuple[str, str], float] = {}
+        self._load_state()
 
     def route(
         self,
@@ -154,14 +173,26 @@ class SkillRouter:
         reranked = self._stage2_rerank(query, retrieval_top)
         stage2_ms = (time.time() - t2) * 1000
 
-        # Take final top-K
-        final = reranked[:top_k]
+        # ── Stage 2.5: lifecycle reweight (verified ↑ draft/degraded ↓) ──
+        rescored: List[Tuple[Dict, float, float, float, float, str, str]] = []
+        for skill_data, retrieval_score, rerank_score in reranked:
+            combined = 0.45 * retrieval_score + 0.55 * rerank_score
+            mult, lc_note = self._lifecycle_multiplier(skill_data)
+            stage = self._lifecycle_stage_str(skill_data)
+            combined = min(max(combined * mult, 0.0), 1.0)
+            rescored.append(
+                (skill_data, retrieval_score, rerank_score, combined, mult, lc_note, stage)
+            )
+        rescored.sort(key=lambda x: x[3], reverse=True)
+        final = rescored[:top_k]
 
         # Build results
         results = []
-        for skill_data, retrieval_score, rerank_score in final:
-            combined = 0.45 * retrieval_score + 0.55 * rerank_score
+        for skill_data, retrieval_score, rerank_score, combined, mult, lc_note, stage in final:
             instructions = skill_data.get("instructions", "")
+            reasons = self._explain_match(query, skill_data)
+            if lc_note:
+                reasons = list(reasons) + [lc_note]
             results.append(RouteResult(
                 skill_id=skill_data.get("skill_id", ""),
                 name=skill_data.get("name", ""),
@@ -172,7 +203,10 @@ class SkillRouter:
                 retrieval_score=round(retrieval_score, 4),
                 rerank_score=round(rerank_score, 4),
                 instructions_preview=instructions[:200] if instructions else "",
-                match_reasons=self._explain_match(query, skill_data),
+                match_reasons=reasons,
+                lifecycle_stage=stage,
+                lifecycle_note=lc_note,
+                lifecycle_mult=round(mult, 3),
             ))
 
         duration_ms = (time.time() - start_time) * 1000
@@ -458,6 +492,8 @@ class SkillRouter:
 
         # Update affinity boosts based on feedback pattern
         self._update_affinity_from_feedback(agent_id, skill_id, action, rating)
+        # affinity helper saves when it mutates; always persist feedback rows
+        self._save_state()
 
         return {
             "status": "ok",
@@ -485,6 +521,108 @@ class SkillRouter:
             # Positive/negative based on rating
             boost = (rating - 3) * 0.05  # rating 5 → +0.1, rating 1 → -0.1
             self._affinity_boosts[key] = self._affinity_boosts.get(key, 0) + boost
+        # clamp drift
+        self._affinity_boosts[key] = max(-0.5, min(0.5, float(self._affinity_boosts.get(key, 0))))
+        self._save_state()
+
+    @staticmethod
+    def _lifecycle_stage_str(skill_data: Dict[str, Any]) -> str:
+        raw = skill_data.get("lifecycle_stage") or skill_data.get("lifecycle") or ""
+        if hasattr(raw, "value"):
+            return str(raw.value).lower().strip()
+        return str(raw or "").lower().strip() or "unknown"
+
+    @classmethod
+    def _lifecycle_multiplier(cls, skill_data: Dict[str, Any]) -> Tuple[float, str]:
+        """Boost verified/solidified skills; demote draft/degraded."""
+        stage = cls._lifecycle_stage_str(skill_data)
+        mult = _LIFECYCLE_MULT.get(stage, 1.0)
+        if mult > 1.0:
+            return mult, f"生命周期加成: {stage} ×{mult:.2f}"
+        if mult < 1.0:
+            label = "草稿/未验证" if stage in ("", "draft", "unknown") else stage
+            return mult, f"生命周期降权: {label or 'unknown'} ×{mult:.2f}"
+        return 1.0, ""
+
+    def _load_state(self) -> None:
+        """Load affinity + feedback from disk (survives restart)."""
+        try:
+            if not _ROUTER_STATE_PATH.is_file():
+                return
+            data = json.loads(_ROUTER_STATE_PATH.read_text(encoding="utf-8"))
+            affinity = data.get("affinity_boosts") or {}
+            if isinstance(affinity, dict):
+                for k, v in affinity.items():
+                    if not isinstance(k, str) or ":" not in k:
+                        continue
+                    agent_id, cat = k.split(":", 1)
+                    try:
+                        self._affinity_boosts[(agent_id, cat)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+            fb_map = data.get("feedback") or {}
+            if isinstance(fb_map, dict):
+                for sid, rows in fb_map.items():
+                    if not isinstance(rows, list):
+                        continue
+                    loaded: List[RoutingFeedback] = []
+                    for row in rows[-50:]:  # cap per skill
+                        if not isinstance(row, dict):
+                            continue
+                        loaded.append(RoutingFeedback(
+                            feedback_id=str(row.get("feedback_id") or uuid.uuid4().hex[:12]),
+                            team_id=str(row.get("team_id") or ""),
+                            agent_id=str(row.get("agent_id") or ""),
+                            skill_id=str(row.get("skill_id") or sid),
+                            action=str(row.get("action") or "rate"),
+                            rating=int(row.get("rating") or 0),
+                            reason=str(row.get("reason") or ""),
+                            created_at=str(row.get("created_at") or ""),
+                        ))
+                    if loaded:
+                        self._feedback[str(sid)] = loaded
+            if self._affinity_boosts or self._feedback:
+                logger.info(
+                    "SkillRouter: loaded state affinity=%d feedback_skills=%d",
+                    len(self._affinity_boosts), len(self._feedback),
+                )
+        except Exception as e:
+            logger.warning("SkillRouter: load state failed: %s", e)
+
+    def _save_state(self) -> None:
+        """Persist affinity + recent feedback to disk."""
+        try:
+            _ROUTER_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            affinity = {
+                f"{aid}:{cat}": round(float(v), 4)
+                for (aid, cat), v in self._affinity_boosts.items()
+            }
+            feedback: Dict[str, List[Dict[str, Any]]] = {}
+            for sid, rows in self._feedback.items():
+                feedback[sid] = [
+                    {
+                        "feedback_id": f.feedback_id,
+                        "team_id": f.team_id,
+                        "agent_id": f.agent_id,
+                        "skill_id": f.skill_id,
+                        "action": f.action,
+                        "rating": f.rating,
+                        "reason": f.reason,
+                        "created_at": f.created_at,
+                    }
+                    for f in rows[-50:]
+                ]
+            payload = {
+                "version": 1,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "affinity_boosts": affinity,
+                "feedback": feedback,
+            }
+            tmp = _ROUTER_STATE_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(_ROUTER_STATE_PATH)
+        except Exception as e:
+            logger.warning("SkillRouter: save state failed: %s", e)
 
     def get_feedback_stats(self, team_id: str = "") -> Dict[str, Any]:
         """Get aggregated feedback statistics."""

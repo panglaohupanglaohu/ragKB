@@ -339,7 +339,7 @@
 - `nightly_4h_optimize.sh` (~3507 tok)
 - `start_tts.sh` — Start GPT-SoVITS TTS API server (~266 tok)
 - `verify_v4_local.sh` — 本机一键复核 v4 接口通路门+全程回归，全绿回写 [~]→[x] (~700 tok)
-- `verify_eco_feedback_xf.py` — 物竞反馈台 XF + 物竞×成本 XC 验收（静态/离线/活后端 BidCandidate lock）(~900 tok)
+- `verify_eco_feedback_xf.py` — 物竞反馈台 XF + 物竞×成本 XC + Token 治理 TG 符号验收(~1000 tok)
 
 ## src/
 
@@ -775,3 +775,33 @@
 - `src/backend/sandbox/relation_integration.py` — 物竞 timeline→关系边建议（XF-7.1）
 - `tests/test_relation_integration.py` — 关系边 suggest/apply 单测
 - `docs/物竞适者反馈调整台plan.md` / `todos.md` — 适者反馈台（含 XF-7 关系/通道）
+
+- `src/backend/agents/token_governance/lever_params.py` — R10 杠杆可调参数 schema/clamp (~2k tok)
+
+- `src/frontend/css/taste-light.css` — Taste Skill 全站浅色壳(除孪生)；html.taste-light token 映射 (~2k tok)
+
+- `.agents/skills/design-taste-frontend/SKILL.md` — 官方 Taste Skill (tasteskill.dev / Leonxlnx) design-taste-frontend v2 (~8k tok)
+
+## src/backend/agents/tse/
+
+- `__init__.py` — TSE public API: extract_skills, pipeline, schema (~80 tok)
+- `config.py` — TSE hyperparameters (TCN d=1,2,4, 5 queries, loss weights) (~120 tok)
+- `transcript.py` — Plaza transcript parse from structured meta or free-form chat (~220 tok)
+- `encoder.py` — Stage1 hash n-gram utterance encoder + aux role/signal/niche/round (~180 tok)
+- `tcn.py` — Stage2 pure-numpy dilated depthwise TCN residual stack (~160 tok)
+- `skill_attention.py` — Stage3 5-field multi-head cross-attention + skill moments (~160 tok)
+- `decoder.py` — Stage4 constrained JSON via ChatHarness + schema retry (~200 tok)
+- `pipeline.py` — Full TSE orchestration for skill_extractor prefill (~200 tok)
+- `schema.py` — Skill JSON validate/parse grammar helpers (~140 tok)
+- `heads.py` — Multi-task category CE + tools multi-label heads (~140 tok)
+- `dataset.py` — PlazaExtractionDataset JSONL silver/gold pairs (~200 tok)
+- `silver.py` — LLM/heuristic silver label bootstrap (~180 tok)
+- `trainer.py` — Numpy multi-task SGD trainer AE+cat+tools (~280 tok)
+- `checkpoint.py` — save/load npz weights into pipeline (~160 tok)
+- `evaluate.py` — name P/R/F1 + head metrics (~120 tok)
+- `active.py` — uncertainty active-learning queue (~100 tok)
+
+
+## scripts/
+
+- `train_tse.py` — TSE silver bootstrap + multi-task train CLI (~120 tok)

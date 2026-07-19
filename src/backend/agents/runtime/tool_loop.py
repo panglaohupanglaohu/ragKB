@@ -152,16 +152,37 @@ def _record_usage(
         total_tokens=raw_usage.get("total_tokens", 0),
     )
     if usage.total_tokens:
+        # TG：归因 task（token_ctx / AG_TASK_ID），避免 (unscoped) 黑洞
+        try:
+            from ..token_context import get_token_ctx
+            import os as _os
+            ctx = get_token_ctx() or {}
+        except Exception:
+            ctx = {}
+            _os = None  # type: ignore
+        task_id = str(ctx.get("task_id") or ctx.get("scenario_id") or "")
+        if not task_id and _os is not None:
+            task_id = str(_os.environ.get("AG_TASK_ID") or "")
+        scenario_id = str(ctx.get("scenario_id") or task_id or "")
+        run_id = str(ctx.get("run_id") or session_id or "")
+        phase = str(ctx.get("phase") or "task")
+        tid = team_id or str(ctx.get("team_id") or "")
+        if not tid and _os is not None:
+            tid = str(_os.environ.get("AG_TEAM_ID") or "")
         get_budget_guard().record_usage(
             UsageRecord(
                 session_id=session_id,
-                agent_id=agent_id,
-                team_id=team_id,
+                agent_id=agent_id or str(ctx.get("agent_id") or ""),
+                team_id=tid,
                 model=model,
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 total_tokens=usage.total_tokens,
                 cost_usd=ChatHarness._estimate_cost_usd(model, usage.total_tokens),
+                phase=phase,
+                skill_id=str(ctx.get("skill_id") or ""),
+                scenario_id=scenario_id,
+                run_id=run_id,
             )
         )
     return usage
@@ -296,39 +317,188 @@ async def run_tool_loop(
 
     emit_event("loop_start", {"role": role, "tools": tool_names})
 
+    import os as _os
+    task_id = str(_os.environ.get("AG_TASK_ID") or "")
+    if not team_id:
+        team_id = str(_os.environ.get("AG_TEAM_ID") or "")
+    model_name = config.model
+
+    # 任务 token 归因：进入 loop 前压入 context（分析台 by_team / by_task 依赖）
+    _tl_cm = None
+    try:
+        from ..token_context import token_scope as _tl_scope
+        _tl_cm = _tl_scope(
+            task_id=task_id or "",
+            team_id=team_id or "",
+            agent_id=agent_id or "",
+            phase="task",
+            run_id=session_id or "",
+            scenario_id=task_id or "",
+        )
+        _tl_cm.__enter__()
+    except Exception:
+        _tl_cm = None
+
+    try:
+      return await _run_tool_loop_iterations(
+        max_iterations=max_iterations,
+        messages=messages,
+        task_id=task_id,
+        team_id=team_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        model_name=model_name,
+        config=config,
+        client=client,
+        tools=tools,
+        tool_name_set=tool_name_set,
+        emit_event=emit_event,
+        usage_total=usage_total,
+        files_changed=files_changed,
+        tool_log=tool_log,
+        summary=summary,
+        runtime_id=runtime_id,
+        permission_context=permission_context,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+      )
+    finally:
+        if _tl_cm is not None:
+            try:
+                _tl_cm.__exit__(None, None, None)
+            except Exception:
+                pass
+
+
+async def _run_tool_loop_iterations(
+    *,
+    max_iterations: int,
+    messages: List[Dict[str, Any]],
+    task_id: str,
+    team_id: str,
+    agent_id: str,
+    session_id: str,
+    model_name: str,
+    config: ProviderConfig,
+    client: LLMClient,
+    tools: List[Dict[str, Any]],
+    tool_name_set: set,
+    emit_event: Callable,
+    usage_total: UsageSummary,
+    files_changed: List[str],
+    tool_log: List[Dict[str, Any]],
+    summary: str,
+    runtime_id: str,
+    permission_context: Optional[ToolPermissionContext],
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+) -> ToolLoopResult:
+    """Inner iterations of run_tool_loop (kept separate for token_scope cleanup)."""
     for iteration in range(max_iterations):
         _maybe_inject_nudge(messages, iteration, max_iterations, emit_event)
         _compact_old_tool_results(messages, emit_event)
 
-        estimated_tokens = ChatHarness._estimate_tokens_from_messages(
-            messages,
-            max_tokens=max_tokens,
-        )
-        budget_check = budget_guard.check(
-            session_id=session_id,
-            agent_id=agent_id,
-            team_id=team_id,
-            estimated_tokens=estimated_tokens,
-        )
-        if not budget_check.allowed:
-            error_msg = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
-            emit_event("error", {"iteration": iteration, "error": error_msg})
-            emit_event("loop_end", {"reason": "budget_exceeded", "iteration": iteration})
-            return ToolLoopResult(
-                ok=bool(files_changed or summary),
-                summary=summary,
-                files_changed=files_changed,
-                iterations=iteration,
-                log=tool_log,
-                error=error_msg,
-                usage=usage_total,
-                runtime_id=runtime_id,
+        # TG v2 R3：每轮 prepare（simplify/compress/cache/skill/model/budget）
+        send_messages = messages
+        try:
+            # 落盘「prepare 前」原始 messages，供 cost 工作台按 task_id 真试跑
+            if task_id:
+                try:
+                    from ..token_governance.task_messages import save_prepare_messages
+                    save_prepare_messages(
+                        task_id,
+                        messages,
+                        team_id=team_id or "",
+                        agent_id=agent_id or "",
+                        phase="task",
+                        source="tool_loop",
+                        extra={"iteration": iteration, "session_id": session_id},
+                    )
+                except Exception:
+                    pass
+            from ..token_governance import get_token_governance
+            prep = get_token_governance().prepare_request(
+                messages,
+                task_id=task_id,
+                team_id=team_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                phase="task",
+                query_for_skill=prompt or "",
+                estimated_extra_tokens=int(max_tokens or 0) // 8,
             )
+            send_messages = prep.get("messages") or messages
+            # skill hint → 注入 system 尾部（不重复堆叠）
+            skills = (prep.get("skill_hint") or {}).get("skill_ids") or []
+            if skills and send_messages and send_messages[0].get("role") == "system":
+                tag = "[TG_SKILL_HINT]"
+                hint_line = f"\n{tag} prefer skills: {', '.join(skills[:5])}"
+                sys0 = str(send_messages[0].get("content") or "")
+                if tag not in sys0:
+                    send_messages = list(send_messages)
+                    send_messages[0] = {
+                        **send_messages[0],
+                        "content": sys0 + hint_line,
+                    }
+            if (prep.get("model") or {}).get("model"):
+                model_name = str(prep["model"]["model"]) or model_name
+            if prep.get("budget") and not prep["budget"].get("allowed", True):
+                error_msg = "Token budget exceeded"
+                evs = prep["budget"].get("events") or []
+                if evs:
+                    error_msg = evs[0].get("message") or error_msg
+                emit_event("error", {"iteration": iteration, "error": error_msg, "tg": True})
+                emit_event("loop_end", {"reason": "budget_exceeded", "iteration": iteration})
+                return ToolLoopResult(
+                    ok=bool(files_changed or summary),
+                    summary=summary,
+                    files_changed=files_changed,
+                    iterations=iteration,
+                    log=tool_log,
+                    error=error_msg,
+                    usage=usage_total,
+                    runtime_id=runtime_id,
+                )
+            if prep.get("saved_tokens_est"):
+                emit_event("tg_prepare", {
+                    "iteration": iteration,
+                    "saved": prep.get("saved_tokens_est"),
+                    "levers": [x.get("kind") for x in (prep.get("levers") or [])],
+                    "model": model_name,
+                })
+        except Exception as tg_err:
+            logger.debug("tool_loop tg prepare skip: %s", tg_err)
+            # 回退：旧 budget check
+            estimated_tokens = ChatHarness._estimate_tokens_from_messages(
+                messages, max_tokens=max_tokens,
+            )
+            budget_check = budget_guard.check(
+                session_id=session_id,
+                agent_id=agent_id,
+                team_id=team_id,
+                estimated_tokens=estimated_tokens,
+            )
+            if not budget_check.allowed:
+                error_msg = budget_check.events[0].message if budget_check.events else "Token budget exceeded"
+                emit_event("error", {"iteration": iteration, "error": error_msg})
+                emit_event("loop_end", {"reason": "budget_exceeded", "iteration": iteration})
+                return ToolLoopResult(
+                    ok=bool(files_changed or summary),
+                    summary=summary,
+                    files_changed=files_changed,
+                    iterations=iteration,
+                    log=tool_log,
+                    error=error_msg,
+                    usage=usage_total,
+                    runtime_id=runtime_id,
+                )
 
         started_at = time.monotonic()
         raw = await client.chat_completion(
-            messages,
-            model=config.model,
+            send_messages,
+            model=model_name,
             max_tokens=max_tokens,
             temperature=temperature,
             tools=tools,
