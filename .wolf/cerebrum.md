@@ -33,6 +33,7 @@
 
 
 ## Key Learnings
+- [2026-07-20] skill 闭环：`acceptEvolution` / 效果页应用改进后自动 `switchModalTab('verify')` + `triggerVerify`（语义+沙箱+Twin A/B）；`apply_evolution` 回 `next_step=verify` 并将 changelog 写入 skill.config.last_evolution。
 - [2026-07-18] 技能验证 Twin A/B：skill_twin_ab 按 metadata.scenario+target_skill（或 code_delivery→code_review_delivery）跑 baseline/treatment 熟练度+instructions override；增益≥5pp 为 twin 通过；UI 展示对照表。env: AG_SKILL_TWIN_AB_SEEDS/GAIN/MAX_STEPS。
 - [2026-07-18] 技能验证=语义层(步骤/工具落地与 mock/场景对齐/拒离线占位)+沙箱结构；hard_fail 挡回退草稿。路由结果含 lifecycle_stage/note/mult，UI 徽章展示。
 - [2026-07-18] SkillRouter：retrieve+rerank 后乘 lifecycle（verified/solidified↑ draft/degraded↓）；affinity/feedback 持久化 storage/skill_router_state.json。

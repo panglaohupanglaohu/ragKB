@@ -567,7 +567,13 @@ class SkillEvolver:
             "llm_calls_left": call_budget[0],
         }
 
-    def apply_evolution(self, team_id: str, skill_id: str, new_instructions: str) -> Dict[str, Any]:
+    def apply_evolution(
+        self,
+        team_id: str,
+        skill_id: str,
+        new_instructions: str,
+        changelog: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """应用演化结果（用户确认后调用）."""
         if not self._skill_library:
             return {"error": "skill_library_not_initialized"}
@@ -592,6 +598,18 @@ class SkillEvolver:
         skill.instructions = new_instructions
         skill.version += 1
         skill.lifecycle_stage = SkillLifecycleStage.TEAM_LOCAL  # Reset to team_local after evolution
+        # 轻量留痕：changelog 进 config，供验证/效果页展示（无 schema 破坏）
+        notes = [str(x).strip() for x in (changelog or []) if str(x).strip()]
+        try:
+            cfg = dict(getattr(skill, "config", None) or {})
+            cfg["last_evolution"] = {
+                "from_version": old_version,
+                "to_version": skill.version,
+                "changelog": notes[:20],
+            }
+            skill.config = cfg
+        except Exception:
+            pass
         self._skill_library._persist_skill(skill, team_id)
 
         logger.info("Skill %s evolved v%d → v%d", skill_id, old_version, skill.version)
@@ -600,6 +618,9 @@ class SkillEvolver:
             "skill_id": skill_id,
             "old_version": old_version,
             "version": skill.version,
+            "changelog": notes[:20],
+            "next_step": "verify",
+            "next_step_hint": "建议立即验证（语义 + 沙箱 + Twin A/B）",
         }
 
     # ── Merge: 合并重复技能 ──────────────────────────────────────

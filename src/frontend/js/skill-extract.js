@@ -1299,6 +1299,21 @@ window.triggerEvolve = async function() {
   }
 };
 
+/** 演化应用成功后：切验证 tab 并自动跑语义/沙箱/Twin A/B（闭环下一步） */
+async function _runPostEvolutionVerify(version) {
+  try {
+    await switchModalTab('verify');
+  } catch (_) {}
+  const statusEl = document.getElementById('verify-status');
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.textContent = `🧬 演化已应用 v${version || '?'} · 正在自动验证（语义 + 沙箱 + Twin A/B）…`;
+  }
+  if (typeof window.triggerVerify === 'function') {
+    await window.triggerVerify();
+  }
+}
+
 window.acceptEvolution = async function() {
   if (!_evolveCache) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
@@ -1319,23 +1334,43 @@ window.acceptEvolution = async function() {
   // Find the crystal node for this skill before applying
   const skillName = item?.draft_name || '';
   const targetNode = skillNodes.find(n => n.userData.skill?.skill_id === skillId || n.userData.skill?.name === skillName);
+  const acceptBtn = document.getElementById('btn-accept-evolve');
+  if (acceptBtn) {
+    acceptBtn.disabled = true;
+    acceptBtn.textContent = '⏳ 应用中…';
+  }
 
-  const result = await api('/skill-library/apply-evolution', {
-    method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: edited }),
-  });
-  if (result && !result.error) {
-    showToast('✅ 演化已应用 v' + result.version);
-    document.getElementById('evolve-diff').style.display = 'none';
-    _evolveCache = null;
-    _resetEvolvePanelStyles();
+  const changelog = Array.isArray(_evolveCache.changelog) ? _evolveCache.changelog : [];
+  try {
+    const result = await api('/skill-library/apply-evolution', {
+      method: 'POST',
+      body: JSON.stringify({
+        team_id: currentTeamId,
+        skill_id: skillId,
+        new_instructions: edited,
+        changelog,
+      }),
+    });
+    if (result && !result.error) {
+      showToast('✅ 演化已应用 v' + result.version + ' · 开始验证');
+      document.getElementById('evolve-diff').style.display = 'none';
+      _evolveCache = null;
+      _resetEvolvePanelStyles();
 
-    // Evolution VFX: light beam → shrink → expand
-    if (targetNode) triggerEvolutionVFX(targetNode);
+      // Evolution VFX: light beam → shrink → expand
+      if (targetNode) triggerEvolutionVFX(targetNode);
 
-    await loadQueue(); await loadSkills();
-  } else {
-    showToast('应用失败: ' + (result?.reason || result?.error || 'unknown'));
+      await loadQueue(); await loadSkills();
+      // 闭环：应用后自动验证（人已确认指令，验证是客观门禁）
+      await _runPostEvolutionVerify(result.version);
+    } else {
+      showToast('应用失败: ' + (result?.reason || result?.error || 'unknown'));
+    }
+  } finally {
+    if (acceptBtn) {
+      acceptBtn.disabled = false;
+      acceptBtn.textContent = '✅ 接受演化并验证';
+    }
   }
 };
 
@@ -1636,14 +1671,19 @@ window.applyUsageChatEvolution = async function() {
 
   const applyResult = await api('/skill-library/apply-evolution', {
     method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId, new_instructions: result.improved_instructions }),
+    body: JSON.stringify({
+      team_id: currentTeamId,
+      skill_id: skillId,
+      new_instructions: result.improved_instructions,
+      changelog: Array.isArray(result.changelog) ? result.changelog : [],
+    }),
   });
   if (applyResult && !applyResult.error) {
-    _addUsageChatMsg('system', `✅ 已应用改进，版本更新为 v${applyResult.version}`);
-    showToast(`✅ 技能已优化到 v${applyResult.version}`);
+    _addUsageChatMsg('system', `✅ 已应用改进 v${applyResult.version}，正在自动验证…`);
+    showToast(`✅ 技能已优化到 v${applyResult.version} · 开始验证`);
     window._lastChatEvolution = null;
-    loadSkills();
-    loadUsageTab();
+    await loadSkills();
+    await _runPostEvolutionVerify(applyResult.version);
   } else {
     _addUsageChatMsg('system', `❌ 应用失败: ${applyResult?.error || 'unknown'}`);
   }
@@ -1665,16 +1705,30 @@ function loadVerifyTab() {
   document.getElementById('verify-status').textContent = '尚未执行验证';
 }
 
+let _verifyInFlight = false;
 window.triggerVerify = async function() {
+  if (_verifyInFlight) {
+    showToast('验证进行中，请稍候…');
+    return;
+  }
   if (!selectedItemId) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
   const skillId = resolveSkillId(item);
   // 与演化口径一致：已在库注册即可验证，不单看 item.status
   const registered = !!(skillId && allSkills?.some(s => s.slug === item?.draft_slug || s.skill_id === skillId || s.slug === skillId));
   if ((item && item.status !== 'approved' && !registered) || !skillId) { promptRegisterFirst('验证'); return; }
-  document.getElementById('btn-verify').textContent = '⏳ 验证中...';
-  document.getElementById('btn-verify').disabled = true;
-  document.getElementById('verify-status').textContent = '🔬 正在生成测试场景并执行...';
+  const btn = document.getElementById('btn-verify');
+  const statusEl = document.getElementById('verify-status');
+  _verifyInFlight = true;
+  if (btn) {
+    btn.textContent = '⏳ 验证中…';
+    btn.disabled = true;
+  }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.textContent = '🔬 正在生成测试场景并执行（语义 + 沙箱 + Twin A/B）…';
+  }
+  document.getElementById('verify-results').style.display = 'none';
 
   // Add scanning ring to the skill's crystal in Three.js
   const skillName = item?.draft_name || '';
@@ -1693,12 +1747,22 @@ window.triggerVerify = async function() {
     extractionGroup.add(scanRing);
   }
 
-  const result = await api('/skill-library/verify', {
-    method: 'POST',
-    body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
-  });
-  document.getElementById('btn-verify').textContent = '🧪 开始验证';
-  document.getElementById('btn-verify').disabled = false;
+  let result = null;
+  try {
+    result = await api('/skill-library/verify', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '验证异常: ' + (e?.message || e);
+    showToast('验证异常: ' + (e?.message || e));
+  } finally {
+    _verifyInFlight = false;
+    if (btn) {
+      btn.textContent = '🧪 开始验证';
+      btn.disabled = false;
+    }
+  }
 
   // Remove/transform scan ring based on result
   if (scanRing) {
@@ -1743,7 +1807,7 @@ window.triggerVerify = async function() {
     }
   }
 
-  if (!result) { document.getElementById('verify-status').textContent = '验证失败'; return; }
+  if (!result) { if (statusEl) statusEl.textContent = '验证失败'; return; }
   // Show results
   document.getElementById('verify-status').style.display = 'none';
   document.getElementById('verify-results').style.display = 'block';

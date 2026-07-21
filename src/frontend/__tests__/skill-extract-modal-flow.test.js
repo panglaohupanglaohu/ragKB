@@ -36,12 +36,25 @@ describe('skill-extract modal full tab flow', () => {
   });
 
   it('C: triggerEvolve resets the button via try/finally', () => {
-    expect(source).toContain("btn.textContent = '⏳ 演化中...'");
+    // 允许 ASCII ... 或 Unicode 省略号 …
+    expect(source).toMatch(/btn\.textContent = '⏳ 演化中(\.\.\.|…)'/);
     expect(source).toMatch(/} finally \{[\s\S]*btn\.textContent = '⚡ 触发演化'/);
   });
 
   it('C: acceptEvolution awaits refreshes to avoid stale UI', () => {
     expect(source).toContain('await loadQueue(); await loadSkills();');
+  });
+
+  it('C2: acceptEvolution auto-runs verify after apply (closed loop)', () => {
+    expect(source).toContain('async function _runPostEvolutionVerify');
+    expect(source).toContain('await _runPostEvolutionVerify(result.version)');
+    expect(source).toContain("switchModalTab('verify')");
+    expect(source).toContain('接受演化并验证');
+  });
+
+  it('D0: triggerVerify resets button via try/finally', () => {
+    expect(source).toContain('let _verifyInFlight = false');
+    expect(source).toMatch(/} finally \{[\s\S]*btn\.textContent = '🧪 开始验证'/);
   });
 
   it('D: verify gate aligns with registered check and falls back on null fields', () => {

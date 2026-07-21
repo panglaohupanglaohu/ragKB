@@ -10474,9 +10474,14 @@ def skill_library_apply_evolution(body: Dict[str, Any] = {}) -> Dict[str, Any]:
     team_id = body.get("team_id", "")
     skill_id = body.get("skill_id", "")
     new_instructions = body.get("new_instructions", "")
+    changelog = body.get("changelog") or []
     if not team_id or not skill_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="team_id and skill_id required")
-    return _get_skill_evolver().apply_evolution(team_id, skill_id, new_instructions)
+    if not isinstance(changelog, list):
+        changelog = [str(changelog)]
+    return _get_skill_evolver().apply_evolution(
+        team_id, skill_id, new_instructions, changelog=changelog
+    )
 
 
 @router.post("/skill-library/verify", summary="验证技能")

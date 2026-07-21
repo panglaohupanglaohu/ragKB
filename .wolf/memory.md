@@ -376,3 +376,10 @@
 | 08:05 | 语义验证(步骤/工具mock/场景对齐)+路由 lifecycle 徽章 UI | skill_verifier skill_router skill-extract README tests | 15 pytest + 20 vitest | ~4k |
 | 08:20 | Twin A/B 全量接入 skill 验证：skill_twin_ab + UI 对照表 | skill_twin_ab.py skill_verifier.py skill-extract.js README tests | 7+ twin/semantic tests pass | ~5k |
 | 08:40 | 修演化卡死：独立 session + 60s 超时 + 最多2次LLM + 取消语言二次修复 | skill_evolver.py skill-extract.js | 11 pytest | ~2k |
+
+## Session: 2026-07-20 17:29
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 09:31 | resume: 核对 skill 演化卡死修复仍在位 + 21 skill 单测绿 | skill_evolver.py skill-extract.js tests | 独立 session/60s/≤2 LLM/前端90s；无未提交业务 diff | ~1k |
+| 09:43 | 演化应用后自动验证闭环 | skill_evolver.py api.py skill-extract.js/html tests | apply 写 changelog/next_step；accept→verify tab+triggerVerify；verify 防连点finally | ~2k |

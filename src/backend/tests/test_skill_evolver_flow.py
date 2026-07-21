@@ -44,10 +44,14 @@ def _mk_skill():
 
 
 @pytest.mark.asyncio
-async def test_evolve_skill_returns_draft_contract():
+async def test_evolve_skill_returns_draft_contract(monkeypatch):
     lib = FakeLibrary(_mk_skill())
-    evolver = SkillEvolver(skill_library=lib)
-    # 无 chat_harness：应返回 llm_degraded 错误，不静默回退原指令
+    evolver = SkillEvolver(skill_library=lib, chat_harness=None)
+    # 禁止回退到全局 harness（本机可能已有配置，会误打真 LLM）
+    monkeypatch.setattr(
+        "agents.chat_harness.get_chat_harness",
+        lambda: None,
+    )
     res = await evolver.evolve_skill("team", "sk-x")
     assert res.get("status") == "evolved_draft"
     assert res.get("error") == "llm_degraded"
@@ -58,23 +62,39 @@ async def test_evolve_skill_returns_draft_contract():
 
 
 @pytest.mark.asyncio
-async def test_evolve_skill_resolves_by_slug():
+async def test_evolve_skill_resolves_by_slug(monkeypatch):
     lib = FakeLibrary(_mk_skill())
-    evolver = SkillEvolver(skill_library=lib)
+    evolver = SkillEvolver(skill_library=lib, chat_harness=None)
+    monkeypatch.setattr(
+        "agents.chat_harness.get_chat_harness",
+        lambda: None,
+    )
     res = await evolver.evolve_skill("team", "es-rescale")  # slug 回退
     assert res.get("status") == "evolved_draft"
+    assert res.get("error") == "llm_degraded"
 
 
 def test_apply_evolution_increments_version_and_persists():
     lib = FakeLibrary(_mk_skill())
     evolver = SkillEvolver(skill_library=lib)
-    res = evolver.apply_evolution("team", "sk-x", "新指令：增加健康观察与回滚。")
+    res = evolver.apply_evolution(
+        "team",
+        "sk-x",
+        "新指令：增加健康观察与回滚。",
+        changelog=["补回滚", "补验收"],
+    )
     assert res["status"] == "evolved"
     assert res["old_version"] == 1
     assert res["version"] == 2
+    assert res.get("next_step") == "verify"
+    assert res.get("changelog") == ["补回滚", "补验收"]
     assert lib.skill.instructions.startswith("新指令")
     assert lib.snapshots == 1  # 演化前自动快照
     assert lib.persisted == 1
+    le = (lib.skill.config or {}).get("last_evolution") or {}
+    assert le.get("from_version") == 1
+    assert le.get("to_version") == 2
+    assert le.get("changelog") == ["补回滚", "补验收"]
 
 
 def test_apply_evolution_missing_skill():
