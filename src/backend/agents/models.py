@@ -281,6 +281,32 @@ class AgentPersonality:
     response_style: str = "concise"
     creativity: float = 0.5
 
+    def __init__(
+        self,
+        tone: str = "professional",
+        language: str = "zh-CN",
+        expertise_areas: Optional[List[str]] = None,
+        response_style: str = "concise",
+        creativity: float = 0.5,
+        *,
+        style: Optional[str] = None,
+        traits: Optional[List[str]] = None,
+        **_extra: Any,
+    ) -> None:
+        # Aliases used by some team factories (cloud_ops etc.): style→response_style, traits→expertise
+        if style is not None:
+            response_style = style
+        areas = list(expertise_areas or [])
+        if traits:
+            for t in traits:
+                if t and t not in areas:
+                    areas.append(t)
+        self.tone = tone
+        self.language = language
+        self.expertise_areas = areas
+        self.response_style = response_style
+        self.creativity = float(creativity) if creativity is not None else 0.5
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "tone": self.tone,
@@ -378,15 +404,19 @@ class AgentPermission:
     access_level: AccessLevel = AccessLevel.READ
     channels: List[str] = field(default_factory=list)
     allowed_tools: List[str] = field(default_factory=list)
+    description: str = ""  # optional human note (team factories may pass it)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "agent_id": self.agent_id,
             "resource": self.resource,
             "access_level": self.access_level.value,
             "channels": self.channels,
             "allowed_tools": self.allowed_tools,
         }
+        if self.description:
+            d["description"] = self.description
+        return d
 
 
 @dataclass
@@ -456,6 +486,10 @@ class AgentProfile:
     fallback_model_id: str = ""      # 主模型失败时的降级模型
     # ── 物竞天择 ND-1.1: 运行时模式 ("legacy"=现有SECS演练 / "eco"=自然选择生境) ──
     runtime: str = "legacy"
+    # Optional UI / factory aliases (cloud_ops etc.)
+    avatar_emoji: str = ""
+    model: Any = None  # ModelConfig or id; normalized to model_id in __post_init__
+    visibility: Any = None  # Visibility enum or str; stored in metadata when set
 
     def __post_init__(self) -> None:
         if not self.agent_id:
@@ -466,6 +500,17 @@ class AgentProfile:
             self.template_type = AgentTemplateType(self.template_type)
         if self.runtime not in ("eco", "legacy"):
             self.runtime = "legacy"
+        # Accept model=ModelConfig|str from older team factories
+        if self.model is not None and not self.model_id:
+            m = self.model
+            self.model_id = getattr(m, "model_id", None) or getattr(m, "name", None) or str(m)
+        meta = dict(self.metadata or {})
+        if self.avatar_emoji:
+            meta.setdefault("avatar_emoji", self.avatar_emoji)
+        if self.visibility is not None:
+            v = self.visibility
+            meta.setdefault("visibility", getattr(v, "value", v))
+        self.metadata = meta
 
     @property
     def is_hermes_agent(self) -> bool:

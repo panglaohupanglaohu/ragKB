@@ -1743,21 +1743,63 @@ async def get_discussion_consensus(
     disc_id: str,
     round_number: Optional[int] = Query(None, description="仅分析指定轮次"),
 ) -> Dict[str, Any]:
-    """Measure consensus level of a discussion or specific round."""
-    from .plaza_consensus import measure_consensus, highlight_dissent
+    """返回讨论的五指共识（Fist-to-Five）结果。
 
+    共识在 ORID 第四层（决策承诺）产生并存入 discussion.metadata。为兼容既有
+    前端共识面板，这里将五指结果适配为原有字段（score/trend/dissenting）。
+    """
     engine = get_plaza_engine()
     disc = engine.get_discussion(plaza_id, disc_id)
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    messages = [m.to_dict() for m in disc.messages]
-    result = measure_consensus(messages, round_number=round_number)
-    dissents = highlight_dissent(messages, round_number=round_number)
-
+    fist = (disc.metadata or {}).get("fist_to_five")
+    consensus, dissents = _adapt_fist_to_five(fist)
     return {
         "discussion_id": disc_id,
         "round_number": round_number,
-        "consensus": result.to_dict(),
+        "consensus": consensus,
         "dissenting_messages": dissents,
+        "fist_to_five": fist,
+        "fist_to_five_summary": (disc.metadata or {}).get("fist_to_five_summary", ""),
     }
+
+
+def _adapt_fist_to_five(
+    fist: Optional[Dict[str, Any]],
+) -> tuple[Dict[str, Any], list]:
+    """把五指结果映射到旧共识面板字段。无投票时返回中性 pending 态。"""
+    if not fist:
+        return {
+            "score": 0.5, "agreement_count": 0, "disagreement_count": 0,
+            "neutral_count": 0, "dissenting_agents": [],
+            "convergence_trend": "stable", "can_early_exit": False,
+        }, []
+
+    votes = fist.get("votes", [])
+    supportive = [v for v in votes if v.get("fingers", 0) >= 4]
+    accepting = [v for v in votes if v.get("fingers", 0) == 3]
+    dissenting = [v for v in votes if v.get("fingers", 0) <= 2]
+    blocking_ids = fist.get("blocking_agents", [])
+    level = fist.get("consensus_level", "none")
+    trend = {"strong": "rising", "weak": "stable", "blocked": "falling"}.get(level, "stable")
+
+    consensus = {
+        "score": round(float(fist.get("mean_fingers", 0.0)) / 5.0, 3),
+        "agreement_count": len(supportive),
+        "disagreement_count": len(dissenting),
+        "neutral_count": len(accepting),
+        "dissenting_agents": blocking_ids,
+        "convergence_trend": trend,
+        "can_early_exit": bool(fist.get("consensus_reached", False)),
+    }
+    dissents = [
+        {
+            "agent_id": v.get("agent_id", ""),
+            "agent_name": v.get("agent_name", ""),
+            "content_preview": f"{v.get('fingers', 0)}指 · {v.get('reason', '')}"[:150],
+            "round_number": 4,
+        }
+        for v in votes if v.get("fingers", 0) == 1
+    ]
+    return consensus, dissents

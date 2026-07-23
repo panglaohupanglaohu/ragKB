@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
+import logging as _logging
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
@@ -328,6 +329,14 @@ def _init_skill_library_chain(tm: TeamManager, sr: SkillRegistry) -> None:
         except Exception as _e:
             _sl_logger.warning("⚠️ CostTargetTracker init failed: %s", _e)
 
+        # Agent 记忆运行时：任务完成/失败 → 自主写日志 + 情绪
+        try:
+            from .agent_memory_runtime import start_memory_runtime_hooks
+            start_memory_runtime_hooks()
+            _sl_logger.info("✅ MemoryRuntimeHooks started")
+        except Exception as _e:
+            _sl_logger.warning("⚠️ MemoryRuntimeHooks init failed: %s", _e)
+
         _sl_logger.info("✅ Skill library chain initialized (library→evolver→verifier→tracker)")
     except Exception as e:
         _sl_logger.warning("⚠️ Skill library chain init failed: %s", e)
@@ -519,16 +528,34 @@ def list_teams(
     limit: int = Query(default=0, ge=0, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> Any:
-    items = [
-        {
-            "team_id": t.team_id,
-            "name": t.name,
-            "description": t.description,
-            "agent_count": len(t.agents),
-            "model_count": len(t.models),
-        }
-        for t in _tm().list_teams()
-    ]
+    """List teams. Defensive: never crash on a single bad team object."""
+    try:
+        teams = _tm().list_teams()
+    except HTTPException:
+        raise
+    except Exception as e:
+        _logging.getLogger(__name__).exception("list_teams: team manager failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"list_teams failed: {e}",
+        ) from e
+
+    items: List[Dict[str, Any]] = []
+    for t in teams:
+        try:
+            agents = getattr(t, "agents", None) or {}
+            models = getattr(t, "models", None) or {}
+            items.append({
+                "team_id": getattr(t, "team_id", "") or "",
+                "name": getattr(t, "name", None) or getattr(t, "team_id", "") or "",
+                "description": getattr(t, "description", None) or "",
+                "agent_count": len(agents) if agents is not None else 0,
+                "model_count": len(models) if models is not None else 0,
+            })
+        except Exception as e:
+            _logging.getLogger(__name__).warning(
+                "list_teams: skip bad team %r: %s", getattr(t, "team_id", t), e
+            )
     return _paginate_optional(items, limit=limit, offset=offset)
 
 
@@ -1962,9 +1989,12 @@ async def skill_extract_approve(team_id: str, item_id: str, body: Dict[str, Any]
     edited_fields = body.get("edited_fields")
     skill_type = body.get("skill_type", "reserve")
     target_agent_id = body.get("target_agent_id", "")
+    target_team_id = body.get("target_team_id", "")
+    assign_scope = body.get("assign_scope", "")
     result = await engine.approve_item(
         team_id, item_id, reviewer=reviewer, edited_fields=edited_fields,
         skill_type=skill_type, target_agent_id=target_agent_id,
+        target_team_id=target_team_id, assign_scope=assign_scope,
     )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -2492,6 +2522,18 @@ async def send_session_message(
     if reply_text:
         session["messages"].append(_build_assistant_session_message(reply_text, turn_result))
         _record_session_response_metrics(agent_id, req.content, reply_text, turn_result)
+    # 对话回合写入记忆（感知+低重要度日志）；失败不挡聊天
+    try:
+        from .agent_memory_runtime import record_chat_turn
+        record_chat_turn(
+            team_id,
+            agent_id,
+            user_text=req.content or "",
+            assistant_text=reply_text or "",
+            session_id=session_id,
+        )
+    except Exception:
+        pass
 
     return msg
 

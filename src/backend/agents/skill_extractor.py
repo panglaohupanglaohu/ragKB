@@ -112,6 +112,7 @@ class SkillReviewItem:
     # trait = assign one agent · public = all agents · reserve = store only
     skill_type: str = ""
     target_agent_id: str = ""
+    target_team_id: str = ""   # 跨团队赋予时的目标团队（空=沿用萃取项所属团队）
 
     # LLM extraction metadata
     llm_model_used: str = ""
@@ -148,6 +149,7 @@ class SkillReviewItem:
             "draft_scope": self.draft_scope,
             "skill_type": self.skill_type or "",
             "target_agent_id": self.target_agent_id or "",
+            "target_team_id": self.target_team_id or "",
             "llm_model_used": self.llm_model_used,
             "llm_raw_response": self.llm_raw_response,
             "llm_confidence": self.llm_confidence,
@@ -1244,8 +1246,14 @@ class SkillExtractorEngine:
         edited_fields: Optional[Dict[str, Any]] = None,
         skill_type: str = "reserve",
         target_agent_id: str = "",
+        target_team_id: str = "",
+        assign_scope: str = "",
     ) -> Optional[Dict[str, Any]]:
-        """Approve a skill item with type: trait (assign to one agent), public (all agents), reserve (store only)."""
+        """Approve a skill item with type: trait (assign to one agent), public (all agents), reserve (store only).
+
+        跨团队赋予：target_team_id 指定赋予的目标团队（空=萃取项所属团队 team_id）。
+        assign_scope='team' 时把该特质技能赋予目标团队的所有智能体（团队级特质，不全局公开）。
+        """
         queue = self._queues.get(team_id, {})
         item = queue.get(item_id)
         if item is None:
@@ -1266,6 +1274,7 @@ class SkillExtractorEngine:
             st = "reserve"
         item.skill_type = st
         item.target_agent_id = (target_agent_id or "").strip()
+        item.target_team_id = (target_team_id or "").strip()
         # Align visibility hint with disposition (draft_scope is still LLM-era field)
         if st == "public":
             item.draft_scope = "public"
@@ -1308,21 +1317,44 @@ class SkillExtractorEngine:
         try:
             from .api import _team_manager
             if _team_manager:
-                team = _team_manager.get_team(team_id)
-                if team:
-                    skill_id = skill_def.skill_id or skill_def.slug
-                    if st == "trait" and item.target_agent_id:
-                        agent = team.agents.get(item.target_agent_id)
-                        if agent and skill_id not in agent.skills:
+                skill_id = skill_def.skill_id or skill_def.slug
+                # 跨团队赋予：assign_team 可以不是萃取项所属团队
+                assign_team_id = item.target_team_id or team_id
+                assign_team = _team_manager.get_team(assign_team_id)
+                # 跨团队时把技能也写入目标团队的技能表，保证该团队智能体可解析
+                if assign_team and assign_team_id != team_id and not already_registered:
+                    try:
+                        assign_team.add_skill(skill_def)
+                        _team_manager._persist()
+                    except Exception as e:
+                        logger.warning(f"Could not write skill to target team {assign_team_id}: {e}")
+
+                if not assign_team:
+                    logger.warning(f"目标团队 {assign_team_id} 不存在，跳过赋予")
+                elif st == "public":
+                    for agent in assign_team.agents.values():
+                        if skill_id not in agent.skills:
                             agent.skills.append(skill_id)
-                            logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {item.target_agent_id}")
-                    elif st == "public":
-                        for agent in team.agents.values():
-                            if skill_id not in agent.skills:
-                                agent.skills.append(skill_id)
-                        logger.info(f"🌍 公共技能 {skill_id} 已赋予团队 {team_id} 全部 {len(team.agents)} 个智能体")
-                    else:
-                        logger.info(f"📦 储备技能 {skill_id} 已入库，未赋予任何智能体")
+                    logger.info(f"🌍 公共技能 {skill_id} 已赋予全部智能体")
+                elif st == "trait" and (assign_scope or "").strip().lower() == "team":
+                    # 团队级特质：赋予目标团队的所有智能体（不全局公开）
+                    for agent in assign_team.agents.values():
+                        if skill_id not in agent.skills:
+                            agent.skills.append(skill_id)
+                    logger.info(
+                        f"👥 团队级特质 {skill_id} 已赋予团队 {assign_team_id} 全部 {len(assign_team.agents)} 个智能体"
+                    )
+                elif st == "trait" and item.target_agent_id:
+                    agent = assign_team.agents.get(item.target_agent_id)
+                    if agent and skill_id not in agent.skills:
+                        agent.skills.append(skill_id)
+                        logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {item.target_agent_id}（团队 {assign_team_id}）")
+                    elif not agent:
+                        logger.warning(f"目标智能体 {item.target_agent_id} 不在团队 {assign_team_id} 中，跳过赋予")
+                else:
+                    logger.info(f"📦 储备技能 {skill_id} 已入库，未赋予任何智能体")
+                if assign_team and assign_team_id != team_id:
+                    _team_manager._persist()
         except Exception as e:
             logger.warning(f"Could not assign skill to agents: {e}")
 

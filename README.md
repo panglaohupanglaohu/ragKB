@@ -524,6 +524,74 @@ PYTHONPATH=src/backend python3 scripts/train_tse.py --data storage/tse/silver/tr
 2. 浏览器打开技能萃取页，硬刷新后再跑；队列里历史「【回退草稿】」可删。  
 3. Plaza 讨论阶段 **不做 token 优化**（两阶段经济学）；萃取本身在讨论结束后发生，走 `phase=extract`。
 
+## Agent 记忆（四层 + 生命周期 + 自主）
+
+> 设计：`docs/Agent记忆生命周期plan.md` · 清单：`docs/Agent记忆生命周期todos.md`  
+> 站级入口：**顶栏「Agent记忆」** → `/agent-memory.html`  
+> 配置页深链：智能体 → **记忆绑定** tab（`atab=ag-memory`）
+
+### 它解决什么
+
+智能体需要**可拥有、可共享、可传递、可销毁**的记忆，而不是散落的 md 文件或仅沙箱内的经验池。记忆与 Agent 生命周期绑定，并按 Persona 自主读写。
+
+### 四层模型（记忆遗体）
+
+| 层 | 含义 | 要点 |
+|----|------|------|
+| **运行日志 log** | 做过的事 | append-only；三因子 recall（时新×重要度×词面） |
+| **感知流 perception** | 易逝刺激 | 环形缓冲 500；达阈值 **compress** 固化进日志 |
+| **未发送队列 intentions** | 打算做还没做 | 创建者/触发/超时策略；传递时可 auto/ask/drop |
+| **情绪残留 affect** | 语气余烬 | 只影响 `tone_hint`，默认**不共享** |
+
+### 生命周期
+
+`unbound → active → shared | sealed → (transfer) archived → destroy(tombstone)`
+
+| 操作 | 含义 |
+|------|------|
+| **bind / save** | 拥有记忆；感知压缩固化 |
+| **share** | ACL：reader/co_writer + layer_mask |
+| **seal** | 仪式只读；凭吊披露「这是回放，不是本人」 |
+| **transfer** | **复制**到受益者；原件可凭吊 |
+| **destroy** | 删盘 + 墓碑，禁止静默复活 |
+
+### Persona（小满 / 沈弥安 / 混合）
+
+| Persona | 自主倾向 |
+|---------|----------|
+| **小满 xiaoman** | 边做边记、tool→感知、任务→日志、聊天宽检索 |
+| **沈弥安 shenmian** | 择要、克制共享 affect、更高 recall 重要度门槛 |
+| **hybrid** | 默认：小满写路径 + 沈弥安边界 |
+
+### 运行时挂钩（自主）
+
+- **聊天**（`chat_harness`）：注入 `[AG_MEMORY]`（tone + recall + 意图）；`phase=plaza` 跳过  
+- **任务**（EventBus `TASK_COMPLETED/FAILED`）：写成功/失败日志 + 情绪  
+- **Tool loop**：tool 结果进感知流，达阈值自动 compress  
+- **AAS 孪生经验**（可选）：`AG_MEMORY_AAS_BRIDGE=1` 时，沙箱 `record_experience` 同步一条 episodic log（需 `team_id` 在 experience.metadata 或环境变量 `AG_TEAM_ID`）
+
+### API 速查
+
+| 前缀 | 用途 |
+|------|------|
+| `/api/v1/agent-memory/overview?team_id=` | 团队总览 |
+| `/api/v1/agent-memory/{team}/{agent}/lifecycle` | 状态机动作 |
+| `.../persona` | 切换小满/沈弥安/混合 |
+| `.../share` · `.../share-matrix` | 共享 ACL |
+| `.../transfer` · `/transfers` | 传递 |
+| `.../runtime/recall` · `.../runtime/record` | 运行时读写 |
+| `/api/v1/agent-config/.../memory-core/*` | 兼容旧四层 CRUD |
+
+存储：`storage/agent_memory/<team>/<agent>/`（四层 JSON + meta + shares + audit + legacy）。
+
+### 与其它记忆的关系
+
+| 体系 | 角色 |
+|------|------|
+| 四层 MemoryCore | **主记忆**（生命周期/共享/自主） |
+| 人格页 `memory_files` / 数字员工 `memory.md` | 文档式补充，不替代四层 |
+| 沙箱 AAS `memory_system` | 孪生试错经验；可选桥接进四层 log |
+
 ## 核心概念速查
 
 - **TwinLoop**（`sandbox/twin_loop.py`）：snapshot_world → spawn_twins → run_simulation → evaluate_outcomes → inject_best_strategy 的仿真在环闭环；支持混沌注入与熟练度结算。

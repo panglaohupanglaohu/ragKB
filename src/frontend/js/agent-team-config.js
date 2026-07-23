@@ -105,13 +105,17 @@ async function getTeamsList(force=false){
   if(!force&&_teamsListCache&&(now-_teamsListCacheAt)<TEAMS_LIST_CACHE_MS){
     return _teamsListCache;
   }
-  const teams=await api(`${A}/teams`);
-  if(Array.isArray(teams)&&teams.length){
+  const raw=await api(`${A}/teams`);
+  // Accept plain array or pagination envelope {items,total,...}
+  const teams=Array.isArray(raw)?raw:Array.isArray(raw?.items)?raw.items:[];
+  if(teams.length){
     _teamsListCache=teams;
     _teamsListCacheAt=now;
     return teams;
   }
-  return _teamsListCache||teams||[];
+  // Keep last good cache if this request failed / empty (e.g. transient 500)
+  if(_teamsListCache&&_teamsListCache.length) return _teamsListCache;
+  return teams;
 }
 
 function stL(s){return{idle:'待命中',working:'工作中',reporting:'汇报中',blocked:'阻塞',error:'异常'}[s]||s||'未知'}
@@ -996,6 +1000,10 @@ async function stopClaudeSession(){
 //  AGENT DETAIL (Clawith tabs)
 // ══════════════════════════════════
 async function loadAgent(id){
+  // Prefer agent-detail.js (IIFE exports window.loadAgent) — has ag-memory etc.
+  if(typeof window.loadAgent==='function' && window.loadAgent!==loadAgent){
+    return window.loadAgent(id);
+  }
   if(id){aid=id;_chatSid=''}const d=await api(`${A}/teams/${tid}/agents/${aid}`);
   if(!d){el('agent-content').innerHTML='<p style="color:var(--dim);padding:40px">加载失败</p>';return}
   el('main-title').textContent=d.name||d.agent_id;el('main-badge').textContent=d.role||d.template_type||'';
@@ -1029,6 +1037,18 @@ function renderATab(d){
         c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div><div class="section-title" style="margin:0">🧬 Soul.md — 人格定义</div><p style="color:var(--muted);font-size:12px;margin-top:2px">核心身份、人格和行为边界</p></div><div><button class="btn btn-sm" id="soul-edit-btn" onclick="toggleSoulEdit()">编辑</button><button class="btn btn-pink btn-sm hidden" id="soul-save-btn" onclick="saveSoul()">保存</button></div></div><div class="soul-block" id="soul-view">${savedSoul}</div><textarea class="fi hidden" id="soul-editor" rows="16" style="font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7;min-height:300px">${savedSoul}</textarea></div><div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">🧠 记忆文件</div><button class="btn btn-sm" onclick="addMemoryFile()">＋ 新建</button></div><p style="color:var(--muted);font-size:12px;margin-bottom:12px">通过对话和经验积累的持久记忆</p><div id="memory-list">${files.length?files.map(f=>`<div class="memory-item" style="cursor:pointer" onclick="openMemoryFile('${f.filename}')"><span>📄 ${f.filename}</span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px">${f.size_display||f.size+' B'}</span><span style="cursor:pointer;color:var(--dim);font-size:14px" onclick="event.stopPropagation();delMemoryFile('${f.filename}')" title="删除">×</span></span></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无记忆文件，点击「新建」开始积累</p>'}</div></div><div class="section hidden" id="mem-editor-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div class="section-title" style="margin:0" id="mem-editor-title">📝 编辑文件</div><div style="display:flex;gap:8px"><button class="btn btn-pink btn-sm" onclick="saveMemoryFile()">保存</button><button class="btn btn-sm" onclick="closeMemEditor()">关闭</button></div></div><textarea class="fi" id="mem-editor" rows="12" style="font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7"></textarea></div><div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${(d.skills||[]).length+(m.traits||[]).length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">技能、性格特质与行为边界</p>${(d.skills||[]).map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${s}</div><div class="meta">skill · active</div></div>`).join('')}${(m.traits||[]).map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${t}</div><div class="meta">trait · personality</div></div>`).join('')}${(m.behavior_boundaries||[]).map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${b}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!(d.skills||[]).length&&!(m.traits||[]).length&&!(m.behavior_boundaries||[]).length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
       });
     });
+  } else if(atab==='ag-memory'){
+    // Fallback when agent-detail.js has not taken over loadAgent yet
+    c.innerHTML='<div class="section"><div class="section-title">🧠 记忆绑定</div><p style="color:var(--dim);font-size:12px">加载中…</p></div>';
+    if(typeof window.renderAgentMemoryBind==='function'){
+      window.renderAgentMemoryBind(d);
+    }else{
+      c.innerHTML=`<div class="section"><div class="section-title">🧠 记忆绑定</div>
+        <p style="color:var(--muted);font-size:13px;margin:8px 0 12px">四层记忆（运行日志 / 感知 / 意图 / 情绪）。完整面板由 agent-detail 提供。</p>
+        <a class="btn btn-pink btn-sm" href="/agent-memory.html?team_id=${encodeURIComponent(tid||'')}&agent_id=${encodeURIComponent(aid||'')}&seg=agents">打开 Agent记忆中枢</a>
+        <button class="btn btn-sm" style="margin-left:8px" onclick="location.reload()">刷新页面</button>
+      </div>`;
+    }
   } else if(atab==='ag-tools'){
     api(`${A}/tools`).then(all=>{
       const bound=new Set(d.tools||[]);

@@ -481,17 +481,64 @@ async function loadTeamAgents(teamId) {
   updateAgentSelect();
 }
 
-function updateAgentSelect() {
+// 载入所有团队的成员（用于赋予树），已缓存的跳过
+async function ensureAllTeamAgents() {
+  const missing = (allTeams || []).filter(t => !teamAgents[t.team_id]);
+  await Promise.all(missing.map(async t => {
+    try { teamAgents[t.team_id] = await listApi(`/teams/${t.team_id}/agents`) || []; }
+    catch { teamAgents[t.team_id] = []; }
+  }));
+}
+
+function _escOpt(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// 解析赋予下拉框的值：team:<teamId> / agent:<teamId>:<agentId> / 兼容裸 agentId
+function parseAssignTarget(value) {
+  const v = value || '';
+  if (v.startsWith('team:')) {
+    return { scope: 'team', teamId: v.slice(5), agentId: '' };
+  }
+  if (v.startsWith('agent:')) {
+    const rest = v.slice(6);
+    const idx = rest.indexOf(':');
+    if (idx >= 0) return { scope: 'agent', teamId: rest.slice(0, idx), agentId: rest.slice(idx + 1) };
+    return { scope: 'agent', teamId: currentTeamId, agentId: rest };
+  }
+  if (!v) return { scope: '', teamId: '', agentId: '' };
+  return { scope: 'agent', teamId: currentTeamId, agentId: v };  // 兼容旧值
+}
+
+// 赋予下拉框 = 全部团队的树（optgroup=团队，选项=各智能体，另有『整个团队』项）
+async function updateAgentSelect() {
   const sel = document.getElementById('approve-agent-select');
   if (!sel) return;
-  const agents = teamAgents[currentTeamId] || [];
-  if (agents.length === 0) {
-    sel.innerHTML = '<option value="">（本团队暂无智能体）</option>';
+  await ensureAllTeamAgents();
+  const teams = allTeams || [];
+  if (!teams.length) {
+    sel.innerHTML = '<option value="">（暂无团队）</option>';
     return;
   }
-  sel.innerHTML = '<option value="">选择要赋予的智能体…</option>' + agents.map(a =>
-    `<option value="${a.agent_id}">${a.name || a.agent_id}${a.role ? ' (' + a.role + ')' : ''}</option>`
-  ).join('');
+  // 本团队排最前，便于就近选择
+  const ordered = [
+    ...teams.filter(t => t.team_id === currentTeamId),
+    ...teams.filter(t => t.team_id !== currentTeamId),
+  ];
+  let html = '<option value="">选择要赋予的对象（团队 / 个人）…</option>';
+  for (const t of ordered) {
+    const agents = teamAgents[t.team_id] || [];
+    const tName = _escOpt(t.name || t.team_id);
+    const groupLabel = tName + (t.team_id === currentTeamId ? ' · 本团队' : '');
+    html += `<optgroup label="${groupLabel}">`;
+    html += `<option value="team:${t.team_id}">▸ 赋予整个团队「${tName}」(${agents.length}人)</option>`;
+    for (const a of agents) {
+      const aLabel = _escOpt(a.name || a.agent_id) + (a.role ? ' (' + _escOpt(a.role) + ')' : '');
+      html += `<option value="agent:${t.team_id}:${a.agent_id}">　${aLabel}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
 }
 
 // ── SSE Connection ──────────────────────────────────────────────
@@ -1045,6 +1092,8 @@ window.switchModalTab = async function(tab) {
 
 // ── Evolve Tab ─────────────────────────────────────────────────
 let _evolveCache = null;
+/** 验证失败「一键回演化」注入的反馈；触发演化后清空 */
+let _pendingEvolveFeedback = '';
 
 // Helper: resolve skill_id from queue item (checks skill_draft, then looks up by slug in skills array)
 function resolveSkillId(item) {
@@ -1064,11 +1113,174 @@ function resolveSkillId(item) {
   return '';
 }
 
+function skillIdFrom(s) {
+  return s?.skill_id || s?.slug || '';
+}
+
+function _findRegisteredSkill(item) {
+  if (!item) return {};
+  const skillId = resolveSkillId(item);
+  return (allSkills || []).find(s =>
+    s.slug === item.draft_slug || s.skill_id === skillId || s.slug === skillId
+  ) || {};
+}
+
+/** Pure-CSS bar pair for Twin metrics (pct 0–100). */
+function _twinBarRow(label, beforePct, afterPct, unit) {
+  const u = unit || '%';
+  const b = Math.max(0, Math.min(100, Number(beforePct) || 0));
+  const a = Math.max(0, Math.min(100, Number(afterPct) || 0));
+  const bColor = '#8A9A8E';
+  const aColor = a >= b ? '#1F6B4A' : '#B33A3A';
+  return `<div style="margin:6px 0">
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:#4A5568;margin-bottom:3px">
+      <span>${escHtml(label)}</span>
+      <span><span style="color:${bColor}">前 ${b.toFixed(1)}${u}</span>
+      → <span style="color:${aColor};font-weight:700">后 ${a.toFixed(1)}${u}</span></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:center">
+      <div style="height:10px;background:#E8ECF0;border-radius:999px;overflow:hidden">
+        <div style="height:100%;width:${b}%;background:${bColor};border-radius:999px"></div>
+      </div>
+      <div style="height:10px;background:#E8ECF0;border-radius:999px;overflow:hidden">
+        <div style="height:100%;width:${a}%;background:${aColor};border-radius:999px"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Render Twin A/B before/after evolution comparison (HTML fragment). */
+function _renderTwinCompareHtml(compare, history) {
+  const cmp = compare || {};
+  const before = cmp.before || {};
+  const after = cmp.after || {};
+  const hasPair = (before.target_gain_pp != null || before.treatment_rate != null)
+    && (after.target_gain_pp != null || after.treatment_rate != null);
+  let html = '';
+  if (hasPair) {
+    const delta = cmp.delta_gain_pp;
+    const improved = cmp.improved === true || (delta != null && Number(delta) > 0);
+    const badge = improved
+      ? '<span style="color:#1F6B4A;font-weight:700">📈 演化后改善</span>'
+      : (delta != null && Number(delta) < 0
+        ? '<span style="color:#B33A3A;font-weight:700">📉 演化后回退</span>'
+        : '<span style="color:#8A6615;font-weight:700">➡️ 增益持平</span>');
+    html += `<div style="margin:10px 0;padding:10px 12px;border:1px solid rgba(31,107,74,.22);border-radius:8px;background:linear-gradient(180deg,rgba(31,107,74,.06),#fff)">`;
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">`;
+    html += `<div style="font-weight:700;color:#1F6B4A">📊 Twin A/B · 演化前后对比</div>${badge}`;
+    html += `</div>`;
+    html += `<div style="font-size:10px;color:#6B7280;margin-bottom:6px">左=演化前 · 右=演化后验证
+      ${before.skill_version != null ? ` · v${escHtml(String(before.skill_version))}` : ''}
+      ${after.skill_version != null ? `→v${escHtml(String(after.skill_version))}` : ''}
+      ${delta != null ? ` · ΔΔ增益 ${Number(delta) >= 0 ? '+' : ''}${escHtml(String(delta))}pp` : ''}
+    </div>`;
+    // gain can be outside 0-100; map for bar relative to threshold*3 or max abs
+    const bg = Number(before.target_gain_pp);
+    const ag = Number(after.target_gain_pp);
+    const scale = Math.max(10, Math.abs(bg) || 0, Math.abs(ag) || 0, 5) * 1.2;
+    const barGain = (g) => Math.max(0, Math.min(100, ((Number(g) || 0) + scale) / (2 * scale) * 100));
+    html += _twinBarRow(
+      '目标技能成功率 (treatment %)',
+      (Number(before.treatment_rate) || 0) * 100,
+      (Number(after.treatment_rate) || 0) * 100,
+      '%'
+    );
+    html += _twinBarRow(
+      'baseline 成功率 %',
+      (Number(before.baseline_rate) || 0) * 100,
+      (Number(after.baseline_rate) || 0) * 100,
+      '%'
+    );
+    // gain pp as relative bars (display uses actual pp in labels)
+    html += `<div style="margin:6px 0">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#4A5568;margin-bottom:3px">
+        <span>Twin 增益 (pp)</span>
+        <span><span style="color:#8A9A8E">前 ${Number.isFinite(bg) ? bg : '—'}pp</span>
+        → <span style="font-weight:700;color:${(Number(ag)||0)>=(Number(bg)||0)?'#1F6B4A':'#B33A3A'}">后 ${Number.isFinite(ag) ? ag : '—'}pp</span></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="height:10px;background:#E8ECF0;border-radius:999px;overflow:hidden">
+          <div style="height:100%;width:${barGain(bg)}%;background:#8A9A8E;border-radius:999px"></div>
+        </div>
+        <div style="height:10px;background:#E8ECF0;border-radius:999px;overflow:hidden">
+          <div style="height:100%;width:${barGain(ag)}%;background:${(Number(ag)||0)>=(Number(bg)||0)?'#1F6B4A':'#B33A3A'};border-radius:999px"></div>
+        </div>
+      </div>
+    </div>`;
+    if (before.treatment_uses != null || after.treatment_uses != null) {
+      html += `<div style="font-size:10px;color:#6B7280;margin-top:4px">treatment 使用次数: ${escHtml(String(before.treatment_uses ?? '—'))} → ${escHtml(String(after.treatment_uses ?? '—'))}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // history sparkline (gain pp over last runs)
+  const hist = Array.isArray(history) ? history.filter(h => h && h.target_gain_pp != null) : [];
+  if (hist.length >= 2) {
+    const gains = hist.slice(-6).map(h => Number(h.target_gain_pp) || 0);
+    const maxAbs = Math.max(5, ...gains.map(g => Math.abs(g)));
+    html += `<div style="margin:8px 0;padding:8px 10px;border:1px dashed rgba(31,107,74,.25);border-radius:8px;background:#FAFBFC">`;
+    html += `<div style="font-size:11px;font-weight:600;color:#1F6B4A;margin-bottom:6px">⏱ Twin 增益轨迹 (近 ${gains.length} 次验证)</div>`;
+    html += `<div style="display:flex;align-items:flex-end;gap:6px;height:48px">`;
+    gains.forEach((g, i) => {
+      const hPct = Math.max(8, Math.round((Math.abs(g) / maxAbs) * 100));
+      const color = g >= 0 ? '#1F6B4A' : '#B33A3A';
+      const ver = hist.slice(-6)[i]?.skill_version;
+      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="v${ver ?? '?'} · ${g}pp">
+        <div style="font-size:9px;color:#6B7280;margin-bottom:2px">${g >= 0 ? '+' : ''}${g}</div>
+        <div style="width:100%;max-width:28px;height:${hPct}%;background:${color};border-radius:4px 4px 0 0;opacity:.85"></div>
+        <div style="font-size:9px;color:#9AA3AF;margin-top:2px">v${escHtml(String(ver ?? i + 1))}</div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
+  return html;
+}
+
+function _renderEvolveEvidence(registeredSkill) {
+  const el = document.getElementById('evolve-evidence');
+  if (!el) return;
+  const cfg = registeredSkill.config || {};
+  const lv = cfg.last_verify || {};
+  const le = cfg.last_evolution || {};
+  const tu = {
+    usage: registeredSkill.usage_count || 0,
+    success: registeredSkill.success_count || 0,
+    fail: registeredSkill.fail_count || 0,
+    eff: registeredSkill.effectiveness || 0,
+  };
+  const parts = [];
+  parts.push(`任务 usage ${tu.usage}次 · 成功${tu.success}/失败${tu.fail} · ${((tu.eff || 0) * 100).toFixed(0)}%`);
+  if (lv && (lv.status || lv.pass_rate != null)) {
+    const pr = ((lv.pass_rate || 0) * 100).toFixed(0);
+    const st = lv.status === 'verified' ? '✅ verified' : `❌ ${lv.status || 'failed'}`;
+    parts.push(`上次验证 ${st} · ${pr}% · 失败项 ${(lv.failed_checks || []).length}`);
+    if (lv.error_detail) parts.push(`原因: ${escHtml(String(lv.error_detail).slice(0, 120))}`);
+    const twin = lv.twin_ab || {};
+    if (twin && twin.passed === false) {
+      parts.push(`Twin A/B FAIL Δ${escHtml(String(twin.target_gain_pp ?? '?'))}pp`);
+    } else if (twin && twin.passed === true) {
+      parts.push(`Twin A/B PASS Δ${escHtml(String(twin.target_gain_pp ?? 0))}pp`);
+    }
+  }
+  if (le && (le.to_version || (le.changelog || []).length)) {
+    parts.push(`上次演化 v${escHtml(String(le.from_version ?? '?'))}→v${escHtml(String(le.to_version ?? '?'))}`);
+  }
+  const cmp = cfg.twin_compare || {};
+  let chart = _renderTwinCompareHtml(cmp, cfg.twin_history || []);
+  if (!parts.length && !chart) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = '<b style="color:#1F6B4A">证据</b> · ' + parts.join(' · ') + chart;
+}
+
 function loadEvolveTab() {
   if (!selectedItemId) return;
   const item = queueItems.find(q => q.item_id === selectedItemId);
   if (!item) return;
-  const registeredSkill = allSkills?.find(s => s.slug === item.draft_slug) || {};
+  const registeredSkill = _findRegisteredSkill(item);
   const statsEl = document.getElementById('evolve-stats');
   statsEl.innerHTML = `
     <span>📊 使用: ${registeredSkill.usage_count || 0}次</span>
@@ -1076,6 +1288,12 @@ function loadEvolveTab() {
     <span>📈 版本: v${registeredSkill.version || 1}</span>
     <span>🏷️ 阶段: ${registeredSkill.lifecycle_stage || item.status || 'draft'}</span>
   `;
+  _renderEvolveEvidence(registeredSkill);
+  // 若从验证失败回跳，预填反馈
+  const fbEl = document.getElementById('evolve-feedback');
+  if (fbEl && _pendingEvolveFeedback && !fbEl.value.trim()) {
+    fbEl.value = _pendingEvolveFeedback;
+  }
   // Load suggestions
   loadEvolveSuggestions();
 }
@@ -1250,14 +1468,19 @@ window.triggerEvolve = async function() {
   const started = Date.now();
   btn.textContent = '⏳ 演化中…';
   btn.disabled = true;
+  // 反馈：textarea 优先，否则用验证失败注入的 pending
+  const fbEl = document.getElementById('evolve-feedback');
+  const userFeedback = ((fbEl && fbEl.value) || _pendingEvolveFeedback || '').trim();
   // 前端硬超时 90s（后端单次 LLM 60s × 最多 2 次）
   const FRONT_TIMEOUT_MS = 90000;
   let timer = null;
   try {
+    const body = { team_id: currentTeamId, skill_id: skillId };
+    if (userFeedback) body.user_feedback = userFeedback;
     const result = await Promise.race([
       api('/skill-library/evolve', {
         method: 'POST',
-        body: JSON.stringify({ team_id: currentTeamId, skill_id: skillId }),
+        body: JSON.stringify(body),
       }),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('evolve_frontend_timeout')), FRONT_TIMEOUT_MS);
@@ -1268,6 +1491,8 @@ window.triggerEvolve = async function() {
       return;
     }
     _evolveCache = result;
+    // 已消费 pending 反馈
+    _pendingEvolveFeedback = '';
     // language_flip 时仍可展示 partial 稿供手改
     const canApply = !!(result.improved_instructions) && !result.llm_degraded && result.error !== 'llm_degraded' && result.error !== 'llm_unusable' && result.error !== 'empty_instructions' && !result.language_flip;
     _renderEvolveResult(result, { allowApply: canApply });
@@ -1277,7 +1502,9 @@ window.triggerEvolve = async function() {
       showToast('演化失败: ' + (result.error_detail || result.error || 'unknown'));
     } else {
       const sec = Math.round((Date.now() - started) / 1000);
-      showToast(`🧬 演化完成（${sec}s），请审阅`);
+      const ev = result.evidence_summary || {};
+      const hint = ev.has_last_verify || userFeedback ? ' · 已带验证/反馈证据' : '';
+      showToast(`🧬 演化完成（${sec}s）${hint}，请审阅`);
     }
   } catch (e) {
     const msg = (e && e.message === 'evolve_frontend_timeout')
@@ -1296,6 +1523,52 @@ window.triggerEvolve = async function() {
     _evolveInFlight = false;
     btn.textContent = '⚡ 触发演化';
     btn.disabled = false;
+  }
+};
+
+/** 从验证结果拼装演化反馈文本 */
+function _buildVerifyFailFeedback(result) {
+  if (!result) return '';
+  const lines = ['【验证失败 → 请针对性改进指令】'];
+  if (result.error_detail) lines.push('总因: ' + result.error_detail);
+  lines.push(
+    `通过率: ${((result.pass_rate ?? 0) * 100).toFixed(0)}%`
+    + ` · 通过 ${result.passed ?? 0} / 失败 ${result.failed ?? 0}`
+  );
+  const fails = (result.test_details || []).filter(t => !t.passed).slice(0, 8);
+  if (fails.length) {
+    lines.push('失败检查:');
+    fails.forEach((t) => {
+      const layer = t.layer || t.source || 'check';
+      lines.push(`- [${layer}] ${t.scenario || 'check'}: ${t.message || ''}`);
+    });
+  }
+  const twin = (result.verification_evidence && result.verification_evidence.twin_ab) || result.twin_ab || {};
+  if (twin && twin.passed === false) {
+    lines.push(
+      `Twin A/B FAIL: +${twin.target_gain_pp ?? 0}pp`
+      + ` (需 ≥${((twin.gain_threshold ?? 0.05) * 100).toFixed(0)}pp)`
+      + ` · 场景 ${twin.scenario_id || ''} · 技能 ${twin.target_skill || ''}`
+    );
+  }
+  return lines.join('\n').slice(0, 2500);
+}
+
+/** 验证失败：切演化 tab，填入失败原因，可选立即触发演化 */
+window.retryEvolveFromVerify = async function(autoStart) {
+  const fb = _pendingEvolveFeedback || '';
+  if (!fb) {
+    showToast('没有可带回的验证失败摘要');
+    return;
+  }
+  try {
+    await switchModalTab('evolve');
+  } catch (_) {}
+  const fbEl = document.getElementById('evolve-feedback');
+  if (fbEl) fbEl.value = fb;
+  showToast(autoStart ? '已带失败原因，开始演化…' : '已填入失败原因，可点「触发演化」');
+  if (autoStart && typeof window.triggerEvolve === 'function') {
+    await window.triggerEvolve();
   }
 };
 
@@ -1578,19 +1851,19 @@ window.injectSkillToAgent = async function() {
     return;
   }
   const agentSel = document.getElementById('approve-agent-select');
-  const agentId = agentSel?.value;
-  if (!agentId) {
-    showToast('请先在上方下拉框中选择要注入的智能体');
+  const tgt = parseAssignTarget(agentSel?.value);
+  if (!agentSel?.value || tgt.scope === 'team' || !tgt.agentId) {
+    showToast('请先在上方树状下拉框中选择要注入的某个智能体（注入不支持整个团队）');
     agentSel?.focus();
     return;
   }
   const data = await routerApi('/assign', {
     method: 'POST',
-    body: JSON.stringify({ agent_id: agentId, team_id: currentTeamId || 'default', skill_ids: [skillId] }),
+    body: JSON.stringify({ agent_id: tgt.agentId, team_id: tgt.teamId || currentTeamId || 'default', skill_ids: [skillId] }),
   });
   if (!data) return;
   const profMsg = (data.results || []).some(r => r.proficiency_boosted) ? '，熟练度已提升' : '';
-  showToast(`⚡ 已将「${item.draft_name || skillId}」注入 ${agentId}${profMsg}`);
+  showToast(`⚡ 已将「${item.draft_name || skillId}」注入 ${tgt.agentId}${profMsg}`);
 };
 
 window.showUsageCompare = function() {
@@ -1818,18 +2091,40 @@ window.triggerVerify = async function() {
   document.getElementById('verify-failed').textContent = result.failed ?? 0;
   const detailsEl = document.getElementById('verify-details');
 
-  const statusLabel = result.status === 'verified'
+  const verifyOk = result.status === 'verified';
+  if (!verifyOk) {
+    _pendingEvolveFeedback = _buildVerifyFailFeedback(result);
+  } else {
+    _pendingEvolveFeedback = '';
+  }
+
+  const statusLabel = verifyOk
     ? '<span style="color:#1F6B4A;font-weight:700">✅ VERIFIED</span>'
     : `<span style="color:#B33A3A;font-weight:700">❌ ${escHtml(result.status || 'failed')}</span>`;
   // Build detailed results: semantic + sandbox + twin A/B
-  let html = `<div style="margin-bottom:8px;font-size:12px">${statusLabel}`;
+  let html = `<div style="margin-bottom:8px;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">${statusLabel}`;
   if (result.requires_review) html += ' · <span style="color:#8A6615">需人工复核 (Token Gate warn)</span>';
+  if (!verifyOk) {
+    html += `<button type="button" class="btn btn-sm" id="btn-retry-evolve-from-verify"
+      onclick="retryEvolveFromVerify(true)"
+      style="margin-left:auto;background:#1F6B4A;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+      🧬 根据失败回演化
+    </button>`;
+    html += `<button type="button" class="btn btn-sm" onclick="retryEvolveFromVerify(false)"
+      style="background:transparent;color:#1F6B4A;border:1px solid rgba(31,107,74,.35);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px">
+      仅填入原因
+    </button>`;
+  }
   html += '</div>';
 
-  const twin = (result.verification_evidence && result.verification_evidence.twin_ab) || result.twin_ab || {};
+  const ve = result.verification_evidence || {};
+  const twin = ve.twin_ab || result.twin_ab || {};
+  // 演化前后对比图（若 apply→verify 闭环产生 twin_compare）
+  html += _renderTwinCompareHtml(ve.twin_compare || result.twin_compare, ve.twin_history || result.twin_history);
+
   if (twin && (twin.status || twin.skipped || twin.passed != null)) {
     html += '<div style="margin:10px 0;padding:10px 12px;border:1px solid rgba(31,107,74,.2);border-radius:8px;background:rgba(31,107,74,.04)">';
-    html += '<div style="font-weight:700;margin-bottom:6px;color:#1F6B4A">🧬 数字孪生 A/B 对照</div>';
+    html += '<div style="font-weight:700;margin-bottom:6px;color:#1F6B4A">🧬 数字孪生 A/B 对照（本次）</div>';
     if (twin.skipped) {
       html += `<div style="font-size:11px;color:#6B7280">已跳过：${escHtml(twin.reason || '')} — ${escHtml(twin.detail || '')}</div>`;
     } else if (twin.status === 'error') {
@@ -1837,13 +2132,27 @@ window.triggerVerify = async function() {
     } else {
       const b = twin.baseline || {};
       const t = twin.treatment || {};
+      // summary-only shape from last_verify
+      const bRate = b.target_rate != null ? b.target_rate : twin.baseline_rate;
+      const tRate = t.target_rate != null ? t.target_rate : twin.treatment_rate;
+      const bAll = b.all_rate != null ? b.all_rate : twin.baseline_all_rate;
+      const tAll = t.all_rate != null ? t.all_rate : twin.treatment_all_rate;
+      const bUses = b.target_uses != null ? b.target_uses : twin.baseline_uses;
+      const tUses = t.target_uses != null ? t.target_uses : twin.treatment_uses;
       const passTwin = twin.passed ? '✅ PASS' : '❌ FAIL';
       html += `<div style="font-size:11px;margin-bottom:6px">场景 <b>${escHtml(twin.scenario_id || '')}</b> · 目标技能 <b>${escHtml(twin.target_skill || '')}</b> · 种子 ${escHtml(String(twin.n_seeds || ''))} · ${passTwin}</div>`;
-      html += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+      // mini bar chart for this run
+      html += _twinBarRow('目标技能成功率 baseline→treatment', (Number(bRate) || 0) * 100, (Number(tRate) || 0) * 100, '%');
+      if (bAll != null || tAll != null) {
+        html += _twinBarRow('团队整体成功率 baseline→treatment', (Number(bAll) || 0) * 100, (Number(tAll) || 0) * 100, '%');
+      }
+      html += '<table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:6px">';
       html += '<tr style="text-align:left;color:#6B7280"><th style="padding:3px 6px"></th><th style="padding:3px 6px">baseline</th><th style="padding:3px 6px">treatment</th><th style="padding:3px 6px">Δ</th></tr>';
-      html += `<tr><td style="padding:3px 6px">目标技能成功率</td><td style="padding:3px 6px">${((b.target_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((t.target_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px;font-weight:700;color:${(twin.target_gain || 0) >= 0 ? '#1F6B4A' : '#B33A3A'}">${(twin.target_gain_pp != null ? twin.target_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.target_gain_pp != null ? twin.target_gain_pp : 0))}pp</td></tr>`;
-      html += `<tr><td style="padding:3px 6px">团队整体成功率</td><td style="padding:3px 6px">${((b.all_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((t.all_rate || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${(twin.all_gain_pp != null ? twin.all_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.all_gain_pp != null ? twin.all_gain_pp : 0))}pp</td></tr>`;
-      html += `<tr><td style="padding:3px 6px">目标 skill 使用次数</td><td style="padding:3px 6px">${escHtml(String(b.target_uses || 0))}</td><td style="padding:3px 6px">${escHtml(String(t.target_uses || 0))}</td><td style="padding:3px 6px">—</td></tr>`;
+      html += `<tr><td style="padding:3px 6px">目标技能成功率</td><td style="padding:3px 6px">${((Number(bRate) || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((Number(tRate) || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px;font-weight:700;color:${(twin.target_gain || twin.target_gain_pp || 0) >= 0 ? '#1F6B4A' : '#B33A3A'}">${(twin.target_gain_pp != null ? twin.target_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.target_gain_pp != null ? twin.target_gain_pp : 0))}pp</td></tr>`;
+      if (bAll != null || tAll != null) {
+        html += `<tr><td style="padding:3px 6px">团队整体成功率</td><td style="padding:3px 6px">${((Number(bAll) || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${((Number(tAll) || 0) * 100).toFixed(1)}%</td><td style="padding:3px 6px">${(twin.all_gain_pp != null ? twin.all_gain_pp : 0) >= 0 ? '+' : ''}${escHtml(String(twin.all_gain_pp != null ? twin.all_gain_pp : 0))}pp</td></tr>`;
+      }
+      html += `<tr><td style="padding:3px 6px">目标 skill 使用次数</td><td style="padding:3px 6px">${escHtml(String(bUses ?? 0))}</td><td style="padding:3px 6px">${escHtml(String(tUses ?? 0))}</td><td style="padding:3px 6px">—</td></tr>`;
       html += '</table>';
       if (twin.criteria) html += `<div style="font-size:10px;color:#6B7280;margin-top:6px">${escHtml(twin.criteria)}</div>`;
     }
@@ -2116,26 +2425,26 @@ window.approveAs = async function(skillType) {
   const body = { reviewer: 'human', edited_fields: edits, skill_type: skillType };
   if (skillType === 'trait') {
     const agentSel = document.getElementById('approve-agent-select');
-    const agents = teamAgents[currentTeamId] || [];
-    if (agents.length === 0) {
-      // 团队无可分配成员：特质技能无处可赋，给出明确出路而非死胡同
-      showToast('当前团队暂无智能体，无法赋予特质技能', 'error');
-      addMessage('system', 'ℹ️ 「特质技能」需要赋予给某个智能体，但当前团队还没有成员。出路：① 点击 📦 储备技能 先入库（不赋予任何人），或 🌍 公共技能（赋予全团队，将随新成员自动生效）；② 或先到「智能体」配置页为本团队添加成员后再回来赋予。');
-      return;
-    }
-    if (!agentSel || !agentSel.value) {
-      // 有成员但未选：高亮下拉框并明确指向它
-      showToast('请先在批准按钮左侧的下拉框选择要赋予的智能体', 'error');
+    const val = agentSel?.value || '';
+    if (!val) {
+      // 未选：高亮下拉框并明确指向它
+      showToast('请先在批准按钮左侧的下拉框选择要赋予的团队或智能体', 'error');
       if (agentSel) {
         agentSel.style.display = '';
         agentSel.style.outline = '2px solid oklch(0.72 0.12 70)';
         agentSel.focus();
         setTimeout(() => { agentSel.style.outline = 'none'; }, 2500);
       }
-      addMessage('system', 'ℹ️ 「特质技能」会把该技能赋予某一个智能体。请在「特质技能」按钮左侧的下拉框中选择目标智能体后再点击。');
+      addMessage('system', 'ℹ️ 「特质技能」会把该技能赋予某个团队或某一个智能体。请在「特质技能」按钮左侧的树状下拉框中选择目标（可选整个团队或团队内某个人）后再点击。');
       return;
     }
-    body.target_agent_id = agentSel.value;
+    const tgt = parseAssignTarget(val);
+    body.target_team_id = tgt.teamId;
+    if (tgt.scope === 'team') {
+      body.assign_scope = 'team';
+    } else {
+      body.target_agent_id = tgt.agentId;
+    }
   }
   const r = await api(`/teams/${currentTeamId}/skill-extract/${selectedItemId}/approve`, {
     method: 'POST',
@@ -2160,9 +2469,15 @@ window.approveAs = async function(skillType) {
   }
   showToast(`${typeIcons[skillType]} 已批准为${typeLabels[skillType]}`);
   if (skillType === 'trait') {
-    const agents = teamAgents[currentTeamId] || [];
-    const agent = agents.find(a => a.agent_id === body.target_agent_id);
-    addMessage('system', `🎯 技能「${r.draft_name}」已赋予智能体「${agent?.name || body.target_agent_id}」`);
+    const t = allTeams.find(x => x.team_id === body.target_team_id);
+    const tName = t?.name || body.target_team_id || currentTeamId;
+    if (body.assign_scope === 'team') {
+      addMessage('system', `👥 技能「${r.draft_name}」已赋予团队「${tName}」的全部智能体`);
+    } else {
+      const agents = teamAgents[body.target_team_id] || [];
+      const agent = agents.find(a => a.agent_id === body.target_agent_id);
+      addMessage('system', `🎯 技能「${r.draft_name}」已赋予「${tName} / ${agent?.name || body.target_agent_id}」`);
+    }
   } else if (skillType === 'reserve') {
     addMessage('system', `📦 技能「${r.draft_name}」已入库储备，未赋予任何智能体`);
   }

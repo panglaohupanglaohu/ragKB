@@ -621,6 +621,22 @@ async def _run_tool_loop_iterations(
                     "summary": log_entry["summary"],
                 },
             )
+            # 小满式感知：tool 结果写入记忆感知流（达阈值自动 compress）
+            try:
+                if team_id and agent_id:
+                    from agents.agent_memory_runtime import record_perception
+                    record_perception(
+                        str(team_id),
+                        str(agent_id),
+                        modality="tool",
+                        payload={
+                            "tool": name,
+                            "ok": bool(tool_result.get("ok")),
+                            "summary": (log_entry.get("summary") or "")[:240],
+                        },
+                    )
+            except Exception:
+                pass
 
         if finished:
             emit_event("loop_end", {"reason": "finish_called", "iteration": iteration})

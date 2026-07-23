@@ -1,192 +1,193 @@
 # -*- coding: utf-8 -*-
-"""Plaza Consensus Measurement — 讨论收敛度量与分歧检测.
+"""Plaza Consensus Measurement — 五指量表 (Fist-to-Five) + ORID 层收敛度量.
 
-提供:
-- ConsensusScore: 基于关键词重叠和立场分析的收敛度评分
-- DissidentDetector: 检测明显的反方意见
-- EarlyExitCheck: 判断是否可以提前结束讨论
+替代原有的关键词共识计数（plaza_consensus.py v1），采用：
+- Fist-to-Five: 每个参与者表达 1-5 的支持程度
+  - 5指 = 全力支持，愿意带头执行
+  - 4指 = 支持，有小顾虑但不影响
+  - 3指 = 可以接受，跟随团队决定
+  - 2指 = 有保留，希望讨论修改
+  - 1指（拳头）= 根本性反对，不能接受
+- Consensus = 没有人给1指，且 ≥ 多数人给≥3指
+- Dissent detection: 任何1指 = blocking，必须处理
+
+文献:
+- Kaner et al. (2014) *Facilitator's Guide to Participatory Decision-Making* (五指量表)
+- Lippincott et al. (2025) arXiv:2503.18765 (模糊共识建模，验证关键词共识不可靠)
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("plaza_consensus")
 
-# 表达赞同的关键词
-_AGREE_PATTERNS = re.compile(
-    r"同意|赞同|没错|对的|确实|支持|认同|一致|正确|好主意|可行|"
-    r"我也觉得|我也认为|agree|exactly|right|support",
-    re.IGNORECASE,
-)
-
-# 表达反对的关键词
-_DISAGREE_PATTERNS = re.compile(
-    r"不同意|反对|但是|不过|然而|问题是|风险|需要注意|不可行|"
-    r"不一定|不太|存疑|担忧|顾虑|disagree|however|but|risk|concern",
-    re.IGNORECASE,
-)
+# 五指量表常量
+FIST_TO_FIVE = {
+    5: "全力支持 — 我愿意带头执行",
+    4: "支持 — 有小顾虑但不影响整体",
+    3: "可以接受 — 跟随团队决定",
+    2: "有保留 — 希望讨论修改后再决定",
+    1: "根本性反对 — 我不能接受这个方向",
+}
 
 
 @dataclass
-class ConsensusResult:
-    """共识度量结果."""
+class FistToFiveVote:
+    """单个 Agent 的五指投票."""
 
-    score: float  # 0.0 ~ 1.0, 1.0=完全共识
-    agreement_count: int
-    disagreement_count: int
-    neutral_count: int
-    dissenting_agents: List[str]  # 表达反对的agent_id
-    convergence_trend: str  # "rising" | "stable" | "falling"
-    can_early_exit: bool  # 是否可以提前结束
+    agent_id: str
+    agent_name: str
+    fingers: int  # 1-5
+    reason: str = ""  # 投票理由
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "score": round(self.score, 3),
-            "agreement_count": self.agreement_count,
-            "disagreement_count": self.disagreement_count,
-            "neutral_count": self.neutral_count,
-            "dissenting_agents": self.dissenting_agents,
-            "convergence_trend": self.convergence_trend,
-            "can_early_exit": self.can_early_exit,
+            "agent_id": self.agent_id,
+            "agent_name": self.agent_name,
+            "fingers": self.fingers,
+            "label": FIST_TO_FIVE.get(self.fingers, ""),
+            "reason": self.reason,
+        }
+
+    @property
+    def is_blocking(self) -> bool:
+        return self.fingers == 1
+
+    @property
+    def is_supportive(self) -> bool:
+        return self.fingers >= 4
+
+    @property
+    def is_accepting(self) -> bool:
+        return self.fingers >= 3
+
+
+@dataclass
+class FistToFiveResult:
+    """五指投票的集体结果."""
+
+    votes: List[FistToFiveVote] = field(default_factory=list)
+    consensus_reached: bool = False
+    blocking_agents: List[str] = field(default_factory=list)
+    supportive_agents: List[str] = field(default_factory=list)
+    mean_fingers: float = 0.0
+    median_fingers: float = 0.0
+    consensus_level: str = "none"  # none | weak | strong
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "votes": [v.to_dict() for v in self.votes],
+            "consensus_reached": self.consensus_reached,
+            "blocking_agents": self.blocking_agents,
+            "supportive_agents": self.supportive_agents,
+            "mean_fingers": round(self.mean_fingers, 2),
+            "median_fingers": self.median_fingers,
+            "consensus_level": self.consensus_level,
         }
 
 
-def measure_consensus(
-    messages: List[Dict[str, Any]],
-    round_number: Optional[int] = None,
-    early_exit_threshold: float = 0.85,
-) -> ConsensusResult:
-    """Measure consensus from a list of messages.
+def collect_fist_to_five(
+    votes: List[FistToFiveVote],
+    consensus_threshold: int = 3,
+) -> FistToFiveResult:
+    """从五指投票结果计算集体共识状态.
 
     Parameters
     ----------
-    messages : list of message dicts (must have 'content', 'agent_id', 'round_number')
-    round_number : if provided, only consider messages from this round
-    early_exit_threshold : score above which early exit is possible
+    votes : 每个参与者的投票
+    consensus_threshold : 被认为"可接受"的最低指数 (默认3)
+
+    Returns
+    -------
+    FistToFiveResult : 共识分析结果
     """
-    filtered = messages
-    if round_number is not None:
-        filtered = [m for m in messages if m.get("round_number") == round_number]
+    if not votes:
+        return FistToFiveResult()
 
-    if not filtered:
-        return ConsensusResult(
-            score=0.5, agreement_count=0, disagreement_count=0,
-            neutral_count=0, dissenting_agents=[], convergence_trend="stable",
-            can_early_exit=False,
-        )
+    blocking = [v.agent_id for v in votes if v.is_blocking]
+    supportive = [v.agent_id for v in votes if v.is_supportive]
+    fingers_list = [v.fingers for v in votes]
+    mean_f = sum(fingers_list) / len(fingers_list)
+    median_f = _median(fingers_list)
 
-    agreement_count = 0
-    disagreement_count = 0
-    neutral_count = 0
-    dissenting_agents: List[str] = []
+    # Consensus: 没有人给1指 AND 多数人≥3指
+    no_blocking = len(blocking) == 0
+    accepting = sum(1 for v in votes if v.is_accepting)
+    majority_accept = accepting >= len(votes) * 0.6
 
-    for msg in filtered:
-        content = msg.get("content", "")
-        agent_id = msg.get("agent_id", "")
+    consensus_reached = no_blocking and majority_accept
 
-        agree_hits = len(_AGREE_PATTERNS.findall(content))
-        disagree_hits = len(_DISAGREE_PATTERNS.findall(content))
-
-        if disagree_hits > agree_hits:
-            disagreement_count += 1
-            if agent_id and agent_id not in dissenting_agents:
-                dissenting_agents.append(agent_id)
-        elif agree_hits > disagree_hits:
-            agreement_count += 1
-        else:
-            neutral_count += 1
-
-    total = agreement_count + disagreement_count + neutral_count
-    if total == 0:
-        score = 0.5
+    if not no_blocking:
+        level = "blocked"
+    elif mean_f >= 4.0:
+        level = "strong"
+    elif mean_f >= 3.0:
+        level = "weak"
     else:
-        # Score: agreement proportion, weighted with neutral as half-agree
-        score = (agreement_count + neutral_count * 0.5) / total
+        level = "none"
 
-    # Determine convergence trend by comparing current vs prior rounds
-    trend = _compute_trend(messages, round_number)
-
-    can_exit = score >= early_exit_threshold and disagreement_count == 0
-
-    return ConsensusResult(
-        score=score,
-        agreement_count=agreement_count,
-        disagreement_count=disagreement_count,
-        neutral_count=neutral_count,
-        dissenting_agents=dissenting_agents,
-        convergence_trend=trend,
-        can_early_exit=can_exit,
+    return FistToFiveResult(
+        votes=votes,
+        consensus_reached=consensus_reached,
+        blocking_agents=blocking,
+        supportive_agents=supportive,
+        mean_fingers=mean_f,
+        median_fingers=median_f,
+        consensus_level=level,
     )
 
 
-def _compute_trend(
-    messages: List[Dict[str, Any]], current_round: Optional[int]
+def _median(values: List[int]) -> float:
+    """计算中位数."""
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    if n == 0:
+        return 0.0
+    if n % 2 == 1:
+        return float(sorted_vals[n // 2])
+    return (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2.0
+
+
+def format_fist_to_five_summary(result: FistToFiveResult) -> str:
+    """生成五指投票结果的人类可读摘要."""
+
+    if not result.votes:
+        return "无投票记录"
+
+    lines = [
+        f"五指投票结果: 均值={result.mean_fingers:.1f}/5, 中位数={result.median_fingers:.0f}/5"
+    ]
+    lines.append(f"共识状态: {result.consensus_level}")
+
+    for v in result.votes:
+        icon = "✋" if v.fingers >= 3 else ("✊" if v.fingers == 1 else "✌️")
+        lines.append(
+            f"  {icon} {v.agent_name}({v.fingers}指): {FIST_TO_FIVE.get(v.fingers, '')[:30]}"
+        )
+
+    if result.blocking_agents:
+        lines.append(
+            f"⚠️ 根本性反对: {', '.join(result.blocking_agents)} — 必须处理后再决策"
+        )
+
+    return "\n".join(lines)
+
+
+def generate_blocking_resolution_prompt(
+    blocking_agents: List[str],
+    proposal_summary: str,
 ) -> str:
-    """Compare consensus between current and previous round."""
-    if current_round is None or current_round <= 1:
-        return "stable"
+    """为处理根本性反对生成Facilitator追问提示词."""
 
-    prev_msgs = [m for m in messages if m.get("round_number") == current_round - 1]
-    curr_msgs = [m for m in messages if m.get("round_number") == current_round]
-
-    if not prev_msgs or not curr_msgs:
-        return "stable"
-
-    prev_score = _quick_score(prev_msgs)
-    curr_score = _quick_score(curr_msgs)
-
-    diff = curr_score - prev_score
-    if diff > 0.1:
-        return "rising"
-    elif diff < -0.1:
-        return "falling"
-    return "stable"
-
-
-def _quick_score(msgs: List[Dict[str, Any]]) -> float:
-    """Lightweight score for trend comparison."""
-    agree = 0
-    disagree = 0
-    for m in msgs:
-        content = m.get("content", "")
-        a = len(_AGREE_PATTERNS.findall(content))
-        d = len(_DISAGREE_PATTERNS.findall(content))
-        if a > d:
-            agree += 1
-        elif d > a:
-            disagree += 1
-    total = agree + disagree + (len(msgs) - agree - disagree)
-    return (agree + (len(msgs) - agree - disagree) * 0.5) / total if total > 0 else 0.5
-
-
-def highlight_dissent(
-    messages: List[Dict[str, Any]],
-    round_number: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    """Extract messages with clear dissenting opinions for UI highlighting.
-
-    Returns list of {agent_id, agent_name, content_preview, round_number}
-    """
-    filtered = messages
-    if round_number is not None:
-        filtered = [m for m in messages if m.get("round_number") == round_number]
-
-    dissents: List[Dict[str, Any]] = []
-    for msg in filtered:
-        content = msg.get("content", "")
-        agree_hits = len(_AGREE_PATTERNS.findall(content))
-        disagree_hits = len(_DISAGREE_PATTERNS.findall(content))
-
-        if disagree_hits > agree_hits and disagree_hits >= 2:
-            dissents.append({
-                "agent_id": msg.get("agent_id", ""),
-                "agent_name": msg.get("agent_name", ""),
-                "content_preview": content[:150],
-                "round_number": msg.get("round_number", 0),
-            })
-
-    return dissents
+    agents_str = ", ".join(blocking_agents)
+    return (
+        f"以下Agent对当前方案给出了根本性反对 (✊ 1指): {agents_str}\n\n"
+        f"当前方案摘要:\n{proposal_summary}\n\n"
+        "请针对每个反对者追问以下问题:\n"
+        "1. 具体哪些方面让你不能接受？\n"
+        "2. 需要修改哪些条件，你才能至少给出3指（可以接受）？\n"
+        "3. 你认为方案中是否有可行的部分可以保留，哪些部分必须修改？"
+    )

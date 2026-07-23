@@ -11,7 +11,7 @@ from agents.models import SkillDefinition, SkillLifecycleStage
 from agents import skill_verifier as skill_verifier_module
 from agents import evidence_store as evidence_store_module
 from agents.evidence_store import EvidenceStore
-from agents.skill_verifier import SkillVerifier
+from agents.skill_verifier import SkillVerifier, VerificationResult
 from sandbox.python_runner_lite import LiteSandbox, SandboxResult
 import sandbox.python_runner as sandbox_runner
 
@@ -122,7 +122,12 @@ async def test_verify_skill_reports_blocked_docker_runtime_without_false_success
     assert result.verification_evidence["runtime"]["self_check_blocked"] is True
     assert result.verification_evidence["sandbox_ok"] is False
     assert "docker executable not found" in result.error_detail
-    assert library.persisted is False
+    # 失败也写 last_verify（给演化证据），但不升 lifecycle 为 verified
+    assert library.persisted is True
+    lv = (library.skill.config or {}).get("last_verify") or {}
+    assert lv.get("status") == "failed"
+    assert "docker" in (lv.get("error_detail") or "").lower() or "docker" in result.error_detail.lower()
+    assert library.skill.lifecycle_stage != SkillLifecycleStage.VERIFIED
 
     stored_evidence = await evidence_store.get_evidence(result.evidence_run_id)
     assert stored_evidence is not None
@@ -130,3 +135,53 @@ async def test_verify_skill_reports_blocked_docker_runtime_without_false_success
     assert stored_evidence.runtime["mode"] == "docker"
     assert stored_evidence.runtime["ready"] is False
     assert stored_evidence.detail["sandbox_ok"] is False
+
+
+def test_persist_last_verify_builds_twin_compare():
+    skill = SkillDefinition(
+        skill_id="skill-twin",
+        name="Twin Skill",
+        instructions="步骤1 执行 步骤2 验证",
+        version=3,
+    )
+    skill.config = {
+        "twin_before_evolve": {
+            "status": "ok",
+            "passed": False,
+            "target_gain_pp": 1.0,
+            "baseline_rate": 0.4,
+            "treatment_rate": 0.41,
+            "skill_version": 2,
+        }
+    }
+    library = FakeSkillLibrary(skill)
+    verifier = SkillVerifier(skill_library=library)
+    result = VerificationResult(
+        skill_id="skill-twin",
+        status="verified",
+        pass_rate=0.9,
+        passed=9,
+        failed=1,
+    )
+    twin_report = {
+        "status": "ok",
+        "skipped": False,
+        "passed": True,
+        "target_gain_pp": 8.0,
+        "all_gain_pp": 3.0,
+        "gain_threshold": 0.05,
+        "baseline": {"target_rate": 0.5, "all_rate": 0.6, "target_uses": 2},
+        "treatment": {"target_rate": 0.58, "all_rate": 0.65, "target_uses": 4},
+        "scenario_id": "code_review_delivery",
+        "target_skill": "code_review",
+    }
+    verifier._process_log = []
+    verifier._persist_last_verify(skill, "cloud_ops", result, twin_report)
+    cmp = (skill.config or {}).get("twin_compare") or {}
+    assert cmp.get("before", {}).get("target_gain_pp") == 1.0
+    assert cmp.get("after", {}).get("target_gain_pp") == 8.0
+    assert cmp.get("delta_gain_pp") == 7.0
+    assert cmp.get("improved") is True
+    hist = (skill.config or {}).get("twin_history") or []
+    assert len(hist) >= 1
+    assert result.verification_evidence.get("twin_compare", {}).get("delta_gain_pp") == 7.0

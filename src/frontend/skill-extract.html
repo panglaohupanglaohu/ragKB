@@ -423,6 +423,9 @@
         <button class="btn btn-approve" onclick="triggerEvolve()" id="btn-evolve">⚡ 触发演化</button>
       </div>
       <div id="evolve-stats" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono);color:oklch(0.6 0.005 110)"></div>
+      <div id="evolve-evidence" style="display:none;font-size:11px;line-height:1.5;padding:8px 10px;border:1px solid rgba(31,107,74,.18);border-radius:8px;background:rgba(31,107,74,.04);color:#2D3A2E"></div>
+      <label style="display:block;font-size:11px;color:var(--tg-ink-2,#4B5568);font-weight:600">反馈 / 失败原因（可选，写入演化证据）</label>
+      <textarea id="evolve-feedback" rows="3" placeholder="验证失败项、业务缺口、希望补强的约束… 点击「根据失败回演化」会自动填入" style="width:100%;box-sizing:border-box;padding:8px 10px;font-size:11px;line-height:1.5;border:1px solid var(--tg-border,#D8DEE8);border-radius:8px;resize:vertical;font-family:inherit;color:#1A2030;background:#fff"></textarea>
       <div id="evolve-diff" style="display:none;border:1px solid var(--tg-border,#D8DEE8);border-radius:8px;overflow:hidden;background:#fff">
         <div style="padding:8px 12px;background:var(--tg-bg-soft,#EBF0F5);font-size:11px;color:var(--tg-ink-2,#4B5568);font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span>📊 指令对比 (旧 → 新)</span>
@@ -679,7 +682,7 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn" onclick="saveEdits()">💾 保存编辑</button>
         <div style="display:flex;align-items:center;gap:4px">
-          <select id="approve-agent-select" style="display:none;background:#21272D;border:1px solid oklch(0.62 0.10 70/.4);color:#D7DEE4;padding:5px 8px;font-size:11px;font-family:var(--font-sans);outline:none;max-width:140px">
+          <select id="approve-agent-select" title="选择要赋予的团队或团队内的某个智能体" style="display:none;background:#21272D;border:1px solid oklch(0.62 0.10 70/.4);color:#D7DEE4;padding:5px 8px;font-size:11px;font-family:var(--font-sans);outline:none;max-width:220px">
           </select>
           <button class="btn btn-approve" onclick="approveAs('trait')" style="background:oklch(0.62 0.10 70/.2);border-color:oklch(0.62 0.10 70/.4);color:oklch(0.82 0.08 70)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

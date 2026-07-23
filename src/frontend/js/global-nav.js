@@ -13,6 +13,7 @@
     { id: 'agents',        label: '智能体团队', href: '/agent-team-config.html' },
     { id: 'plaza',         label: '议事广场',   href: '/plaza.html' },
     { id: 'skill-extract', label: '技能萃取',   href: '/skill-extract.html' },
+    { id: 'memory',        label: 'Agent记忆',  href: '/agent-memory.html' },
     { id: 'digital-twin',  label: '数字孪生',   href: '/Agent-digital-twin.html?office3d=1' },
     { id: 'cost',          label: 'Token节省',  href: '/cost-dashboard.html' },
     { id: 'pet',           label: '生态配置',   href: '/pet-config.html' }

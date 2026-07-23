@@ -1,5 +1,22 @@
 [
   {
+    "id": "bug-plaza-consensus-removed-api-import",
+    "timestamp": "2026-07-23T00:00:00.000000",
+    "error_message": "plaza_routes.py 与 test_plaza_consensus.py 仍 import measure_consensus/highlight_dissent/ConsensusResult，而 plaza_consensus.py 已被改写为 Fist-to-Five，导入将 ImportError",
+    "file": "src/backend/agents/plaza_routes.py",
+    "root_cause": "plaza_consensus.py 从关键词共识改写为五指量表(Fist-to-Five)后删除了旧 API，但 /consensus 路由与单测未同步更新，处于半改写的破损状态",
+    "fix": "改写 plaza 议事流程为 ORID 四层 + TurQUaz 对立辩论 + 五指决策：plaza_engine 用 _run_orid_phases 编排；/consensus 路由改读 discussion.metadata['fist_to_five'] 并用 _adapt_fist_to_five 适配旧前端字段；test_plaza_consensus 重写为测五指函数",
+    "tags": [
+      "backend",
+      "plaza",
+      "consensus",
+      "fist-to-five",
+      "orid",
+      "import-error",
+      "broken-state"
+    ]
+  },
+  {
     "id": "bug-cat-speak-skill-execute-404",
     "timestamp": "2026-07-07T03:40:00.000000",
     "error_message": "agent-team-config 点击“猫台词”(cat_speak_prompt)技能执行 → 提示失败，后端 404 Skill '猫台词提示词 (Mei Ling)' not found",
@@ -2446,5 +2463,22 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-07-18T00:04:40Z"
+  },
+  {
+    "id": "bug-104",
+    "timestamp": "2026-07-23T15:31:55Z",
+    "error_message": "verify fail when docker blocked reports only pass_rate%, hides 'docker executable not found'; last_verify not persisted for evolve feedback",
+    "file": "src/backend/agents/skill_verifier.py",
+    "root_cause": "error_detail priority put pass_rate before sandbox error; verify results not written to skill.config for evolver",
+    "fix": "Prioritize sandbox evidence.error in failed error_detail; always persist compact last_verify (status/failed_checks/twin_ab) for evolver evidence + UI retry-evolve",
+    "tags": [
+      "skill-verify",
+      "skill-evolve",
+      "evidence",
+      "docker"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-07-23T15:31:55Z"
   }
 ]

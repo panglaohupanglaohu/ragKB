@@ -1,25 +1,17 @@
-# Research State: Neural Skill Extraction from Multi-Agent Deliberations
+# Research State: Plaza-to-Evolution Closed-Loop Agent Team Optimization
 
 ## Current Stage
-METHODOLOGY (Stage 4) — completed.
+SCOPE
 
 ## Research Question
-How to design a neural architecture (TCN + Cross-Attention + Constrained Decoder) that extracts structured skill definitions from Plaza multi-agent deliberation transcripts?
+Does a complete closed loop (Plaza ORID discussion → Skill extraction → Natural selection evolution → Performance validation → Dominant skill assignment → Agent re-equipping) converge toward measurably better agent team compositions than either component alone?
 
-## Key Decisions
-- ARCHITECTURE: TCN as core temporal encoder (Bai 2018) — Plaza discussions are time series
-- ENCODER: Longformer for token-level encoding, frozen during initial training
-- ATTENTION: 5 learnable skill query probes → cross-attention over TCN output
-- DECODER: CodeLLaMA-7B + QLoRA + constrained JSON generation
-- TRAINING: GPT-4 silver data bootstrap → human verify → QLoRA fine-tune
-- SCOPE: Discussion → extraction only. Evolution deferred to companion paper.
-
-## Experiment Log
-| Attempt | Method | Result | Status |
-|---------|--------|--------|--------|
-| - | - | - | pending implementation |
+## Hypothesis
+H1: ORID-structured Plaza discussion produces contracts with higher niche-skill specificity than unstructured discussion.
+H2: Evolution under ecological pressure filters extracted skills, producing dominant skills that measurably improve team survival when re-assigned.
+H3: Closed-loop iteration (discuss → evolve → validate → re-equip → discuss) converges to a stable dominant skill set.
 
 ## Artifacts
-- literature-review.md: exists (22 verified citations)
-- reasoning.md: exists (TCN selection analysis)
-- methodology.md: exists (detailed pseudocode)
+- literature-review.md: pending
+- reasoning.md: pending
+- methodology.md: pending

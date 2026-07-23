@@ -649,6 +649,65 @@ class SkillRouter:
             ),
         }
 
+    def get_skill_affinity_evidence(
+        self,
+        skill_id: str,
+        team_id: str = "",
+        category: str = "",
+        limit: int = 8,
+    ) -> Dict[str, Any]:
+        """Compact routing affinity + feedback for a single skill (evolver evidence)."""
+        sid = str(skill_id or "")
+        if not sid:
+            return {"feedback_count": 0, "avg_rating": 0, "revokes": 0, "affinity_boosts": [], "recent": []}
+
+        # Feedback may be keyed by skill_id or slug — match both + loose contains
+        rows: List[RoutingFeedback] = []
+        for key, fb_list in self._feedback.items():
+            k = str(key)
+            if k == sid or (sid and (sid in k or k in sid)):
+                rows.extend(fb_list or [])
+        if team_id:
+            rows = [f for f in rows if not f.team_id or f.team_id == team_id]
+
+        rates = [f for f in rows if f.action == "rate"]
+        revokes = [f for f in rows if f.action == "revoke"]
+        avg_rating = sum(f.rating for f in rates) / max(len(rates), 1) if rates else 0.0
+
+        cat = (category or "").strip().lower()
+        boosts: List[Dict[str, Any]] = []
+        for (agent_id, boost_cat), val in self._affinity_boosts.items():
+            if cat and str(boost_cat).lower() != cat:
+                # still include if feedback exists for this agent+skill
+                if not any(f.agent_id == agent_id for f in rows):
+                    continue
+            boosts.append({
+                "agent_id": agent_id,
+                "category": boost_cat,
+                "boost": round(float(val), 3),
+            })
+        boosts.sort(key=lambda x: abs(float(x.get("boost") or 0)), reverse=True)
+
+        recent = []
+        for f in sorted(rows, key=lambda x: x.created_at or "", reverse=True)[:limit]:
+            recent.append({
+                "agent_id": f.agent_id,
+                "action": f.action,
+                "rating": f.rating,
+                "reason": (f.reason or "")[:120],
+                "created_at": f.created_at,
+            })
+
+        return {
+            "skill_id": sid,
+            "feedback_count": len(rows),
+            "rates": len(rates),
+            "revokes": len(revokes),
+            "avg_rating": round(avg_rating, 2),
+            "affinity_boosts": boosts[:12],
+            "recent": recent,
+        }
+
     def get_agent_skill_profile(self, team_id: str, agent_id: str) -> Dict[str, Any]:
         """Get agent's skill profile for visualization (radar chart data)."""
         if not self._team_manager:

@@ -1,0 +1,36 @@
+{
+  "skills": [
+    {
+      "name": "AWS RDS MySQL慢查询优化方案",
+      "description": "从广场讨论「AWS RDS MySQL慢查询优化方案」的技能时刻萃取：AWS RDS MySQL慢查询优化方案",
+      "category": "domain_knowledge",
+      "icon": "⚡",
+      "slug": "aws-rds-mysql慢查询优化方案",
+      "instructions": "1. Top 5慢查询占42%执行时间, ETL从2.1秒恶化到8.7秒。加索引风险: gh-ost Online DDL避免锁表但高峰IO增10-15%, 索引额外15-20GB存储。\n2. 质疑:(1)gh-ost高峰IO增10-15%, (2)复合索引设计不当浪费存储。建议先EXPLAIN验证。",
+      "required_tools": [
+        "python_boto3",
+        "cloudwatch_api",
+        "kubectl",
+        "terraform",
+        "python",
+        "curl",
+        "prometheus",
+        "git"
+      ],
+      "confidence": 0.62,
+      "scope": "public",
+      "extraction_algorithm": "tse-local-decoder"
+    }
+  ],
+  "latency_ms": 20.231375000548724,
+  "focus": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8
+  ]
+}

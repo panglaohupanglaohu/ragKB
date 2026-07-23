@@ -33,6 +33,14 @@
 
 
 ## Key Learnings
+- [2026-07-24] 记忆默认 state=unbound（无 meta 非 active）；`ensure_memory_ready` 首次使用 auto-bind；`record_chat_turn` 对话入感知+日志；沈弥安 `maybe_reflect` 高重要度反思；中枢支持 ?team_id&agent_id&seg 深链。
+- [2026-07-24] Agent记忆 P3 收口：README 专章；配置页记忆 tab 对齐 lifecycle/persona/中枢；AAS `bridge_aas_experience`（`AG_MEMORY_AAS_BRIDGE=1`）。P0–P3 主链路完成。
+- [2026-07-24] Agent记忆 P2：`agent_memory_runtime` prepare/inject；chat_harness 注入 tone+recall（plaza 跳过）；TASK_COMPLETED/FAILED→record_task_outcome；tool_loop→record_perception+阈值compress；Persona autonomy 旋钮控制。
+- [2026-07-24] Agent记忆 P1：`agent_memory_share` ACL(reader/co_writer+layer_mask，默认无affect；沈弥安强制剥affect)；`agent_memory_transfer` 复制传递+意图auto/ask/drop+凭吊archived；UI 共享矩阵/传递台。
+- [2026-07-24] Agent记忆 P0：`agent_memory_lifecycle` 状态机(bind/save/seal/unseal/share/destroy+tombstone)；hub `/api/v1/agent-memory`；站级菜单「Agent记忆」`agent-memory.html`；Persona 小满/沈弥安/hybrid。P1 共享ACL+传递；P2 运行时自主挂钩。
+- [2026-07-24] 智能体记忆绑定（TigerInBamboo 移植）：四层 `log/perception/intentions/affect` 服务端落盘 `storage/agent_memory/<team>/<agent>/`；API `/api/v1/agent-config/teams/{team}/agents/{agent}/memory-core/*`；智能体配置页 tab「记忆绑定」(`ag-memory`) 支持绑定/封存/导出导入/时间轴；与人格页 `memory_files` 文件记忆并存（文件=文档，四层=运行时遗体）。
+- [2026-07-24] Twin 闭环可视化：`apply_evolution` 写 `twin_before_evolve`；`verify` 写 `twin_history`+`twin_compare`(before/after/delta_gain_pp) 并回 `verification_evidence`；UI `_renderTwinCompareHtml` 双条柱+增益轨迹。证据加厚：`task_usage`(usage/success/fail) + `SkillRouter.get_skill_affinity_evidence` 入 evolve prompt。
+- [2026-07-23] 技能闭环：`verify` 写 `skill.config.last_verify`（status/pass_rate/failed_checks/twin_ab 摘要）；`_gather_evidence` 喂 usage+last_verify+last_evolution 进演化 prompt；验证失败 UI「根据失败回演化」→ `user_feedback` + 可选 auto triggerEvolve。
 - [2026-07-20] skill 闭环：`acceptEvolution` / 效果页应用改进后自动 `switchModalTab('verify')` + `triggerVerify`（语义+沙箱+Twin A/B）；`apply_evolution` 回 `next_step=verify` 并将 changelog 写入 skill.config.last_evolution。
 - [2026-07-18] 技能验证 Twin A/B：skill_twin_ab 按 metadata.scenario+target_skill（或 code_delivery→code_review_delivery）跑 baseline/treatment 熟练度+instructions override；增益≥5pp 为 twin 通过；UI 展示对照表。env: AG_SKILL_TWIN_AB_SEEDS/GAIN/MAX_STEPS。
 - [2026-07-18] 技能验证=语义层(步骤/工具落地与 mock/场景对齐/拒离线占位)+沙箱结构；hard_fail 挡回退草稿。路由结果含 lifecycle_stage/note/mult，UI 徽章展示。

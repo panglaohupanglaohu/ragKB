@@ -63,6 +63,24 @@ describe('skill-extract modal full tab flow', () => {
     expect(source).toContain('result.test_details || []');
   });
 
+  it('D2: verify fail offers one-click return to evolve with failure feedback', () => {
+    expect(source).toContain('function _buildVerifyFailFeedback');
+    expect(source).toContain('window.retryEvolveFromVerify');
+    expect(source).toContain('根据失败回演化');
+    expect(source).toContain('_pendingEvolveFeedback');
+    expect(source).toContain('user_feedback');
+    expect(source).toContain('body.user_feedback = userFeedback');
+  });
+
+  it('D3: Twin A/B evolve before/after compare chart helpers exist', () => {
+    expect(source).toContain('function _renderTwinCompareHtml');
+    expect(source).toContain('function _twinBarRow');
+    expect(source).toContain('Twin A/B · 演化前后对比');
+    expect(source).toContain('twin_compare');
+    expect(source).toContain('twin_history');
+    expect(source).toContain('任务 usage');
+  });
+
   it('F: version tab tolerates missing lineage and shows empty state', () => {
     expect(source).toContain('data?.lineage || {}');
     expect(source).toContain('暂无演化历史');

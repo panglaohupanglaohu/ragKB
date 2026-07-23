@@ -383,3 +383,18 @@
 |------|--------|---------|---------|--------|
 | 09:31 | resume: 核对 skill 演化卡死修复仍在位 + 21 skill 单测绿 | skill_evolver.py skill-extract.js tests | 独立 session/60s/≤2 LLM/前端90s；无未提交业务 diff | ~1k |
 | 09:43 | 演化应用后自动验证闭环 | skill_evolver.py api.py skill-extract.js/html tests | apply 写 changelog/next_step；accept→verify tab+triggerVerify；verify 防连点finally | ~2k |
+
+## Session: 2026-07-23 23:25
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 15:32 | skill闭环: 演化证据加厚(usage+last_verify/twin)+验证失败一键回演化 | skill_evolver skill_verifier skill-extract | 6 pytest + 13 vitest green | ~3k |
+| 15:35 | fix verify error_detail prioritize sandbox/docker err + last_verify persist tests | skill_verifier tests | 8 pytest green | ~1k |
+| 00:08 | Twin前后对比图+affinity/task usage进演化证据 | skill_evolver skill_verifier skill_router skill-extract | 10 pytest + 14 vitest | ~4k |
+| 00:25 | Agent四层记忆绑定：TigerInBamboo移植+配置页记忆绑定tab | agent_memory_core routes agent-detail | 3 pytest green | ~5k |
+| 03:05 | P0 Agent记忆生命周期+站级菜单Agent记忆+小满/沈弥安Persona | lifecycle routes agent-memory.html nav | 6 pytest | ~6k |
+| 04:10 | P1 记忆共享ACL+传递遗嘱执行+中枢UI共享矩阵/传递台 | share transfer agent-memory-page | 8 pytest | ~5k |
+| 05:20 | P2 记忆运行时: chat注入+任务EventBus日志+tool感知压缩 | agent_memory_runtime chat_harness tool_loop | 11 pytest | ~4k |
+| 06:00 | P3 README记忆章节+detail Persona/中枢深链+AAS桥接 | README agent-detail memory_system runtime | 12 pytest | ~3k |
+| 06:40 | 夜间优化: auto-bind/对话写记忆/反思/深链/state=unbound默认 | runtime lifecycle agent-detail memory-page | 14 pytest + 4 vitest | ~4k |
+| 07:25 | 续优化: 共享预览/co_write/健康分/对话反思 | share lifecycle memory-page | 15 pytest + 5 vitest | ~3k |

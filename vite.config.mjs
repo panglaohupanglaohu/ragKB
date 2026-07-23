@@ -37,6 +37,7 @@ export default defineConfig({
         datacenterRatchetEvolution: page('datacenter-ratchet-evolution.html'),
         costDashboard: page('cost-dashboard.html'),
         petConfig: page('pet-config.html'),
+        agentMemory: page('agent-memory.html'),
       },
       output: {
         manualChunks(id) {

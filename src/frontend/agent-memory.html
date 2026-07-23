@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="taste-light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent记忆 — AgentsGroup2026</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/topbar-ws.css">
+<link rel="stylesheet" href="/css/taste-light.css">
+<style>
+  body { margin: 0; background: #F3F5F8; color: #1A2030; font-family: system-ui, -apple-system, sans-serif; }
+  .topbar-ws { background: #fff; border-bottom: 1px solid #D8DEE8; }
+  .mem-page { max-width: 1280px; margin: 0 auto; padding: 16px 20px 48px; }
+  .mem-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .mem-hero h1 { margin: 0; font-size: 22px; font-weight: 700; color: #1A2030; }
+  .mem-hero p { margin: 6px 0 0; font-size: 13px; color: #4B5568; max-width: 640px; line-height: 1.5; }
+  .mem-segments { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .mem-seg { border: 1px solid #D8DEE8; background: #fff; color: #4B5568; border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .mem-seg.active { background: #1F6B4A; color: #fff; border-color: #1F6B4A; }
+  .mem-layout { display: grid; grid-template-columns: 260px 1fr; gap: 16px; min-height: 520px; }
+  @media (max-width: 900px) { .mem-layout { grid-template-columns: 1fr; } }
+  .mem-side, .mem-main { background: #fff; border: 1px solid #D8DEE8; border-radius: 12px; }
+  .mem-side { padding: 12px; }
+  .mem-side h3 { margin: 0 0 10px; font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: .04em; }
+  .mem-agent { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: #F8FAFC; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; font-size: 13px; }
+  .mem-agent:hover { border-color: #C5D0DC; }
+  .mem-agent.active { border-color: #1F6B4A; background: rgba(31,107,74,.08); }
+  .mem-agent .name { font-weight: 600; color: #1A2030; }
+  .mem-agent .meta { font-size: 11px; color: #6B7280; margin-top: 2px; }
+  .chip { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; background: #EEF2F5; color: #4B5568; margin-right: 4px; }
+  .chip.ok { background: rgba(31,107,74,.12); color: #1F6B4A; }
+  .chip.warn { background: rgba(138,102,21,.12); color: #8A6615; }
+  .chip.bad { background: rgba(179,58,58,.12); color: #B33A3A; }
+  .mem-main { padding: 16px 18px; }
+  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat { flex: 1; min-width: 120px; padding: 12px; border-radius: 10px; background: #F8FAFC; border: 1px solid #E8ECF0; }
+  .stat b { display: block; font-size: 20px; color: #1F6B4A; }
+  .stat span { font-size: 11px; color: #6B7280; }
+  .panel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .btn { border: 1px solid #D8DEE8; background: #fff; color: #1A2030; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #1F6B4A; color: #fff; border-color: #1F6B4A; }
+  .btn-danger { background: #B33A3A; color: #fff; border-color: #B33A3A; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .persona-card { border: 1px solid #D8DEE8; border-radius: 10px; padding: 12px; margin-bottom: 10px; cursor: pointer; }
+  .persona-card.active { border-color: #1F6B4A; box-shadow: 0 0 0 2px rgba(31,107,74,.15); }
+  .persona-card h4 { margin: 0 0 4px; font-size: 14px; }
+  .persona-card p { margin: 0; font-size: 12px; color: #6B7280; line-height: 1.45; }
+  .audit-line { font-family: ui-monospace, monospace; font-size: 11px; padding: 4px 0; border-bottom: 1px solid #F0F2F5; color: #4B5568; }
+  .empty { color: #9AA3AF; font-size: 13px; padding: 24px 0; text-align: center; }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1A2030; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 99; }
+  #toast.show { opacity: 1; }
+  select.fi, input.fi { padding: 6px 10px; border: 1px solid #D8DEE8; border-radius: 8px; font-size: 12px; background: #fff; }
+</style>
+</head>
+<body>
+<div class="topbar-ws">
+  <div class="topbar-ws__left">
+    <div class="logo" style="width:32px;height:32px;border-radius:6px;background:#1F6B4A;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">🧠</div>
+    <h1 style="font-size:16px;margin:0">Agent记忆</h1>
+  </div>
+  <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto></nav>
+  <div class="topbar-ws__user"></div>
+</div>
+
+<div class="mem-page">
+  <div class="mem-hero">
+    <div>
+      <h1>Agent 记忆中枢</h1>
+      <p>
+        每个智能体拥有四层记忆（运行日志 · 感知流 · 未发送队列 · 情绪残留）。
+        生命周期：绑定 → 活体 → 共享/封存 → 传递 → 销毁。
+        <b>小满</b>偏日常自主连续记忆；<b>沈弥安</b>偏深层固化与克制检索。
+      </p>
+      <p id="auth-hint" style="display:none;margin:8px 0 0;font-size:12px;color:#8A6615"></p>
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6B7280">团队</label><br>
+      <select class="fi" id="team-select" style="min-width:200px"></select>
+    </div>
+  </div>
+
+  <div class="mem-segments" id="segments">
+    <button type="button" class="mem-seg active" data-seg="overview">总览</button>
+    <button type="button" class="mem-seg" data-seg="agents">智能体库</button>
+    <button type="button" class="mem-seg" data-seg="lifecycle">生命周期</button>
+    <button type="button" class="mem-seg" data-seg="persona">自主策略</button>
+    <button type="button" class="mem-seg" data-seg="share">共享矩阵</button>
+    <button type="button" class="mem-seg" data-seg="transfer">传递台</button>
+  </div>
+
+  <div class="mem-layout">
+    <aside class="mem-side">
+      <h3>智能体</h3>
+      <div id="agent-list" class="empty">选择团队后加载…</div>
+    </aside>
+    <main class="mem-main" id="main-panel">
+      <div class="empty">从左侧选择智能体，或查看总览</div>
+    </main>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/nav.js" data-page="memory"></script>
+<script src="/js/agent-memory-page.js"></script>
+</body>
+</html>

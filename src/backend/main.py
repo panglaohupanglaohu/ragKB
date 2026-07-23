@@ -224,9 +224,12 @@ _AUTH_EXEMPT_READONLY_PATHS = {
     "/api/v1/agent-config/tools",
     "/api/v1/agent-config/tasks/stats",
     "/api/v1/extraction/stats",
+    "/api/v1/agent-memory/overview",
+    "/api/v1/agent-memory/transfers",
 }
 _AUTH_EXEMPT_READONLY_PREFIXES = (
     "/api/v1/agent-config/teams",     # teams / teams-tree / teams/{id} 只读豁免
+    "/api/v1/agent-memory",           # Agent 记忆中枢只读（overview/lifecycle/matrix）；写操作仍要登录
 )
 _SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -579,6 +582,18 @@ async def startup():
             f"— teams: {len(_team_manager.list_teams())}, "
             f"agents: {sum(len(t.agents) for t in _team_manager.list_teams())}"
         )
+        # 3.4 Agent 四层记忆绑定 + 站级 hub（生命周期）
+        try:
+            from agents.agent_memory_routes import router as agent_memory_router
+            from agents.agent_memory_routes import hub_router as agent_memory_hub
+            app.include_router(agent_memory_router, prefix="/api/v1/agent-config")
+            app.include_router(agent_memory_hub)
+            logger.info(
+                "🧠 Agent Memory API mounted "
+                "(/api/v1/agent-config/.../memory-core + /api/v1/agent-memory)"
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Agent Memory Core API not loaded: {e}")
 
         # 3.5 宠物生态 API
         try:

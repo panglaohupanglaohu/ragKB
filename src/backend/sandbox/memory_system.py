@@ -57,6 +57,12 @@ class AgentMemory:
             evicted = self._short_term.pop(0)
             if evicted.outcome == ExperienceOutcome.SUCCESS or evicted.reward > 0.5:
                 self._promote_to_long_term(evicted)
+        # 可选桥接：AAS 经验 → Agent 四层记忆日志（AG_MEMORY_AAS_BRIDGE=1）
+        try:
+            from agents.agent_memory_runtime import bridge_aas_experience
+            bridge_aas_experience(experience)
+        except Exception:
+            pass
 
     def _promote_to_long_term(self, exp: ExperienceEntry) -> None:
         """将有价值的短期经验提升为长期记忆."""

@@ -3,13 +3,13 @@
     "codebuddy": {
       "model_id": "codebuddy",
       "provider": "openai",
-      "name": "qwen-36",
+      "name": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     },
     "deepseek": {
       "model_id": "deepseek",
@@ -38,13 +38,13 @@
     "deepseek": {
       "model_id": "deepseek",
       "provider": "openai",
-      "name": "qwen-36",
+      "name": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     }
   },
   "pet_squad": {},
@@ -52,39 +52,39 @@
     "deepseek": {
       "model_id": "deepseek",
       "provider": "openai",
-      "name": "qwen-36",
+      "name": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     }
   },
   "ai_coding": {
     "deepseek": {
       "model_id": "deepseek",
       "provider": "openai",
-      "name": "qwen-36",
+      "name": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     }
   },
   "energy_first_principle": {
     "deepseek": {
       "model_id": "deepseek",
       "provider": "openai",
-      "name": "qwen-36",
+      "name": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.7,
       "is_default": true,
       "enabled": true,
       "api_key": "",
-      "api_base_url": "https://sub2api.fcyaxing.com/v1"
+      "api_base_url": "https://models.sjtu.edu.cn/api/v1"
     },
     "copilot": {
       "model_id": "copilot",

@@ -2758,7 +2758,7 @@ function connectSSE(discId) {
         scheduleDiscussionSignalRefresh(300);
       }
       if (d.type === 'discussion_start') { clearSpeechPlayback(); _seenMsgKeys.clear(); $('btn-start').disabled = true; $('btn-start').textContent = '进行中'; $('msg-log').innerHTML = ''; }
-      if (d.type === 'round_start') $('status-text').textContent = `R${d.round}/${d.max_rounds}`;
+      if (d.type === 'round_start') $('status-text').textContent = d.phase ? `${d.round}/${d.max_rounds} · ${d.phase}` : `R${d.round}/${d.max_rounds}`;
       if (d.type === 'summarizing') { $('btn-start').textContent = '总结中'; $('status-text').textContent = '议事长总结中…'; }
       if (d.type === 'discussion_end') {
         $('btn-start').disabled = false; $('btn-start').textContent = '重新讨论'; $('status-text').textContent = 'DONE';

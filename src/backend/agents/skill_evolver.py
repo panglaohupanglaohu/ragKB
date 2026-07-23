@@ -128,22 +128,229 @@ class SkillEvolver:
         skill: SkillDefinition,
         evidence_sessions: Optional[List[str]] = None,
         user_feedback: Optional[str] = None,
+        team_id: str = "",
     ) -> Dict[str, Any]:
-        """最小证据包：技能字段 + 反馈 + 会话 id（不做全量重放）。"""
+        """证据包：技能字段 + 任务 usage + 路由 affinity + 上次验证/Twin + 演化。"""
         sessions = list(evidence_sessions or getattr(skill, "evidence_sessions", None) or [])
+        cfg = dict(getattr(skill, "config", None) or {})
+        last_verify = dict(cfg.get("last_verify") or {})
+        last_evolution = dict(cfg.get("last_evolution") or {})
+        twin_compare = dict(cfg.get("twin_compare") or {})
+        twin_history = list(cfg.get("twin_history") or [])[-4:]
+        tools = list(getattr(skill, "required_tools", None) or [])[:20]
+        success = int(getattr(skill, "success_count", 0) or 0)
+        fail = int(getattr(skill, "fail_count", 0) or 0)
+        usage = int(getattr(skill, "usage_count", 0) or 0)
+        cat = getattr(skill.category, "value", None) or str(skill.category or "general")
+        task_usage = {
+            "usage_count": usage,
+            "success_count": success,
+            "fail_count": fail,
+            "effectiveness": float(getattr(skill, "effectiveness", 0) or 0),
+            "last_used_at": str(getattr(skill, "last_used_at", "") or ""),
+            "evidence_sessions": sessions[:12],
+        }
+        affinity = self._collect_router_affinity(
+            skill_id=str(getattr(skill, "skill_id", "") or ""),
+            slug=str(getattr(skill, "slug", "") or ""),
+            team_id=team_id,
+            category=str(cat),
+        )
         return {
             "name": skill.name or "",
             "description": skill.description or "",
-            "category": getattr(skill.category, "value", None) or str(skill.category or "general"),
+            "category": cat,
             "instructions": skill.instructions or "",
-            "usage_count": int(getattr(skill, "usage_count", 0) or 0),
+            "usage_count": usage,
+            "success_count": success,
+            "fail_count": fail,
             "effectiveness": float(getattr(skill, "effectiveness", 0) or 0),
+            "quality_score": float(getattr(skill, "quality_score", 0) or 0),
+            "lifecycle_stage": str(
+                getattr(getattr(skill, "lifecycle_stage", None), "value", None)
+                or getattr(skill, "lifecycle_stage", "")
+                or ""
+            ),
             "version": int(getattr(skill, "version", 1) or 1),
+            "required_tools": tools,
             "evidence_sessions": sessions[:20],
             "user_feedback": (user_feedback or "").strip(),
+            "last_verify": last_verify,
+            "last_evolution": last_evolution,
+            "twin_compare": twin_compare,
+            "twin_history": twin_history,
+            "task_usage": task_usage,
+            "router_affinity": affinity,
             "language_hint": self._instruction_language_hint(skill.instructions or skill.name or ""),
             "language_code": self._detect_language_code(skill.instructions or skill.name or ""),
         }
+
+    def _collect_router_affinity(
+        self,
+        skill_id: str,
+        slug: str = "",
+        team_id: str = "",
+        category: str = "",
+    ) -> Dict[str, Any]:
+        """Best-effort pull of SkillRouter affinity/feedback for this skill."""
+        empty = {
+            "feedback_count": 0,
+            "avg_rating": 0,
+            "revokes": 0,
+            "affinity_boosts": [],
+            "recent": [],
+        }
+        try:
+            from .skill_router import get_skill_router
+            router = get_skill_router()
+        except Exception:
+            return empty
+        if not router:
+            return empty
+        try:
+            primary = skill_id or slug
+            data = router.get_skill_affinity_evidence(
+                skill_id=primary,
+                team_id=team_id,
+                category=category,
+            )
+            # merge slug key if different
+            if slug and slug != primary:
+                alt = router.get_skill_affinity_evidence(
+                    skill_id=slug, team_id=team_id, category=category
+                )
+                if int(alt.get("feedback_count") or 0) > int(data.get("feedback_count") or 0):
+                    data = alt
+            return data or empty
+        except Exception as e:
+            logger.debug("router affinity evidence skipped: %s", e)
+            return empty
+
+    @staticmethod
+    def _format_verify_evidence_lines(last_verify: Dict[str, Any]) -> List[str]:
+        """Turn last_verify summary into prompt lines (compact, actionable)."""
+        if not last_verify:
+            return []
+        lines = [
+            "【上次验证结果 — 请优先针对失败项改进业务步骤】",
+            f"- 状态: {last_verify.get('status') or 'unknown'}"
+            f" · 通过率: {float(last_verify.get('pass_rate') or 0) * 100:.0f}%"
+            f" · 通过/失败: {last_verify.get('passed', 0)}/{last_verify.get('failed', 0)}",
+        ]
+        err = (last_verify.get("error_detail") or "").strip()
+        if err:
+            lines.append(f"- 失败原因: {err}")
+        fails = last_verify.get("failed_checks") or []
+        if isinstance(fails, list) and fails:
+            lines.append("- 失败检查项:")
+            for c in fails[:8]:
+                if isinstance(c, dict):
+                    name = c.get("name") or c.get("scenario") or "check"
+                    msg = c.get("message") or ""
+                    layer = c.get("layer") or c.get("source") or ""
+                    lines.append(f"  · [{layer}] {name}: {msg}"[:240])
+                else:
+                    lines.append(f"  · {str(c)[:200]}")
+        twin = last_verify.get("twin_ab") or {}
+        if isinstance(twin, dict) and twin:
+            if twin.get("skipped"):
+                lines.append(f"- Twin A/B: 跳过 ({twin.get('reason') or ''} {twin.get('detail') or ''})".strip())
+            elif twin.get("status") == "error":
+                lines.append(f"- Twin A/B: 错误 {twin.get('error') or 'unknown'}")
+            else:
+                lines.append(
+                    f"- Twin A/B: {'PASS' if twin.get('passed') else 'FAIL'}"
+                    f" · 目标技能 {float(twin.get('baseline_rate') or 0)*100:.1f}%"
+                    f"→{float(twin.get('treatment_rate') or 0)*100:.1f}%"
+                    f" (Δ{twin.get('target_gain_pp', 0)}pp,"
+                    f" 阈值≥{float(twin.get('gain_threshold') or 0.05)*100:.0f}pp)"
+                )
+        return lines
+
+    @staticmethod
+    def _format_task_usage_lines(task_usage: Dict[str, Any]) -> List[str]:
+        if not task_usage:
+            return []
+        usage = int(task_usage.get("usage_count") or 0)
+        if usage <= 0 and not task_usage.get("last_used_at"):
+            return ["【任务 usage】尚未被任务执行记录（0 次）"]
+        lines = [
+            "【任务 usage — 来自任务完成/失败事件】",
+            (
+                f"- 调用 {usage} 次 · 成功 {task_usage.get('success_count', 0)}"
+                f" · 失败 {task_usage.get('fail_count', 0)}"
+                f" · 成功率 {float(task_usage.get('effectiveness') or 0) * 100:.0f}%"
+            ),
+        ]
+        if task_usage.get("last_used_at"):
+            lines.append(f"- 最近使用: {task_usage.get('last_used_at')}")
+        sessions = task_usage.get("evidence_sessions") or []
+        if sessions:
+            lines.append(f"- 关联会话: {', '.join(str(s) for s in sessions[:8])}")
+        if usage >= 3 and float(task_usage.get("effectiveness") or 0) < 0.5:
+            lines.append("- 提示: 任务成功率偏低，请强化失败分支、验收与回滚步骤")
+        return lines
+
+    @staticmethod
+    def _format_affinity_lines(affinity: Dict[str, Any]) -> List[str]:
+        if not affinity:
+            return []
+        n = int(affinity.get("feedback_count") or 0)
+        boosts = affinity.get("affinity_boosts") or []
+        if n <= 0 and not boosts:
+            return ["【路由 affinity】暂无注入反馈 / 亲和加权"]
+        lines = [
+            "【路由 affinity / 注入反馈】",
+            (
+                f"- 反馈 {n} 条 · 评分 {affinity.get('rates', 0)} · 撤销 {affinity.get('revokes', 0)}"
+                f" · 均分 {affinity.get('avg_rating', 0)}"
+            ),
+        ]
+        if boosts:
+            top = ", ".join(
+                f"{b.get('agent_id')}:{b.get('category')}={b.get('boost')}"
+                for b in boosts[:6]
+            )
+            lines.append(f"- affinity boosts: {top}")
+        for r in (affinity.get("recent") or [])[:4]:
+            if not isinstance(r, dict):
+                continue
+            lines.append(
+                f"  · {r.get('action')} agent={r.get('agent_id')} "
+                f"rating={r.get('rating')} { (r.get('reason') or '')[:80]}"
+            )
+        if n >= 2 and float(affinity.get("avg_rating") or 0) < 3:
+            lines.append("- 提示: 注入评分偏低，请澄清适用场景与禁止误用边界")
+        return lines
+
+    @staticmethod
+    def _format_twin_compare_lines(twin_compare: Dict[str, Any]) -> List[str]:
+        if not twin_compare:
+            return []
+        before = twin_compare.get("before") or {}
+        after = twin_compare.get("after") or {}
+        if not before and not after:
+            return []
+        lines = ["【Twin A/B 演化前后对比】"]
+        b_gain = before.get("target_gain_pp")
+        a_gain = after.get("target_gain_pp")
+        if b_gain is not None or a_gain is not None:
+            lines.append(
+                f"- 目标技能增益: 演化前 {b_gain if b_gain is not None else '—'}pp"
+                f" → 演化后 {a_gain if a_gain is not None else '—'}pp"
+                f" (ΔΔ {twin_compare.get('delta_gain_pp', '—')}pp)"
+            )
+        if before.get("treatment_rate") is not None or after.get("treatment_rate") is not None:
+            lines.append(
+                f"- treatment 成功率: "
+                f"{float(before.get('treatment_rate') or 0)*100:.1f}%"
+                f" → {float(after.get('treatment_rate') or 0)*100:.1f}%"
+            )
+        if twin_compare.get("improved") is True:
+            lines.append("- 结论: 演化后 Twin 增益改善")
+        elif twin_compare.get("improved") is False:
+            lines.append("- 结论: 演化后 Twin 增益未改善，请针对失败检查项再改")
+        return lines
 
     @staticmethod
     def _parse_evolution_json(raw: str) -> Optional[Dict[str, Any]]:
@@ -339,6 +546,8 @@ class SkillEvolver:
         lang_code = evidence.get("language_code") or "zh"
         feedback = evidence.get("user_feedback") or ""
         sessions = evidence.get("evidence_sessions") or []
+        tools = evidence.get("required_tools") or []
+        last_evo = evidence.get("last_evolution") or {}
         budget = call_budget if call_budget is not None else [self.EVOLVE_MAX_LLM_CALLS]
 
         user_parts = [
@@ -350,17 +559,40 @@ class SkillEvolver:
             "- 禁止把中文业务指令整段改写成英文企业模板",
             "- 禁止在 improved_instructions 里出现「语言要求 / 【要求】/ Language:」这类生成器元信息",
             "- improved_instructions 只写 Agent 执行该 skill 时要用的业务步骤与规则",
+            "- 若提供了「上次验证失败」或用户反馈，优先修这些缺口，勿空谈",
             "",
             f"技能名称: {evidence.get('name')}",
             f"描述: {evidence.get('description')}",
             f"类别: {evidence.get('category')}",
-            f"使用次数: {evidence.get('usage_count')}, 成功率: {float(evidence.get('effectiveness') or 0) * 100:.0f}%",
+            f"生命周期: {evidence.get('lifecycle_stage') or '—'}",
+            (
+                f"使用: {evidence.get('usage_count')}次"
+                f" · 成功: {evidence.get('success_count')}"
+                f" · 成功率: {float(evidence.get('effectiveness') or 0) * 100:.0f}%"
+                f" · quality: {float(evidence.get('quality_score') or 0):.2f}"
+            ),
             f"当前版本: v{evidence.get('version')}",
         ]
+        if tools:
+            user_parts.append(f"关联工具: {', '.join(str(t) for t in tools[:15])}")
         if sessions:
             user_parts.append(f"关联会话ID: {', '.join(str(s) for s in sessions[:10])}")
+        if last_evo:
+            cl = last_evo.get("changelog") or []
+            user_parts.append(
+                f"上次演化: v{last_evo.get('from_version')}→v{last_evo.get('to_version')}"
+                + (f" · 变更: {'; '.join(str(x) for x in cl[:6])}" if cl else "")
+            )
+        for line in self._format_task_usage_lines(evidence.get("task_usage") or {}):
+            user_parts.append(line)
+        for line in self._format_affinity_lines(evidence.get("router_affinity") or {}):
+            user_parts.append(line)
+        for line in self._format_verify_evidence_lines(evidence.get("last_verify") or {}):
+            user_parts.append(line)
+        for line in self._format_twin_compare_lines(evidence.get("twin_compare") or {}):
+            user_parts.append(line)
         if feedback:
-            user_parts.append(f"用户反馈: {feedback}")
+            user_parts.append(f"用户反馈（最高优先级）: {feedback}")
         # 截断超长原文，避免 prompt 过大拖慢
         orig = (evidence.get("instructions") or "(空)")[:6000]
         user_parts.extend([
@@ -481,7 +713,13 @@ class SkillEvolver:
         if not skill:
             return {"error": "skill_not_found"}
 
-        evidence = self._gather_evidence(skill, evidence_sessions, user_feedback)
+        evidence = self._gather_evidence(
+            skill, evidence_sessions, user_feedback, team_id=team_id
+        )
+        has_verify = bool(evidence.get("last_verify"))
+        has_usage = int(evidence.get("usage_count") or 0) > 0
+        affinity = evidence.get("router_affinity") or {}
+        twin_cmp = evidence.get("twin_compare") or {}
         base_payload = {
             "status": "evolved_draft",
             "skill_id": skill_id,
@@ -489,6 +727,23 @@ class SkillEvolver:
             "new_version": skill.version + 1,
             "original_instructions": skill.instructions,
             "evidence_count": len(evidence.get("evidence_sessions") or []),
+            "evidence_summary": {
+                "usage_count": evidence.get("usage_count") or 0,
+                "success_count": evidence.get("success_count") or 0,
+                "fail_count": evidence.get("fail_count") or 0,
+                "effectiveness": evidence.get("effectiveness") or 0,
+                "has_last_verify": has_verify,
+                "last_verify_status": (evidence.get("last_verify") or {}).get("status"),
+                "has_user_feedback": bool((evidence.get("user_feedback") or "").strip()),
+                "has_usage": has_usage,
+                "has_affinity": int(affinity.get("feedback_count") or 0) > 0
+                or bool(affinity.get("affinity_boosts")),
+                "affinity_avg_rating": affinity.get("avg_rating") or 0,
+                "has_twin_compare": bool(twin_cmp.get("before") or twin_cmp.get("after")),
+                "twin_delta_gain_pp": twin_cmp.get("delta_gain_pp"),
+                "tools": list(evidence.get("required_tools") or [])[:10],
+            },
+            "twin_compare": twin_cmp or None,
             "language": evidence.get("language_code") or "zh",
             "changelog": [],
             "preserved_intent": "",
@@ -607,6 +862,21 @@ class SkillEvolver:
                 "to_version": skill.version,
                 "changelog": notes[:20],
             }
+            # 冻结演化前 Twin 快照，供下次验证画「前后对比」
+            prev_twin = {}
+            lv = cfg.get("last_verify") or {}
+            if isinstance(lv, dict) and isinstance(lv.get("twin_ab"), dict):
+                prev_twin = dict(lv.get("twin_ab") or {})
+            hist = cfg.get("twin_history") or []
+            if not prev_twin and isinstance(hist, list) and hist:
+                last_h = hist[-1] if isinstance(hist[-1], dict) else {}
+                prev_twin = dict(last_h.get("twin_ab") or last_h or {})
+            if prev_twin:
+                cfg["twin_before_evolve"] = {
+                    **prev_twin,
+                    "skill_version": old_version,
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                }
             skill.config = cfg
         except Exception:
             pass

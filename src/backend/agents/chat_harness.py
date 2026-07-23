@@ -1148,6 +1148,26 @@ class ChatHarness:
         except Exception as _tg_err:
             logger.debug("token_governance prepare skip: %s", _tg_err)
 
+        # Agent 记忆自主注入（tone_hint + recall + 意图）— 不永久改 session.system_prompt
+        try:
+            from .token_context import get_token_ctx as _gtc_mem
+            _mctx = _gtc_mem() or {}
+            _mphase = str(_mctx.get("phase") or "")
+            # 议事广场集体阶段不塞记忆（避免污染共识）；单 agent 配置聊天 / 任务可注入
+            if _mphase != "plaza" and agent_id and team_id:
+                from .agent_memory_runtime import (
+                    inject_memory_into_messages,
+                    prepare_memory_system_addon,
+                )
+                _mem_addon = prepare_memory_system_addon(
+                    str(team_id), str(agent_id), query=prompt or ""
+                )
+                if _mem_addon:
+                    messages = inject_memory_into_messages(messages, _mem_addon)
+                    session.history.add("ag_memory", f"injected {len(_mem_addon)}c")
+        except Exception as _mem_err:
+            logger.debug("ag_memory inject skip: %s", _mem_err)
+
         model = model_override or config.model
         # 连接测试 / 显式 model_override：禁止 token 治理 cost_tier 把 model 改写成
         # deepseek-v4-flash 等 economy 默认名（否则「编辑模型测试连接」会测错模型）。

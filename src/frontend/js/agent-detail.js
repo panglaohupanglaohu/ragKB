@@ -116,6 +116,9 @@ ${ecoCard}
         c.innerHTML=`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div><div class="section-title" style="margin:0">🧬 Soul.md — 人格定义</div><p style="color:var(--muted);font-size:12px;margin-top:2px">核心身份、人格和行为边界</p></div><div><button class="btn btn-sm" id="soul-edit-btn" onclick="toggleSoulEdit()">编辑</button><button class="btn btn-pink btn-sm hidden" id="soul-save-btn" onclick="saveSoul()">保存</button></div></div><div class="soul-block" id="soul-view">${escapeHtml(savedSoul)}</div><textarea class="fi hidden" id="soul-editor" rows="16" style="font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7;min-height:300px">${savedSoul}</textarea></div><div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">🧠 记忆文件</div><button class="btn btn-sm" onclick="addMemoryFile()">＋ 新建</button></div><p style="color:var(--muted);font-size:12px;margin-bottom:12px">通过对话和经验积累的持久记忆</p><div id="memory-list">${files.length?files.map(f=>`<div class="memory-item" style="cursor:pointer" onclick="openMemoryFile('${escapeHtml(f.filename)}')"><span>📄 ${escapeHtml(f.filename)}</span><span style="display:flex;align-items:center;gap:8px"><span style="color:var(--dim);font-size:12px">${escapeHtml(f.size_display||f.size+' B')}</span><span style="cursor:pointer;color:var(--dim);font-size:14px" onclick="event.stopPropagation();delMemoryFile('${escapeHtml(f.filename)}')" title="删除">×</span></span></div>`).join(''):'<p style="color:var(--dim);font-size:13px">暂无记忆文件，点击「新建」开始积累</p>'}</div></div><div class="section hidden" id="mem-editor-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div class="section-title" style="margin:0" id="mem-editor-title">📝 编辑文件</div><div style="display:flex;gap:8px"><button class="btn btn-pink btn-sm" onclick="saveMemoryFile()">保存</button><button class="btn btn-sm" onclick="closeMemEditor()">关闭</button></div></div><textarea class="fi" id="mem-editor" rows="12" style="font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7"></textarea></div><div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="section-title" style="margin:0">关注点</div><span style="color:var(--dim);font-size:12px">${(d.skills||[]).length+(m.traits||[]).length} active</span></div><p style="color:var(--muted);font-size:12px;margin-bottom:14px">技能、性格特质与行为边界</p>${(d.skills||[]).map(s=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--pink)"></span>${escapeHtml(s)}</div><div class="meta">skill · active</div></div>`).join('')}${(m.traits||[]).map(t=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--amber)"></span>${escapeHtml(t)}</div><div class="meta">trait · personality</div></div>`).join('')}${(m.behavior_boundaries||[]).map(b=>`<div class="focus-item"><div class="title"><span class="dot" style="width:8px;height:8px;background:var(--dim)"></span>${escapeHtml(b)}</div><div class="meta">boundary · constraint</div></div>`).join('')}${!(d.skills||[]).length&&!(m.traits||[]).length&&!(m.behavior_boundaries||[]).length?'<p style="color:var(--dim)">暂无关注项</p>':''}</div>`;
       });
     });
+  } else if(atab==='ag-memory'){
+    c.innerHTML='<div class="section"><div class="section-title">🧠 记忆绑定</div><p style="color:var(--dim);font-size:12px">加载中…</p></div>';
+    renderAgentMemoryBind(d);
   } else if(atab==='ag-tools'){
     listApi(`${A}/tools`,200,0).then(all=>{
       const bound=new Set(d.tools||[]);
@@ -802,11 +805,431 @@ async function deleteSkillWithContext(skillId, skillName, sourceType, sourceId) 
 window.deleteSkillWithContext = deleteSkillWithContext;
 
 // ══════════════════════════════════
+//  记忆绑定（四层记忆核心 · TigerInBamboo 移植）
+//  运行日志 / 感知流 / 未发送队列 / 情绪残留
+// ══════════════════════════════════
+const _MEM = () => `${A}/teams/${tid}/agents/${aid}/memory-core`;
+const _MEM_HUB = () => `/api/v1/agent-memory/${encodeURIComponent(tid)}/${encodeURIComponent(aid)}`;
+let _memPane = 'log';
+
+function _memFmtTime(t){
+  if(t==null||t==='') return '—';
+  try{
+    const d=new Date(Number(t));
+    if(Number.isNaN(d.getTime())) return String(t);
+    return d.toLocaleString();
+  }catch(_){ return String(t); }
+}
+
+function _memPersonaLabel(p){
+  return {xiaoman:'小满',shenmian:'沈弥安',hybrid:'混合'}[p]||p||'混合';
+}
+
+function _memStateLabel(s){
+  return ({
+    active:'活体',shared:'共享中',sealed:'已封存',unbound:'未绑定',
+    destroyed:'已销毁',archived:'凭吊',transferring:'传递中'
+  })[s]||s||'—';
+}
+
+async function renderAgentMemoryBind(agent){
+  const c=el('agent-content');
+  try{
+    const data=await api(_MEM());
+    if(!data){ c.innerHTML='<div class="section"><p style="color:var(--red)">加载记忆失败</p></div>'; return; }
+    let life={};
+    try{ life=await api(_MEM_HUB()+'/lifecycle')||{}; }catch(_){ life={}; }
+    const state=life.state||data.state||(data.sealed?'sealed':(data.bound===false?'unbound':'active'));
+    const persona=life.persona||data.persona||'hybrid';
+    const sealed=!!data.sealed||state==='sealed'||state==='archived';
+    const bound=data.bound!==false&&state!=='unbound'&&state!=='destroyed';
+    const counts=data.counts||{};
+    const ro=sealed?' disabled':'';
+    const memorialBanner=sealed
+      ? `<div style="padding:12px 14px;margin-bottom:12px;border:1px solid rgba(196,75,75,.35);border-radius:10px;background:rgba(196,75,75,.06)">
+          <div style="font-weight:700;color:#8B1E1E">这是回放，不是本人</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">你在凭吊一段封存的记忆 —— 一切只读，时间轴可拖动回放</div>
+        </div>` : '';
+    const tone=data.tone_hint||'语气平静，没有明显的情绪残留。';
+    const logRows=(data.log||[]).slice().reverse().map(e=>`
+      <div class="focus-item" style="padding:8px 12px">
+        <div class="title" style="font-size:12px"><b>${escapeHtml(e.action||'事件')}</b>
+          <span style="color:var(--dim);font-size:11px;margin-left:6px">${escapeHtml(_memFmtTime(e.t))}</span>
+          <span class="chip" style="font-size:9px;margin-left:6px">重要度 ${e.importance??5}</span>
+        </div>
+        <div class="meta">${escapeHtml(e.detail||'')}${e.place?` · 📍 ${escapeHtml(e.place)}`:''}
+          ${(e.tags||[]).map(t=>`<span class="chip" style="font-size:9px">${escapeHtml(t)}</span>`).join(' ')}
+        </div>
+      </div>`).join('') || '<p style="color:var(--dim);font-size:12px">暂无运行日志</p>';
+    const perc=(data.perception||[]).slice().reverse().map(p=>`
+      <div class="focus-item" style="padding:6px 12px">
+        <span class="chip" style="font-size:9px">${escapeHtml(p.modality||'?')}</span>
+        <span style="font-size:11px;color:var(--muted)">${escapeHtml(typeof p.payload==='object'?JSON.stringify(p.payload):(p.payload||''))}</span>
+        <span style="color:var(--dim);font-size:10px;margin-left:6px">${escapeHtml(_memFmtTime(p.t))}</span>
+      </div>`).join('') || '<p style="color:var(--dim);font-size:12px">感知缓冲为空</p>';
+    const intents=(data.intentions||[]).map(i=>`
+      <div class="focus-item" style="padding:10px 12px">
+        <div class="title" style="font-size:12px">${escapeHtml(i.instruction||'')}
+          <span class="chip" style="font-size:9px">${escapeHtml(i.dueLabel||i.status||'')}</span>
+        </div>
+        <div class="meta">创建          创建者 ${escapeHtml(i.creator||'—')} · 触发 ${escapeHtml(i.trigger||'—')} · 策略 ${escapeHtml(i.timeoutPolicy||'drop')}
+          ${!sealed?`<button class="btn btn-sm" style="margin-left:8px" onclick="memConfirmIntention('${escapeHtml(i.id)}')">确认</button>
+          <button class="btn btn-sm btn-ghost" onclick="memDropIntention('${escapeHtml(i.id)}')">放弃</button>`:''}
+        </div>
+      </div>`).join('') || '<p style="color:var(--dim);font-size:12px">无待办意图</p>';
+    const aff=data.affect||{};
+    const labels=Object.entries(aff.labels||{}).map(([k,v])=>
+      `<span class="chip" style="font-size:10px">${escapeHtml(k)} ${(Number(v)*100).toFixed(0)}%</span>`
+    ).join(' ') || '<span style="color:var(--dim);font-size:12px">无标签</span>';
+
+    c.innerHTML=`
+      ${memorialBanner}
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <div class="section-title" style="margin:0">🧠 记忆绑定 · ${escapeHtml(agent.name||agent.agent_id||aid)}</div>
+            <p style="color:var(--muted);font-size:12px;margin:4px 0 0">
+              四层记忆共享时间轴：运行日志 · 感知流 · 未发送队列 · 情绪残留。
+              封存是仪式不是删除。与站级「Agent记忆」中枢共用同一存储。
+            </p>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <a class="btn btn-sm btn-pink" href="/agent-memory.html?team_id=${encodeURIComponent(tid||'')}&agent_id=${encodeURIComponent(aid||'')}&seg=agents">打开记忆中枢</a>
+            <button class="btn btn-sm ${bound?'btn-pink':''}" onclick="memToggleBind(${bound? 'false':'true'})">${bound?'已绑定 · 点此解绑':'绑定记忆'}</button>
+            ${!sealed?`<button class="btn btn-sm" onclick="memSeal()">封 存</button>`:''}
+            <button class="btn btn-sm btn-ghost" onclick="memLifeAct('save')">保存固化</button>
+            <button class="btn btn-sm btn-ghost" onclick="memExport()">导出</button>
+            ${!sealed?`<button class="btn btn-sm btn-ghost" onclick="memImportPrompt()">导入</button>`:''}
+            <button class="btn btn-sm btn-ghost" onclick="memWillDraft()">遗嘱草稿</button>
+            <button class="btn btn-sm btn-ghost" style="color:var(--red,#B33A3A)" onclick="memLifeAct('destroy')">销毁</button>
+            <button class="btn btn-sm btn-ghost" onclick="renderAgentMemoryBind()">刷新</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono);color:var(--muted);margin-bottom:10px;align-items:center">
+          <span class="chip">状态 ${_memStateLabel(state)}</span>
+          <span class="chip">Persona ${_memPersonaLabel(persona)}</span>
+          <span>日志 ${counts.log||0}</span>
+          <span>感知 ${counts.perception||0}</span>
+          <span>意图待办 ${counts.intentions_pending||0}/${counts.intentions||0}</span>
+          <span>情绪标签 ${counts.affect_labels||0}</span>
+          <span>${sealed?'🔒 已封存':'🟢 活体'}</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;font-size:12px">
+          <span style="color:var(--muted)">切换 Persona：</span>
+          ${[['xiaoman','小满'],['shenmian','沈弥安'],['hybrid','混合']].map(([id,lab])=>
+            `<button class="btn btn-sm ${persona===id?'btn-pink':''}" onclick="memSetPersona('${id}')">${lab}</button>`
+          ).join('')}
+        </div>
+        <div style="padding:10px 12px;border-radius:8px;background:var(--panel2,rgba(0,0,0,.03));font-size:12px;color:var(--muted);margin-bottom:14px">
+          💬 语气提示：<b style="color:var(--text)">${escapeHtml(tone)}</b>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="mem-tabs">
+          ${[['log','运行日志'],['perception','感知流'],['intentions','未发送队列'],['affect','情绪残留'],['timeline','时间轴']].map(([k,lab])=>
+            `<button class="btn btn-sm ${_memPane===k?'btn-pink':''}" data-pane="${k}" onclick="memSwitchPane('${k}')">${lab}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      <div class="section mem-pane" id="mem-pane-log" style="${_memPane==='log'?'':'display:none'}">
+        <div class="section-title">运行日志（append-only）</div>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:8px">检索 score = 时新(0.995/小时) + 重要度/10 + 词面匹配</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <input class="fi" id="mem-log-q" placeholder="检索：词 / 标签 / 地点…" style="flex:1;min-width:160px" ${ro}/>
+          <button class="btn btn-sm" onclick="memRecallLog()" ${ro}>检索</button>
+          <button class="btn btn-sm btn-ghost" onclick="renderAgentMemoryBind()">全部</button>
+        </div>
+        <div id="mem-log-list">${logRows}</div>
+        ${!sealed?`
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--muted)">＋ 追加一条记忆</summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+            <input class="fi" id="mem-log-subject" placeholder="主体" value="${escapeHtml(agent.name||aid)}"/>
+            <input class="fi" id="mem-log-action" placeholder="动作，如：扩容 / 对话"/>
+            <input class="fi" id="mem-log-place" placeholder="地点"/>
+            <label style="font-size:11px;color:var(--muted)">重要度 <span id="mem-log-imp-v">5</span>
+              <input type="range" id="mem-log-imp" min="1" max="10" value="5" oninput="el('mem-log-imp-v').textContent=this.value"/>
+            </label>
+            <textarea class="fi" id="mem-log-detail" rows="2" placeholder="详情" style="grid-column:1/-1"></textarea>
+            <input class="fi" id="mem-log-tags" placeholder="标签，逗号分隔" style="grid-column:1/-1"/>
+          </div>
+          <button class="btn btn-pink btn-sm" style="margin-top:8px" onclick="memAppendLog()">记入日志</button>
+        </details>`:''}
+      </div>
+
+      <div class="section mem-pane" id="mem-pane-perception" style="${_memPane==='perception'?'':'display:none'}">
+        <div class="section-title">感知流（环形缓冲 500）</div>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:8px">易逝刺激；「压缩固化」聚合写入运行日志</p>
+        ${!sealed?`
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select class="fi" id="mem-perc-mod" style="width:auto">
+            <option value="vision">视觉</option><option value="audition">听觉</option>
+            <option value="touch">触觉</option><option value="weather">气象</option><option value="smell">嗅觉</option>
+            <option value="alert">告警</option><option value="metric">指标</option>
+          </select>
+          <input class="fi" id="mem-perc-payload" placeholder='载荷文本或 JSON {"fear":0.6}' style="flex:1;min-width:160px"/>
+          <button class="btn btn-sm" onclick="memPerceive()">注入感知</button>
+          <button class="btn btn-sm btn-pink" onclick="memCompress()">压缩固化</button>
+        </div>`:''}
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">缓冲 ${(data.perception_summary&&data.perception_summary.count)||0} 条
+          ${data.perception_summary&&data.perception_summary.byModality? ' · '+Object.entries(data.perception_summary.byModality).map(([k,v])=>k+':'+v).join(', '):''}
+        </div>
+        <div id="mem-perc-list">${perc}</div>
+      </div>
+
+      <div class="section mem-pane" id="mem-pane-intentions" style="${_memPane==='intentions'?'':'display:none'}">
+        <div class="section-title">未发送队列（prospective）</div>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:8px">打算做但还没做 —— 创建者 / 触发 / 超时策略 / 交接预留</p>
+        ${!sealed?`
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          <input class="fi" id="mem-in-instruction" placeholder="指令（打算做什么）" style="grid-column:1/-1"/>
+          <input class="fi" id="mem-in-creator" placeholder="创建者"/>
+          <input class="fi" id="mem-in-trigger" placeholder="触发条件"/>
+          <select class="fi" id="mem-in-timeout"><option value="drop">到期放弃 drop</option><option value="escalate">到期提醒 escalate</option><option value="keep">持续保留 keep</option></select>
+          <select class="fi" id="mem-in-conf"><option value="normal">置信 normal</option><option value="unclear">置信 unclear</option></select>
+          <button class="btn btn-pink btn-sm" onclick="memAddIntention()" style="grid-column:1/-1;justify-self:start">存入队列</button>
+        </div>`:''}
+        <div id="mem-intent-list">${intents}</div>
+      </div>
+
+      <div class="section mem-pane" id="mem-pane-affect" style="${_memPane==='affect'?'':'display:none'}">
+        <div class="section-title">情绪残留</div>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:8px">只影响语气，不参与事实检索 · 衰减 η=72h</p>
+        <div style="font-size:12px;margin-bottom:8px">valence ${Number(aff.valence||0).toFixed(2)} · arousal ${Number(aff.arousal||0).toFixed(2)}</div>
+        <div style="margin-bottom:10px">${labels}</div>
+        ${!sealed?`
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="fi" id="mem-aff-label" placeholder="标签，如：谨慎 / 牵挂" style="width:140px"/>
+          <input class="fi" id="mem-aff-intensity" type="number" min="0" max="1" step="0.1" value="0.5" style="width:80px" title="强度"/>
+          <input class="fi" id="mem-aff-valence" type="number" min="-1" max="1" step="0.1" value="0" style="width:80px" title="效价"/>
+          <button class="btn btn-sm btn-pink" onclick="memFeel()">注入感受</button>
+        </div>`:''}
+      </div>
+
+      <div class="section mem-pane" id="mem-pane-timeline" style="${_memPane==='timeline'?'':'display:none'}">
+        <div class="section-title">共享时间轴</div>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:8px">给定时刻 t，四层切片并集（回放任一层可拉到另外三层）</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <input type="range" id="mem-timeline" min="0" max="100" value="100" style="flex:1;min-width:180px" oninput="memTimelinePreview()"/>
+          <span id="mem-timeline-label" style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">现在</span>
+          <button class="btn btn-sm" onclick="memTimelineLoad()">查看切片</button>
+        </div>
+        <div id="mem-timeline-slice" style="font-size:12px;color:var(--muted)">拖动滑块后点「查看切片」</div>
+      </div>
+    `;
+    window._memCache = data;
+  }catch(e){
+    c.innerHTML=`<div class="section"><p style="color:var(--red)">记忆加载异常: ${escapeHtml(e.message||e)}</p>
+      <button class="btn btn-sm" onclick="memToggleBind(true)">尝试绑定并重试</button></div>`;
+  }
+}
+
+function memSwitchPane(pane){
+  _memPane=pane||'log';
+  if(typeof renderAgentMemoryBind==='function') renderAgentMemoryBind();
+}
+
+async function memToggleBind(enabled){
+  const r=await api(_MEM()+'/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!!enabled})});
+  if(r){ toast(enabled?'记忆已绑定':'记忆已解绑'); renderAgentMemoryBind(); }
+  else toast('绑定失败','error');
+}
+
+async function memLifeAct(action){
+  if(action==='destroy'&&!confirm('销毁将删除四层记忆并写墓碑，不可静默恢复。确认？')) return;
+  try{
+    const r=await api(_MEM_HUB()+'/lifecycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    if(r&&(r.ok||r.state||r.status)){ toast('已执行 '+action); renderAgentMemoryBind(); }
+    else toast((r&&r.detail)||'操作失败','error');
+  }catch(e){ toast('失败: '+(e.message||e),'error'); }
+}
+
+async function memSetPersona(persona){
+  try{
+    const r=await api(_MEM_HUB()+'/persona',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({persona})});
+    if(r&&r.ok!==false){ toast('Persona → '+_memPersonaLabel(persona)); renderAgentMemoryBind(); }
+    else toast('切换失败','error');
+  }catch(e){ toast('失败: '+(e.message||e),'error'); }
+}
+
+async function memAppendLog(){
+  const body={
+    subject:(el('mem-log-subject')||{}).value||aid,
+    action:(el('mem-log-action')||{}).value||'',
+    detail:(el('mem-log-detail')||{}).value||'',
+    place:(el('mem-log-place')||{}).value||'',
+    importance:Number((el('mem-log-imp')||{}).value||5),
+    tags:String((el('mem-log-tags')||{}).value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean),
+  };
+  if(!body.action&&!body.detail){ toast('请填写动作或详情','error'); return; }
+  const r=await api(_MEM()+'/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r&&r.ok){ toast('已记入日志'); renderAgentMemoryBind(); } else toast('写入失败','error');
+}
+
+async function memRecallLog(){
+  const q=(el('mem-log-q')||{}).value||'';
+  const r=await api(_MEM()+`/log?recall=1&query=${encodeURIComponent(q)}&k=20`);
+  const list=el('mem-log-list');
+  if(!list) return;
+  const hits=(r&&r.hits)||[];
+  if(!hits.length){ list.innerHTML='<p style="color:var(--dim);font-size:12px">无匹配</p>'; return; }
+  list.innerHTML=hits.map(h=>{
+    const e=h.event||{};
+    return `<div class="focus-item" style="padding:8px 12px">
+      <div class="title" style="font-size:12px"><b>${escapeHtml(e.action||'')}</b>
+        <span class="chip" style="font-size:9px">score ${Number(h.score||0).toFixed(2)}</span>
+      </div>
+      <div class="meta">${escapeHtml(e.detail||'')} · R${(h.parts&&h.parts.recency||0).toFixed(2)} I${(h.parts&&h.parts.importance||0).toFixed(2)} V${(h.parts&&h.parts.relevance||0).toFixed(2)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function memPerceive(){
+  let payload=(el('mem-perc-payload')||{}).value||'';
+  try{ if(payload.trim().startsWith('{')) payload=JSON.parse(payload); }catch(_){}
+  const body={ modality:(el('mem-perc-mod')||{}).value||'vision', payload };
+  const r=await api(_MEM()+'/perception',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r&&r.ok){ toast('已注入感知'); renderAgentMemoryBind(); } else toast('失败','error');
+}
+
+async function memCompress(){
+  const r=await api(_MEM()+'/perception/compress',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r&&r.ok){ toast(r.compressed?'已压缩固化到日志':'缓冲为空'); renderAgentMemoryBind(); }
+  else toast('压缩失败','error');
+}
+
+async function memAddIntention(){
+  const instruction=(el('mem-in-instruction')||{}).value||'';
+  if(!instruction.trim()){ toast('请填写指令','error'); return; }
+  const body={
+    instruction,
+    creator:(el('mem-in-creator')||{}).value||'',
+    trigger:(el('mem-in-trigger')||{}).value||'',
+    timeoutPolicy:(el('mem-in-timeout')||{}).value||'drop',
+    provenance:{ confidence:(el('mem-in-conf')||{}).value||'normal' },
+  };
+  const r=await api(_MEM()+'/intentions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r&&r.ok){ toast('意图已入队'); renderAgentMemoryBind(); } else toast('失败','error');
+}
+
+async function memConfirmIntention(id){
+  const r=await api(_MEM()+`/intentions/${encodeURIComponent(id)}/confirm`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r&&r.ok){ toast('已确认'); renderAgentMemoryBind(); } else toast('失败','error');
+}
+
+async function memDropIntention(id){
+  const r=await api(_MEM()+`/intentions/${encodeURIComponent(id)}/drop`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r&&r.ok){ toast('已放弃'); renderAgentMemoryBind(); } else toast('失败','error');
+}
+
+async function memFeel(){
+  const label=(el('mem-aff-label')||{}).value||'';
+  if(!label.trim()){ toast('请填写情绪标签','error'); return; }
+  const body={
+    label,
+    intensity:Number((el('mem-aff-intensity')||{}).value||0.5),
+    valence:Number((el('mem-aff-valence')||{}).value||0),
+    arousal:0.5,
+  };
+  const r=await api(_MEM()+'/affect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r&&r.ok){ toast('已注入 · '+ (r.tone_hint||'')); renderAgentMemoryBind(); } else toast('失败','error');
+}
+
+async function memSeal(){
+  if(!confirm('封存是仪式不是删除：将生成只读快照，活体写入关闭。确认封存？')) return;
+  const r=await api(_MEM()+'/seal',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r&&r.ok){ toast('已封存 · 这是回放，不是本人'); renderAgentMemoryBind(); } else toast('封存失败','error');
+}
+
+async function memExport(){
+  const r=await api(_MEM()+'/export');
+  if(!r){ toast('导出失败','error'); return; }
+  const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`memory-${tid}-${aid}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('已导出记忆 JSON');
+}
+
+async function memImportPrompt(){
+  const raw=prompt('粘贴记忆 JSON（schema=ag.memory/v1）：');
+  if(!raw) return;
+  let data;
+  try{ data=JSON.parse(raw); }catch(_){ toast('JSON 无效','error'); return; }
+  const r=await api(_MEM()+'/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  if(r&&r.ok){ toast('导入成功'); renderAgentMemoryBind(); } else toast('导入失败','error');
+}
+
+async function memWillDraft(){
+  const r=await api(_MEM()+'/will');
+  if(!r){ toast('失败','error'); return; }
+  const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`will-draft-${aid}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('遗嘱草稿已下载（协议 define-only）');
+}
+
+function memTimelinePreview(){
+  const s=el('mem-timeline');
+  const lab=el('mem-timeline-label');
+  if(!s||!lab) return;
+  const pct=Number(s.value||100);
+  lab.textContent=pct>=100?'现在':`回放位置 ${pct}%`;
+}
+
+async function memTimelineLoad(){
+  const cache=window._memCache||{};
+  const logs=cache.log||[];
+  const times=logs.map(e=>Number(e.t)).filter(Number.isFinite);
+  let t=Date.now();
+  if(times.length){
+    const min=Math.min(...times), max=Math.max(...times, Date.now());
+    const pct=Number((el('mem-timeline')||{}).value||100)/100;
+    t=Math.round(min+(max-min)*pct);
+  }
+  const r=await api(_MEM()+`/at?t=${t}&window_ms=3600000`);
+  const box=el('mem-timeline-slice');
+  if(!box) return;
+  if(!r||!r.slice){ box.textContent='无切片'; return; }
+  const sl=r.slice;
+  box.innerHTML=`
+    <div style="margin-bottom:6px;font-family:var(--font-mono);font-size:11px">t = ${_memFmtTime(sl.t)}</div>
+    <div><b>日志</b> ${(sl.log||[]).length} · <b>感知</b> ${(sl.perception||[]).length} · <b>意图</b> ${(sl.intentions||[]).length}</div>
+    <div style="margin-top:6px">情绪 valence ${Number((sl.affect||{}).valence||0).toFixed(2)} · labels ${Object.keys((sl.affect||{}).labels||{}).join(', ')||'—'}</div>
+    <ul style="margin:8px 0 0;padding-left:18px;font-size:11px;color:var(--muted)">
+      ${(sl.log||[]).slice(0,8).map(e=>`<li>${escapeHtml(e.action||'')} — ${escapeHtml((e.detail||'').slice(0,80))}</li>`).join('')}
+    </ul>`;
+}
+
+// ══════════════════════════════════
 //  5-STEP WIZARD
 // ══════════════════════════════════
 
 // Export functions referenced from HTML onclick handlers and other scripts
 window.loadAgent = loadAgent;
+window.renderAgentMemoryBind = renderAgentMemoryBind;
+window.memSwitchPane = memSwitchPane;
+window.memToggleBind = memToggleBind;
+window.memAppendLog = memAppendLog;
+window.memRecallLog = memRecallLog;
+window.memPerceive = memPerceive;
+window.memCompress = memCompress;
+window.memAddIntention = memAddIntention;
+window.memConfirmIntention = memConfirmIntention;
+window.memDropIntention = memDropIntention;
+window.memFeel = memFeel;
+window.memSeal = memSeal;
+window.memExport = memExport;
+window.memImportPrompt = memImportPrompt;
+window.memWillDraft = memWillDraft;
+window.memTimelinePreview = memTimelinePreview;
+window.memTimelineLoad = memTimelineLoad;
+window.memLifeAct = memLifeAct;
+window.memSetPersona = memSetPersona;
 window.sendChatMsg = sendChatMsg;
 window.newSession = newSession;
 window.saveAgent = saveAgent;

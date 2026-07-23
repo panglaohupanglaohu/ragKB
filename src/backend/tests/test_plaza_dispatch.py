@@ -514,7 +514,8 @@ class TestDiscussionLifecycle:
         assert "话题描述: 保留现有行为" in prompt
         assert "讨论目标: 拆清楚开场边界" in prompt
         assert "参与者: 开发者" in prompt
-        assert "不要自行转换或重新解读话题" in prompt
+        assert "不要自行转换" in prompt
+        assert "ORID 四层结构" in prompt
 
     def test_build_round_speaker_prompt_uses_recent_context(self, isolated_plaza_engine):
         plaza, disc = _seed_discussion(isolated_plaza_engine)
@@ -620,7 +621,7 @@ class TestDiscussionLifecycle:
 
         prompt = isolated_plaza_engine._build_final_summary_prompt(disc)
 
-        assert "关于「让 Plaza 真的能派发任务」的讨论已经完成 2 轮" in prompt
+        assert "关于「让 Plaza 真的能派发任务」的 ORID 四层审议" in prompt
         assert "背景描述: 最终总结背景" in prompt
         assert "讨论目标: 生成可派发任务" in prompt
         assert "优先拆边界再补测试" in prompt

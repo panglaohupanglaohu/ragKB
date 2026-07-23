@@ -305,8 +305,16 @@ class SkillVerifier:
             self._process_log.append({"step": "done", "msg": f"验证通过 ({mode}) — 技能已标记为 VERIFIED"})
         else:
             result.status = "failed"
+            sandbox_err = str(evidence.get("error") or "").strip()
             if hard_fail:
                 result.error_detail = "语义硬失败"
+            elif not sandbox_ok and sandbox_err:
+                # 运行时阻断（如 docker missing）优先于通过率文案，便于回演化证据
+                result.error_detail = sandbox_err
+                if result.pass_rate < 0.7:
+                    result.error_detail = (
+                        f"{sandbox_err} · 通过率 {result.pass_rate*100:.0f}% 低于 70% 阈值"
+                    )
             elif twin_ran and not twin_pass:
                 result.error_detail = (
                     f"孪生 A/B 未达增益阈值 "
@@ -316,7 +324,7 @@ class SkillVerifier:
             elif result.pass_rate < 0.7:
                 result.error_detail = f"通过率 {result.pass_rate*100:.0f}% 低于 70% 阈值"
             elif not sandbox_ok and not semantic_ok:
-                result.error_detail = str(evidence.get("error") or "sandbox failed and semantic checks insufficient")
+                result.error_detail = sandbox_err or "sandbox failed and semantic checks insufficient"
             else:
                 result.error_detail = "验证未达通过条件"
             self._process_log.append({"step": "done", "msg": f"验证失败 — {result.error_detail}"})
@@ -369,6 +377,12 @@ class SkillVerifier:
                 "msg": f"EvidenceRun 已写入: {result.evidence_run_id}",
             })
 
+        # 落盘 last_verify：供演化引擎加厚证据 + 验证失败「一键回演化」
+        try:
+            self._persist_last_verify(skill, team_id, result, twin_report)
+        except Exception as pe:
+            logger.warning("persist last_verify failed: %s", pe)
+
         self._results[skill_id] = result
 
         # Emit event
@@ -384,6 +398,128 @@ class SkillVerifier:
         logger.info("Skill %s verification: %s (pass_rate=%.2f)",
                      skill_id, result.status, result.pass_rate)
         return result
+
+    @staticmethod
+    def _summarize_twin(twin: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Compact twin report for history / before-after compare charts."""
+        twin = twin or {}
+        if not twin:
+            return {}
+        b = twin.get("baseline") or {}
+        t = twin.get("treatment") or {}
+        return {
+            "status": twin.get("status"),
+            "skipped": bool(twin.get("skipped")),
+            "passed": twin.get("passed"),
+            "reason": twin.get("reason"),
+            "detail": twin.get("detail"),
+            "error": twin.get("error"),
+            "target_skill": twin.get("target_skill"),
+            "scenario_id": twin.get("scenario_id"),
+            "n_seeds": twin.get("n_seeds"),
+            "baseline_rate": b.get("target_rate") if isinstance(b, dict) else twin.get("baseline_rate"),
+            "treatment_rate": t.get("target_rate") if isinstance(t, dict) else twin.get("treatment_rate"),
+            "baseline_all_rate": b.get("all_rate") if isinstance(b, dict) else twin.get("baseline_all_rate"),
+            "treatment_all_rate": t.get("all_rate") if isinstance(t, dict) else twin.get("treatment_all_rate"),
+            "baseline_uses": b.get("target_uses") if isinstance(b, dict) else twin.get("baseline_uses"),
+            "treatment_uses": t.get("target_uses") if isinstance(t, dict) else twin.get("treatment_uses"),
+            "target_gain_pp": twin.get("target_gain_pp"),
+            "all_gain_pp": twin.get("all_gain_pp"),
+            "gain_threshold": twin.get("gain_threshold"),
+            "criteria": (twin.get("criteria") or "")[:200],
+        }
+
+    def _persist_last_verify(
+        self,
+        skill,
+        team_id: str,
+        result: VerificationResult,
+        twin_report: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Write last_verify + twin history/compare into skill.config."""
+        if not self._skill_library or not skill:
+            return
+        twin_summary = self._summarize_twin(twin_report)
+        failed_checks: List[Dict[str, Any]] = []
+        for t in (result.test_details or []):
+            if t.get("passed"):
+                continue
+            failed_checks.append({
+                "name": t.get("scenario") or t.get("name") or "check",
+                "message": (t.get("message") or "")[:300],
+                "layer": t.get("layer") or t.get("source") or "",
+            })
+            if len(failed_checks) >= 10:
+                break
+        now = datetime.now(timezone.utc).isoformat()
+        cfg = dict(getattr(skill, "config", None) or {})
+        last_verify = {
+            "status": result.status,
+            "pass_rate": float(result.pass_rate or 0),
+            "passed": int(result.passed or 0),
+            "failed": int(result.failed or 0),
+            "error_detail": (result.error_detail or "")[:500],
+            "failed_checks": failed_checks,
+            "twin_ab": twin_summary,
+            "skill_version": int(getattr(skill, "version", 1) or 1),
+            "at": now,
+        }
+        cfg["last_verify"] = last_verify
+
+        # twin_history ring buffer (for multi-run sparklines)
+        if twin_summary and not twin_summary.get("skipped"):
+            hist = list(cfg.get("twin_history") or [])
+            hist.append({
+                "at": now,
+                "skill_version": last_verify["skill_version"],
+                "verify_status": result.status,
+                **twin_summary,
+            })
+            cfg["twin_history"] = hist[-8:]
+
+        # 演化前后对比：若 apply_evolution 冻结了 twin_before_evolve
+        before = dict(cfg.get("twin_before_evolve") or {})
+        twin_compare: Dict[str, Any] = {}
+        if before and twin_summary and not twin_summary.get("skipped"):
+            b_gain = before.get("target_gain_pp")
+            a_gain = twin_summary.get("target_gain_pp")
+            delta = None
+            if b_gain is not None and a_gain is not None:
+                try:
+                    delta = round(float(a_gain) - float(b_gain), 2)
+                except (TypeError, ValueError):
+                    delta = None
+            twin_compare = {
+                "before": before,
+                "after": {
+                    **twin_summary,
+                    "skill_version": last_verify["skill_version"],
+                    "at": now,
+                },
+                "delta_gain_pp": delta,
+                "improved": (delta is not None and delta > 0),
+                "at": now,
+            }
+            cfg["twin_compare"] = twin_compare
+        skill.config = cfg
+
+        # 同步到本次响应，前端可直接画图
+        if isinstance(result.verification_evidence, dict):
+            result.verification_evidence["twin_ab"] = twin_report or twin_summary
+            result.verification_evidence["twin_summary"] = twin_summary
+            if twin_compare:
+                result.verification_evidence["twin_compare"] = twin_compare
+            if cfg.get("twin_history"):
+                result.verification_evidence["twin_history"] = list(cfg.get("twin_history") or [])[-6:]
+
+        self._skill_library._persist_skill(skill, team_id)
+        self._process_log.append({
+            "step": "last_verify_saved",
+            "msg": (
+                f"已写入 last_verify status={result.status}"
+                + (f" · twin_compare Δ{twin_compare.get('delta_gain_pp')}pp" if twin_compare else "")
+            ),
+        })
 
     async def _record_evidence_run(
         self,

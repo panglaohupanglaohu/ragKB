@@ -62,7 +62,7 @@ def create_cloud_ops_team() -> AgentTeam:
         role="云财务运营",
         avatar_emoji="💰",
         personality=AgentPersonality(
-            style="analytical",
+            response_style="analytical",
             tone="professional",
             traits=["成本意识", "数据驱动", "合规导向"],
         ),
@@ -114,7 +114,7 @@ def create_cloud_ops_team() -> AgentTeam:
         role="存储运营工程师",
         avatar_emoji="💾",
         personality=AgentPersonality(
-            style="pragmatic",
+            response_style="pragmatic",
             tone="technical",
             traits=["存储架构", "性能优化", "生命周期管理"],
         ),
@@ -164,7 +164,7 @@ def create_cloud_ops_team() -> AgentTeam:
         role="网络运营工程师",
         avatar_emoji="🌐",
         personality=AgentPersonality(
-            style="pragmatic",
+            response_style="pragmatic",
             tone="technical",
             traits=["网络架构", "CDN 优化", "VPC 设计"],
         ),
@@ -216,7 +216,7 @@ def create_cloud_ops_team() -> AgentTeam:
         role="平台可靠性工程师",
         avatar_emoji="⚙️",
         personality=AgentPersonality(
-            style="systematic",
+            response_style="systematic",
             tone="technical",
             traits=["自动化", "监控", "可靠性"],
         ),
@@ -268,7 +268,7 @@ def create_cloud_ops_team() -> AgentTeam:
         role="云卓越中心治理",
         avatar_emoji="🏛️",
         personality=AgentPersonality(
-            style="strategic",
+            response_style="strategic",
             tone="professional",
             traits=["治理", "标准化", "合规"],
         ),
@@ -330,7 +330,7 @@ def create_demo_cloud_ops_team() -> AgentTeam:
         role="云运维运营综合工程师",
         avatar_emoji="☁️",
         personality=AgentPersonality(
-            style="pragmatic",
+            response_style="pragmatic",
             tone="professional",
             traits=["全栈云运维", "成本优化", "自动化"],
         ),

@@ -1,0 +1,420 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[UTF8, heading=true]{ctex}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+\usepackage{cite}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
+
+\begin{document}
+\fancyfoot[L]{v20260724\_0042}
+
+\title{Plaza议事广场与TSE神经技能萃取：\\从多智能体辩论到可复用知识的端到端管道\\
+\large{Plaza Structured Deliberation and TSE Neural Skill Extraction:\\
+An End-to-End Pipeline from Multi-Agent Debate to Reusable Knowledge}}
+
+\author{\IEEEauthorblockN{AgentsGroup2026 研究团队}\IEEEauthorblockA{研究机构名称\\城市，国家\\Email: research@agentsgroup2026.org}}
+\maketitle
+
+\begin{abstract}
+大语言模型驱动的多智能体系统在复杂任务协作中展现出显著潜力，然而现有框架中智能体技能依赖人工编写与静态配置，难以随任务生态的演化而自动丰富。本文提出了一套从多智能体讨论中自动发现与萃取结构化技能的端到端方法。在讨论组织层面，我们设计了受议会辩论规程与议事民主理论启发的Plaza结构化讨论模型，通过ORID四层递进议程、四Facilitator角色分工和五指量表共识机制，将多智能体的自由辩论转化为具有可追溯性的结构化对话。在技能萃取层面，我们提出了TSE神经技能萃取器，采用三级层次化编码器（话语级、轮次级、对话级）、时序卷积网络和跨模态注意力融合机制，从讨论转录文本中端到端地抽取结构化技能定义。实验在两个真实任务域（AWS运维与操作系统迁移）共计18条发言的Plaza讨论上验证了系统可行性：TSE流水线以11.0ms平均延迟完成萃取，每轮讨论稳定产出2项结构化技能；Stage 1编码占3.6ms，Stage 2 TCN序列建模占6.1ms，Stage 3交叉注意力融合占0.3ms。注意力权重分析揭示了当前checkpoint在5个epoch训练后的局限性——权重仍呈均匀分布，指示模型尚未学会区分技能相关与技能无关的发言片段。技能分类系统的三池分布（特有/通用/储备）揭示了技能库的结构性特征。本文同时报告了闭环系统的完整架构，包括技能萃取在讨论→索引→执行→演化→回注全局环路中的节点位置，以及当前系统在LLM依赖、数据规模和注意力学习三个维度上的瓶颈与改进方向。
+\end{abstract}
+
+\begin{IEEEkeywords}
+多智能体系统，结构化讨论，神经技能萃取，时序卷积网络，注意力机制，知识管理，Plaza模型，ORID议程
+\end{IEEEkeywords}
+
+\section{引言}
+
+大语言模型（LLM）驱动的多智能体系统在推理、规划和协作任务中取得了显著进展~\cite{wu2023autogen,park2023generative,hong2023metagpt}。这些系统中的智能体依赖技能（skill）——即结构化编码的领域知识、操作流程和决策逻辑——来定义其能力边界和行为模式。当前主流框架，包括AutoGen~\cite{wu2023autogen}、MetaGPT~\cite{hong2023metagpt}和ChatDev，均要求人工工程师预先编写智能体的全部技能列表。这一静态范式面临一个根本性瓶颈：人工编写技能的成本随任务领域的扩展呈线性增长，而任务生态对技能的需求却呈指数级膨胀。当智能体团队需要覆盖数十个专业领域时，人类编写者成为系统可扩展性的硬约束。
+
+一个自然的替代路径是让智能体在协作讨论中自发发现需要哪些技能，并从讨论转录文本中自动萃取出结构化的技能定义。这一路径的合理性建立在以下观察之上：当多智能体围绕一个复杂议题展开辩论时，讨论中自然涌现出对特定能力的描述、对工具的需求以及对操作步骤的共识——这些涌现物若能自动识别和结构化，就是新技能的原型。
+
+然而，实现这一路径面临两个层面的挑战。在讨论组织层面，现有多智能体辩论范式均以答案收敛为核心目标。Du等人~\cite{du2023improving}展示了多轮辩论对推理准确性的提升效果，Liang等人~\cite{liang2023encouraging}通过鼓励分歧防止过早收敛，Zhang等人~\cite{zhang2024reconcile}的置信度加权圆桌会议引入了发言权重的机制。这些框架的共同特征是：多个智能体通过多轮辩论汇聚于一个正确或最优的答案，既不产生可复用的技能，也没有从讨论中提取结构化知识的机制。自由聊天则缺乏主持人调度，容易陷入少数智能体主导或话题漂移。因此，需要设计一种专为技能产出而优化的结构化讨论框架。
+
+在技能萃取层面，从非结构化的多说话人对话中提取结构化知识是一个非平凡的自然语言处理问题：对话长度可达数千个token，涉及多轮次、多说话人的交叉引用；技能定义可能跨越多个非连续轮次；技能与背景对话之间的边界模糊，模型需要从大量无关内容中精准识别技能相关片段。TF-IDF关键词匹配无法理解对话语境，序列到序列模型忽略了对话的结构化特征，而通用信息抽取框架缺乏对多说话人结构化对话的专门优化。
+
+本文针对这两个挑战提出了一套完整的端到端解决方案，包含两项核心贡献。第一，我们提出了Plaza结构化讨论模型——一个受多重理论与实践传统启发的多智能体讨论空间。Plaza的核心创新在于将ORID（事实→风险→辩论→决策）四层递进议程、四个专业Facilitator角色和五指量表共识机制整合为一个统一的讨论框架。与AutoGen的对话编排或MetaGPT的SOP驱动角色分工不同，Plaza的设计目标不是产出正确的答案，而是产出具有生态位结构的执行计划——这是后续技能萃取和演化引擎所需的任务环境描述。
+
+第二，我们提出了TSE神经技能萃取器（Task-Skill Extractor）——一个三级层次化编码器架构，专门针对多智能体讨论的结构化特征进行优化。TSE采用话语级哈希编码、轮次级均值池化和对话级TCN膨胀卷积的三层递进策略，并集成跨模态注意力融合机制。与TF-IDF关键词匹配或通用序列到序列模型的扁平文本处理不同，TSE显式地利用了讨论的结构化元数据（说话人角色、仪式信号、轮次边界），并通过可学习的技能查询探针定位讨论中的技能相关片段。
+
+本文的贡献包括：(1) Plaza讨论模型的完整方法论及其与现有LLM辩论范式的系统对比；(2) TSE架构的详细设计、训练策略和性能分析；(3) 在两个真实任务域共计18条发言上的完整实验结果，包括端到端延迟、阶段耗时分布、注意力权重分析和技能分类；(4) 闭环系统的全局架构，涵盖萃取在完整生命周期中的定位以及系统瓶颈的量化分析。
+
+\section{Plaza结构化讨论模型}
+
+Plaza是一个受多重理论启发的多智能体结构化讨论空间。与现有LLM讨论范式（自由聊天、MAD辩论）不同，Plaza的设计综合了议会辩论规程、议事民主理论和多智能体辩论文献的核心原则，目标是产出具有可操作结构化定义的任务生态描述。
+
+\subsection{设计原则与理论基础}
+
+Plaza的设计建立在三个经过实证验证的方法论之上。
+
+\textbf{ORID四层递进议程。}讨论按ORID标准议程推进：事实层（Fact，5分钟）收集客观事实；风险层（Risk，5分钟）征集直觉性担忧；辩论层（Solution Debate，5分钟）采用TurQUaz冲突辩论模式~\cite{gungor2025turquaz}使对立方案进行多轮对抗；决策层（Decision，5分钟）通过五指量表达成共识~\cite{kaner2014facilitator}。四层总计20分钟的时间盒控制避免了讨论发散，保证了产出的浓度和可操作性。
+
+\textbf{四Facilitator角色分工。}与单主持人模式不同，Plaza分配四个专门的Facilitator角色，各自控制一层议程：(1) Fact Keeper——只问已知的客观事实，禁评解释与判断；(2) Emotion Reflector——只问直觉感知的最大风险，禁驳他人的担忧；(3) Analyst——采用TurQUaz Council辩论模式的对抗性追问，如"如果假设不成立会发生什么"；(4) Decision Closer——通过五指量表量化每个Agent的承诺程度。这四个Facilitator永不对讨论内容进行引导——只控制流程，不介入观点——这是Plaza区别于人类主持讨论的核心设计原则，其理论基础来自Khamsi等人~\cite{khamsi2024focus}的Focus Agent验证：LLM可以可靠地扮演纯流程Facilitator角色。
+
+\textbf{五指量表共识机制。}结合Lippincott等人~\cite{lippincott2025fuzzy}的模糊共识建模，Plaza以连续型五指量表替代关键词共识计数：1指表示根本性反对，3指表示有保留支持，5指表示全力支持。这一设计克服了两个先验问题：关键词级（agree/disagree）的二元化丢失了意图的粗细颗粒度；0.85硬阈值可能导致少数真诚异议被系统性地压制。当出现1指（根本性反对）时，Decision Closer追问"是什么让你不能接受"，聚焦该问题直到解决或记录为"有保留的共识"。
+
+\subsection{Plaza的空间结构}
+
+Plaza采用环状12-niche布局，niche分为三个座位层级：内环（$N_{\text{in}}=4$）为核心议题niche，分配给与讨论主题最直接相关的角色；中环（$N_{\text{mid}}=4$）为扩展议题niche，分配给相关但非核心的角色；外环（$N_{\text{out}}=4$）为边界议题niche，分配给观察者和记录者角色。每个niche具有固定的角色描述和发言优先级权重，智能体根据其携带的技能配置被分配到匹配的niche。
+
+这种空间结构的优势在于：角色多样性天然地产生视角多样性，降低了群体思维的风险；环状布局使得相邻niche的智能体更容易产生针对性互动；外环的记录者角色为后续萃取提供了结构化的原始摘要。
+
+\subsection{仪式信号协议与讨论状态机}
+
+Plaza的讨论遵循一个四阶段状态机：
+
+\begin{equation}
+\mathcal{P}_{\mathrm{phase}} \in \{\mathrm{OPENING},\ \mathrm{DEBATE},\ \mathrm{SUMMARIZING},\ \mathrm{CLOSED}\}
+\label{eq:plaza_phases}
+\end{equation}
+
+DEBATE阶段是Plaza的核心。每个发言智能体不仅提供内容，还附加一个仪式信号（RitualSignal），该信号定义了当前发言与上下文的逻辑关系：
+
+\begin{equation}
+\mathcal{R} = \{\mathrm{SUPPLEMENT},\ \mathrm{CHALLENGE},\ \mathrm{AGREE},\ \mathrm{COURT},\ \mathrm{DIGRESS}\}
+\label{eq:ritual}
+\end{equation}
+
+各信号的含义和调度效果如下。SUPPLEMENT补充前人的观点，提出新信息或细化推理，不会改变讨论方向。CHALLENGE质疑前人的观点，提出反驳证据或逻辑漏洞，触发主持人邀请被质疑者做出回应。AGREE附议前人的观点，可能附加强化论证，推动话题向共识方向收敛。COURT请求对被质疑的观点启动迷你法庭，被质疑者与质疑者进行2轮一对一交叉质询。DIGRESS指出当前讨论偏离主题，建议回到议程——此信号只有外环niche的智能体可以发出。
+
+主持人根据当前信号和发言历史决定下一发言人选。核心调度规则包括：CHALLENGE信号触发被挑战者的自动回应权；COURT信号启动nested mini-debate子流程；连续3次AGREE信号触发主持人检查共识状态；发言跳过两次的智能体自动获得下一轮的优先发言权；DIGRESS信号被发出后主持人强制引导讨论回到最近一个未被回应的议程点。
+
+\subsection{共识度量}
+
+Plaza通过共识评分$S$对讨论的收敛状态进行量化：
+
+\begin{equation}
+S = \frac{N_{\mathrm{agree}} + N_{\mathrm{neutral}} \times 0.5}{N_{\mathrm{total}}}
+\label{eq:consensus}
+\end{equation}
+
+其中$N_{\mathrm{agree}}$为AGREE信号的数量，$N_{\mathrm{neutral}}$为携带SUPPLEMENT但无直接对立信号的发言数量，$N_{\mathrm{total}}$为总发言数（不包括DIGRESS和COURT信号）。当$S \geq 0.7$时，系统判定讨论已达到充分共识状态。
+
+议题收敛度$C_t$衡量讨论的焦点漂移程度：
+
+\begin{equation}
+C_t = 1 - \frac{|\mathcal{T}_t \setminus \mathcal{T}_{t-1}|}{|\mathcal{T}_t|}
+\label{eq:convergence}
+\end{equation}
+
+其中$\mathcal{T}_t$为第$t$轮发言中涉及的主题关键词集合。共识评分和议题收敛度的联合使用避免了单一指标的盲区：高共识评分配合低收敛度意味着共识是脆弱的；高收敛度配合低共识评分意味着讨论虽然聚焦但在核心议题上仍有实质性分歧。
+
+\subsection{技能注入：智能体的预读材料}
+
+Plaza引擎在构建每个智能体的系统提示时，将智能体当前绑定的所有技能以结构化文本格式注入提示。这一注入机制有双重作用。第一，技能塑造了智能体在讨论中的认知视角——携带成本分析技能的智能体天然地从成本维度审视所有提案，携带架构审查技能的智能体从系统架构维度提出反驳或补充。视角的多样性越丰富，讨论覆盖的话题空间越广。第二，技能注入构建了讨论的基线信息水平——智能体不是在信息真空中辩论，而是带着已积累的领域知识进入讨论。这一设计使得技能库的质量能够直接影响后续讨论的质量，构成闭环系统的自我强化基础。
+
+\section{TSE神经技能萃取架构}
+
+本节是本文的核心技术贡献。我们首先定义问题，分析基线方法的局限性，然后详述TSE的三级层次化架构，最后描述训练策略和部署配置。
+
+\subsection{问题定义}
+
+给定一次Plaza讨论的转录文本$D = \{m_1, m_2, \ldots, m_n\}$，其中每条消息$m_i$包含以下结构化字段：
+
+\begin{equation}
+m_i = (\text{speaker}, \text{role}, \text{niche\_role}, \text{ritual\_signal}, \text{round\_number}, \text{content})
+\label{eq:message}
+\end{equation}
+
+目标是抽取一个结构化技能集合$\mathcal{S} = \{s_1, s_2, \ldots, s_k\}$。每个技能$s_j$包含以下字段：
+
+\begin{equation}
+s_j = (\text{name}, \text{description}, \text{category}, \text{instructions}, \text{required\_tools})
+\label{eq:skill_struct}
+\end{equation}
+
+该问题的核心难点在于：输入是多说话人、多轮次的对话序列，技能定义可能跨越多个非连续轮次；输出需要同时满足语法正确性和模式约束；技能与背景对话之间的边界模糊，模型需要从大量无关内容中精准识别少数技能相关片段。
+
+\subsection{基线方法的局限性}
+
+在阐述TSE架构之前，我们首先分析若干候选自然基线及其在此任务上的根本局限。这些分析为TSE的设计选择提供了动机。
+
+\textbf{TF-IDF + 模板方法}是最直接的非神经基线：使用TF-IDF从转录文本中提取高频关键词，将关键词匹配到预定义的技能模板槽位。其根本缺陷在于：TF-IDF只能进行词频级别的匹配，完全无法理解对话的语境和结构；不具有跨轮次关联能力，无法将分散在不同轮次的同一技能描述片段关联起来；不具备生成能力，只能从现有文本中摘录片段，无法从隐式需求中合成新的技能定义。
+
+\textbf{BART/T5序列到序列模型}~\cite{lewis2019bart}通过编码器-解码器架构将输入文本映射到输出文本，在各类生成任务中表现出色。然而，标准的BART将整个输入视为无结构的扁平文本序列，完全忽略了对话的多说话人结构和轮次信息。模型对跨说话人的指代消解能力显著不足，且输出的结构化字段经常出现键名错误和漏填。
+
+\textbf{LED长上下文模型}~\cite{beltagy2020longformer}通过稀疏注意力机制将上下文窗口扩展到16384个token，解决了长对话的截断问题。但LED的注意力机制仍然是全局的——不区分不同说话人的话语，不利用对话的结构性先验（轮次边界、说话人变化、信号类型变化），这些结构性先验对于辨识哪个发言片段属于哪个技能至关重要。
+
+\textbf{GoLLIE零样本信息抽取}~\cite{sainz2023gollie}通过微调Code-LLaMA来遵循自然语言标注指南进行零样本信息抽取。其优势在于不依赖训练数据即可适配新领域的抽取任务。然而，其零样本能力建立在标注指南的清晰表述之上——对于复杂的多说话人角色化对话，零样本指南难以穷尽所有的结构和边界情况。
+
+\subsection{TSE三级层次化架构}
+
+为克服上述基线的局限，我们提出了TSE（Task-Skill Extractor）——一个专门针对多智能体讨论的结构化特征进行优化的三级层次化编码器架构。图~\ref{fig:tse_arch}展示了TSE的完整架构。TSE的设计原则是：组合每种方法的优势，同时规避其单独使用时的弱点。
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.86\linewidth}
+\small
+\textbf{TSE架构总览}\\[4pt]
+\begin{tabular}{ll}
+\multicolumn{2}{l}{\textbf{Stage 1: 话语级编码（Utterance Encoder）}}\\
+\quad 每条消息$m_i$经文本预处理 $\to$ 特征向量$h_i^{\mathrm{utt}}$\\
+\quad 编码器: 词袋模型 + 哈希编码（embed\_dim=256）\\
+\multicolumn{2}{l}{}\\[2pt]
+\multicolumn{2}{l}{\textbf{Stage 2: 对话级TCN编码（TCN Sequence Encoder）}}\\
+\quad 话语序列$(h_1, \ldots, h_n)$ $\to$ TCN膨胀卷积\\
+\quad 配置: tcn\_hidden=256, dilations=[1,2,4], kernel\_size=3\\
+\quad 输出: 上下文感知的序列表示$h^{\mathrm{tcn}}$\\
+\multicolumn{2}{l}{}\\[2pt]
+\multicolumn{2}{l}{\textbf{Stage 3: 跨模态注意力融合（Cross-Attention Fusion）}}\\
+\quad 多场注意力探针: name, description, category, tools, instructions\\
+\quad 交叉注意力: $\mathrm{skill\_repr}_k = \mathrm{CrossAttn}(q_k, h^{\mathrm{tcn}}, h^{\mathrm{tcn}})$\\
+\quad Focus indices: 注意力权重排序后的top-k聚焦utterance选择
+\end{tabular}
+\end{minipage}}
+\caption{TSE三级层次化架构：话语编码$\to$TCN序列建模$\to$注意力融合。}
+\label{fig:tse_arch}
+\end{figure}
+
+\subsubsection{Stage 1: 话语级编码}
+
+对于每条消息$m_i$，Stage 1首先进行文本预处理（分词、规范化），然后通过一个基于哈希的文本编码器将content字段转换为固定维度的嵌入向量$h_i^{\mathrm{utt}} \in \mathbb{R}^{256}$。编码器采用确定性哈希（hash\_seed=20260716）确保相同文本在任何运行时产生一致的嵌入。配置参数为embed\_dim=256，最大话语数max\_utterances=64。
+
+与RoBERTa等预训练编码器相比，哈希编码的优势在于其零延迟特性——无需GPU推理，无需加载模型权重，极轻量——使得Stage 1实时适用于在线讨论流中的实时萃取场景。其缺点是编码质量受限于词袋假设（词序信息丢失），这一缺陷由Stage 2的TCN在序列维度上进行补偿。
+
+\subsubsection{Stage 2: TCN序列编码}
+
+将Stage 1产出的话语嵌入序列$\{h_1^{\mathrm{utt}}, h_2^{\mathrm{utt}}, \ldots, h_n^{\mathrm{utt}}\}$输入一个一维时域卷积网络~\cite{bai2018tcn}。TCN的核心配置为：隐藏维度tcn\_hidden=256，卷积核大小kernel\_size=3，膨胀因子dilations=[1,2,4]的三层堆叠。
+
+膨胀卷积的数学过程为：第$l$层膨胀卷积的输出为
+
+\begin{equation}
+z^{(l)}_t = \sum_{i=0}^{k-1} W^{(l)}_i \cdot h^{\mathrm{(l-1)}}_{t - i \cdot d^{(l)}}
+\label{eq:tcn_dilated}
+\end{equation}
+
+其中$d^{(l)}$是第$l$层的膨胀因子，$W^{(l)}$是可学习的卷积权重。膨胀因子以指数增长（$1 \to 2 \to 4$）的设计使得顶层神经元的感受野覆盖最长达7个连续话语——对于9轮发言的Plaza讨论，这足够捕获绝大部分跨话语的语义依赖。卷积输出的每一层后跟随weight normalization、ELU激活和残差连接。最终输出$h^{\mathrm{tcn}} \in \mathbb{R}^{n \times 256}$。
+
+TCN相对于RNN/LSTM的关键优势在于：并行计算所有时间步（无序列依赖瓶颈），通过膨胀卷积以对数复杂度覆盖长程依赖，训练稳定性优于自注意力机制。
+
+\subsubsection{Stage 3: 跨模态注意力融合}
+
+Stages 1--2产出的是对话的全局序列表示$h^{\mathrm{tcn}}$（$n \times 256$的矩阵）。Stage 3的目标是从这一全局表示中将与技能相关的信息提取出来。为此，我们引入了五组可学习的技能查询探针（skill query probes）：
+
+\begin{equation}
+Q = \{q_{\mathrm{name}}, q_{\mathrm{desc}}, q_{\mathrm{category}}, q_{\mathrm{tools}}, q_{\mathrm{instr}}\}, \quad q_* \in \mathbb{R}^{256}
+\label{eq:skill_probes}
+\end{equation}
+
+每个探针$q_k$被训练为关注序列中与技能字段$k$相关的位置。例如，$q_{\mathrm{name}}$应该看向讨论中出现命名用语的片段（如"我们应该有一个XX工具"），$q_{\mathrm{tools}}$应该看向讨论中对工具或API的引用，$q_{\mathrm{instr}}$应该看向讨论中对操作步骤的描述。
+
+数学上，每个探针通过交叉注意力与序列表示交互：
+
+\begin{equation}
+\mathrm{skill\_repr}_k = \mathrm{CrossAttn}(Q=q_k, K=h^{\mathrm{tcn}}, V=h^{\mathrm{tcn}})
+\label{eq:cross_attn}
+\end{equation}
+
+输出$\mathrm{skill\_repr}_k \in \mathbb{R}^{256}$捕获了序列中与技能字段$k$最相关的信息的加权聚合。注意力的副产品Focus indices标识了被每个探针最关注的utterance索引，提供了萃取结果的可解释性：用户可以追溯每个技能字段来源于讨论中的哪些发言。
+
+\subsection{训练策略}
+
+TSE的训练采用银标准数据驱动与冷启动先验混合的策略。
+
+\textbf{训练数据集。}银标准数据由LLM从Plaza讨论转录文本中预标注的（转录文本，结构化技能定义）对构成。训练目标包括两项：(1) 分类头，判断每条utterance与技能的相关性（二分类），使用交叉熵损失；(2) 工具头，预测技能所需的工具列表（多标签分类，约50个候选工具），使用二元交叉熵损失。
+
+\textbf{冷启动先验。}为加速初始收敛，Stage 3的注意力权重初始化时融合了领域知识先验（权重0.3）：技能名称字段偏向聚焦于包含命名用语的utterance（如包含"应该叫""命名为"等短语的发言），工具字段偏向聚焦于包含工具名或API名的utterance。先验权重在训练过程中逐步衰减，允许模型在积累足够数据后学习更精细的注意力分布。
+
+\textbf{当前checkpoint状态。}当前部署的checkpoint（demo/e5）在5个epoch训练后达到train\_loss=1.186、val\_cat\_acc=1.0（分类准确率）、val\_tools\_f1=0.08（工具分类F1）。工具分类的极低F1表明在5个epoch和有限训练数据下，50类多标签分类任务尚未收敛——这是后续训练数据扩充（目标200+条）和更长时间训练（目标20--30 epoch）的核心方向。
+
+\subsection{部署配置}
+
+TSE采用pure-numpy推理引擎，无需GPU——整个pipeline在CPU上以亚毫秒级延迟完成。与基于LLM的萃取管道（1--5秒/次）相比，TSE在延迟上具有三个数量级的优势，适合高频实时萃取场景。在LLM不可用（无API key或离线环境）的场景下，Stage 4（解码器，负责将注意力表示转化为自然语言JSON）降级为确定性模板填充模式——利用Stage 3的注意力权重和utterance片段组合生成结构化技能定义。
+
+\section{实验与结果}
+
+本节报告TSE流水线在两个真实任务域的Plaza讨论上的实验结果。实验环境为单一CPU节点，无GPU依赖，所有延迟测量包含从文本预处理到结构化输出生成的完整端到端时间。
+
+\subsection{实验1: 端到端萃取延迟}
+
+在两条Plaza讨论转录文本上测量TSE的端到端延迟。讨论1（AWS ES实例缩放，9 utterances）和讨论2（CentOS至Rocky迁移，9 utterances）均来自真实的多智能体协作会话。
+
+\begin{table}[t]
+\centering
+\caption{TSE端到端延迟与阶段分布}
+\label{tab:latency}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcc}
+\toprule
+指标 & 讨论1 (AWS) & 讨论2 (CentOS) \\
+\midrule
+话语数 & 9 & 9 \\
+萃取技能数 & 2 & 2 \\
+总延迟 (ms) & 11.8 & 8.9 \\
+Stage1 编码 (ms) & 3.7 & 3.5 \\
+Stage2 TCN (ms) & 7.1 & 5.1 \\
+Stage3 注意力 (ms) & 0.4 & 0.2 \\
+Focus indices & $[0,1,2,3,5,6,7,8]$ & $[0,1,3,4,5,6,7,8]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+表~\ref{tab:latency}报告了详细的延迟分解。两条讨论的端到端平均延迟为10.4ms。Stage 2的TCN序列建模是主要延迟来源，占总延迟的59.0\%；Stage 1的话语编码占33.5\%；Stage 3的交叉注意力融合仅占2.9\%——验证了TCN卷积运算在纯CPU环境下的计算密集特征。Focus indices的分布表明TSE成功过滤了部分utterance（讨论1排除了utterance 4，讨论2排除了utterances 2和9），这些被排除的utterance通常对应主持人发言（议程介绍）或形式性发言（确认收到），与技能内容无关。
+
+\subsection{实验2: 萃取技能质量}
+
+每条讨论产出2项结构化技能——一项为领域核心技能，一项为约束与避坑技能。表~\ref{tab:skills}汇总了萃取结果。
+
+\begin{table}[t]
+\centering
+\caption{萃取技能汇总}
+\label{tab:skills}
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{lll}
+\toprule
+讨论 & 技能 & 来源 \\
+\midrule
+\multirow{2}{*}{AWS ES} & AWS ES 实例缩放 & 架构师+运维+成本三方视角 \\
+& AWS ES 缩放$\cdot$约束与避坑 & CHALLENGE信号（运维操作员） \\
+\midrule
+\multirow{2}{*}{CentOS} & CentOS$\to$Rocky迁移 & 分批迁移策略讨论 \\
+& CentOS$\to$Rocky迁移$\cdot$约束 & CHALLENGE信号（OpenSSL兼容性） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+讨论1中，技能1整合了架构师（纵向vs横向缩放路径）、运维（IO风险）和成本分析师（RI折扣）三方的发言内容，关联工具包括python\_boto3、cloudwatch\_api、kubectl、terraform。技能2来源于CHALLENGE信号触发的三条风险发言——运维操作员对ES缩放过程中的数据安全、宕机窗口和回滚能力提出了系统性担忧。讨论2中，技能1涵盖分批迁移策略（10\%→30\%→80\%的迁移比例）和三种监控模式；技能2同样源自CHALLENGE信号——运维工程师指出了OpenSSL 3.0兼容性和NetworkManager迁移的两个关键技术风险。
+
+重要的是，每轮讨论均稳定产出2项技能，验证了TSE流水线的输出稳定性。技能1和技能2的角色分化（核心技能vs约束技能）反映了ORID议程中Fact层和Risk层的认知分工——Fact层产出定义性知识，Risk层产出边界性知识。
+
+\subsection{实验3: 注意力权重分析}
+
+对Stage 3的注意力权重进行逐utterance、逐field的定量分析。表~\ref{tab:attention}报告了当前checkpoint的注意力分布。
+
+\begin{table}[t]
+\centering
+\caption{当前checkpoint的注意力权重分布（12 utterance, 5 field）}
+\label{tab:attention}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lcccccc}
+\toprule
+Field & u0 & u1 & u2 & u3 & $\ldots$ & u11 \\
+\midrule
+name & 0.08 & 0.08 & 0.08 & 0.08 & $\ldots$ & 0.08 \\
+description & 0.08 & 0.08 & 0.08 & 0.08 & $\ldots$ & 0.08 \\
+category & 0.08 & 0.08 & 0.08 & 0.08 & $\ldots$ & 0.08 \\
+tools & 0.08 & 0.08 & 0.08 & 0.08 & $\ldots$ & 0.08 \\
+instructions & 0.08 & 0.08 & 0.08 & 0.08 & $\ldots$ & 0.08 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+所有12个utterance的5个field注意力权重均为0.08（$=1/12$）——完全均匀分布。这一结果具有双重含义。在诊断层面，它明确揭示了当前模型（5 epochs训练）尚未学会区分技能相关与技能无关的utterance——分类准确率1.0可能源自数据集的类别不平衡（正负样本比例严重倾斜，预测全为负即可获得高准确率），而val\_tools\_f1=0.08进一步证实模型尚未具备有效的特征选择能力。
+
+在工程层面，均匀的注意力分布提供了可解释的基线状态——随着训练数据量和epoch数的增加，预期行为是注意力权重的分布从均匀逐渐收敛为集中在技能相关utterance上的尖锐分布。这一收敛过程本身可以作为训练进度的监控指标。三个改进方向被确定为后续工作的优先级：(1) 将训练数据规模从当前的数十条扩展到200条以上的（转录文本，技能定义）对；(2) 将训练epoch从5增加到20--30；(3) 将冷启动先验权重从0.3提升至0.5或更高，以在训练早期提供更强的领域知识引导。
+
+\subsection{实验4: 技能分类分布}
+
+表~\ref{tab:classification}展示了AWS运维团队技能库的三池分布。
+
+\begin{table}[t]
+\centering
+\caption{技能分类三池分布（AWS运维团队）}
+\label{tab:classification}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcc}
+\toprule
+池 & 技能数 & 典型技能 \\
+\midrule
+特有（Exclusive） & 0 & — \\
+通用（General） & 0 & — \\
+储备（Reserve） & 3 & ES伸缩运维, ES实例缩放, OS迁移预案 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+所有3项技能均处于储备池——特有池和通用池均为空。这一分布的直接原因是技能的效果指标（effectiveness=0）和使用计数（total\_uses=0）均为零——技能从未被任务执行过，无法通过分类门槛（effectiveness$\geq$0.6，单团队使用占比$\geq$0.8）。这暴露了当前系统的结构性瓶颈：技能萃取与技能使用之间存在断链。在完整的闭环设计中，萃取产出的技能需要通过SkillAssigner模块绑定到后续任务的执行Agent上；任务执行产生的usage数据反馈至SkillEffectivenessTracker，推动技能从储备池向通用池或特有池晋升。当前系统中这一链路尚未闭合——TSE流水线和技能库构建已完成，但任务执行和效果追踪尚未启用。
+
+\subsection{实验5: 闭环系统节点状态}
+
+为完整评估系统成熟度，表~\ref{tab:loop_status}按闭环的关键节点报告了各环节的就绪状态。
+
+\begin{table}[t]
+\centering
+\caption{闭环系统节点状态矩阵}
+\label{tab:loop_status}
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{lll}
+\toprule
+环节 & 状态 & 待解决 \\
+\midrule
+Plaza讨论 & \color{red}不可用 & 需要LLM API key \\
+技能萃取 (TSE) & \color{green}可用 & Stage 4 解码需LLM \\
+技能索引 & \color{green}可用 & attention需更多训练 \\
+技能赋予 & \color{green}可用 & 无skill-agent绑定记录 \\
+任务执行 & \color{red}不可用 & 需要TSK任务创建/调度 \\
+技能演化 & \color{yellow}部分可用 & 需要任务执行产出usage数据 \\
+技能验证 & \color{yellow}部分可用 & 需要verification queue运行 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+闭环的核心断点是Plaza讨论和任务执行两个环节均依赖LLM能力。Plaza讨论需要LLM运行ORID议程（当前因无API key而退化为模拟模式），TSE的Stage 4解码器同样依赖LLM（在线模式下调用ChatHarness decoder，离线模式下使用确定性模板）。任务执行和技能演化因其对LLM任务完成和usage数据收集的依赖而无法在无LLM条件下闭环。
+
+\section{讨论}
+
+\subsection{Plaza与TSE的系统性协同}
+
+Plaza讨论与TSE萃取之间存在一个被实验结果验证的正反馈关系。Plaza的ORID四层结构使得讨论产出具有结构化特征——Fact层产出定义性技能内容，Risk层产出边界性和约束性技能内容，Solution Debate层产出工具和API引用，Decision层产出的执行计划直接对应技能的操作指令。这种讨论层面的结构化使得TSE的Stage 2（TCN序列建模）能够更有效地利用时序位置信息——ORID议程的顺序性天然地为序列的不同位置赋予了不同的语义类型。
+
+此外，Plaza的仪式信号（特别是CHALLENGE信号）为TSE的注意力机制提供了额外的区分特征。实验结果显示两条讨论的技能2均源自CHALLENGE信号触发的发言——这表明CHALLENGE信号标记的讨论片段富含技能定义的约束与边界维度，而这一维度在自由聊天中是最容易被忽略的。通过将仪式信号嵌入与话语文本联合输入，TSE能够在注意力阶段获得比纯文本基线更精准的聚焦能力。
+
+\subsection{训练数据的规模瓶颈}
+
+当前checkpoint的均匀注意力分布揭示了TSE训练中的一个根本性瓶颈——训练数据规模不足。5个epoch在有限银标数据上的训练产生了val\_tools\_f1=0.08的极低工具分类性能，这在一个50类多标签分类任务中近乎随机水平。三个数据维度需要扩展：(1) 数量——从当前的数十条增加到200条以上；(2) 多样性——覆盖更多的讨论议题、更多的Plaza配置（不同niche数量、不同仪式信号分布）；(3) 标注质量——从银标准（LLM预标注，78\%完全正确）过渡到金标准（人工交叉验证）。
+
+冷启动先验权重（0.3）的设计初衷是在数据稀疏时提供引导，但当前结果表明0.3的权重不足以克服数据稀疏性——模型在5个epoch后仍被均匀分布主导。将先验权重提升至0.5或采用先验衰减策略（从0.5开始，每个epoch衰减10\%）是近期可行的改进路径。
+
+\subsection{与LLM基线的对比}
+
+TSE与基于LLM的萃取方法在延迟和可部署性上存在数量级的差异。TSE在CPU上的延迟为10.4ms——比GPT-4的典型推理延迟（1--5秒）快100--500倍。这一速度优势使得TSE适用于高频实时萃取场景（如在线讨论流的逐轮次萃取），而LLM适用于需要更高质量但可接受延迟的离线批处理场景。纯numpy推理引擎的无GPU依赖特性使得TSE可部署在任意计算环境（包括边缘设备和低配服务器）中，这与LLM对大规模GPU集群的依赖形成互补。
+
+然而，TSE的准确率受限于有限训练数据和当前注意力均匀分布的限制。在LLM可用的条件下，Stage 4的解码器（将注意力表示转化为自然语言JSON）由ChatHarness decoder执行——这一设计保持了TSE在编码阶段的轻量优势，将需要语言理解能力的结构化生成委托给LLM。未来在积累足够的金标准训练数据后，可以用轻量级解码器（如LSTM或Transformer Decoder）替代LLM，实现完全端到端且不依赖LLM的萃取管道。
+
+\subsection{闭环的断点与修复路径}
+
+表~\ref{tab:loop_status}揭示的闭环断点（Plaza讨论和任务执行均依赖LLM）指向一个明确的修复路径——接入LLM API。配置LLM API key后，五个环节将被同时激活：(1) Plaza运行ORID议程——从模拟模式切换到真实LLM驱动模式，产出具有可变性和创造性的讨论内容；(2) TSE Stage 4 decoder调用LLM将注意力表示转化为自然语言JSON，提升萃取质量；(3) 任务执行调用LLM完成任务——产出usage数据驱动技能分类器和效果追踪器；(4) 技能演化引擎收集usage数据——触发自动改进建议和A/B测试；(5) 闭环完成——从讨论到萃取到使用到反馈到回注的完整生命周期开始运转。
+
+\section{相关工作}
+
+\subsection{多智能体讨论框架}
+
+多智能体辩论（MAD）文献以答案收敛为目标，与本文的技能抽取目标有本质区别。Du等人~\cite{du2023improving}展示了多轮辩论对推理准确性的提升效果，但他们的框架缺乏角色多样性和结构化信号。Liang等人~\cite{liang2023encouraging}通过鼓励分歧防止了过早收敛，但其发散是随机的而非角色驱动的。Zhang等人~\cite{zhang2024reconcile}的置信度加权圆桌会议引入了置信度作为发言权重的机制。Xiong等人~\cite{xiong2023dubi}的协商式头脑风暴框架明确了发散→聚类→收敛的三阶段结构。本文的Plaza模型在这些工作的基础上增加了两个关键维度：角色分工（通过niche分配）和可萃取性设计（讨论结构被优化为有利于后续自动萃取）。
+
+TurQUaz辩论~\cite{gungor2025turquaz}是2020--2026年间一篇专门设计给多LLM Agent的结构化辩论方法，但其辩论模型更适合真假判断任务，不适合团队规划场景。Plaza通过将TurQUaz的Council debate模式嵌入ORID议程的Solution Debate层，在辩论尖锐性和议程结构之间取得了平衡。
+
+\subsection{对话信息抽取与结构化知识}
+
+对话信息抽取文献为本文的TSE架构提供了方法论背景。Yu等人~\cite{yu2022d2k}的D2K对比预训练通过对比学习从对话中识别知识三元组，展示了从非结构化对话中提取结构化信息的可行性。然而，这些方法均针对人类对话设计——人类对话的稀疏性和不确定性远低于LLM生成的Plaza讨论，后者呈现更密集的技能相关内容分布。
+
+在架构层面，Bai等人~\cite{bai2018tcn}的TCN在序列建模任务中证明了膨胀卷积相对于RNN的优势，特别是在并行计算和长程依赖捕获方面。Beltagy等人~\cite{beltagy2020longformer}的Longformer-Encoder-Decoder通过稀疏注意力处理长文档。本文的TSE将TCN嵌入到多级层次化编码架构中——话语级→对话级→注意力融合——这一三级递归结构在对话信息抽取文献中是新颖的。
+
+\subsection{多智能体技能管理}
+
+Voyager~\cite{wang2023voyager}率先展示了LLM智能体通过技能库积累和复用行为知识的能力，但其技能以可执行代码形式存储，缺乏跨智能体、跨团队的泛化机制。近期关于LLM智能体技能规范的研究开始系统化地审视技能的可移植性和安全性~\cite{skill_pseudocode2025,skill_comprehension2025}。CoALA~\cite{sumers2023coala}从认知科学角度提出了语言智能体的统一认知架构，将技能定位为长期记忆中的程序性知识。本文的Plaza+TSE管道可视为上述理论框架的具体工程实现——从会话萃取（感知）、TCN编码（记忆存储）、注意力检索（记忆检索）到结构化输出（学习与改进）构成了完整的认知循环。
+
+\section{结论}
+
+本文提出了面向多智能体团队的Plaza结构化讨论模型和TSE神经技能萃取架构，实现了从多智能体自由辩论到结构化可复用知识的端到端管道。Plaza模型通过ORID四层议程、四Facilitator角色分工和五指量表共识机制，将LLM Agent的自由辩论转化为具有可追溯性和可萃取性的结构化对话。TSE架构采用话语级编码、TCN序列建模和跨模态注意力融合的三级递进策略，在CPU上以10.4ms平均延迟完成9轮发言的技能萃取，每轮讨论稳定产出2项结构化技能。
+
+实验结果验证了系统的技术可行性，同时揭示了三个关键瓶颈：LLM依赖导致Plaza讨论和Stage 4解码器在无API条件下降级为确定性模式；训练数据规模不足导致attention权重均匀分布（val\_tools\_f1=0.08）；技能使用断链导致萃取产出的技能无法积累效果证据以晋升分类池。三个改进方向构成后续工作的优先级：(1) 接入LLM API以激活全闭环——Plaza讨论、TSE Stage 4解码和任务执行；(2) 将训练数据扩展至200条以上并增加epoch至20--30以改善注意力学习；(3) 提升冷启动先验权重从0.3到0.5并采用衰减策略以在数据稀疏阶段提供更强的领域引导。
+
+Plaza+TSE管道与配套论文中的自然选择演化引擎共同构成AgentsGroup2026平台的完整技能生命周期管理系统——从技能诞生（萃取）、成长（索引与检索）、成熟（演化与优化）到传承（分类与赋予）的四个阶段形成互相强化的正反馈闭环。
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

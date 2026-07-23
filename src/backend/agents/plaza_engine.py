@@ -27,6 +27,10 @@ from .plaza import (
     Discussion, DiscussionStatus, NicheRole, Participant,
     Plaza, PlazaMessage, SeatTier, PRESET_TOPICS,
 )
+from .plaza_consensus import (
+    FistToFiveVote, collect_fist_to_five, format_fist_to_five_summary,
+    generate_blocking_resolution_prompt,
+)
 from .plaza_store import PlazaStore
 from .token_context import token_scope
 
@@ -49,6 +53,11 @@ class RitualSignal(str, Enum):
 _ROUND_SPEAKER_LIMIT = 5
 _EXCHANGES_PER_ROUND = 2  # 每轮内交锋次数
 _SPEAKERS_PER_EXCHANGE = 3  # 每次交锋参与人数
+# ── ORID 四层结构化审议常量 (TurQUaz Council Debate + ORID) ──
+# O 客观事实 → R 风险直觉 → I 方案对立辩论 → D 五指决策
+_ORID_PHASE_COUNT = 4
+_FALLBACK_ABORT_THRESHOLD = 2  # 连续 N 个 agent 走 fallback → LLM 不可用，终止
+_DEBATE_ROUNDS = 3             # TurQUaz Single Debate 交锋轮数
 _MAX_RETRIES = 3  # LLM 调用最大重试次数
 _RETRY_BACKOFF_BASE = 1.5  # 退避基数（秒）
 _LLM_CALL_TIMEOUT = 30.0  # 单次 LLM 调用超时（12s 太短，高峰期容易超时走 fallback）
@@ -535,53 +544,11 @@ class PlazaEngine:
 
         await self._run_discussion_opening(disc, moderator, speakers)
 
-        # ── 多轮讨论 (辩论式交锋) ──
-        _consecutive_fallback = 0  # 连续 fallback 计数，超过阈值则终止讨论
-        _FALLBACK_ABORT_THRESHOLD = 2  # 连续 2 个 agent 走 fallback → LLM 不可用，终止
-        for round_num in range(1, disc.max_rounds + 1):
-            disc.current_round = round_num
-            await self._broadcast(disc.id, {
-                "type": "round_start", "round": round_num,
-                "max_rounds": disc.max_rounds,
-            })
-
-            round_speakers = self._select_round_speakers(speakers, round_num)
-            # 每轮多次短交锋，模拟辩论赛节奏
-            exchanges = _EXCHANGES_PER_ROUND if disc.max_rounds <= 2 else 2
-            for ex_idx in range(exchanges):
-                # 轮转选人: 每次交锋选不同子集
-                ex_speakers = self._pick_exchange_speakers(
-                    round_speakers, ex_idx, _SPEAKERS_PER_EXCHANGE,
-                )
-                for speaker in ex_speakers:
-                    speak_prompt = self._build_round_speaker_prompt(
-                        disc, speaker, round_num, ex_idx,
-                    )
-                    await self._speak_with_lock(
-                        disc, speaker, speak_prompt, round_number=round_num,
-                        niche_role=speaker.niche_role.value,
-                    )
-                    # 检测 fallback：LLM 不可用时连续 fallback → 终止讨论
-                    if self._last_call_was_fallback:
-                        _consecutive_fallback += 1
-                        if _consecutive_fallback >= _FALLBACK_ABORT_THRESHOLD:
-                            await self._abort_discussion_for_fallback(
-                                disc, moderator, round_num, _consecutive_fallback,
-                            )
-                            break
-                    else:
-                        _consecutive_fallback = 0  # LLM 成功，重置计数
-                else:
-                    continue  # 内层 for 正常结束，继续外层
-                break  # 内层被 break（fallback 终止），跳出外层 exchanges
-
-            # Moderator 收束本轮 (非最后一轮时)
-            if round_num < disc.max_rounds:
-                summary_prompt = self._build_round_summary_prompt(disc, round_num)
-                await self._speak_with_lock(
-                    disc, moderator, summary_prompt, round_number=round_num,
-                    niche_role="moderator",
-                )
+        # ── ORID 四层结构化审议 (TurQUaz Council Debate + ORID) ──
+        # 文献: Gungor et al. 2025 (arXiv:2508.08265) TurQUaz 对立辩论;
+        #       Stanfield 1997 ORID 聚焦式对话四层; Kaner et al. 2014 五指共识。
+        # O 客观事实 → R 风险直觉 → I 方案对立辩论 → D 五指决策。
+        await self._run_orid_phases(disc, moderator, speakers)
 
         # ── 最终总结 ──
         disc.status = DiscussionStatus.SUMMARIZING
@@ -679,17 +646,362 @@ class PlazaEngine:
     @staticmethod
     def _build_discussion_opening_prompt(disc: Discussion, speakers: List[Participant]) -> str:
         return (
-            f"你是本场讨论的议事长（主持人）。\n"
+            f"你是本场讨论的议事长（Facilitator）。\n"
             f"讨论话题: 「{disc.topic}」\n"
             f"{f'话题描述: {disc.description}' if disc.description else ''}\n"
             f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n"
             f"参与者: {', '.join(p.agent_name or p.agent_id for p in speakers)}\n\n"
+            f"本场讨论采用 ORID 四层结构：①客观事实 ②风险直觉 ③方案对立辩论 ④五指决策。\n"
             f"请开场:\n"
-            f"- 用 2-4 句话点明讨论的核心问题\n"
-            f"- 直接围绕用户提出的话题展开，不要自行转换或重新解读话题\n"
-            f"- 然后向参与者提出第一个需要讨论的具体问题\n"
+            f"- 用 2-3 句话点明讨论的核心问题，直接围绕话题展开，不要自行转换话题\n"
+            f"- 说明接下来将先盘点客观事实，再谈风险，再对立辩论方案，最后五指表决\n"
             f"- 说人话，像一个项目经理在主持会议"
         )
+
+    # ══════════════════════════════════════════════════════════════
+    # ORID 四层结构化审议 (TurQUaz Council Debate + ORID)
+    # 文献: Gungor 2025 arXiv:2508.08265 / Stanfield 1997 / Kaner 2014
+    # ══════════════════════════════════════════════════════════════
+
+    async def _run_orid_phases(
+        self,
+        disc: Discussion,
+        moderator: Optional[Participant],
+        speakers: List[Participant],
+    ) -> bool:
+        """按 O→R→I→D 四层推进讨论。返回 True 表示因 LLM 连续 fallback 中止。"""
+        disc.max_rounds = _ORID_PHASE_COUNT
+        fallback = [0]  # 可变计数器，跨层共享连续 fallback 次数
+        capped = self._select_round_speakers(speakers, 1) if len(speakers) > _ROUND_SPEAKER_LIMIT else speakers
+
+        if await self._run_fact_finding(disc, moderator, capped, fallback):
+            return True
+        if await self._run_risk_intuition(disc, moderator, capped, fallback):
+            return True
+        if await self._run_solution_debate(disc, moderator, speakers, fallback):
+            return True
+        if await self._run_decision_commitment(disc, moderator, capped, fallback):
+            return True
+        return False
+
+    async def _broadcast_phase_start(
+        self, disc: Discussion, phase_num: int, label: str,
+    ) -> None:
+        disc.current_round = phase_num
+        await self._broadcast(disc.id, {
+            "type": "round_start", "round": phase_num,
+            "max_rounds": _ORID_PHASE_COUNT, "phase": label,
+        })
+
+    async def _facilitator_says(
+        self, disc: Discussion, moderator: Optional[Participant],
+        content: str, phase_num: int, metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[PlazaMessage]:
+        """议事长发出固定的仪式化引导语（确定性，不调用 LLM）。"""
+        if moderator is None:
+            return None
+        async with self._get_discussion_lock(disc.id):
+            return await self.publish_message(
+                disc, moderator, content, round_number=phase_num,
+                niche_role="moderator", metadata=metadata or {"orid_phase": phase_num},
+            )
+
+    def _track_fallback(self, fallback: List[int]) -> bool:
+        """更新连续 fallback 计数；达到阈值返回 True。"""
+        if self._last_call_was_fallback:
+            fallback[0] += 1
+            return fallback[0] >= _FALLBACK_ABORT_THRESHOLD
+        fallback[0] = 0
+        return False
+
+    async def _orid_speak(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speaker: Participant, prompt: str, phase_num: int, fallback: List[int],
+        niche_role: Optional[str] = None,
+    ) -> Tuple[Optional[PlazaMessage], bool]:
+        """让一个 agent 在某层发言。返回 (消息, 是否应中止讨论)。"""
+        msg = await self._speak_with_lock(
+            disc, speaker, prompt, round_number=phase_num,
+            niche_role=niche_role or speaker.niche_role.value,
+        )
+        if self._track_fallback(fallback):
+            await self._abort_discussion_for_fallback(
+                disc, moderator, phase_num, fallback[0],
+            )
+            return msg, True
+        return msg, False
+
+    # ── Phase 1 (O) — 客观事实盘点 ──────────────────────────────
+    async def _run_fact_finding(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], fallback: List[int],
+    ) -> bool:
+        await self._broadcast_phase_start(disc, 1, "客观事实")
+        await self._facilitator_says(
+            disc, moderator,
+            "第一层 · 客观事实。请每位只陈述一条与话题相关、可验证的客观事实——"
+            "不解释、不判断、不建议、不表达感受。",
+            1,
+        )
+        for sp in speakers:
+            _, abort = await self._orid_speak(
+                disc, moderator, sp, self._build_fact_finding_prompt(disc, sp), 1, fallback,
+            )
+            if abort:
+                return True
+        return False
+
+    def _build_fact_finding_prompt(self, disc: Discussion, speaker: Participant) -> str:
+        ctx = f"背景: {disc.description}\n" if disc.description else ""
+        return (
+            f"关于「{disc.topic}」的第一层——客观事实盘点。\n{ctx}"
+            f"你是 {speaker.agent_name}（{speaker.role}）。\n\n"
+            f"只做一件事：陈述一条与话题相关、客观且可验证的事实。\n"
+            f"禁止：解释、判断、给建议、表达感受或倾向。\n"
+            f"格式：用一句话陈述这条事实，不超过 40 字。"
+        )
+
+    # ── Phase 2 (R) — 风险与直觉 ────────────────────────────────
+    async def _run_risk_intuition(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], fallback: List[int],
+    ) -> bool:
+        await self._broadcast_phase_start(disc, 2, "风险直觉")
+        await self._facilitator_says(
+            disc, moderator,
+            "第二层 · 风险与直觉。请每位只说出你直觉认为最大的风险或隐忧——"
+            "不反驳他人的担忧，不辩论概率；感受无需证据，每个担忧都有效。",
+            2,
+        )
+        for sp in speakers:
+            _, abort = await self._orid_speak(
+                disc, moderator, sp, self._build_risk_intuition_prompt(disc, sp), 2, fallback,
+            )
+            if abort:
+                return True
+        return False
+
+    def _build_risk_intuition_prompt(self, disc: Discussion, speaker: Participant) -> str:
+        recent = self._format_recent(disc, limit=6)
+        return (
+            f"关于「{disc.topic}」的第二层——风险与直觉。\n已盘点的事实:\n{recent}\n\n"
+            f"你是 {speaker.agent_name}（{speaker.role}）。\n"
+            f"只做一件事：说出你直觉认为最大的风险或隐忧是什么。\n"
+            f"规则：不反驳别人的担忧，不辩论风险概率；感受无需证据。\n"
+            f"格式：一句话点出风险，不超过 50 字。"
+        )
+
+    # ── Phase 3 (I) — 方案对立辩论 (TurQUaz Single Debate) ──────
+    async def _run_solution_debate(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], fallback: List[int],
+    ) -> bool:
+        await self._broadcast_phase_start(disc, 3, "方案思辨")
+        debaters = speakers[:2]
+        if len(debaters) < 2:
+            if not debaters:
+                return False
+            _, abort = await self._orid_speak(
+                disc, moderator, debaters[0],
+                self._build_solo_debate_prompt(disc, debaters[0]), 3, fallback,
+            )
+            return abort
+
+        a, b = debaters[0], debaters[1]
+        await self._facilitator_says(
+            disc, moderator, self._build_debate_setup(disc, a, b), 3,
+        )
+        # 三轮针锋相对
+        for ex in range(_DEBATE_ROUNDS):
+            for side, agent in (("A", a), ("B", b)):
+                _, abort = await self._orid_speak(
+                    disc, moderator, agent,
+                    self._build_debate_turn_prompt(disc, agent, side, ex), 3, fallback,
+                )
+                if abort:
+                    return True
+        # 评判者（议事长）追问关键假设
+        await self._facilitator_says(
+            disc, moderator,
+            "评判提问：你所主张方案的核心假设是什么？如果这些假设不成立，会发生什么？",
+            3,
+        )
+        for agent in (a, b):
+            _, abort = await self._orid_speak(
+                disc, moderator, agent,
+                self._build_assumption_reply_prompt(disc, agent), 3, fallback,
+            )
+            if abort:
+                return True
+        return False
+
+    def _build_debate_setup(
+        self, disc: Discussion, a: Participant, b: Participant,
+    ) -> str:
+        return (
+            f"第三层 · 方案对立辩论。{a.agent_name} 与 {b.agent_name} 请各自提出并坚守一个"
+            f"对立的方案方向，围绕「{disc.topic}」进行 {_DEBATE_ROUNDS} 轮针锋相对的辩论。"
+            f"目标不是压倒对方，而是把两个方案的关键差异与各自假设充分暴露出来。"
+        )
+
+    def _build_debate_turn_prompt(
+        self, disc: Discussion, speaker: Participant, side: str, ex: int,
+    ) -> str:
+        recent = self._format_recent(disc, limit=5)
+        stance = "方案A（更进取/变革的一方）" if side == "A" else "方案B（更稳健/保守的一方）"
+        return (
+            f"你是 {speaker.agent_name}（{speaker.role}），在关于「{disc.topic}」的对立辩论中持{stance}。\n"
+            f"第 {ex+1}/{_DEBATE_ROUNDS} 轮交锋。\n刚才的交锋:\n{recent}\n\n"
+            f"要求：坚守你这一方的方案立场，针对对方上一轮论点反驳，并强化你方论据。\n"
+            f"说 2-4 句，100 字左右，直接有力，不写列表。"
+        )
+
+    def _build_assumption_reply_prompt(
+        self, disc: Discussion, speaker: Participant,
+    ) -> str:
+        recent = self._format_recent(disc, limit=6)
+        return (
+            f"议事长在追问关键假设。你是 {speaker.agent_name}（{speaker.role}）。\n最近讨论:\n{recent}\n\n"
+            f"坦诚列出你方案依赖的 1-2 个关键假设，并说明假设失效时的后果。2-3 句话。"
+        )
+
+    def _build_solo_debate_prompt(
+        self, disc: Discussion, speaker: Participant,
+    ) -> str:
+        return (
+            f"关于「{disc.topic}」，请你同时扮演正反两方：先提出一个方案方向并给出最强论据，"
+            f"再站到对立面指出它最大的弱点和隐含假设。4-6 句话。"
+        )
+
+    # ── Phase 4 (D) — 五指决策与承诺 (Fist-to-Five) ────────────
+    async def _run_decision_commitment(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], fallback: List[int],
+    ) -> bool:
+        await self._broadcast_phase_start(disc, 4, "决策承诺")
+        proposal = self._format_recent(disc, limit=8)
+        await self._facilitator_says(
+            disc, moderator, self._build_vote_call(disc, proposal), 4,
+        )
+        votes, abort = await self._collect_votes(disc, moderator, speakers, fallback)
+        if abort:
+            return True
+        result = collect_fist_to_five(votes)
+
+        # 处理根本性反对（1指）：议事长追问 → 阻断者复投 → 重新汇总
+        if result.blocking_agents and not result.consensus_reached:
+            if await self._resolve_blocking(
+                disc, moderator, speakers, votes, result, proposal, fallback,
+            ):
+                return True
+            result = collect_fist_to_five(votes)
+
+        disc.metadata["fist_to_five"] = result.to_dict()
+        disc.metadata["fist_to_five_summary"] = format_fist_to_five_summary(result)
+        disc.key_conclusions = self._fist_to_five_conclusions(result)
+        await self._broadcast(disc.id, {
+            "type": "fist_to_five", "result": result.to_dict(),
+        })
+        return False
+
+    async def _collect_votes(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], fallback: List[int],
+    ) -> Tuple[List[FistToFiveVote], bool]:
+        votes: List[FistToFiveVote] = []
+        for sp in speakers:
+            msg, abort = await self._orid_speak(
+                disc, moderator, sp, self._build_vote_prompt(disc, sp), 4, fallback,
+            )
+            if abort:
+                return votes, True
+            votes.append(self._make_vote(sp, msg))
+        return votes, False
+
+    async def _resolve_blocking(
+        self, disc: Discussion, moderator: Optional[Participant],
+        speakers: List[Participant], votes: List[FistToFiveVote],
+        result, proposal: str, fallback: List[int],
+    ) -> bool:
+        blockers = [s for s in speakers if s.agent_id in result.blocking_agents]
+        names = [b.agent_name or b.agent_id for b in blockers]
+        await self._facilitator_says(
+            disc, moderator,
+            generate_blocking_resolution_prompt(names, proposal), 4,
+        )
+        for b in blockers:
+            msg, abort = await self._orid_speak(
+                disc, moderator, b, self._build_revote_prompt(disc, b), 4, fallback,
+            )
+            if abort:
+                return True
+            new_vote = self._make_vote(b, msg)
+            for i, v in enumerate(votes):
+                if v.agent_id == b.agent_id:
+                    votes[i] = new_vote
+                    break
+        return False
+
+    def _make_vote(
+        self, speaker: Participant, msg: Optional[PlazaMessage],
+    ) -> FistToFiveVote:
+        content = msg.content if msg else ""
+        return FistToFiveVote(
+            agent_id=speaker.agent_id,
+            agent_name=speaker.agent_name or speaker.agent_id,
+            fingers=self._parse_finger_vote(content),
+            reason=content[:120],
+        )
+
+    @staticmethod
+    def _parse_finger_vote(content: str) -> int:
+        """从投票发言中解析 1-5 的指数，解析失败默认 3（可以接受）。"""
+        if not content:
+            return 3
+        m = re.search(r"指数[:：]\s*([1-5])", content)
+        if m:
+            return int(m.group(1))
+        m = re.search(r"([1-5])\s*指", content)
+        if m:
+            return int(m.group(1))
+        m = re.search(r"\b([1-5])\b", content)
+        return int(m.group(1)) if m else 3
+
+    def _build_vote_call(self, disc: Discussion, proposal: str) -> str:
+        return (
+            f"第四层 · 决策与承诺。基于前三层的事实、风险与方案辩论，"
+            f"现在用五指量表（Fist-to-Five）表态：\n"
+            f"5指=全力支持，愿意带头执行；4指=支持，有小顾虑；3指=可以接受，跟随团队；"
+            f"2指=有保留，希望修改；1指(拳头)=根本性反对，不能接受。\n"
+            f"当前方案要点:\n{proposal}"
+        )
+
+    def _build_vote_prompt(self, disc: Discussion, speaker: Participant) -> str:
+        return (
+            f"你是 {speaker.agent_name}（{speaker.role}）。就「{disc.topic}」的当前方案用五指量表表态。\n"
+            f"严格按以下两行格式输出，不要多写:\n"
+            f"指数：<1到5的整数>\n"
+            f"理由：<一句话说明；若你给1指，必须说清什么让你不能接受>"
+        )
+
+    def _build_revote_prompt(self, disc: Discussion, speaker: Participant) -> str:
+        return (
+            f"你是 {speaker.agent_name}（{speaker.role}）。议事长针对你的根本性反对做了追问。\n"
+            f"请回应：说明需要修改什么条件你才能接受，然后重新用五指表态。\n"
+            f"最后一行严格输出:\n指数：<1到5的整数>"
+        )
+
+    def _fist_to_five_conclusions(self, result) -> List[str]:
+        conclusions = [
+            f"五指共识: {result.consensus_level}（均值 {result.mean_fingers:.1f}/5）",
+        ]
+        if result.blocking_agents:
+            conclusions.append(
+                f"存在根本性反对（{len(result.blocking_agents)}人），记录为有保留的共识"
+            )
+        elif result.consensus_reached:
+            conclusions.append("团队达成可执行共识")
+        return conclusions
 
     def _build_round_speaker_prompt(
         self,
@@ -788,14 +1100,19 @@ class PlazaEngine:
         )
 
     def _build_final_summary_prompt(self, disc: Discussion) -> str:
+        vote_summary = disc.metadata.get("fist_to_five_summary", "")
+        vote_block = f"五指表决结果:\n{vote_summary}\n\n" if vote_summary else ""
         return (
-            f"你是议事长。关于「{disc.topic}」的讨论已经完成 {disc.max_rounds} 轮。\n"
+            f"你是议事长。关于「{disc.topic}」的 ORID 四层审议"
+            f"（客观事实→风险直觉→方案对立辩论→五指决策）已经完成。\n"
             f"{f'背景描述: {disc.description}' if disc.description else ''}\n"
             f"{f'讨论目标: {disc.goal}' if disc.goal else ''}\n\n"
             f"完整讨论记录:\n{self._format_history(disc)}\n\n"
+            f"{vote_block}"
             f"请生成可直接派发任务的执行概要。核心原则——有取舍、有权重:\n"
             f"- 根据讨论内容自行判断哪些观点最关键，按重要性赋予 P0/P1/P2 优先级\n"
             f"- P0 = 直接推进核心目标的行动项；P1 = 重要但可并行或延后；P2 = 补充建议\n"
+            f"- 若存在根本性反对（1指），须在概要中明确记录为「有保留的共识」及其条件\n"
             f"- 不要预设领域权重，以讨论实际内容和目标为准\n\n"
             f"输出结构 (严格按此格式，不要自由发挥):\n"
             f"## 讨论概要\n"
