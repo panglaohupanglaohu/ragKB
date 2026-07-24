@@ -398,3 +398,14 @@
 | 06:00 | P3 README记忆章节+detail Persona/中枢深链+AAS桥接 | README agent-detail memory_system runtime | 12 pytest | ~3k |
 | 06:40 | 夜间优化: auto-bind/对话写记忆/反思/深链/state=unbound默认 | runtime lifecycle agent-detail memory-page | 14 pytest + 4 vitest | ~4k |
 | 07:25 | 续优化: 共享预览/co_write/健康分/对话反思 | share lifecycle memory-page | 15 pytest + 5 vitest | ~3k |
+
+## 2026-07-23T23:43:31Z
+- Fixed /api/v1/agent-config/teams 500 report: endpoint 200 after restart; hardened list_teams; Cloud Ops factory kwargs now load (7 teams).
+- agent-team-config loadAgent delegates to agent-detail window.loadAgent; ag-memory tab fallback + cache-bust v=20260724-teams-mem.
+- getTeamsList tolerates {items} envelope and keeps last-good cache on empty/fail.
+
+## 2026-07-23T23:46:48Z
+- Root cause of agent-team-config API 500 noise: `async function api` clobbered window.api; fixed via const api + 5xx retry on getTeamsList.
+
+## 2026-07-23T23:53:06Z
+- 深链 atab=ag-memory 空白：config/detail 双 loadAgent 竞态，已 wait __detailLoadAgent + detail 二次加载。

@@ -33,6 +33,7 @@
 
 
 ## Key Learnings
+- [2026-07-24] `GET /api/v1/agent-config/teams` 控制台 500：api.js:363 只是全局 fetch 包装行号；常因 Vite 反代时后端重启瞬时失败。list_teams 已防御性跳过坏 team；配置页 loadAgent 须委托 window.loadAgent（agent-detail IIFE）否则记忆绑定 tab 空白。
 - [2026-07-24] 记忆默认 state=unbound（无 meta 非 active）；`ensure_memory_ready` 首次使用 auto-bind；`record_chat_turn` 对话入感知+日志；沈弥安 `maybe_reflect` 高重要度反思；中枢支持 ?team_id&agent_id&seg 深链。
 - [2026-07-24] Agent记忆 P3 收口：README 专章；配置页记忆 tab 对齐 lifecycle/persona/中枢；AAS `bridge_aas_experience`（`AG_MEMORY_AAS_BRIDGE=1`）。P0–P3 主链路完成。
 - [2026-07-24] Agent记忆 P2：`agent_memory_runtime` prepare/inject；chat_harness 注入 tone+recall（plaza 跳过）；TASK_COMPLETED/FAILED→record_task_outcome；tool_loop→record_perception+阈值compress；Persona autonomy 旋钮控制。

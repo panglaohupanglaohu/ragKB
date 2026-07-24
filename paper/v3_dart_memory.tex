@@ -13,8 +13,6 @@
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{fancyhdr}
-\usepackage{tikz}
-\usetikzlibrary{shapes,arrows,positioning,fit,backgrounds}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
 \setlength{\columnsep}{18pt}
@@ -129,29 +127,7 @@ Plaza的物理空间采用环状12-niche布局（图~\ref{fig:plaza_niche}），
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[scale=0.7, every node/.style={font=\small}]
-  % 三层环形
-  \draw[thick] (0,0) circle (3.2);
-  \draw[thick] (0,0) circle (2.0);
-  \draw[thick] (0,0) circle (0.9);
-  % 内环 4 niche
-  \foreach \i/\l in {0/架构师, 90/运维员, 180/监控员, 270/成本员} {
-    \node[circle,draw,fill=blue!15,minimum size=14mm] at (\i:1.45) {\l};
-  }
-  % 中环 4 niche
-  \foreach \i/\l in {45/安全, 135/容器, 225/CI/CD, 315/DB} {
-    \node[circle,draw,fill=green!15,minimum size=14mm] at (\i:2.6) {\l};
-  }
-  % 外环 4 niche
-  \foreach \i/\l in {67/git, 157/审查, 247/记录, 337/观察} {
-    \node[circle,draw,fill=orange!15,minimum size=14mm] at (\i:3.5) {\l};
-  }
-  \node at (0,0) [circle,fill=red!20,minimum size=10mm] {\small 主持};
-  % 标签
-  \node at (4.5, 0) {外环};
-  \node at (3.2, 0) {中环};
-  \node at (1.8, 0) {内环};
-\end{tikzpicture}
+\includegraphics[width=\linewidth]{fig1_plaza_niche.png}
 \caption{Plaza环状12-Niche座位布局：内环4座位分配核心职能Agent，中环4座位分配扩展职能，外环4座位分配观察/记录角色。中心为主持人调度器。}
 \label{fig:plaza_niche}
 \end{figure}
@@ -189,25 +165,7 @@ DART-Net的架构遵循``话语$\rightarrow$序列$\rightarrow$探查''的三级
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=8mm,
-  box/.style={rectangle,draw,minimum width=32mm,minimum height=8mm,align=center,rounded corners=2pt,font=\footnotesize},
-  arrow/.style={->, >=stealth, thick}
-]
-  \node[box,fill=blue!8] (input) {Plaza审议转录文本\\$(m_1,\ldots,m_n)$};
-  \node[box,fill=green!8,below=of input] (s1) {Stage 1: 话语级哈希编码\\embed\_dim=256};
-  \node[box,fill=green!8,below=of s1] (s2) {Stage 2: TCN序列建模\\dilations=[1,2,4], k=3};
-  \node[box,fill=orange!8,below=of s2] (s3) {Stage 3: 技能查询Cross-Attn\\5个field探针 $q_k$};
-  \node[box,fill=red!8,below=of s3] (s4) {Stage 4: 约束JSON解码\\CodeLLaMA/降级模板};
-  
-  \draw[arrow] (input) -- (s1);
-  \draw[arrow] (s1) -- (s2);
-  \draw[arrow] (s2) -- (s3);
-  \draw[arrow] (s3) -- (s4);
-  
-  \node[box,fill=gray!10,right=of s3,xshift=22mm,yshift=4mm,font=\footnotesize] (aux) {辅助头\\category cls\\tools multi-label};
-  \draw[arrow,dashed] (s3.east) -- (aux.west);
-\end{tikzpicture}
+\includegraphics[width=\linewidth]{fig2_dart_arch.png}
 \caption{DART-Net三级层次化编码架构：Stage 1话语编码$\rightarrow$Stage 2 TCN序列建模$\rightarrow$Stage 3技能查询交叉注意力$\rightarrow$Stage 4约束解码。右侧虚线框为辅助训练头。}
 \label{fig:dart_arch}
 \end{figure}
@@ -270,27 +228,8 @@ Agent之"死"——即被升级、替换或退役——不再意味着其大脑�
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=10mm,
-  box/.style={rectangle,draw,minimum width=28mm,minimum height=8mm,align=center,rounded corners=2pt,font=\footnotesize},
-  arrow/.style={->, >=stealth, thick}
-]
-  \node[box,fill=green!10] (live) {Agent Alpha\\四层记忆在线};
-  \node[box,fill=orange!10,right=of live,xshift=14mm] (seal) {Seal 封存\\Legacy 快照};
-  \node[box,fill=gray!10,right=of seal,xshift=14mm] (will) {Will 遗嘱\\指定继承人};
-  \node[box,fill=blue!10,below=of seal,yshift=-5mm] (export) {Export 导出\\JSON 规范化};
-  \node[box,fill=red!10,below=of export] (import) {Import 导入\\→ Agent Beta};
-  \node[box,fill=green!10,right=of import,xshift=14mm] (beta) {Agent Beta\\继承Alpha全脑};
-  
-  \draw[arrow] (live) -- (seal);
-  \draw[arrow] (seal) -- (will);
-  \draw[arrow,dashed] (live.south) |- (export);
-  \draw[arrow] (export) -- (import);
-  \draw[arrow] (import) -- (beta);
-  \draw[arrow,dashed] (will.south) |- (import);
-  \draw[arrow,dashed] (seal.south) -- (export);
-\end{tikzpicture}
-\caption{记忆遗传流程：Agent Alpha退役$\rightarrow$Seal封存$\rightarrow$Will遗嘱$\rightarrow$Export导出$\rightarrow$Import导入$\rightarrow$Agent Beta继承。虚线表示多条可选路径。}
+\includegraphics[width=\linewidth]{fig3_memory_genetics.png}
+\caption{记忆遗传流程：Agent Alpha退役$\rightarrow$Seal封存$\rightarrow$Will遗嘱$\rightarrow$Export导出$\rightarrow$Import导入$\rightarrow$Agent Beta继承。}
 \label{fig:memory_genetics}
 \end{figure}
 
@@ -333,29 +272,7 @@ Agent之"死"——即被升级、替换或退役——不再意味着其大脑�
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=8mm,
-  box/.style={rectangle,draw,minimum width=26mm,minimum height=7mm,align=center,rounded corners=3pt,font=\footnotesize},
-  arrow/.style={->, >=stealth, thick}
-]
-  \node[box,fill=blue!12] (p) {1. Plaza审议\\ORID+12-niche\\+RitualSignal};
-  \node[box,fill=green!12,right=of p,xshift=12mm] (e) {2. DART-Net萃取\\TCN+CrossAttn\\+JSON dec};
-  \node[box,fill=orange!12,right=of e,xshift=12mm] (i) {3. 技能索引\\TF-IDF向量\\+衰减频率};
-  \node[box,fill=red!12,below=of i] (a) {4. 技能赋予\\SkillRouter\\三池分类};
-  \node[box,fill=purple!12,below=of a] (x) {5. 任务执行\\Agent+技能\\→产出usage};
-  \node[box,fill=cyan!12,below=of x] (v) {6. 技能演化\\效果追踪\\+LLM改进};
-  
-  \draw[arrow] (p) -- (e);
-  \draw[arrow] (e) -- (i);
-  \draw[arrow] (i) -- (a);
-  \draw[arrow] (a) -- (x);
-  \draw[arrow] (x) -- (v);
-  \draw[arrow,bend right=35] (v.west) to (p.south west);
-  
-  \node[box,fill=gray!8,below=of p,yshift=-3mm,xshift=-5mm,font=\small] (mem) {记忆遗传\\(Seal/Will/Import)};
-  \draw[arrow,dashed] (x.south west) -- (mem.north east);
-  \draw[arrow,dashed] (mem.east) -- (a.west);
-\end{tikzpicture}
+\includegraphics[width=\linewidth]{fig4_sys_arch.png}
 \caption{系统六环闭环架构：Plaza审议$\rightarrow$DART-Net萃取$\rightarrow$技能索引$\rightarrow$技能赋予$\rightarrow$任务执行$\rightarrow$技能演化$\rightarrow$回到Plaza。记忆遗传机制通过虚线路径连接任务执行经验积累与技能赋予。}
 \label{fig:sys_arch}
 \end{figure}
@@ -462,21 +379,8 @@ C. 自由聊天 & 0.5~\textasciitilde{}75\% & 33\%~\textasciitilde{}64\% & 0.19~
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[scale=0.65]
-  \draw[->] (0,0) -- (0,5) node[left] {指标};
-  \draw[->] (0,0) -- (10,0) node[below] {};
-  \foreach \v/\l in {1/A.ORID, 5/B.无议程, 9/C.自由聊天} {
-    \fill[blue!60] (\v-0.4,0) rectangle (\v+0.4,4.0) node[above,font=\footnotesize] {\l};
-  }
-  \node at (1,4.2) {\small 2.0};
-  \node at (5,1.5) {\small 0.75};
-  \node at (9,1.0) {\small 0.5};
-  \draw[dashed,red,thick] (0,4.0) -- (10,4.0);
-  \node[red,font=\footnotesize] at (10.5,4.0) {$\mu$=2};
-  \node at (5,-0.5) {讨论条件};
-  \node[rotate=90] at (-0.5,2.5) {萃取技能数};
-\end{tikzpicture}
-\caption{消融实验结果可视化：横轴为三种审议结构（ORID完整/无议程/自由聊天），纵轴为每讨论萃取技能数。红色虚线为完整ORID模式的基线均值(2.0)。}
+\includegraphics[width=\linewidth]{fig5_ablation.png}
+\caption{消融实验结果可视化：左图为三种审议结构下每讨论萃取技能数对比（红色虚线为完整ORID模式基线均值2.0），右图为字段完整性百分比对比。去除ORID议程后萃取技能数下降62\%，字段完整性下降41\%。}
 \label{fig:ablation}
 \end{figure}
 
@@ -486,24 +390,7 @@ C. 自由聊天 & 0.5~\textasciitilde{}75\% & 33\%~\textasciitilde{}64\% & 0.19~
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[scale=0.55]
-  \fill[blue!5] (0,0) rectangle (12,5);
-  \foreach \x in {0,...,11} {
-    \foreach \y in {0,...,4} {
-      \fill[blue!20] (\x+0.08,\y+0.08) rectangle (\x+0.92,\y+0.92);
-      \node[font=\tiny] at (\x+0.5,\y+0.5) {.083};
-    }
-  }
-  \draw[step=1,gray] (0,0) grid (12,5);
-  \foreach \x/\l in {0/u0,2/u2,4/u4,6/u6,8/u8,10/u10} {
-    \node[font=\footnotesize] at (\x+0.5,-0.3) {\l};
-  }
-  \foreach \y/\l in {0/name,1/desc,2/cat,3/tools,4/instr} {
-    \node[font=\footnotesize,right] at (-0.2, 4.5-\y) {\l};
-  }
-  \node[font=\small,align=center] at (6,-1.0) {utterance $\rightarrow$};
-  \node[font=\small,align=center,rotate=90] at (-1.2,2.5) {field $\rightarrow$};
-\end{tikzpicture}
+\includegraphics[width=\linewidth]{fig6_attn_heatmap.png}
 \caption{注意力权重热图（epoch-5 checkpoint）：完全均匀分布(0.083 per cell)。绿色虚线框标注的是冷启动关键词种子与相关utterance的预期聚焦区域（name$\rightarrow$u0；tools$\rightarrow$u6）。}
 \label{fig:attn_heatmap}
 \end{figure}

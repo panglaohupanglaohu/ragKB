@@ -52,15 +52,19 @@ async function retryConnection(){
   else toast('仍然无法连接','error')
 }
 
-async function api(p,o){
-  // 统一走 window.api.request：带 CSRF 注入 + 403 失效重试，避免 DELETE/POST 被 CSRF 中间件拦成 403
-  if(window.api && typeof window.api.request === 'function'){
+// IMPORTANT: use `const api = async function` — NOT `async function api`.
+// Top-level function declarations become window.api and clobber api.js shared client
+// (window.api.request / CSRF). That forced the bare-fetch fallback and noisy 500 logs.
+const api = async function(p,o){
+  // Prefer shared client from api.js (CSRF + 403 retry + unified errors)
+  const client = (typeof window!=='undefined' && window.api && typeof window.api.request==='function')
+    ? window.api : null;
+  if(client){
     try{
-      const data = await window.api.request(p, o || {});
+      const data = await client.request(p, o || {});
       if(_offline){hideOfflineBanner()}
-      if(data === null && window.api._lastError){
-        api._lastError = Object.assign({}, window.api._lastError);
-        // 让调用方 toast 能读到 detail（含 CSRF / 业务 403）
+      if(data === null && client._lastError){
+        api._lastError = Object.assign({}, client._lastError);
         return null;
       }
       api._lastError = null;
@@ -81,7 +85,7 @@ async function api(p,o){
     if(_offline){hideOfflineBanner()}
     if(!r.ok){
       let msg='';
-      try{const d=await r.json();msg=d.detail||d.message||''}catch{}
+      try{const d=await r.json();msg=d.detail||d.message||d.error||''}catch{}
       console.warn(`API ${r.status}: ${p}`,msg);
       api._lastError={status:r.status,message:msg,url:p};
       return null;
@@ -97,15 +101,30 @@ async function api(p,o){
     api._lastError={status:0,message:e.message,url:p,network:true};
     return null;
   }
-}
+};
 api._lastError=null;
+
+function _sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
 async function getTeamsList(force=false){
   const now=Date.now();
   if(!force&&_teamsListCache&&(now-_teamsListCacheAt)<TEAMS_LIST_CACHE_MS){
     return _teamsListCache;
   }
-  const raw=await api(`${A}/teams`);
+  // Retry on transient 5xx / proxy blips (Vite→8080 during backend --reload)
+  let raw=null;
+  let lastErr=null;
+  for(let attempt=0; attempt<3; attempt++){
+    raw=await api(`${A}/teams`);
+    if(raw!=null) break;
+    lastErr=api._lastError;
+    const st=lastErr&&lastErr.status;
+    if(st && st>=500 && st<600 && attempt<2){
+      await _sleep(250*(attempt+1));
+      continue;
+    }
+    break;
+  }
   // Accept plain array or pagination envelope {items,total,...}
   const teams=Array.isArray(raw)?raw:Array.isArray(raw?.items)?raw.items:[];
   if(teams.length){
@@ -115,6 +134,9 @@ async function getTeamsList(force=false){
   }
   // Keep last good cache if this request failed / empty (e.g. transient 500)
   if(_teamsListCache&&_teamsListCache.length) return _teamsListCache;
+  if(lastErr&&lastErr.status){
+    console.warn('getTeamsList failed', lastErr.status, lastErr.message||'');
+  }
   return teams;
 }
 
@@ -125,7 +147,16 @@ function escapeHtml(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'
 // ── Teams ──
 async function loadTeams(){
   const d=await getTeamsList(true);const s=el('team-select');
-  if(!d||!d.length){s.innerHTML='<option>无团队</option>';return}
+  if(!d||!d.length){
+    const err=api._lastError;
+    const hint=err?(err.status?`HTTP ${err.status}`:'网络错误')+(err.message?`: ${err.message}`:''):'无数据';
+    s.innerHTML=`<option>无团队（${escapeHtml(hint)}）</option>`;
+    if(err&&err.status>=500){
+      toast(`加载团队失败 ${hint} — 后端可能正在重启，点「重试」`,'error');
+      showOfflineBanner();
+    }
+    return;
+  }
   // 深链 team_id（物竞反馈台 → 关系 tab）
   try{
     const qp=new URLSearchParams(window.location.search);
@@ -999,18 +1030,45 @@ async function stopClaudeSession(){
 // ══════════════════════════════════
 //  AGENT DETAIL (Clawith tabs)
 // ══════════════════════════════════
-async function loadAgent(id){
-  // Prefer agent-detail.js (IIFE exports window.loadAgent) — has ag-memory etc.
-  if(typeof window.loadAgent==='function' && window.loadAgent!==loadAgent){
-    return window.loadAgent(id);
+// NOTE: use `const loadAgent = …` (not `async function loadAgent`).
+// A function declaration would become window.loadAgent and fight agent-detail.js.
+// agent-detail (loaded after this file) exports window.__detailLoadAgent + window.loadAgent.
+async function _waitDetailLoadAgent(maxMs){
+  if(typeof window.__detailLoadAgent==='function') return window.__detailLoadAgent;
+  const deadline=Date.now()+(maxMs||3000);
+  while(Date.now()<deadline){
+    await _sleep(25);
+    if(typeof window.__detailLoadAgent==='function') return window.__detailLoadAgent;
+  }
+  return typeof window.__detailLoadAgent==='function' ? window.__detailLoadAgent : null;
+}
+
+const loadAgent = async function(id){
+  // Prefer full implementation from agent-detail.js (ag-memory / employee / …)
+  const detailLoad = await _waitDetailLoadAgent(atab==='ag-memory'?4000:1500);
+  if(detailLoad){
+    return detailLoad(id);
   }
   if(id){aid=id;_chatSid=''}const d=await api(`${A}/teams/${tid}/agents/${aid}`);
   if(!d){el('agent-content').innerHTML='<p style="color:var(--dim);padding:40px">加载失败</p>';return}
   el('main-title').textContent=d.name||d.agent_id;el('main-badge').textContent=d.role||d.template_type||'';
   document.querySelectorAll('.sb-agent').forEach(e=>e.classList.toggle('active',e.onclick&&e.onclick.toString().includes(aid)));
   renderATab(d);
+};
+// Expose for inline handlers; agent-detail overwrites with richer impl when ready
+window.loadAgent = loadAgent;
+
+// Only one tab-click handler here; agent-detail also registers — both call loadAgent which
+// resolves to the same detail impl after ready. Deduplicate by data flag.
+if(!window.__agentTabsBound){
+  window.__agentTabsBound=true;
+  document.querySelectorAll('#agent-tabs .tab').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('#agent-tabs .tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    atab=t.dataset.at;
+    loadAgent();
+  }));
 }
-document.querySelectorAll('#agent-tabs .tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('#agent-tabs .tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');atab=t.dataset.at;loadAgent()}));
 
 function renderATab(d){
   const c=el('agent-content'),p=d.personality||{},m=d.metadata||{},cr=d.created_at?d.created_at.split('T')[0]:'?';
@@ -1038,17 +1096,24 @@ function renderATab(d){
       });
     });
   } else if(atab==='ag-memory'){
-    // Fallback when agent-detail.js has not taken over loadAgent yet
+    // Prefer agent-detail panel; poll briefly if script order races deep-link
     c.innerHTML='<div class="section"><div class="section-title">🧠 记忆绑定</div><p style="color:var(--dim);font-size:12px">加载中…</p></div>';
-    if(typeof window.renderAgentMemoryBind==='function'){
-      window.renderAgentMemoryBind(d);
-    }else{
+    (async()=>{
+      for(let i=0;i<80;i++){
+        if(typeof window.renderAgentMemoryBind==='function'){
+          try{ await window.renderAgentMemoryBind(d); return; }catch(e){
+            c.innerHTML=`<div class="section"><p style="color:var(--red)">记忆面板错误: ${escapeHtml(e.message||e)}</p></div>`;
+            return;
+          }
+        }
+        await _sleep(40);
+      }
       c.innerHTML=`<div class="section"><div class="section-title">🧠 记忆绑定</div>
-        <p style="color:var(--muted);font-size:13px;margin:8px 0 12px">四层记忆（运行日志 / 感知 / 意图 / 情绪）。完整面板由 agent-detail 提供。</p>
+        <p style="color:var(--muted);font-size:13px;margin:8px 0 12px">记忆面板脚本尚未就绪。可打开站级中枢，或稍后重试。</p>
         <a class="btn btn-pink btn-sm" href="/agent-memory.html?team_id=${encodeURIComponent(tid||'')}&agent_id=${encodeURIComponent(aid||'')}&seg=agents">打开 Agent记忆中枢</a>
-        <button class="btn btn-sm" style="margin-left:8px" onclick="location.reload()">刷新页面</button>
+        <button class="btn btn-sm" style="margin-left:8px" onclick="loadAgent()">重试</button>
       </div>`;
-    }
+    })();
   } else if(atab==='ag-tools'){
     api(`${A}/tools`).then(all=>{
       const bound=new Set(d.tools||[]);

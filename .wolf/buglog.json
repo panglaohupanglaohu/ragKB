@@ -1,5 +1,53 @@
 [
   {
+    "id": "bug-ag-memory-deeplink-blank",
+    "timestamp": "2026-07-23T23:53:06.895085+00:00",
+    "error_message": "agent-team-config.html?team_id=...&agent_id=...&atab=ag-memory 空白/仅 stub",
+    "file": "src/frontend/js/agent-team-config.js, agent-detail.js",
+    "root_cause": "双实现 loadAgent/renderATab：深链在 agent-detail 导出 window.renderAgentMemoryBind 之前用 config 路径渲染，fallback stub 永不刷新；function loadAgent 与 window.loadAgent 互相覆盖导致委托判断失效",
+    "fix": "config loadAgent 改为 const + 等待 window.__detailLoadAgent；ag-memory 轮询 renderAgentMemoryBind；detail 导出 __detailLoadAgent 并在深链 ag-memory 时 setTimeout 再 load 一次；去重 tab 监听",
+    "tags": [
+      "frontend",
+      "ag-memory",
+      "deeplink",
+      "blank",
+      "agent-detail"
+    ]
+  },
+  {
+    "id": "bug-agent-team-config-api-clobber",
+    "timestamp": "2026-07-23T23:46:48.372169+00:00",
+    "error_message": "agent-team-config.js:85 API 500: /api/v1/agent-config/teams",
+    "file": "src/frontend/js/agent-team-config.js",
+    "root_cause": "Top-level `async function api` in classic script becomes window.api, clobbering api.js shared client (window.api.request). Page always fell back to bare fetch path (line 85 warn). Combined with Vite proxy 5xx during backend --reload, user saw persistent 500 noise and no CSRF client.",
+    "fix": "Change to `const api = async function` so window.api stays the shared client; getTeamsList retries 3x on 5xx; loadTeams shows HTTP detail + offline banner on failure; cache-bust script query.",
+    "tags": [
+      "frontend",
+      "window.api",
+      "clobber",
+      "teams",
+      "500",
+      "csrf"
+    ]
+  },
+  {
+    "id": "bug-agent-config-teams-500",
+    "timestamp": "2026-07-23T23:43:31.867134+00:00",
+    "error_message": "api.js:363 GET http://localhost:5173/api/v1/agent-config/teams 500 (Internal Server Error)",
+    "file": "src/backend/agents/api.py, src/frontend/js/agent-team-config.js, src/backend/agents/models.py",
+    "root_cause": "Console line is global fetch wrapper (api.js:363), not a teams-specific function. Transient 500s often from Vite proxy while backend restarts. Separately: dual loadAgent (config lexical vs agent-detail IIFE) left ag-memory blank; Cloud Ops factory kwargs (style/traits/model/visibility) failed AgentPersonality/AgentProfile construction so that team was dropped at startup.",
+    "fix": "1) Harden list_teams with per-team skip + clear 500 detail. 2) getTeamsList accepts pagination envelope and keeps last-good cache. 3) config loadAgent delegates to window.loadAgent; add ag-memory branch calling renderAgentMemoryBind. 4) AgentPersonality aliases style/traits; AgentProfile accepts model/avatar_emoji/visibility; AgentPermission.description optional so cloud_ops loads.",
+    "tags": [
+      "frontend",
+      "backend",
+      "teams",
+      "500",
+      "agent-memory",
+      "cloud-ops",
+      "vite-proxy"
+    ]
+  },
+  {
     "id": "bug-plaza-consensus-removed-api-import",
     "timestamp": "2026-07-23T00:00:00.000000",
     "error_message": "plaza_routes.py 与 test_plaza_consensus.py 仍 import measure_consensus/highlight_dissent/ConsensusResult，而 plaza_consensus.py 已被改写为 Fist-to-Five，导入将 ImportError",

@@ -46,7 +46,16 @@ async function loadAgent(id){
   document.querySelectorAll('.sb-agent').forEach(e=>e.classList.toggle('active',e.onclick&&e.onclick.toString().includes(aid)));
   renderATab(d);
 }
-document.querySelectorAll('#agent-tabs .tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('#agent-tabs .tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');atab=t.dataset.at;loadAgent()}));
+// Tab clicks: config.js binds once via __agentTabsBound; skip duplicate here.
+if(!window.__agentTabsBound){
+  window.__agentTabsBound=true;
+  document.querySelectorAll('#agent-tabs .tab').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('#agent-tabs .tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    atab=t.dataset.at;
+    loadAgent();
+  }));
+}
 
 function renderATab(d){
   const c=el('agent-content'),p=d.personality||{},m=d.metadata||{},cr=d.created_at?d.created_at.split('T')[0]:'?';
@@ -834,6 +843,8 @@ function _memStateLabel(s){
 
 async function renderAgentMemoryBind(agent){
   const c=el('agent-content');
+  agent=agent||window._memAgentSnap||{agent_id:aid,name:aid};
+  window._memAgentSnap=agent;
   try{
     const data=await api(_MEM());
     if(!data){ c.innerHTML='<div class="section"><p style="color:var(--red)">加载记忆失败</p></div>'; return; }
@@ -1025,7 +1036,11 @@ async function renderAgentMemoryBind(agent){
 
 function memSwitchPane(pane){
   _memPane=pane||'log';
-  if(typeof renderAgentMemoryBind==='function') renderAgentMemoryBind();
+  if(typeof renderAgentMemoryBind==='function'){
+    // Pass last agent snapshot if any (refresh button / pane switch)
+    const agent=window._memAgentSnap||{agent_id:aid,name:aid};
+    renderAgentMemoryBind(agent);
+  }
 }
 
 async function memToggleBind(enabled){
@@ -1210,8 +1225,27 @@ async function memTimelineLoad(){
 // ══════════════════════════════════
 
 // Export functions referenced from HTML onclick handlers and other scripts
+// __detailLoadAgent is the stable handle config.js waits for (avoids clobber races).
+window.__detailLoadAgent = loadAgent;
+window.__agentDetailReady = true;
 window.loadAgent = loadAgent;
 window.renderAgentMemoryBind = renderAgentMemoryBind;
+// Deep-link may have painted a stub before this IIFE finished — re-load once ready.
+try{
+  const qp=new URLSearchParams(window.location.search);
+  const deepAt=qp.get('atab')||qp.get('tab')||'';
+  const deepAid=qp.get('agent_id')||qp.get('aid')||'';
+  if(deepAid && (deepAt==='ag-memory' || deepAt==='ag-employee')){
+    if(typeof atab!=='undefined' && deepAt) atab=deepAt;
+    if(typeof aid!=='undefined') aid=deepAid;
+    // Defer so config's loadTeams/loadView can set tid first
+    setTimeout(function(){
+      if(typeof tid!=='undefined' && tid && typeof window.__detailLoadAgent==='function'){
+        window.__detailLoadAgent(deepAid);
+      }
+    }, 0);
+  }
+}catch(_){/* ignore */}
 window.memSwitchPane = memSwitchPane;
 window.memToggleBind = memToggleBind;
 window.memAppendLog = memAppendLog;
