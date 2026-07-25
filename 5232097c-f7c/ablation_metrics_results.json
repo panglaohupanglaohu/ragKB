@@ -1,0 +1,125 @@
+{
+  "metrics": {
+    "aws_es_scaling": {
+      "c_role": 1.0,
+      "role_coverage": 1.0,
+      "challenge_ratio": 1.0,
+      "risk_coverage": 0.2,
+      "tool_omission": 0.692,
+      "dominance": 0.4,
+      "source_entropy": 0.96,
+      "utterance_count": 5,
+      "key_roles": [
+        "architect",
+        "devops",
+        "security"
+      ]
+    },
+    "centos_rocky_migration": {
+      "c_role": 1.0,
+      "role_coverage": 1.0,
+      "challenge_ratio": 1.0,
+      "risk_coverage": 0.6,
+      "tool_omission": 0.692,
+      "dominance": 0.4,
+      "source_entropy": 0.961,
+      "utterance_count": 5,
+      "key_roles": [
+        "admin",
+        "dba",
+        "devops",
+        "security"
+      ]
+    },
+    "cost_ri_governance": {
+      "c_role": 1.0,
+      "role_coverage": 1.0,
+      "challenge_ratio": 1.0,
+      "risk_coverage": 0.2,
+      "tool_omission": 0.846,
+      "dominance": 0.4,
+      "source_entropy": 0.96,
+      "utterance_count": 5,
+      "key_roles": [
+        "architect",
+        "finops",
+        "security"
+      ]
+    },
+    "monitoring_rollback": {
+      "c_role": 1.0,
+      "role_coverage": 1.0,
+      "challenge_ratio": 1.0,
+      "risk_coverage": 0.6,
+      "tool_omission": 0.692,
+      "dominance": 0.6,
+      "source_entropy": 0.865,
+      "utterance_count": 5,
+      "key_roles": [
+        "devops",
+        "security",
+        "sre"
+      ]
+    },
+    "terraform_change_gate": {
+      "c_role": 1.0,
+      "role_coverage": 1.0,
+      "challenge_ratio": 1.0,
+      "risk_coverage": 0.8,
+      "tool_omission": 0.692,
+      "dominance": 0.6,
+      "source_entropy": 0.865,
+      "utterance_count": 5,
+      "key_roles": [
+        "dba",
+        "platform",
+        "security"
+      ]
+    }
+  },
+  "ablation": [
+    {
+      "condition": "A. Plaza完整",
+      "skills_per_discussion": 5.0,
+      "field_completeness": 100.0,
+      "discussions_tested": 5
+    },
+    {
+      "condition": "B. 去除ORID",
+      "skills_per_discussion": 1.0,
+      "field_completeness": 100.0,
+      "discussions_tested": 5
+    },
+    {
+      "condition": "C. 去除Niche",
+      "skills_per_discussion": 5.0,
+      "field_completeness": 100.0,
+      "discussions_tested": 5
+    },
+    {
+      "condition": "D. 去除信号",
+      "skills_per_discussion": 5.0,
+      "field_completeness": 100.0,
+      "discussions_tested": 5
+    },
+    {
+      "condition": "E. 自由聊天",
+      "skills_per_discussion": 5.0,
+      "field_completeness": 100.0,
+      "discussions_tested": 5
+    }
+  ],
+  "metric_deltas": {
+    "B. 去除ORID": {},
+    "C. 去除Niche": {
+      "c_role": 2.2,
+      "role_coverage": -1.0,
+      "challenge_ratio": -1.0,
+      "risk_coverage": 0.0,
+      "dominance": 0.52,
+      "source_entropy": -0.922
+    },
+    "D. 去除信号": {},
+    "E. 自由聊天": {}
+  }
+}

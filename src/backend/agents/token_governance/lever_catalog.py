@@ -305,15 +305,15 @@ LEVER_CATALOG: List[Dict[str, Any]] = [
         "ours": {
             "module": "runtime/model_router.py + token_governance/cost_tier.py",
             "entry": "classify_complexity() → prefer_tier() → ModelRouter.route()",
-            "called_from": "prepare_request step⑤；harness/tool_loop 采用 model 名",
+            "called_from": "prepare_request step⑤；默认只记档位，model 名以全局配置为准",
             "algorithm": [
-                "cost_tier: 短/简单关键词 → economy；复杂/长/代码+工具 → frontier",
-                "三档默认：deepseek-v4-flash / deepseek-v4-pro / glm-5.1",
-                "预算用尽阈值 → ECONOMY；连续失败 → 升档",
-                "sticky 粘滞防抖；prefer_tier 尊重失败阈值",
+                "默认「全局配置为主」：上游 model = ChatHarness 全局/连接模型",
+                "cost_tier 仍产出 economy/standard/frontier 档位（指标用）",
+                "clamp_model_to_global 禁止改写成 deepseek-v4-pro 等无权 id",
+                "仅 AG_MODEL_ROUTE_ALLOW_SWITCH=1 且 deepseek 多档网关才允许改 model 名",
             ],
             "metric_keys": ["model_routes", "model_economy_routes"],
-            "effect_field": "levers[].tier / model / cost_tier_hint",
+            "effect_field": "levers[].tier / model / global_primary / cost_tier_hint",
         },
         "exec_path": [
             "prepare → model_decision",

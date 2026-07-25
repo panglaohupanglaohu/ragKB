@@ -9438,12 +9438,45 @@ def set_global_model(req: GlobalModelRequest) -> Dict[str, Any]:
     from .chat_harness import get_chat_harness
     team = _team_manager.get_team(req.team_id)
     model = team.get_model(req.model_id)
-    get_chat_harness().set_global_override(cfg, {
+    harness = get_chat_harness()
+    harness.set_global_override(cfg, {
         "team_id": req.team_id, "model_id": req.model_id, "name": model.name,
     })
+    # 同步 default provider + settings.llm，确保全链路只认这一份
+    harness.update_default_provider(
+        provider=str(getattr(cfg.provider, "value", cfg.provider) or ""),
+        api_key=cfg.api_key or "",
+        api_base_url=cfg.api_base_url or "",
+        model=cfg.model or "",
+    )
+    try:
+        import json as _json, os as _os
+        path = _os.path.join(_CONFIG_DIR, "settings.json")
+        with open(path, "r", encoding="utf-8") as f:
+            settings = _json.load(f)
+        llm = settings.setdefault("llm", {})
+        llm["provider"] = str(getattr(cfg.provider, "value", cfg.provider) or "")
+        llm["api_key"] = cfg.api_key or ""
+        llm["api_base_url"] = cfg.api_base_url or ""
+        llm["model"] = cfg.model or ""
+        llm["max_tokens"] = cfg.max_tokens
+        llm["temperature"] = cfg.temperature
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(settings, f, ensure_ascii=False, indent=2)
+        try:
+            from .secret_store import save_default_llm_api_key
+            if cfg.api_key:
+                save_default_llm_api_key(cfg.api_key)
+        except Exception:
+            pass
+    except Exception:
+        pass
     _persist_global_model({"team_id": req.team_id, "model_id": req.model_id})
-    return {"enabled": True, "current": {"team_id": req.team_id, "model_id": req.model_id, "name": model.name},
-            "note": "plaza/技能演进/棘轮/数字孪生 等所有 LLM 调用现统一使用该模型"}
+    return {
+        "enabled": True,
+        "current": {"team_id": req.team_id, "model_id": req.model_id, "name": model.name},
+        "note": "已设为全局 LLM：演练/广场/萃取/任务/tool_loop 等全部只使用该连接；model_route 与团队槽均不再生效",
+    }
 
 
 @router.delete("/llm/global-model", summary="清除全局模型（回退各团队默认）")

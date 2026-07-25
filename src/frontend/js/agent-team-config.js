@@ -544,6 +544,28 @@ async function loadModels(){
   // 判断全局模型是否属于当前团队
   const gmInThisTeam = gmMeta && gmTeamId === tid;
 
+  // 顶部 banner：明确「全局已启用 / 未启用」
+  const banner = el('global-model-banner');
+  if (banner) {
+    if (gmMeta) {
+      const where = gmInThisTeam ? '本团队' : `团队 ${escapeHtml(gmTeamId)}`;
+      banner.innerHTML =
+        `<span style="color:var(--lime,#26a269);font-weight:600">✅ 全局 LLM 已启用</span>` +
+        ` · 模型 <b>${escapeHtml(gmName)}</b>（${where} · id=${escapeHtml(gmModelId)}）` +
+        ` · <span style="color:var(--muted)">演练/广场/萃取/任务等全部只走此连接；model_route 与团队槽不再生效</span>` +
+        ` · <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;margin-left:6px" onclick="clearGlobalDefault()">取消全局</button>`;
+      banner.style.background = 'rgba(38,162,105,0.08)';
+      banner.style.borderColor = 'rgba(38,162,105,0.35)';
+    } else {
+      banner.innerHTML =
+        `<span style="color:var(--amber,#f59e0b);font-weight:600">⚠️ 未设置全局 LLM</span>` +
+        ` · 请在下表点 <b>🌐 全局默认</b> 提升一个已保存密钥的模型；` +
+        `启用后演练/广场/任务等只使用该连接。`;
+      banner.style.background = 'rgba(245,158,11,0.06)';
+      banner.style.borderColor = 'var(--line)';
+    }
+  }
+
   let rows = (d||[]).map(m=>{
     const mid=m.model_id;
     const isGlobal = gmInThisTeam && gmModelId === mid;
@@ -577,9 +599,9 @@ async function setModelDefault(mid){
   if(r){toast(`模型 ${mid} 已设为默认，所有智能体已同步`);loadModels();loadSbAgents();if(aid)loadAgent()}else toast('设置失败')
 }
 async function setModelGlobalDefault(mid){
-  if(!confirm('将此模型（连同服务端已存密钥）提升为【全局默认 provider】？\n小虎/广场/萃取/任务执行等全部默认 LLM 调用都会切到它。'))return;
+  if(!confirm('将此模型（连同服务端已存密钥）提升为【全局 LLM】？\n\n启用后：演练 / 广场 / 萃取 / 任务 / tool_loop 等全部只走此连接；\nmodel_route、团队模型槽、其它 override 均不再生效。'))return;
   const r=await api(`${A}/teams/${tid}/models/${mid}/set-global-default`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
-  if(r&&r.promoted){toast(`🌐 全局默认已切换: ${r.provider}/${r.model}（key 尾号 ${r.api_key_tail}）`);loadModels()}
+  if(r&&r.promoted){toast(`🌐 全局 LLM 已启用: ${r.provider}/${r.model}（key 尾号 ${r.api_key_tail}）`);loadModels()}
   else{const d=window.api?._lastError?.message||'';toast('提升失败'+(d?'：'+d:''))}
 }
 window.setModelGlobalDefault=setModelGlobalDefault;

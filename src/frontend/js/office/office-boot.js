@@ -378,6 +378,74 @@ function bootOffice() {
   // 宠物语音：从 pet_config 加载，支持 browser / edge-tts / gpt-sovits 三种引擎
   let _catTtsTimer = null;
   let _petVoiceConfig = null;   // 缓存当前会说话宠物的 voice 配置
+  let _catAudioEl = null;       // 后端 TTS 播放器（须先于 stopCatAudio 声明）
+  // 猫静音（3D 窗口按键）：localStorage 持久化，默认开声
+  const _CAT_MUTE_LS = 'ag-office-cat-muted';
+  let _catMuted = false;
+  try { _catMuted = localStorage.getItem(_CAT_MUTE_LS) === '1'; } catch (e) { _catMuted = false; }
+  let _catMuteBtn = null;
+
+  function stopCatAudio() {
+    try {
+      if (window.speechSynthesis) speechSynthesis.cancel();
+    } catch (e) { /* ignore */ }
+    if (_catTtsTimer) { clearTimeout(_catTtsTimer); _catTtsTimer = null; }
+    if (_catAudioEl) {
+      try { _catAudioEl.pause(); _catAudioEl.src = ''; } catch (e2) { /* ignore */ }
+      _catAudioEl = null;
+    }
+  }
+
+  function setCatMuted(muted, { persist = true } = {}) {
+    _catMuted = !!muted;
+    if (persist) {
+      try { localStorage.setItem(_CAT_MUTE_LS, _catMuted ? '1' : '0'); } catch (e) { /* ignore */ }
+    }
+    if (_catMuted) stopCatAudio();
+    if (_catMuteBtn) {
+      _catMuteBtn.textContent = _catMuted ? '🐱 🔇' : '🐱 🔊';
+      _catMuteBtn.title = _catMuted
+        ? '猫语音已静音 — 点击恢复播报'
+        : '猫语音开启 — 点击静音小虎解说/对话';
+      _catMuteBtn.setAttribute('aria-pressed', _catMuted ? 'true' : 'false');
+      _catMuteBtn.style.opacity = _catMuted ? '0.72' : '1';
+      _catMuteBtn.style.borderColor = _catMuted ? 'rgba(245,158,11,.55)' : 'rgba(232,160,32,.55)';
+    }
+    return _catMuted;
+  }
+
+  function toggleCatMute() {
+    return setCatMuted(!_catMuted);
+  }
+
+  function mountCatMuteButton() {
+    if (_catMuteBtn && _catMuteBtn.isConnected) return _catMuteBtn;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'office-cat-mute-btn';
+    btn.setAttribute('aria-label', '猫语音静音');
+    // 贴在 3D 窗口右下角、旧版切换按钮上方，不挡任务 HUD
+    btn.style.cssText = [
+      'position:absolute', 'bottom:48px', 'right:12px', 'z-index:22',
+      'padding:6px 10px', 'border-radius:8px',
+      'border:1px solid rgba(232,160,32,.55)',
+      'background:rgba(15,14,13,0.82)', 'color:#f8fafc',
+      'font:600 12px/1.2 sans-serif', 'cursor:pointer',
+      'backdrop-filter:blur(8px)', 'box-shadow:0 2px 12px rgba(0,0,0,.28)',
+      'pointer-events:auto', 'user-select:none',
+    ].join(';');
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCatMute();
+    };
+    if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+    container.appendChild(btn);
+    _catMuteBtn = btn;
+    setCatMuted(_catMuted, { persist: false }); // 同步 UI，不重写 LS
+    return btn;
+  }
+
   // 预加载 voices（Chrome 异步加载，首次 getVoices() 返回空）
   if (window.speechSynthesis) {
     speechSynthesis.getVoices();
@@ -396,6 +464,10 @@ function bootOffice() {
   })();
 
   function catSpeak(text, voiceCfg) {
+    if (_catMuted) {
+      console.log('[catSpeak] muted, skip');
+      return;
+    }
     const vc = voiceCfg || _petVoiceConfig;
     const v = validateVoiceConfig(vc);
     if (!v.ok) { console.error('[catSpeak]', v.error); return; }
@@ -437,8 +509,8 @@ function bootOffice() {
   }
 
   // 后端 TTS（edge-tts / gpt-sovits）→ 取音频播放
-  let _catAudioEl = null;
   async function _catSpeakBackend(text, vc, provider) {
+    if (_catMuted) return;
     try {
       if (provider === 'edge-tts' && !vc.edge_voice) {
         console.error('[catSpeak] voice.edge_voice missing for edge-tts — 请在 /pet-config.html 页面选择 Edge 神经语音');
@@ -454,15 +526,22 @@ function bootOffice() {
       if (provider === 'gpt-sovits' && vc.speed_factor !== undefined) body.speed_factor = vc.speed_factor;
       const r = await doFetch('/api/v1/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'HTTP ' + r.status); }
+      if (_catMuted) return; // 请求返回期间可能已静音
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       if (_catAudioEl) { _catAudioEl.pause(); }
       _catAudioEl = new Audio(url);
       _catAudioEl.onended = () => URL.revokeObjectURL(url);
       _catAudioEl.onerror = (e) => { console.warn('[catSpeak] audio error', e); URL.revokeObjectURL(url); };
+      if (_catMuted) {
+        URL.revokeObjectURL(url);
+        _catAudioEl = null;
+        return;
+      }
       await _catAudioEl.play();
       console.log('[catSpeak] backend played, engine:', r.headers.get('X-TTS-Engine'));
     } catch (e) {
+      if (_catMuted) return;
       console.warn('[catSpeak] backend TTS failed, fallback to browser:', e.message);
       // 回退到浏览器语音
       catSpeak(text, { ...vc, provider: 'browser' });
@@ -548,9 +627,15 @@ function bootOffice() {
     },
     onCatClick: showCatDialog,
     onCatComment: (comment, voiceCfg) => { catSpeak(comment, voiceCfg); },
+    isCatMuted: () => _catMuted,
+    setCatMuted,
+    toggleCatMute,
+    stopCatAudio,
     trackReward,
     _speakerId: null,
   };
+
+  mountCatMuteButton();
 
   // 初次进入即渲染办公室
   window._dt3dBuildRoom(window._currentRoomId && window._currentRoomId !== 'rest-area'

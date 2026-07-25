@@ -395,7 +395,12 @@ class TokenGovernanceService:
         cost_tier_meta: Dict[str, Any] = {}
         if cfg.get("model_route", True):
             try:
-                from ..runtime.model_router import ModelTier, get_model_router
+                from ..runtime.model_router import (
+                    ModelTier,
+                    clamp_model_to_global,
+                    get_model_router,
+                    resolve_live_primary_model,
+                )
                 router = get_model_router()
                 est = estimate_messages_tokens(work) + int(estimated_extra_tokens or 0)
                 tier_hint = None
@@ -408,12 +413,21 @@ class TokenGovernanceService:
                     elif tier_hint == "frontier":
                         router.prefer_tier(ModelTier.FRONTIER, "cost_tier_frontier")
                 dec = router.route(tokens_estimated=0)
+                # 全局配置为主：prepare 出口的 model 名一律钳制到全局连接模型
+                # （档位 tier 仍可记，但不得把 deepseek-v4-pro 等写进上游请求）
+                primary, _prov = resolve_live_primary_model()
+                safe_model = clamp_model_to_global(dec.model) or primary or dec.model
+                reason = dec.reason or ""
+                if safe_model and safe_model != (dec.model or ""):
+                    reason = f"{reason}+global_primary".strip("+")
                 model_decision = {
                     "tier": dec.tier.value,
-                    "model": dec.model,
-                    "reason": dec.reason,
+                    "model": safe_model,
+                    "reason": reason or "global_primary",
                     "tokens_est": est,
                     "cost_tier": cost_tier_meta or None,
+                    "routed_model": dec.model,
+                    "global_primary": primary or None,
                 }
                 with self._lock:
                     self._counters["model_routes"] += 1

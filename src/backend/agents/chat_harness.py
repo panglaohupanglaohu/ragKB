@@ -729,6 +729,16 @@ class ChatHarness:
         self._total_calls: int = 0
         self._total_tokens: int = 0
         self._errors: int = 0
+        # 启动即让 ModelRouter 三档跟随默认/全局模型（全局配置 = 全局效果）
+        try:
+            from .runtime.model_router import resync_model_router_from_primary
+            cfg0 = self._default_config
+            resync_model_router_from_primary(
+                cfg0.model,
+                str(getattr(cfg0.provider, "value", cfg0.provider) or ""),
+            )
+        except Exception:
+            pass
 
     @classmethod
     def from_settings_file(cls, path: str = "config/settings.json") -> "ChatHarness":
@@ -770,6 +780,54 @@ class ChatHarness:
 
     def get_global_override(self) -> Optional[ProviderConfig]:
         return self._global_override
+
+    def has_global_llm(self) -> bool:
+        """「模型与连接」是否已配置全局 LLM。"""
+        return self._global_override is not None and bool(
+            getattr(self._global_override, "model", None)
+        )
+
+    @staticmethod
+    def _is_model_probe(agent_id: str = "") -> bool:
+        """编辑框「测试连接」等探针调用，允许临时用编辑中的 model 名。"""
+        aid = str(agent_id or "")
+        return aid.startswith("__") or aid in ("__model_test__", "__test__")
+
+    def resolve_effective_config(
+        self,
+        agent_id: str = "",
+        *,
+        config_override: Optional[ProviderConfig] = None,
+    ) -> ProviderConfig:
+        """解析实际使用的连接。
+
+        产品铁律：只要配置了全局 LLM，一律用全局连接；
+        config_override / per-agent / 团队模型槽 全部不生效。
+        仅 model probe（__model_test__ 等）允许 config_override。
+        """
+        if self._global_override is not None:
+            if config_override is not None and self._is_model_probe(agent_id):
+                return config_override
+            return self._global_override
+        if config_override is not None:
+            return config_override
+        return self.get_provider_config(agent_id)
+
+    def resolve_effective_model(
+        self,
+        config: ProviderConfig,
+        *,
+        model_override: str = "",
+        agent_id: str = "",
+    ) -> str:
+        """解析实际上游 model 名。
+
+        全局 LLM 已配置时：固定全局 model，忽略 model_override / model_route。
+        探针调用除外。
+        """
+        if self._global_override is not None and not self._is_model_probe(agent_id):
+            return str(self._global_override.model or config.model or "")
+        return str(model_override or getattr(config, "model", "") or "")
 
     def get_provider_config(self, agent_id: str = "") -> ProviderConfig:
         """Get the provider config for an agent (or default).
@@ -1090,9 +1148,8 @@ class ChatHarness:
     ) -> TurnResult:
         """Execute a single chat turn. This is the main entry point."""
         self._total_calls += 1
-        # 显式 config_override 优先（演化/单模型测试需钉死最新 Key）；
-        # 否则 global_override → per-agent → default（广场/默认调用走全局模型）
-        config = config_override or self._global_override or self.get_provider_config(agent_id)
+        # 全局 LLM 已配置 → 只走全局连接；其它 override 全部无效（探针除外）
+        config = self.resolve_effective_config(agent_id, config_override=config_override)
         client = LLMClient(config)
 
         session = self.get_or_create_session(session_id, agent_id, system_prompt)
@@ -1160,7 +1217,9 @@ class ChatHarness:
                     prompt=prompt,
                     response=fallback,
                     stop_reason="budget_exceeded",
-                    model=model_override or config.model,
+                    model=self.resolve_effective_model(
+                        config, model_override=model_override, agent_id=agent_id,
+                    ),
                     provider=config.provider.value,
                     error=error_msg,
                 )
@@ -1187,67 +1246,10 @@ class ChatHarness:
         except Exception as _mem_err:
             logger.debug("ag_memory inject skip: %s", _mem_err)
 
-        model = model_override or config.model
-        # 连接测试 / 显式 model_override：禁止 token 治理 cost_tier 把 model 改写成
-        # deepseek-v4-flash 等 economy 默认名（否则「编辑模型测试连接」会测错模型）。
-        # 议事广场 (phase=plaza)：产品铁律不走 token 省路由，禁止改写用户配置的模型。
-        _phase = ""
-        try:
-            from .token_context import get_token_ctx as _gtc
-            _phase = str((_gtc() or {}).get("phase") or "")
-        except Exception:
-            _phase = ""
-        # 技能萃取 / TSE / 演练 twin 必须用用户配置的默认模型名（如 glm-5.1），
-        # 禁止被 cost_tier 改写成 deepseek-v4-flash/pro
-        # （SJTU/codebuddy 无权限 → team_model_access_denied 403）。
-        _extract_agents = (
-            "skill_extractor",
-            "tse_skill_extractor",
-            "tse_silver",
+        # 全局 LLM 已配置 → model 名锁定全局；model_route / model_override 均不生效（探针除外）
+        model = self.resolve_effective_model(
+            config, model_override=model_override, agent_id=agent_id,
         )
-        _skip_phases = ("plaza", "extract", "drill", "eco", "twin", "sandbox")
-        _skip_model_route = bool(model_override) or _phase in _skip_phases or (
-            isinstance(agent_id, str)
-            and (
-                agent_id.startswith("__")
-                or agent_id.startswith("twin_")
-                or agent_id in ("__test__", "__model_test__")
-                or agent_id in _extract_agents
-            )
-        )
-        if (
-            not _skip_model_route
-            and _tg_prep
-            and (_tg_prep.get("model") or {}).get("model")
-        ):
-            # 仅当 settings.model_route 且未显式 override 时采用路由模型名（provider 仍用当前 config）
-            try:
-                from .token_governance.settings import load_tg_settings
-                if load_tg_settings().get("model_route", True):
-                    routed = str(_tg_prep["model"].get("model") or "")
-                    # 路由模型与当前连接模型不一致时：若当前不是 deepseek 多档网关，
-                    # 拒绝改写（避免 glm 全局配置被硬编码 deepseek-v4-pro 覆盖）。
-                    if routed and routed != model:
-                        base = (config.resolve_base_url() or "").lower()
-                        cfg_provider = str(getattr(config.provider, "value", config.provider) or "").lower()
-                        deepseek_native = (
-                            "deepseek" in cfg_provider
-                            or "api.deepseek.com" in base
-                            or str(model or "").lower().startswith("deepseek")
-                        )
-                        if deepseek_native or routed == model:
-                            model = routed
-                        else:
-                            logger.info(
-                                "TG model_route ignored: routed=%s kept=%s base=%s (non-deepseek gateway)",
-                                routed,
-                                model,
-                                base[:80],
-                            )
-                    elif routed:
-                        model = routed
-            except Exception:
-                pass
         budget_guard = get_budget_guard()
         # prepare 已做 budget；此处保留兼容二次检查（轻量）
         budget_check = self._check_turn_budget(
@@ -1425,14 +1427,16 @@ class ChatHarness:
         model_override: str = "",
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream a chat response chunk by chunk."""
-        config = self.get_provider_config(agent_id)
+        config = self.resolve_effective_config(agent_id)
         client = LLMClient(config)
         budget_guard = get_budget_guard()
         session = self.get_or_create_session(session_id, agent_id, system_prompt)
         session.add_user_message(prompt)
         session.compact_if_needed()
         messages = session.build_openai_messages()
-        model = model_override or config.model
+        model = self.resolve_effective_model(
+            config, model_override=model_override, agent_id=agent_id,
+        )
         budget_check = self._check_turn_budget(
             budget_guard,
             session=session,
@@ -1707,6 +1711,16 @@ def get_chat_harness() -> ChatHarness:
     global _harness
     if _harness is None:
         _harness = ChatHarness.from_settings_file()
+        # 首次创建后再次同步（含 settings 里的全局 model）
+        try:
+            from .runtime.model_router import resync_model_router_from_primary
+            cfg = _harness.get_provider_config()
+            resync_model_router_from_primary(
+                cfg.model,
+                str(getattr(cfg.provider, "value", cfg.provider) or ""),
+            )
+        except Exception:
+            pass
     return _harness
 
 
@@ -1714,6 +1728,15 @@ def init_chat_harness(config: Optional[ProviderConfig] = None) -> ChatHarness:
     """Initialize the global ChatHarness with explicit config."""
     global _harness
     _harness = ChatHarness(default_config=config)
+    try:
+        from .runtime.model_router import resync_model_router_from_primary
+        cfg = _harness.get_provider_config()
+        resync_model_router_from_primary(
+            cfg.model,
+            str(getattr(cfg.provider, "value", cfg.provider) or ""),
+        )
+    except Exception:
+        pass
     return _harness
 
 

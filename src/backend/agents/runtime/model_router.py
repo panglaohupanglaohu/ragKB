@@ -95,15 +95,81 @@ def _resolve_primary_model() -> Tuple[str, str]:
     return "deepseek-v4-pro", "deepseek"
 
 
-def _is_deepseek_multi_tier(model: str, provider: str) -> bool:
+def resolve_live_primary_model() -> Tuple[str, str]:
+    """运行时权威源：ChatHarness 全局连接 > env/settings。
+
+    用户在 UI「同步到全局默认」后，应以 harness 当前 model 为准，
+    而不是仅磁盘 settings（可能滞后）或硬编码档位。
+    """
+    try:
+        # 延迟导入，避免与 chat_harness 循环依赖
+        from ..chat_harness import _harness  # type: ignore
+        if _harness is not None:
+            cfg = _harness.get_provider_config()
+            model = str(getattr(cfg, "model", "") or "").strip()
+            if model:
+                prov = getattr(cfg, "provider", "")
+                provider = str(getattr(prov, "value", prov) or "").strip()
+                return model, provider or "openai"
+    except Exception:
+        pass
+    return _resolve_primary_model()
+
+
+def _is_deepseek_multi_tier(model: str, provider: str, base_url: str = "") -> bool:
     """仅当全局就是 deepseek 多档体系时，才启用 flash/pro 分档。"""
     m = (model or "").lower()
     p = (provider or "").lower()
+    b = (base_url or "").lower()
+    if "api.deepseek.com" in b:
+        return True
     if "deepseek" in p:
         return True
     if m.startswith("deepseek"):
         return True
     return False
+
+
+def prefer_global_model() -> bool:
+    """只要「模型与连接」配置了全局 LLM，就强制全局为主；其它路由一律不改 model 名。
+
+    未配置全局 LLM 时，默认仍锁定 settings/连接 model（避免 deepseek-v4-pro 硬编码）。
+    仅当未设全局 且 AG_MODEL_ROUTE_ALLOW_SWITCH=1 时，才允许 deepseek 多档改名。
+    """
+    try:
+        from ..chat_harness import _harness  # type: ignore
+        if _harness is not None and getattr(_harness, "has_global_llm", lambda: False)():
+            return True
+    except Exception:
+        pass
+    v = (os.getenv("AG_MODEL_ROUTE_ALLOW_SWITCH") or "").strip().lower()
+    return v not in ("1", "true", "yes", "on")
+
+
+def clamp_model_to_global(
+    routed: str,
+    *,
+    config_model: str = "",
+    config_provider: str = "",
+    base_url: str = "",
+) -> str:
+    """将 model_route 结果钳制到全局/连接模型。
+
+    规则：配置了全局 LLM 或默认 prefer_global → 永远返回全局 model，
+    禁止把 deepseek-v4-pro 等写进上游。
+    """
+    primary = (config_model or "").strip()
+    provider = (config_provider or "").strip()
+    if not primary:
+        primary, provider = resolve_live_primary_model()
+    routed = (routed or "").strip()
+    if not primary:
+        return routed
+    if prefer_global_model():
+        return primary
+    if not _is_deepseek_multi_tier(primary, provider, base_url):
+        return primary
+    return routed or primary
 
 
 class ModelRouter:
@@ -161,19 +227,33 @@ class ModelRouter:
         if not model:
             return
         provider = (provider or "").strip()
+        changed = False
         if not _is_deepseek_multi_tier(model, provider):
             for tier, cfg in self.tiers.items():
+                if cfg.model != model or (provider and cfg.provider != provider):
+                    changed = True
                 cfg.model = model
                 if provider:
                     cfg.provider = provider
-            logger.info("ModelRouter tiers synced to primary model=%s provider=%s", model, provider or "-")
+            if changed:
+                logger.info(
+                    "ModelRouter tiers synced to primary model=%s provider=%s",
+                    model, provider or "-",
+                )
             return
         # deepseek 多档：standard 跟随 primary，其余保留分档
         std = self.tiers.get(ModelTier.STANDARD)
         if std is not None:
+            if std.model != model or (provider and std.provider != provider):
+                changed = True
             std.model = model
             if provider:
                 std.provider = provider
+            if changed:
+                logger.info(
+                    "ModelRouter standard tier synced to model=%s provider=%s",
+                    model, provider or "-",
+                )
 
     def route(self, *, tokens_estimated: int = 0) -> RouteDecision:
         """根据当前状态决定使用哪个档位。返回 RouteDecision。"""
@@ -268,9 +348,20 @@ _router: Optional[ModelRouter] = None
 
 
 def get_model_router() -> ModelRouter:
+    """返回路由器；每次取用时按全局配置软同步档位模型名。"""
     global _router
     if _router is None:
         _router = ModelRouter()
+    else:
+        try:
+            m, p = resolve_live_primary_model()
+            std = _router.tiers.get(ModelTier.STANDARD)
+            if m and (std is None or std.model != m or not _is_deepseek_multi_tier(m, p)):
+                # 非 deepseek 网关：始终对齐三档；deepseek 时仅当 standard 漂移才同步
+                if not _is_deepseek_multi_tier(m, p) or (std and std.model != m):
+                    _router.apply_primary_model(m, p)
+        except Exception:
+            pass
     return _router
 
 
@@ -279,5 +370,5 @@ def resync_model_router_from_primary(model: str = "", provider: str = "") -> Non
     m = (model or "").strip()
     p = (provider or "").strip()
     if not m:
-        m, p = _resolve_primary_model()
+        m, p = resolve_live_primary_model()
     get_model_router().apply_primary_model(m, p)

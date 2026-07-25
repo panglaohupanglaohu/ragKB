@@ -5,6 +5,7 @@
 > Last updated: 2026-06-12
 
 ## User Preferences
+- [2026-07-25] 模型与连接里配的全局 LLM 必须全局生效，其它路由/团队模型/硬编码一律不要生效。
 - [2026-07-16] **Taste Skill 官方源** = https://www.tasteskill.dev （`npx skills add Leonxlnx/taste-skill --skill design-taste-frontend`；本地 `.agents/skills/design-taste-frontend/SKILL.md`）。规则要点：Page Theme Lock / Color Consistency Lock（单 accent）/ 禁 AI-purple·mesh / off-white+off-black 勿纯色。产品台浅色壳：`html.taste-light` + `css/taste-light.css`（除数字孪生暗色沉浸）；Skill 原文偏 landing，控制台取 cockpit 密度 dials。
 - [2026-07-16] skill-extract 3D 用 **TASTE3D**（`skill-extract.js`）：背景 `#F3F5F8`、accent `#1F6B4A`、冷 slate 基质；技能私有=forest 系、公共=warn amber 语义色；**禁止** twin sexy 彩虹（紫/粉/霓虹青）。数字孪生页仍可暗色沉浸，勿与 skill-extract 浅色培养皿混用同一套 neon palette。
 - [2026-07-16] 浅色壳对比度：任何「近白字 #EEF2F5 / shironeri」在白底 modal 上必须重映射；skill-extract 详情 tab（编辑/演化/验证/效果/版本/智线）用 `--modal-tab-fg*` 变量，active=accent 绿，禁止白字。
@@ -33,6 +34,10 @@
 
 
 ## Key Learnings
+- [2026-07-25] 数字孪生 3D（office3d）猫静音：#office-cat-mute-btn（🐱🔊/🔇），OfficeAPI.toggleCatMute，LS=ag-office-cat-muted；静音只停语音，气泡仍可显示。
+- [2026-07-25] 用户铁律：在「模型与连接」配置了全局 LLM 后，全系统只走该连接；resolve_effective_config/model 忽略 config_override、model_override、model_route、团队槽；tool_loop 入口强制替换 config；仅 __model_test__ 等探针可临时测其它 model。
+- [2026-07-25] 产品铁律「全局配置为主」：默认 prefer_global_model=True，chat_harness/tool_loop 上游 model=连接配置；model_route 只记 tier；仅 AG_MODEL_ROUTE_ALLOW_SWITCH=1 才允许 deepseek 多档改名。
+- [2026-07-25] 「全局 LLM 配置=全局效果」：权威源=ChatHarness.get_provider_config()；model_route 经 clamp_model_to_global；prepare_request/tool_loop/chat_harness 全路径钳制；非 deepseek 网关三档同用全局 model；set_global_override/init 时 resync。
 - [2026-07-25] 演练 403 `team_model_access_denied` deepseek-v4-pro：全局已配 glm-5.1 仍中招，因 TG `model_route` + ModelRouter 硬编码 standard=deepseek-v4-pro；测试连接因 `__model_test__`/model_override 跳过所以「成功」。修复：非 deepseek 网关三档同用全局 model；drill/twin skip；set_global_override 时 resync。
 - [2026-07-25] 议事大厅执行计划可多选 team_ids 并行派发（dispatch_group_id）；孪生深链 team_ids/extra_team_ids 接 eco drill 多队对抗。
 - [2026-07-24] 拟生记忆全收口：EventType.ECO_SURVIVAL_UPDATED + collab apply emit；vector-lite 哈希余弦（AG_MEMORY_VECTOR_LITE）；工作台配置页 pane；README 已改拟生专章。

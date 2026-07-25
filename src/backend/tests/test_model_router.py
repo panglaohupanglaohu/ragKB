@@ -25,6 +25,44 @@ class TestModelRouter:
         assert r.tiers[ModelTier.STANDARD].model == "glm-5.1"
         assert r.tiers[ModelTier.ECONOMY].model == "glm-5.1"
 
+    def test_clamp_global_primary_always_wins_by_default(self, monkeypatch):
+        """默认全局配置为主：即使 deepseek 多档也不改写 model 名。"""
+        monkeypatch.delenv("AG_MODEL_ROUTE_ALLOW_SWITCH", raising=False)
+        from agents.runtime.model_router import clamp_model_to_global
+        out = clamp_model_to_global(
+            "deepseek-v4-pro",
+            config_model="glm-5.1",
+            config_provider="openai",
+            base_url="https://models.sjtu.edu.cn/api/v1",
+        )
+        assert out == "glm-5.1"
+        out2 = clamp_model_to_global(
+            "deepseek-v4-flash",
+            config_model="deepseek-v4-pro",
+            config_provider="deepseek",
+            base_url="https://api.deepseek.com",
+        )
+        assert out2 == "deepseek-v4-pro"
+
+    def test_clamp_allows_switch_when_env_set(self, monkeypatch):
+        monkeypatch.setenv("AG_MODEL_ROUTE_ALLOW_SWITCH", "1")
+        from agents.runtime.model_router import clamp_model_to_global
+        out = clamp_model_to_global(
+            "deepseek-v4-flash",
+            config_model="deepseek-v4-pro",
+            config_provider="deepseek",
+            base_url="https://api.deepseek.com",
+        )
+        assert out == "deepseek-v4-flash"
+        # 非 deepseek 网关即便开开关也不得改写
+        out2 = clamp_model_to_global(
+            "deepseek-v4-pro",
+            config_model="glm-5.1",
+            config_provider="openai",
+            base_url="https://models.sjtu.edu.cn/api/v1",
+        )
+        assert out2 == "glm-5.1"
+
     def test_budget_exhausted_downgrades_to_economy(self):
         r = ModelRouter(total_budget=10000)
         r.state.used_budget = 9000  # 90% used

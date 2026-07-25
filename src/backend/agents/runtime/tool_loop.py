@@ -308,6 +308,15 @@ async def run_tool_loop(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt},
     ]
+    # 全局 LLM 已配置 → 强制覆盖传入的团队/任务 config（模型与连接的全局默认唯一生效）
+    try:
+        from ..chat_harness import get_chat_harness
+        _h = get_chat_harness()
+        if _h.has_global_llm():
+            config = _h.resolve_effective_config(agent_id)
+    except Exception:
+        pass
+
     client = LLMClient(config)
     budget_guard = get_budget_guard()
     usage_total = UsageSummary()
@@ -321,7 +330,7 @@ async def run_tool_loop(
     task_id = str(_os.environ.get("AG_TASK_ID") or "")
     if not team_id:
         team_id = str(_os.environ.get("AG_TEAM_ID") or "")
-    model_name = config.model
+    model_name = str(getattr(config, "model", "") or "")
 
     # 任务 token 归因：进入 loop 前压入 context（分析台 by_team / by_task 依赖）
     _tl_cm = None
@@ -442,8 +451,8 @@ async def _run_tool_loop_iterations(
                         **send_messages[0],
                         "content": sys0 + hint_line,
                     }
-            if (prep.get("model") or {}).get("model"):
-                model_name = str(prep["model"]["model"]) or model_name
+            # 全局 LLM / 当前连接 model 锁定：model_route 不得改写实际上游 model 名
+            model_name = str(getattr(config, "model", "") or model_name)
             if prep.get("budget") and not prep["budget"].get("allowed", True):
                 error_msg = "Token budget exceeded"
                 evs = prep["budget"].get("events") or []

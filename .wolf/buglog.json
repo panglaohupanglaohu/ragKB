@@ -2535,7 +2535,7 @@
     "error_message": "Tried to access deepseek-v4-pro type=team_model_access_denied code=403 (演练时)",
     "file": "src/backend/agents/runtime/model_router.py, chat_harness.py, sandbox/llm_decision.py",
     "root_cause": "Token Governance model_route=true + ModelRouter 三档硬编码 deepseek-v4-flash/pro；演练/twin 未 skip model_route（测试连接用 __model_test__+model_override 可跳过故显示成功）。cost_tier 把演练改写成 standard→deepseek-v4-pro，SJTU/codebuddy 网关无权限 403。",
-    "fix": "1) ModelRouter 非 deepseek 网关时三档跟随全局 llm.model；2) chat_harness 对 drill/eco/twin_/model_override 跳过改写，且非 deepseek 网关拒绝覆盖；3) 全局 override/update_default 时 resync 档位；4) llm_decision/eco_drill 传 model_override。",
+    "fix": "1) ModelRouter 非 deepseek 三档=全局 model；2) clamp_model_to_global 统一钳制；3) prepare_request/tool_loop/chat_harness 全链路；4) set_global_override/init/get 时 resync；5) twin/drill model_override + skip phases。",
     "tags": [
       "model_route",
       "drill",
@@ -2545,7 +2545,7 @@
       "token_governance"
     ],
     "related_bugs": [],
-    "occurrences": 1,
-    "last_seen": "2026-07-25T02:13:52Z"
+    "occurrences": 2,
+    "last_seen": "2026-07-25T02:17:39Z"
   }
 ]

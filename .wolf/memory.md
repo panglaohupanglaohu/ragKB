@@ -425,3 +425,8 @@
 ## 2026-07-25T03:00Z
 - 多队派发加固：PlanStep.task_ids_by_team、multi_dispatch API、前两队对抗、多选记忆；14 tests pass
 | 02:13 | 修演练 model_route 改写 deepseek-v4-pro 403 | model_router/chat_harness/llm_decision | 三档跟随全局 glm-5.1 + twin skip | ~2k |
+| 10:17 | 全局LLM真正全局：clamp+prepare/tool_loop/harness 同步 | model_router/service/tool_loop/chat_harness | glm-5.1 不被 deepseek-v4-pro 覆盖 | ~2k |
+| 10:23 | 全局配置为主：prefer_global_model 默认锁 model 名 | model_router/service/tool_loop/harness | model_route 只记档位 | ~1k |
+| 10:29 | 全局LLM绝对锁定：has_global_llm时忽略override/route/团队槽 | chat_harness/tool_loop/api | 仅__探针可临时改 | ~1k |
+| 10:31 | 补全模型与连接 global-model-banner 已启用态 | agent-team-config.js | 与全局LLM硬锁语义对齐 | ~0.5k |
+| 10:33 | 数字孪生3D窗口加猫静音按键 | office-boot.js | localStorage+停播TTS | ~0.8k |
