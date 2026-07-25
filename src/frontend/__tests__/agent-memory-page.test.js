@@ -35,8 +35,17 @@ describe('agent-memory hub page', () => {
     expect(page).toContain('/share');
     expect(page).toContain('/transfer');
     expect(page).toContain('share-matrix');
-    expect(page).toContain('xiaoman');
-    expect(page).toContain('shenmian');
+    expect(page).toContain('memory-style');
+    expect(page).toContain('memoryStyleName');
+  });
+
+  it('hides prototype names and exposes an agent-owned memory style', () => {
+    expect(html).not.toContain('<b>小满</b>');
+    expect(html).not.toContain('<b>沈弥安</b>');
+    expect(html).toContain('每个 Agent 都会形成自己的记忆方式');
+    expect(page).toContain('连续性');
+    expect(page).toContain('克制性');
+    expect(page).toContain('前瞻意图·过程');
   });
 
   it('supports shared log preview and co_writer path', () => {

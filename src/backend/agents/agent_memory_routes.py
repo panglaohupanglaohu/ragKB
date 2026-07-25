@@ -259,14 +259,120 @@ def memory_compress(team_id: str, agent_id: str) -> Dict[str, Any]:
 
 @router.post(
     "/teams/{team_id}/agents/{agent_id}/memory-core/intentions",
-    summary="新建未发送意图",
+    summary="新建前瞻意图（过程缓冲·非记忆层）",
 )
 def memory_intention_add(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     core = _writable(team_id, agent_id)
     if not (body or {}).get("instruction"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="instruction required")
     it = core.intentions.add(body or {})
-    return {"ok": True, "intention": it, "pending": core.intentions.pending()}
+    return {
+        "ok": True,
+        "intention": it,
+        "pending": core.intentions.pending(),
+        "system": "prospective",
+        "kind": "process",
+        "note": "前瞻意图不是记忆层",
+    }
+
+
+@router.post(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/consolidate",
+    summary="巩固：情节→语义核",
+)
+def memory_consolidate(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    max_new = int((body or {}).get("max_new") or 5)
+    result = core.consolidate_tick(max_new=max_new)
+    return {"ok": True, **result, "counts": core.counts(), "semantic": core.semantic.active()[-10:]}
+
+
+@router.post(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/forget",
+    summary="遗忘引擎 tick（soft-forget 低分情节）",
+)
+def memory_forget(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    hard_cap = (body or {}).get("hard_cap")
+    result = core.forget_tick(hard_cap=int(hard_cap) if hard_cap is not None else None)
+    return {"ok": True, **result, "counts": core.counts()}
+
+
+@router.get(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/systems",
+    summary="拟生系统视图（层/场/过程）",
+)
+def memory_systems(team_id: str, agent_id: str) -> Dict[str, Any]:
+    core = _core(team_id, agent_id)
+    return {"ok": True, **core.systems_view()}
+
+
+@router.get(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/forgotten",
+    summary="soft-forget 审计列表",
+)
+def memory_forgotten(
+    team_id: str,
+    agent_id: str,
+    limit: int = Query(default=30, ge=1, le=200),
+) -> Dict[str, Any]:
+    core = _core(team_id, agent_id)
+    rows = core.forgotten_audit(limit=limit)
+    return {"ok": True, "forgotten": rows, "count": len(rows)}
+
+
+@router.get(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/working",
+    summary="工作台槽位",
+)
+def memory_working_list(team_id: str, agent_id: str) -> Dict[str, Any]:
+    core = _core(team_id, agent_id)
+    return {
+        "ok": True,
+        "working": core._working_slots(),
+        "topology": core.topology(),
+    }
+
+
+@router.post(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/working",
+    summary="推入工作台",
+)
+def memory_working_push(
+    team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})
+) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    slots = core.push_working(body or {})
+    return {"ok": True, "working": slots}
+
+
+@router.delete(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/working",
+    summary="清空工作台",
+)
+def memory_working_clear(team_id: str, agent_id: str) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    core.clear_working()
+    return {"ok": True, "working": []}
+
+
+@router.post(
+    "/teams/{team_id}/agents/{agent_id}/memory-core/drift",
+    summary="拓扑慢漂移 tick（force 可测）",
+)
+def memory_drift(
+    team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})
+) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    fd = float((body or {}).get("fitness_delta") or 0)
+    surv = (body or {}).get("survival_ticks")
+    force = bool((body or {}).get("force", True))
+    topo = core.drift_topology(
+        fitness_delta=fd,
+        survival_ticks=float(surv) if surv is not None else None,
+        force=force,
+    )
+    return {"ok": True, "topology": topo}
 
 
 @router.post(
@@ -295,7 +401,7 @@ def memory_intention_drop(team_id: str, agent_id: str, intention_id: str) -> Dic
 
 @router.post(
     "/teams/{team_id}/agents/{agent_id}/memory-core/affect",
-    summary="注入情绪残留",
+    summary="注入情绪电荷（场·非事实层）",
 )
 def memory_feel(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     core = _writable(team_id, agent_id)
@@ -472,6 +578,13 @@ def hub_overview(team_id: str = Query(...)) -> Dict[str, Any]:
     return _lc().team_overview(team_id, _list_team_agents(team_id))
 
 
+@hub_router.get("/systems-catalog", summary="拟生记忆系统目录（层/场/过程）")
+def hub_systems_catalog() -> Dict[str, Any]:
+    from .agent_memory_core import systems_catalog
+
+    return {"ok": True, **systems_catalog()}
+
+
 # 静态/更具体路径必须注册在 /{team_id}/{agent_id} 之前
 @hub_router.get("/transfers", summary="传递记录")
 def hub_list_transfers(
@@ -505,6 +618,20 @@ def hub_lifecycle_get(team_id: str, agent_id: str) -> Dict[str, Any]:
 @hub_router.put("/{team_id}/{agent_id}/persona", summary="Persona")
 def hub_persona(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     return memory_set_persona(team_id, agent_id, body)
+
+
+@hub_router.get("/{team_id}/{agent_id}/memory-style", summary="Agent 独有记忆方式")
+def hub_memory_style_get(team_id: str, agent_id: str) -> Dict[str, Any]:
+    core = _core(team_id, agent_id)
+    return {"ok": True, "memory_style": core.memory_style(), "dynamic_state": core.dynamic_state()}
+
+
+@hub_router.put("/{team_id}/{agent_id}/memory-style", summary="调整 Agent 独有记忆方式")
+def hub_memory_style_put(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    core = _writable(team_id, agent_id)
+    style = core.set_memory_style(body or {})
+    _lc()._append_audit(team_id, agent_id, {"t": __import__("time").time_ns() // 1_000_000, "action": "set_memory_style", "version": style.get("version")})
+    return {"ok": True, "memory_style": style, "dynamic_state": core.dynamic_state()}
 
 
 @hub_router.get("/{team_id}/{agent_id}/audit", summary="审计")

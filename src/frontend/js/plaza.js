@@ -1889,15 +1889,31 @@ function renderPlanCard(planContent, revised = false) {
     return;
   }
 
-  const opts = allTeams.map(t => {
-    const selected = preferredTeam && t.team_id === preferredTeam ? ' selected' : '';
-    return `<option value="${esc(t.team_id)}"${selected}>${esc(t.name)}</option>`;
+  // 恢复上次多选（localStorage），否则 preferredTeam 单选
+  let remembered = [];
+  try {
+    remembered = JSON.parse(localStorage.getItem('plaza_dispatch_teams') || '[]') || [];
+  } catch (e) { remembered = []; }
+  if (!remembered.length && preferredTeam) remembered = [preferredTeam];
+  const teamChecks = allTeams.map(t => {
+    const checked = remembered.includes(t.team_id) ? ' checked' : '';
+    return `<label class="assign-team-chip" style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px 2px 0;padding:2px 6px;border:1px solid var(--line);border-radius:4px;font-size:11px;cursor:pointer;background:var(--panel2,transparent)">
+      <input type="checkbox" class="assign-team-cb" value="${esc(t.team_id)}"${checked}
+        onchange="persistDispatchTeams();try{const v=getSelectedDispatchTeams();if(v[0])AGCtx.set('team',v[0])}catch(e){}"/>
+      ${esc(t.name)}</label>`;
   }).join('');
   // 保存滚动位置 — innerHTML 重建会丢失 scrollTop
   const savedScroll = p.scrollTop;
   p.innerHTML = `<div class="plan-card"><h4>执行计划${revised ? ' <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">已修订</span>' : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
-    <div class="assign-row"><span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">ASSIGN:</span>
-    <select id="assign-team" onchange="try{AGCtx.set('team',this.value)}catch(e){}">${opts}</select><button class="plan-btn" onclick="assignPlan()">派发</button></div>
+    <div class="assign-row" style="flex-wrap:wrap;align-items:flex-start">
+      <span style="font-size:9px;color:var(--dim);font-family:var(--font-mono);margin-top:4px">ASSIGN TEAMS（可多选）:</span>
+      <div id="assign-teams" style="flex:1;min-width:180px">${teamChecks || '<span style="color:var(--dim);font-size:11px">无团队</span>'}</div>
+      <button class="plan-btn" onclick="assignPlan()">派发</button>
+      <button class="plan-btn" onclick="selectAllDispatchTeams(true)" title="全选">全选</button>
+      <button class="plan-btn" onclick="selectAllDispatchTeams(false)" title="清空">清空</button>
+      <button class="plan-btn accent" onclick="selectTopTwoTeams()" title="勾选列表前两队，快速开对抗">⚡ 前两队对抗</button>
+    </div>
+    <p style="font-size:10px;color:var(--dim);margin:4px 0 0">多队=同一执行计划并行赛道；勾选 ≥2 队后「智能拆解 / 派发并送入物竞」可直接多队对抗</p>
     <div class="plan-actions">
       <button class="plan-btn primary" onclick="dispatchTasks()">智能拆解</button>
       <button class="plan-btn primary" onclick="dispatchAndExecute()">拆解并执行</button>
@@ -1907,10 +1923,21 @@ function renderPlanCard(planContent, revised = false) {
       <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
     </div>
     <div id="exec-plan-body" style="margin-top:8px"></div></div>`;
-  if (preferredTeam && $('assign-team')) {
-    // Re-apply value defensively in case option order changes during rerender.
-    $('assign-team').value = preferredTeam;
+  // legacy id for callers still reading assign-team: mirror first selection
+  if (!$('assign-team')) {
+    const hidden = document.createElement('select');
+    hidden.id = 'assign-team';
+    hidden.style.display = 'none';
+    allTeams.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.team_id;
+      o.textContent = t.name;
+      hidden.appendChild(o);
+    });
+    p.querySelector('.plan-card')?.appendChild(hidden);
   }
+  const selected = getSelectedDispatchTeams();
+  if (selected[0] && $('assign-team')) $('assign-team').value = selected[0];
   // innerHTML 重建后立即恢复滚动位置，再渲染子面板（子面板的 outerHTML 也会保存/恢复）
   p.scrollTop = savedScroll;
   renderConsensusState();
@@ -1928,26 +1955,87 @@ function renderLivePlan(plan) {
   renderPlanCard(planContent, true);
 }
 
+/** 多选派发团队（checkbox #assign-teams .assign-team-cb） */
+window.getSelectedDispatchTeams = function () {
+  const boxes = document.querySelectorAll('#assign-teams .assign-team-cb:checked');
+  const ids = Array.from(boxes).map((b) => b.value).filter(Boolean);
+  if (!ids.length && $('assign-team')?.value) ids.push($('assign-team').value);
+  return ids;
+};
+
+window.persistDispatchTeams = function () {
+  try {
+    localStorage.setItem('plaza_dispatch_teams', JSON.stringify(getSelectedDispatchTeams()));
+  } catch (e) { /* ignore */ }
+  const v = getSelectedDispatchTeams();
+  if (v[0] && $('assign-team')) $('assign-team').value = v[0];
+};
+
+window.selectAllDispatchTeams = function (on) {
+  document.querySelectorAll('#assign-teams .assign-team-cb').forEach((b) => {
+    b.checked = !!on;
+  });
+  persistDispatchTeams();
+};
+
+/** 快速勾选列表前两队，用于孪生对抗 */
+window.selectTopTwoTeams = function () {
+  const boxes = Array.from(document.querySelectorAll('#assign-teams .assign-team-cb'));
+  boxes.forEach((b, i) => { b.checked = i < 2; });
+  persistDispatchTeams();
+  const v = getSelectedDispatchTeams();
+  toast(v.length >= 2 ? `已选对抗：${v.slice(0, 2).join(' vs ')}` : '团队不足 2 个');
+};
+
+function _dispatchBody() {
+  const team_ids = getSelectedDispatchTeams();
+  return {
+    team_id: team_ids[0] || '',
+    team_ids,
+    mode: 'parallel',
+  };
+}
+
 window.assignPlan = async function() {
   if (!curPlaza || !curDisc) return;
-  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team_id: $('assign-team').value }) });
-  if (r) { toast(`计划已派发: ${r.status}`); }
-  else { const detail = window.api?._lastError?.message || ''; toast('派发失败' + (detail ? '：' + detail : '')); }
+  const body = _dispatchBody();
+  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/assign`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r) {
+    toast(
+      r.multi_team
+        ? `计划已派发到 ${r.team_ids?.length || 0} 个团队`
+        : `计划已派发: ${r.status}`
+    );
+  } else {
+    const detail = window.api?._lastError?.message || '';
+    toast('派发失败' + (detail ? '：' + detail : ''));
+  }
 };
 
 window.dispatchTasks = async function() {
   if (!curPlaza || !curDisc) return;
-  const teamId = $('assign-team')?.value;
-  if (!teamId) { toast('请选择团队'); return; }
-  toast('正在智能拆解任务...');
+  const body = _dispatchBody();
+  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  toast(body.team_ids.length > 1
+    ? `正在拆解并并行派发到 ${body.team_ids.length} 个团队…`
+    : '正在智能拆解任务…');
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team_id: teamId })
+    body: JSON.stringify(body),
   });
   if (r && r.task_count) {
-    toast(`已拆解 ${r.task_count} 个任务并派发到团队`);
-    renderDispatchedTasks(r.tasks);
+    toast(
+      r.multi_team
+        ? `已拆解 ${r.task_count} 个任务 → ${r.team_ids.length} 队并行（group ${String(r.dispatch_group_id || '').slice(0, 10)}）`
+        : `已拆解 ${r.task_count} 个任务并派发到团队`
+    );
+    renderDispatchedTasks(r.tasks, r.dispatches);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
+    window.__LAST_DISPATCH__ = r;
   } else if (r) {
     toast('未拆解出任务：执行计划中没有可识别的任务条目');
   } else {
@@ -1958,17 +2046,24 @@ window.dispatchTasks = async function() {
 
 window.dispatchAndExecute = async function() {
   if (!curPlaza || !curDisc) return;
-  const teamId = $('assign-team')?.value;
-  if (!teamId) { toast('请选择团队'); return; }
-  toast('正在拆解并立即执行...');
+  const body = _dispatchBody();
+  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  toast(body.team_ids.length > 1
+    ? `正在拆解并在 ${body.team_ids.length} 队立即执行…`
+    : '正在拆解并立即执行…');
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch-and-execute`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team_id: teamId })
+    body: JSON.stringify(body),
   });
   if (r && r.task_count) {
-    toast(`已拆解 ${r.task_count} 个任务，正在执行中`);
-    renderDispatchedTasks(r.tasks);
+    toast(
+      r.multi_team
+        ? `已拆解 ${r.task_count} 个任务，${r.team_ids.length} 队执行中`
+        : `已拆解 ${r.task_count} 个任务，正在执行中`
+    );
+    renderDispatchedTasks(r.tasks, r.dispatches);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
+    window.__LAST_DISPATCH__ = r;
   } else if (r) {
     toast('未拆解出任务：执行计划中没有可识别的任务条目');
   } else {
@@ -2133,16 +2228,31 @@ window.runVerificationQueue = async function() {
   toast(`验证完成 ${verified} 项 · 关闭 ${closed} 项`);
 };
 
-function renderDispatchedTasks(tasks) {
+function renderDispatchedTasks(tasks, dispatches) {
   if (!tasks || !tasks.length) return;
   const p = $('plan-panel');
   const existing = p.querySelector('.dispatched-tasks');
+  let lanesHtml = '';
+  if (Array.isArray(dispatches) && dispatches.length > 1) {
+    lanesHtml = `<div style="margin-bottom:8px;font-size:10px;color:var(--dim)">
+      多队并行 · ${dispatches.length} 赛道
+      ${dispatches
+        .map(
+          (d) =>
+            `<div style="margin-top:4px"><b style="color:var(--text)">${esc(d.team_id)}</b>
+              · ${d.task_count || (d.task_ids || []).length || 0} 任务
+              · lane ${esc(d.lane || '')}</div>`
+        )
+        .join('')}
+    </div>`;
+  }
   const html = `<div class="dispatched-tasks" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
     <h4 style="font-size:10px;color:var(--dim);margin-bottom:6px;letter-spacing:1px">TASKS (${tasks.length})</h4>
+    ${lanesHtml}
     ${tasks.map((t, i) => `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:11px">
       <span style="width:8px;height:8px;border-radius:50%;background:${t.status==='running'?'var(--accent)':t.status==='completed'?'#67c23a':'var(--dim)'};flex-shrink:0"></span>
       <span style="color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span>
-      <span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">${t.metadata?.responsible||''}</span>
+      <span style="font-size:9px;color:var(--dim);font-family:var(--font-mono)">${esc(t.metadata?.team_id || t.team_id || '')} ${esc(t.metadata?.responsible_role || t.metadata?.responsible || '')}</span>
     </div>`).join('')}
   </div>`;
   if (existing) existing.outerHTML = html;
@@ -2520,6 +2630,7 @@ function renderExecutionPlan(r) {
   const plan = r.plan || {};
   const issues = r.issues || [];
   const steps = plan.steps || [];
+  const multi = r.multi_dispatch || {};
   // 落地性审查缺项（按步聚合）
   const issueByStep = {};
   issues.forEach((i) => { (issueByStep[i.step] = issueByStep[i.step] || []).push(i.field || i.issue || ''); });
@@ -2528,6 +2639,11 @@ function renderExecutionPlan(r) {
     const miss = issueByStep[s.step_id] || [];
     const missHtml = miss.length ? `<div style="font-size:9px;color:#ef4444;margin-top:2px">⚠ 缺: ${esc(miss.join(' / '))}</div>` : '';
     const skills = (s.required_skills || []).map((k) => `<span class="chip">${esc(k)}</span>`).join('');
+    const byTeam = s.task_ids_by_team || {};
+    const teamKeys = Object.keys(byTeam);
+    const multiTaskHtml = teamKeys.length
+      ? `<div style="font-size:9px;color:var(--dim);margin-top:3px;font-family:var(--font-mono)">多队任务: ${teamKeys.map((tid) => esc(tid) + '→' + esc(String(byTeam[tid]).slice(0, 8))).join(' · ')}</div>`
+      : (s.task_id ? `<div style="font-size:9px;color:var(--dim);margin-top:2px;font-family:var(--font-mono)">task ${esc(String(s.task_id).slice(0, 10))}</div>` : '');
     return `<div class="exec-step" style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <b style="font-size:11px">${s.index != null ? s.index + '. ' : ''}${esc(s.title || s.step_id)}</b>
@@ -2535,6 +2651,7 @@ function renderExecutionPlan(r) {
       </div>
       <div style="font-size:9px;color:var(--dim);margin-top:2px">角色: ${esc(s.responsible_role || '—')} · 验收: ${esc(s.acceptance || '—')}</div>
       ${skills ? `<div style="margin-top:3px">${skills}</div>` : ''}
+      ${multiTaskHtml}
       ${missHtml}
       <div style="margin-top:4px"><button class="plan-btn" style="font-size:9px;padding:2px 6px" onclick="askPlanStep('${esc(s.step_id)}','${esc((s.title || '').replace(/'/g, ''))}')">💬 追问此步骤</button></div>
     </div>`;
@@ -2545,14 +2662,30 @@ function renderExecutionPlan(r) {
     ? `<div style="font-size:10px;color:#ef4444;margin-bottom:6px">落地性审查未通过：${issues.length} 处缺项，补齐后可批准（或强制批准保留人的最终决定权）。</div>`
     : `<div style="font-size:10px;color:#34d399;margin-bottom:6px">✅ 落地性审查通过，可批准派发。</div>`;
 
+  const multiBanner = multi.multi_team && (multi.team_ids || []).length
+    ? `<div style="font-size:10px;padding:6px 8px;margin-bottom:8px;border:1px solid rgba(52,211,153,.35);border-radius:6px;background:rgba(52,211,153,.06);color:var(--text)">
+        🏁 多队并行已派发 · ${(multi.team_ids || []).map(esc).join(' · ')}
+        · group ${esc(String(multi.dispatch_group_id || '').slice(0, 12))}
+        · ${multi.task_count || 0} 任务
+      </div>`
+    : '';
+
   // v4: 缓存计划供「送入物竞试验田」深链
   try {
-    window.__LAST_EXECUTION_PLAN__ = plan;
-    sessionStorage.setItem('eco_bound_plan', JSON.stringify(plan));
+    window.__LAST_EXECUTION_PLAN__ = Object.assign({}, plan, {
+      dispatch_group_id: multi.dispatch_group_id,
+      team_ids: multi.team_ids,
+      dispatches: multi.dispatches,
+      multi_team: multi.multi_team,
+    });
+    sessionStorage.setItem('eco_bound_plan', JSON.stringify(window.__LAST_EXECUTION_PLAN__));
     sessionStorage.setItem('eco_bound_plan_meta', JSON.stringify({
       plaza_id: curPlaza || plan.plaza_id || '',
       discussion_id: curDisc || plan.discussion_id || '',
       plan_id: plan.plan_id || '',
+      team_ids: multi.team_ids || [],
+      dispatch_group_id: multi.dispatch_group_id || '',
+      multi_team: !!multi.multi_team,
     }));
   } catch (e) { /* ignore quota */ }
 
@@ -2561,13 +2694,14 @@ function renderExecutionPlan(r) {
       <b style="font-size:11px">📋 结构化执行计划 <span style="font-size:9px;color:var(--dim)">rev.${plan.revision || 1} · ${esc(plan.status || 'draft')}</span></b>
     </div>
     ${gate}
+    ${multiBanner}
     ${stepsHtml}
     <div class="plan-actions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
       ${approved
         ? '<span style="font-size:10px;color:#34d399">已批准 ✓</span>'
         : `<button class="plan-btn primary" onclick="approveExecutionPlan(false)">✅ 批准</button>${issues.length ? '<button class="plan-btn" onclick="approveExecutionPlan(true)" title="保留人的最终决定权，跳过审查">强制批准</button>' : ''}`}
       <button class="plan-btn" onclick="rejectExecutionPlan()" title="驳回并让议事长重新梳理计划（重议）">✖ 驳回·重议</button>
-      <button class="plan-btn primary" onclick="sendPlanToEcoField()" title="先选团队并派发任务，再打开物竞（推荐从团队任务菜单进入）">🧬 派发并送入物竞</button>
+      <button class="plan-btn primary" onclick="sendPlanToEcoField()" title="勾选多队后可并行派发并打开物竞对抗">🧬 派发并送入物竞</button>
     </div>
   </div>`;
 }
@@ -2582,27 +2716,41 @@ window.sendPlanToEcoField = async function () {
     toast('暂无结构化计划步骤，请先生成/批准执行计划');
     return;
   }
-  const teamId = $('assign-team')?.value;
-  if (!teamId) {
-    toast('请先在上方选择要派发的智能体团队，再送入物竞');
+  const teamIds = getSelectedDispatchTeams();
+  if (!teamIds.length) {
+    toast('请先勾选要派发的智能体团队（可多选），再送入物竞');
     return;
   }
-  const teamName = ($('assign-team')?.selectedOptions?.[0]?.textContent || teamId).trim();
+  const teamId = teamIds[0];
+  const teamName = (
+    document.querySelector(`.assign-team-cb[value="${CSS.escape(teamId)}"]`)?.parentElement?.textContent ||
+    teamId
+  ).trim();
+  const extraIds = teamIds.slice(1);
 
   // 若计划尚未拆解出任务，先智能拆解（不 auto_start）
   let taskIds = Array.isArray(plan.task_ids) ? plan.task_ids.filter(Boolean) : [];
   if (!taskIds.length && plan.steps?.some(s => s.task_id)) {
     taskIds = plan.steps.map(s => s.task_id).filter(Boolean);
   }
+  let dispatchGroup = plan.dispatch_group_id || '';
+  let dispatches = plan.dispatches || null;
   if (!taskIds.length) {
-    toast('正在智能拆解并派发到团队…');
+    toast(
+      teamIds.length > 1
+        ? `正在拆解并并行派发到 ${teamIds.length} 队…`
+        : '正在智能拆解并派发到团队…'
+    );
     const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ team_id: teamId }),
+      body: JSON.stringify({ team_id: teamId, team_ids: teamIds, mode: 'parallel' }),
     });
     if (r && r.task_count) {
       taskIds = (r.tasks || []).map(t => t.task_id || t.id).filter(Boolean);
-      renderDispatchedTasks(r.tasks);
+      dispatchGroup = r.dispatch_group_id || dispatchGroup;
+      dispatches = r.dispatches || dispatches;
+      renderDispatchedTasks(r.tasks, r.dispatches);
+      window.__LAST_DISPATCH__ = r;
       toast(`已拆解 ${r.task_count} 个任务 → 打开物竞试验田`);
     } else if (r) {
       toast('未拆解出任务：将仅带计划与团队进入物竞');
@@ -2619,8 +2767,28 @@ window.sendPlanToEcoField = async function () {
       discussion_id: curDisc || plan.discussion_id || '',
       plan_id: plan.plan_id || '',
       team_id: teamId,
+      team_ids: teamIds,
+      dispatch_group_id: dispatchGroup,
+      multi_team: teamIds.length > 1,
     }));
     sessionStorage.setItem('eco_bound_team', JSON.stringify({ id: teamId, name: teamName }));
+    if (teamIds.length > 1) {
+      sessionStorage.setItem(
+        'eco_bound_teams',
+        JSON.stringify(
+          teamIds.map((id) => ({
+            id,
+            name:
+              document.querySelector(`.assign-team-cb[value="${CSS.escape(id)}"]`)?.parentElement
+                ?.textContent?.trim() || id,
+          }))
+        )
+      );
+      sessionStorage.setItem('eco_extra_team_ids', JSON.stringify(extraIds));
+    }
+    if (dispatches) {
+      sessionStorage.setItem('eco_bound_dispatches', JSON.stringify(dispatches));
+    }
   } catch (e) { /* ignore */ }
 
   const pid = encodeURIComponent(plan.plan_id || '');
@@ -2629,9 +2797,20 @@ window.sendPlanToEcoField = async function () {
   const tid = encodeURIComponent(teamId);
   const tname = encodeURIComponent(teamName);
   const firstTask = taskIds[0] ? `&task_id=${encodeURIComponent(taskIds[0])}` : '';
-  const url = `/Agent-digital-twin.html?office3d=1&team_id=${tid}&team_name=${tname}&plan_id=${pid}&plaza_id=${plz}&discussion_id=${disc}${firstTask}`;
+  const multiQ =
+    teamIds.length > 1
+      ? `&team_ids=${encodeURIComponent(teamIds.join(','))}&extra_team_ids=${encodeURIComponent(
+          extraIds.join(',')
+        )}&matchup=1`
+      : '';
+  const dg = dispatchGroup ? `&dispatch_group_id=${encodeURIComponent(dispatchGroup)}` : '';
+  const url = `/Agent-digital-twin.html?office3d=1&team_id=${tid}&team_name=${tname}&plan_id=${pid}&plaza_id=${plz}&discussion_id=${disc}${firstTask}${multiQ}${dg}`;
   window.open(url, '_blank');
-  toast('已打开物竞试验田（团队已绑定' + (taskIds[0] ? '，首任务已带入' : '') + '）。也可在团队「任务」菜单对单行点 🧬');
+  toast(
+    teamIds.length > 1
+      ? `已打开物竞试验田：主队 ${teamName} + ${extraIds.length} 对抗队`
+      : '已打开物竞试验田（团队已绑定' + (taskIds[0] ? '，首任务已带入' : '') + '）'
+  );
 };
 
 window.approveExecutionPlan = async function(force = false) {

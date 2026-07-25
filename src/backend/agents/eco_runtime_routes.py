@@ -509,7 +509,23 @@ def collab_integration_apply(req: CollabIntegrationApplyRequest) -> Dict[str, An
         meta["eco_collab"] = payload
         agent.metadata = meta
         applied += 1
-        audit.append({"agent_id": getattr(agent, "agent_id", aid), "eco_collab": payload})
+        real_aid = str(getattr(agent, "agent_id", aid) or aid)
+        audit.append({"agent_id": real_aid, "eco_collab": payload})
+        # 拟生记忆：物竞存活写回 → EventBus → fitness/拓扑漂移
+        try:
+            from agents.agent_memory_runtime import emit_eco_survival
+
+            surv = payload.get("survival_ticks")
+            if surv is None and isinstance(payload.get("survival_attribution"), dict):
+                surv = payload["survival_attribution"].get("survival_ticks")
+            emit_eco_survival(
+                req.team_id,
+                real_aid,
+                survival_ticks=float(surv or 0),
+                metadata={"eco_fp": payload.get("eco_fp") or payload.get("fingerprint") or ""},
+            )
+        except Exception as e:
+            logger.debug("eco survival emit skip: %s", e)
 
     try:
         if hasattr(_team_manager, "_persist") and callable(getattr(_team_manager, "_persist")):

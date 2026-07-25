@@ -48,6 +48,9 @@ class EventType(str, Enum):
     TASK_FAILED = "task.failed"
     TASK_CANCELLED = "task.cancelled"
 
+    # ── Eco / 物竞 ──
+    ECO_SURVIVAL_UPDATED = "eco.survival_updated"
+
 
 # ══════════════════════════════════════════════════════════════════════
 # Event Payloads — 携带完整实体快照 (full context)
@@ -231,6 +234,28 @@ class TaskSnapshot:
             "dependencies": self.dependencies,
             "result": self.result,
             "error": self.error,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass
+class EcoSurvivalSnapshot:
+    """物竞存活写回快照 — 喂给拟生记忆 fitness/拓扑漂移."""
+
+    team_id: str = ""
+    agent_id: str = ""
+    survival_ticks: float = 0.0
+    fitness_delta: float = 0.0  # 相对上次写回的归一化变化，可选
+    source: str = "eco_collab"
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "agent_id": self.agent_id,
+            "survival_ticks": self.survival_ticks,
+            "fitness_delta": self.fitness_delta,
+            "source": self.source,
             "metadata": self.metadata,
         }
 

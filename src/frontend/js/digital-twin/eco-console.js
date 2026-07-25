@@ -289,11 +289,36 @@
     _syncPrimaryTaskMount(true);
   }
 
-  /** XG-11: 从 URL/session 自动选中投放种群 */
+  /** XG-11: 从 URL/session 自动选中投放种群；支持 team_ids / extra_team_ids 多队对抗 */
   window.eco2ApplyTeamFromUrl = function () {
     var qs = new URLSearchParams(window.location.search || '');
     var teamId = qs.get('team_id') || '';
     var teamName = qs.get('team_name') || '';
+    // 多队：team_ids=a,b,c 或 extra_team_ids=b,c
+    var multiRaw = qs.get('team_ids') || '';
+    var extraRaw = qs.get('extra_team_ids') || '';
+    var multiIds = multiRaw
+      ? multiRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+      : [];
+    var extraIds = extraRaw
+      ? extraRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+      : [];
+    if (!teamId && multiIds.length) teamId = multiIds[0];
+    if (multiIds.length > 1) {
+      extraIds = multiIds.slice(1).concat(extraIds.filter(function (id) {
+        return multiIds.indexOf(id) < 0;
+      }));
+    }
+    try {
+      if (!extraIds.length) {
+        var ex = sessionStorage.getItem('eco_extra_team_ids');
+        if (ex) extraIds = JSON.parse(ex) || [];
+      }
+      if (extraIds.length) {
+        sessionStorage.setItem('eco_extra_team_ids', JSON.stringify(extraIds));
+        window.__ECO_EXTRA_TEAM_IDS__ = extraIds;
+      }
+    } catch (e) { /* ignore */ }
     if (!teamId) {
       try {
         var raw = sessionStorage.getItem('eco_bound_team');
@@ -305,10 +330,22 @@
       } catch (e) { /* ignore */ }
     }
     if (!teamId) return Promise.resolve(null);
+    // 暴露给 drill 创建：优先用 __ECO_EXTRA_TEAM_IDS__
+    if (typeof window.eco2GetExtraTeamIds !== 'function') {
+      window.eco2GetExtraTeamIds = function () {
+        try {
+          return window.__ECO_EXTRA_TEAM_IDS__ ||
+            JSON.parse(sessionStorage.getItem('eco_extra_team_ids') || '[]') ||
+            [];
+        } catch (e2) {
+          return [];
+        }
+      };
+    }
     if (typeof window.sexySelectTeam === 'function') {
       window.sexySelectTeam(teamId, teamName || teamId);
       _setTeamUi(teamId, teamName || teamId);
-      return Promise.resolve({ id: teamId, name: teamName || teamId });
+      return Promise.resolve({ id: teamId, name: teamName || teamId, extra_team_ids: extraIds });
     }
     return _fetch('/api/v1/agent-config/teams/' + encodeURIComponent(teamId))
       .then(function (r) { return r.json ? r.json() : r; })
@@ -1557,6 +1594,14 @@
       if (sb.max_steps_per_generation) maxSteps = sb.max_steps_per_generation;
       if (sb.max_generations) maxGens = sb.max_generations;
     }
+    // 多队对抗：参数 > URL/session 缓存
+    var resolvedExtra = extraIds || [];
+    if ((!resolvedExtra || !resolvedExtra.length) && typeof window.eco2GetExtraTeamIds === 'function') {
+      resolvedExtra = window.eco2GetExtraTeamIds() || [];
+    }
+    if ((!resolvedExtra || !resolvedExtra.length) && window.__ECO_EXTRA_TEAM_IDS__) {
+      resolvedExtra = window.__ECO_EXTRA_TEAM_IDS__;
+    }
     var body = {
         team_id: teamId,
         mode: 'evolutionary',
@@ -1565,7 +1610,7 @@
         drill_kind: 'natural_selection',
         task_goal: {
           name: goalName,
-          extra_team_ids: extraIds || [],
+          extra_team_ids: resolvedExtra || [],
           comparison_mode: exam.mode,
           rival_task_bindings: exam.rival_bindings,
         },

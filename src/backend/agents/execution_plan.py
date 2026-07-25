@@ -242,7 +242,7 @@ PLAN_STATUSES = ("draft", "approved", "dispatched", "completed")
 
 @dataclass
 class PlanStep:
-    """执行计划的一个步骤 — 派发后 1 步骤 ↔ 1 任务."""
+    """执行计划的一个步骤 — 派发后 1 步骤 ↔ 1 任务（多队时 1 步骤 ↔ 多任务）."""
 
     step_id: str = ""
     index: int = 0
@@ -254,19 +254,30 @@ class PlanStep:
     required_skills: List[str] = field(default_factory=list)
     priority: int = 2
     status: str = "pending"
-    task_id: str = ""               # 派发后回填
+    task_id: str = ""               # 派发后回填（主队/primary）
+    # 多队并行：team_id → task_id
+    task_ids_by_team: Dict[str, str] = field(default_factory=dict)
+    dispatch_group_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "step_id": self.step_id, "index": self.index, "title": self.title,
             "description": self.description, "responsible_role": self.responsible_role,
             "acceptance": self.acceptance, "dependencies": list(self.dependencies),
             "required_skills": list(self.required_skills), "priority": self.priority,
             "status": self.status, "task_id": self.task_id,
         }
+        if self.task_ids_by_team:
+            d["task_ids_by_team"] = dict(self.task_ids_by_team)
+        if self.dispatch_group_id:
+            d["dispatch_group_id"] = self.dispatch_group_id
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "PlanStep":
+        by_team = d.get("task_ids_by_team") or {}
+        if not isinstance(by_team, dict):
+            by_team = {}
         return cls(
             step_id=d.get("step_id", ""), index=int(d.get("index", 0)),
             title=d.get("title", ""), description=d.get("description", ""),
@@ -276,6 +287,8 @@ class PlanStep:
             required_skills=list(d.get("required_skills", [])),
             priority=int(d.get("priority", 2)),
             status=d.get("status", "pending"), task_id=d.get("task_id", ""),
+            task_ids_by_team={str(k): str(v) for k, v in by_team.items() if k and v},
+            dispatch_group_id=str(d.get("dispatch_group_id") or ""),
         )
 
 

@@ -111,9 +111,12 @@ def prepare_memory_system_addon(
     except Exception:
         return ""
 
-    parts: List[str] = ["[AG_MEMORY]", "以下为该智能体记忆层提供的上下文（自主注入，非用户原文）："]
+    parts: List[str] = [
+        "[AG_MEMORY]",
+        "以下为该智能体拟生记忆提供的上下文（痕迹+语义+电荷；非用户原文）：",
+    ]
 
-    # 语气
+    # 语气（电荷场）
     try:
         tone = core.affect.tone_hint()
         if tone:
@@ -121,7 +124,7 @@ def prepare_memory_system_addon(
     except Exception:
         pass
 
-    # 检索
+    # 情节检索
     if auto.get("auto_recall_on_chat", True) and (query or "").strip():
         try:
             k = int(auto.get("recall_k") or 5)
@@ -137,21 +140,43 @@ def prepare_memory_system_addon(
                     f"{(e.get('detail') or '')[:160]}"
                 )
             if lines:
-                parts.append("相关记忆：")
+                parts.append("相关情节：")
                 parts.extend(lines[:k])
         except Exception as e:
             logger.debug("memory recall skip: %s", e)
 
-    # 待办意图（最多 3）
+    # 语义核
+    if auto.get("auto_recall_on_chat", True):
+        try:
+            sem_hits = core.semantic.recall(query=(query or "").strip(), k=3)
+            if sem_hits:
+                parts.append("语义核：")
+                for h in sem_hits:
+                    c = h.get("claim") or {}
+                    parts.append(f"- {c.get('claim') or ''}")
+        except Exception as e:
+            logger.debug("semantic recall skip: %s", e)
+
+    # 前瞻意图过程（非记忆层）
     try:
         pending = core.intentions.pending()[:3]
         if pending:
-            parts.append("未发送意图：")
+            parts.append("前瞻意图（过程缓冲）：")
             for it in pending:
                 parts.append(
                     f"- {it.get('instruction') or ''} "
                     f"({it.get('dueLabel') or it.get('trigger') or 'pending'})"
                 )
+    except Exception:
+        pass
+
+    # 工作台（当前关注）
+    try:
+        slots = core._working_slots()[:4]
+        if slots:
+            parts.append("工作台：")
+            for s in slots:
+                parts.append(f"- {s.get('text') or ''}")
     except Exception:
         pass
 
@@ -163,6 +188,40 @@ def prepare_memory_system_addon(
     return text
 
 
+def _read_survival_ticks(team_id: str, agent_id: str) -> Optional[float]:
+    """Best-effort eco_collab.survival_ticks from team agent profile."""
+    try:
+        from . import api as agent_api
+
+        tm = getattr(agent_api, "_team_manager", None)
+        if not tm:
+            return None
+        team = tm.get_team(team_id)
+        if not team:
+            return None
+        agent = None
+        if hasattr(tm, "get_agent"):
+            agent = tm.get_agent(team_id, agent_id)
+        if agent is None:
+            agents = getattr(team, "agents", None) or {}
+            if isinstance(agents, dict):
+                agent = agents.get(agent_id)
+        if agent is None:
+            return None
+        meta = getattr(agent, "metadata", None) or {}
+        if isinstance(agent, dict):
+            meta = agent.get("metadata") or {}
+        if not isinstance(meta, dict):
+            return None
+        eco = meta.get("eco_collab") if isinstance(meta.get("eco_collab"), dict) else {}
+        st = eco.get("survival_ticks")
+        if st is None:
+            st = meta.get("survival_ticks")
+        return float(st) if st is not None else None
+    except Exception:
+        return None
+
+
 def record_task_outcome(
     team_id: str,
     agent_id: str,
@@ -172,6 +231,7 @@ def record_task_outcome(
     success: bool = True,
     detail: str = "",
     store: Optional[AgentMemoryStore] = None,
+    survival_ticks: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Write episodic log (+ optional feel) for a finished task."""
     if not team_id or not agent_id or agent_id in _SKIP_AGENTS:
@@ -205,25 +265,54 @@ def record_task_outcome(
             + ([task_id] if task_id else []),
         }
     )
+    # 工作台：当前任务关注点
+    try:
+        core.push_working(
+            {
+                "text": (title or detail or task_id or action)[:200],
+                "source": "task",
+                "ref": task_id or "",
+            }
+        )
+    except Exception:
+        pass
+
+    surv = survival_ticks if survival_ticks is not None else _read_survival_ticks(team_id, agent_id)
 
     felt = None
+    fit = None
     if auto.get("auto_feel_on_outcome", True):
         try:
-            if success:
-                felt = core.affect.feel("稳妥", 0.35, valence=0.25, arousal=0.3)
-            else:
-                felt = core.affect.feel("警惕", 0.55, valence=-0.35, arousal=0.55)
+            # 感情 = 适应度选择压：成败 + eco survival → 电荷 + 拓扑漂移
+            fit = core.apply_fitness(
+                success=success,
+                magnitude=0.45 if success else 0.6,
+                survival_ticks=surv,
+                drift=True,
+            )
+            felt = fit.get("affect")
         except Exception:
             pass
 
     compressed = _maybe_compress(core, auto)
+    consolidated = None
+    forgotten = None
+    try:
+        consolidated = core.consolidate_tick(max_new=3 if success else 2)
+        forgotten = core.forget_tick()
+    except Exception as e:
+        logger.debug("consolidate/forget skip: %s", e)
     reflected = maybe_reflect(team_id, agent_id, store=store, core=core, status=st)
     return {
         "ok": True,
         "event_id": event.get("id"),
         "felt": bool(felt),
         "compressed": compressed,
+        "consolidated": consolidated,
+        "forgotten": forgotten,
         "reflected": reflected,
+        "fitness": fit,
+        "survival_ticks": surv,
     }
 
 
@@ -411,6 +500,93 @@ def inject_memory_into_messages(
 # ── EventBus hooks ─────────────────────────────────────────────
 
 
+def emit_eco_survival(
+    team_id: str,
+    agent_id: str,
+    *,
+    survival_ticks: float = 0.0,
+    fitness_delta: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Publish ECO_SURVIVAL_UPDATED so memory hooks can drift topology / charge."""
+    if not team_id or not agent_id:
+        return False
+    try:
+        from .domain_events import DomainEvent, EcoSurvivalSnapshot, EventType
+        from .event_bus import get_event_bus
+
+        snap = EcoSurvivalSnapshot(
+            team_id=team_id,
+            agent_id=agent_id,
+            survival_ticks=float(survival_ticks or 0),
+            fitness_delta=float(fitness_delta or 0),
+            metadata=dict(metadata or {}),
+        )
+        ev = DomainEvent.create(
+            EventType.ECO_SURVIVAL_UPDATED,
+            snap,
+            source="eco_runtime",
+        )
+        get_event_bus().publish(ev)
+        return True
+    except Exception as e:
+        logger.debug("emit_eco_survival failed: %s", e)
+        return False
+
+
+def apply_eco_survival_to_memory(
+    team_id: str,
+    agent_id: str,
+    *,
+    survival_ticks: float = 0.0,
+    fitness_delta: float = 0.0,
+    store: Optional[AgentMemoryStore] = None,
+) -> Dict[str, Any]:
+    """Direct path (also used by EventBus handler): survival → fitness/topology."""
+    if not team_id or not agent_id or agent_id in _SKIP_AGENTS:
+        return {"ok": False, "reason": "skip"}
+    store = store or get_memory_store()
+    ready = ensure_memory_ready(team_id, agent_id, store=store, auto_bind=True)
+    if not ready.get("ok"):
+        return {"ok": False, "reason": ready.get("reason")}
+    try:
+        core = AgentMemoryCore(team_id, agent_id, store=store)
+        # 相对上次 survival 的归一化 Δ
+        meta = core._load_meta()
+        prev = float((meta.get("topology") or {}).get("last_survival_ticks") or 0)
+        surv = float(survival_ticks or 0)
+        if fitness_delta:
+            fd = float(fitness_delta)
+        elif prev > 0:
+            fd = max(-1.0, min(1.0, (surv - prev) / max(prev, 1.0)))
+        else:
+            fd = 0.15 if surv > 0 else 0.0
+        success = fd >= 0
+        fit = core.apply_fitness(
+            success=success,
+            magnitude=min(0.8, abs(fd) + 0.2),
+            survival_ticks=surv,
+            drift=True,
+            label_success="生机",
+            label_fail="衰微",
+        )
+        # 工作台记一笔物竞关注
+        try:
+            core.push_working(
+                {
+                    "text": f"物竞存活 T={int(surv)} Δ={fd:+.2f}",
+                    "source": "eco",
+                    "ref": f"T:{surv}",
+                }
+            )
+        except Exception:
+            pass
+        return {"ok": True, "fitness": fit, "survival_ticks": surv}
+    except Exception as e:
+        logger.debug("apply_eco_survival_to_memory: %s", e)
+        return {"ok": False, "reason": str(e)}
+
+
 class MemoryRuntimeHooks:
     def __init__(self, store: Optional[AgentMemoryStore] = None):
         self.store = store or get_memory_store()
@@ -426,8 +602,9 @@ class MemoryRuntimeHooks:
             bus = get_event_bus()
             bus.subscribe(EventType.TASK_COMPLETED, self._on_task_completed)
             bus.subscribe(EventType.TASK_FAILED, self._on_task_failed)
+            bus.subscribe(EventType.ECO_SURVIVAL_UPDATED, self._on_eco_survival)
             self._subscribed = True
-            logger.info("MemoryRuntimeHooks started (TASK_COMPLETED/FAILED)")
+            logger.info("MemoryRuntimeHooks started (TASK_*/ECO_SURVIVAL)")
         except Exception as e:
             logger.warning("MemoryRuntimeHooks start failed: %s", e)
 
@@ -441,6 +618,7 @@ class MemoryRuntimeHooks:
             bus = get_event_bus()
             bus.unsubscribe(EventType.TASK_COMPLETED, self._on_task_completed)
             bus.unsubscribe(EventType.TASK_FAILED, self._on_task_failed)
+            bus.unsubscribe(EventType.ECO_SURVIVAL_UPDATED, self._on_eco_survival)
         except Exception:
             pass
         self._subscribed = False
@@ -450,6 +628,28 @@ class MemoryRuntimeHooks:
 
     async def _on_task_failed(self, event) -> None:
         self._handle(event, success=False)
+
+    async def _on_eco_survival(self, event) -> None:
+        try:
+            p = event.payload
+            team_id = getattr(p, "team_id", None) or ""
+            agent_id = getattr(p, "agent_id", None) or ""
+            surv = float(getattr(p, "survival_ticks", 0) or 0)
+            fd = float(getattr(p, "fitness_delta", 0) or 0)
+            if isinstance(p, dict):
+                team_id = p.get("team_id") or team_id
+                agent_id = p.get("agent_id") or agent_id
+                surv = float(p.get("survival_ticks") or surv)
+                fd = float(p.get("fitness_delta") or fd)
+            apply_eco_survival_to_memory(
+                team_id,
+                agent_id,
+                survival_ticks=surv,
+                fitness_delta=fd,
+                store=self.store,
+            )
+        except Exception as e:
+            logger.debug("eco survival hook: %s", e)
 
     def _handle(self, event, success: bool) -> None:
         try:

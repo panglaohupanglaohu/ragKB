@@ -1,0 +1,344 @@
+{
+  "tse_latency": [
+    {
+      "discussion": "aws_es_scaling",
+      "utterances": 5,
+      "focus_utterances": 5,
+      "latency_ms_mean": 4.83,
+      "latency_ms_std": 0.202,
+      "encoder_ms": 0,
+      "tcn_ms": 0,
+      "attention_ms": 0,
+      "receptive_field": 15
+    },
+    {
+      "discussion": "centos_rocky_migration",
+      "utterances": 5,
+      "focus_utterances": 5,
+      "latency_ms_mean": 4.7,
+      "latency_ms_std": 0.019,
+      "encoder_ms": 0,
+      "tcn_ms": 0,
+      "attention_ms": 0,
+      "receptive_field": 15
+    },
+    {
+      "discussion": "cost_ri_governance",
+      "utterances": 5,
+      "focus_utterances": 5,
+      "latency_ms_mean": 4.82,
+      "latency_ms_std": 0.021,
+      "encoder_ms": 0,
+      "tcn_ms": 0,
+      "attention_ms": 0,
+      "receptive_field": 15
+    },
+    {
+      "discussion": "monitoring_rollback",
+      "utterances": 5,
+      "focus_utterances": 5,
+      "latency_ms_mean": 4.81,
+      "latency_ms_std": 0.037,
+      "encoder_ms": 0,
+      "tcn_ms": 0,
+      "attention_ms": 0,
+      "receptive_field": 15
+    },
+    {
+      "discussion": "terraform_change_gate",
+      "utterances": 5,
+      "focus_utterances": 5,
+      "latency_ms_mean": 4.89,
+      "latency_ms_std": 0.022,
+      "encoder_ms": 0,
+      "tcn_ms": 0,
+      "attention_ms": 0,
+      "receptive_field": 15
+    }
+  ],
+  "attention": [
+    {
+      "discussion": "aws_es_scaling",
+      "utterances": 5,
+      "normalized_entropy": {
+        "name": "1.0",
+        "description": "1.0",
+        "category": "1.0",
+        "tools": "1.0",
+        "instructions": "1.0"
+      },
+      "max_weight": {
+        "name": 0.201,
+        "description": 0.201,
+        "category": 0.201,
+        "tools": 0.201,
+        "instructions": 0.201
+      },
+      "concentration": {
+        "name": "0.0",
+        "description": "0.0",
+        "category": "0.0",
+        "tools": "0.0",
+        "instructions": "0.0"
+      }
+    },
+    {
+      "discussion": "centos_rocky_migration",
+      "utterances": 5,
+      "normalized_entropy": {
+        "name": "1.0",
+        "description": "1.0",
+        "category": "1.0",
+        "tools": "1.0",
+        "instructions": "1.0"
+      },
+      "max_weight": {
+        "name": 0.201,
+        "description": 0.201,
+        "category": 0.201,
+        "tools": 0.201,
+        "instructions": 0.2
+      },
+      "concentration": {
+        "name": "0.0",
+        "description": "0.0",
+        "category": "0.0",
+        "tools": "0.0",
+        "instructions": "0.0"
+      }
+    },
+    {
+      "discussion": "cost_ri_governance",
+      "utterances": 5,
+      "normalized_entropy": {
+        "name": "1.0",
+        "description": "1.0",
+        "category": "1.0",
+        "tools": "1.0",
+        "instructions": "1.0"
+      },
+      "max_weight": {
+        "name": 0.201,
+        "description": 0.202,
+        "category": 0.2,
+        "tools": 0.201,
+        "instructions": 0.2
+      },
+      "concentration": {
+        "name": "0.0",
+        "description": "0.0",
+        "category": "0.0",
+        "tools": "0.0",
+        "instructions": "0.0"
+      }
+    },
+    {
+      "discussion": "monitoring_rollback",
+      "utterances": 5,
+      "normalized_entropy": {
+        "name": "1.0",
+        "description": "1.0",
+        "category": "1.0",
+        "tools": "1.0",
+        "instructions": "1.0"
+      },
+      "max_weight": {
+        "name": 0.202,
+        "description": 0.2,
+        "category": 0.201,
+        "tools": 0.201,
+        "instructions": 0.2
+      },
+      "concentration": {
+        "name": "0.0",
+        "description": "0.0",
+        "category": "0.0",
+        "tools": "0.0",
+        "instructions": "0.0"
+      }
+    },
+    {
+      "discussion": "terraform_change_gate",
+      "utterances": 5,
+      "normalized_entropy": {
+        "name": "1.0",
+        "description": "1.0",
+        "category": "1.0",
+        "tools": "1.0",
+        "instructions": "1.0"
+      },
+      "max_weight": {
+        "name": 0.201,
+        "description": 0.201,
+        "category": 0.201,
+        "tools": 0.201,
+        "instructions": 0.201
+      },
+      "concentration": {
+        "name": "0.0",
+        "description": "0.0",
+        "category": "0.0",
+        "tools": "0.0",
+        "instructions": "0.0"
+      }
+    }
+  ],
+  "classification": [
+    {
+      "skill": "AWS ES Auto-Scaling",
+      "instant": "reserve",
+      "after_cycles": "reserve",
+      "streak": 0,
+      "grace": 0,
+      "event": null,
+      "reasons": [
+        "无使用记录（新技能默认储备）"
+      ]
+    },
+    {
+      "skill": "CentOS→Rocky Migration",
+      "instant": "general",
+      "after_cycles": "general",
+      "streak": 0,
+      "grace": 0,
+      "event": "graduate",
+      "reasons": [
+        "2 个团队采用 (≥2)",
+        "发布门禁通过"
+      ]
+    },
+    {
+      "skill": "Cost RI Advisor",
+      "instant": "general",
+      "after_cycles": "general",
+      "streak": 0,
+      "grace": 0,
+      "event": "graduate",
+      "reasons": [
+        "2 个团队采用 (≥2)",
+        "发布门禁通过"
+      ]
+    },
+    {
+      "skill": "Old Monitoring Setup",
+      "instant": "reserve",
+      "after_cycles": "reserve",
+      "streak": 0,
+      "grace": 0,
+      "event": null,
+      "reasons": [
+        "effectiveness 0.28 < 0.4"
+      ]
+    },
+    {
+      "skill": "Legacy Terraform 0.12",
+      "instant": "reserve",
+      "after_cycles": "reserve",
+      "streak": 0,
+      "grace": 0,
+      "event": null,
+      "reasons": [
+        "lifecycle=degraded，回收进储备池"
+      ]
+    }
+  ],
+  "memory_cycles": [
+    {
+      "cycle": 1,
+      "consolidated": 4,
+      "forgotten": 1,
+      "semantic_count": 4,
+      "live_events": 39,
+      "tone": "语气平静，没有明显的情绪残留。"
+    },
+    {
+      "cycle": 2,
+      "consolidated": 4,
+      "forgotten": 0,
+      "semantic_count": 8,
+      "live_events": 39,
+      "tone": "语气里带着一点未散的稳妥。"
+    },
+    {
+      "cycle": 3,
+      "consolidated": 4,
+      "forgotten": 0,
+      "semantic_count": 12,
+      "live_events": 39,
+      "tone": "语气里带着一丝警惕。"
+    },
+    {
+      "cycle": 4,
+      "consolidated": 4,
+      "forgotten": 0,
+      "semantic_count": 16,
+      "live_events": 39,
+      "tone": "语气里带着一丝警惕。"
+    },
+    {
+      "cycle": 5,
+      "consolidated": 4,
+      "forgotten": 0,
+      "semantic_count": 20,
+      "live_events": 39,
+      "tone": "语气里带着一丝警惕。"
+    }
+  ],
+  "router": [
+    {
+      "query": "AWS ES自动扩缩容",
+      "expected_category": "automation",
+      "top1_name": "AWS ES Auto-Scaling",
+      "top1_category": "automation",
+      "top1_score": 0.323,
+      "expected_in_top5": true,
+      "latency_ms": 4.2,
+      "stage1_ms": 1.3,
+      "stage2_ms": 0.5
+    },
+    {
+      "query": "CentOS系统迁移到Rocky",
+      "expected_category": "automation",
+      "top1_name": "CentOS→Rocky分批迁移",
+      "top1_category": "automation",
+      "top1_score": 0.355,
+      "expected_in_top5": true,
+      "latency_ms": 1.3,
+      "stage1_ms": 0.7,
+      "stage2_ms": 0.5
+    },
+    {
+      "query": "RI购买和成本优化",
+      "expected_category": "domain_knowledge",
+      "top1_name": "Cloud RI Governance",
+      "top1_category": "domain_knowledge",
+      "top1_score": 0.184,
+      "expected_in_top5": true,
+      "latency_ms": 1.4,
+      "stage1_ms": 0.8,
+      "stage2_ms": 0.5
+    },
+    {
+      "query": "监控告警回滚演练",
+      "expected_category": "monitoring",
+      "top1_name": "Monitoring Rollback Drill",
+      "top1_category": "monitoring",
+      "top1_score": 0.507,
+      "expected_in_top5": true,
+      "latency_ms": 1.4,
+      "stage1_ms": 0.8,
+      "stage2_ms": 0.5
+    },
+    {
+      "query": "Terraform变更安全检查",
+      "expected_category": "security",
+      "top1_name": "Terraform Change Gate",
+      "top1_category": "automation",
+      "top1_score": 0.259,
+      "expected_in_top5": true,
+      "latency_ms": 1.4,
+      "stage1_ms": 0.8,
+      "stage2_ms": 0.6
+    }
+  ]
+}

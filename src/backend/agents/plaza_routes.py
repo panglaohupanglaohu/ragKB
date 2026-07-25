@@ -205,9 +205,13 @@ def _build_plaza_task_metadata(
     responsible_role: str = "",
     acceptance_test: str = "",
     expected_artifacts: Optional[List[str]] = None,
+    dispatch_group_id: str = "",
+    dispatch_team_ids: Optional[List[str]] = None,
+    lane: str = "primary",
 ) -> Dict[str, Any]:
     """Normalize plaza-origin task metadata for tracing and later evolution."""
     inferred_skills = _infer_skills_from_role(responsible_role)
+    team_ids = list(dispatch_team_ids or ([team_id] if team_id else []))
     trace_context = {
         "source": "plaza",
         "plaza_id": plaza_id,
@@ -217,6 +221,9 @@ def _build_plaza_task_metadata(
         "plan_revision": plan_revision,
         "plan_item_index": plan_item_index,
         "responsible_role": responsible_role,
+        "dispatch_group_id": dispatch_group_id,
+        "dispatch_team_ids": team_ids,
+        "lane": lane,
     }
     return {
         "source": "plaza",
@@ -230,8 +237,25 @@ def _build_plaza_task_metadata(
         "acceptance_test": acceptance_test,
         "expected_artifacts": list(expected_artifacts or []),
         "skills_used": inferred_skills,
+        "dispatch_group_id": dispatch_group_id,
+        "dispatch_team_ids": team_ids,
+        "multi_team": len(team_ids) > 1,
+        "lane": lane,
         "trace_context": trace_context,
     }
+
+
+def _resolve_dispatch_team_ids(
+    team_id: str = "",
+    team_ids: Optional[List[str]] = None,
+) -> List[str]:
+    """Merge team_id + team_ids, preserve order, drop empties/dupes."""
+    out: List[str] = []
+    for tid in list(team_ids or []) + ([team_id] if team_id else []):
+        t = str(tid or "").strip()
+        if t and t not in out:
+            out.append(t)
+    return out
 
 
 def _infer_skills_from_role(responsible_role: str) -> List[str]:
@@ -325,33 +349,10 @@ def _resolve_responsible_agent(team_id: str, responsible: str) -> str:
     return ""
 
 
-async def _dispatch_discussion_tasks(
-    plaza_id: str,
-    disc,
-    team_id: str,
-    *,
-    auto_start: bool,
-) -> List[Dict[str, Any]]:
-    """Materialize discussion plan items into concrete tasks."""
-    plan_source = _get_plan_source(disc)
-    if not plan_source:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
-
-    # P6-2 落地性关卡: 结构化计划存在时，审查未过或未经人批准 → 不允许派发。
-    # （无结构化计划的旧流程不受影响，保持向后兼容。）
-    structured_plan = load_plan_from_discussion(disc)
-    if structured_plan is not None:
-        plan_issues = validate_plan(structured_plan)
-        if plan_issues:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail={"error": "落地性审查未通过，不允许派发", "issues": plan_issues},
-            )
-        if structured_plan.status not in ("approved", "dispatched"):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail={"error": "执行计划尚未批准，请先 POST .../execution-plan/approve"},
-            )
+async def _materialize_plan_tasks_data(disc, plan_source: str) -> List[Dict[str, Any]]:
+    """Parse plan table or LLM-fallback into task dicts (shared by single/multi dispatch)."""
+    import json as _json
+    import re as _re
 
     tasks_data = _parse_plan_table(plan_source)
     if not tasks_data or (len(tasks_data) == 1 and tasks_data[0].get("title") == "演化需求"):
@@ -366,38 +367,84 @@ async def _dispatch_discussion_tasks(
             f"执行计划:\n{plan_source}\n"
         )
         try:
-            result = await harness.chat(parse_prompt, system_prompt="你是一个任务拆解专家，只输出JSON。")
+            result = await harness.chat(
+                parse_prompt, system_prompt="你是一个任务拆解专家，只输出JSON。"
+            )
             llm_reply = result.response
-            import re
-
-            json_match = re.search(r'\[.*\]', llm_reply, re.DOTALL)
+            json_match = _re.search(r"\[.*\]", llm_reply, _re.DOTALL)
             if not json_match:
                 raise ValueError("LLM 未返回有效 JSON 数组")
-            tasks_data = json.loads(json_match.group())
+            tasks_data = _json.loads(json_match.group())
         except Exception as e:
             logger.warning("LLM 任务拆解失败: %s，回退为单任务", e)
-            tasks_data = [{
-                "title": f"[广场计划] {disc.topic[:80]}",
-                "description": f"来自广场讨论「{disc.topic}」的执行任务。讨论产生 {len(disc.messages)} 条消息。",
-                "priority": 2,
-                "responsible": "",
-                "dependencies": "",
-                "expected_artifact": "执行结果记录",
-            }]
+            tasks_data = [
+                {
+                    "title": f"[广场计划] {disc.topic[:80]}",
+                    "description": (
+                        f"来自广场讨论「{disc.topic}」的执行任务。"
+                        f"讨论产生 {len(disc.messages)} 条消息。"
+                    ),
+                    "priority": 2,
+                    "responsible": "",
+                    "dependencies": "",
+                    "expected_artifact": "执行结果记录",
+                }
+            ]
+    return list(tasks_data or [])
+
+
+async def _dispatch_discussion_tasks(
+    plaza_id: str,
+    disc,
+    team_id: str,
+    *,
+    auto_start: bool,
+    dispatch_group_id: str = "",
+    dispatch_team_ids: Optional[List[str]] = None,
+    lane: str = "primary",
+    tasks_data: Optional[List[Dict[str, Any]]] = None,
+    bind_structured_plan: bool = True,
+    plan_source: Optional[str] = None,
+    structured_plan=None,
+) -> List[Dict[str, Any]]:
+    """Materialize discussion plan items into concrete tasks for one team."""
+    plan_source = plan_source if plan_source is not None else _get_plan_source(disc)
+    if not plan_source:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
+
+    # P6-2 落地性关卡: 结构化计划存在时，审查未过或未经人批准 → 不允许派发。
+    if structured_plan is None:
+        structured_plan = load_plan_from_discussion(disc)
+    if structured_plan is not None and bind_structured_plan:
+        plan_issues = validate_plan(structured_plan)
+        if plan_issues:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "落地性审查未通过，不允许派发", "issues": plan_issues},
+            )
+        if structured_plan.status not in ("approved", "dispatched"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "执行计划尚未批准，请先 POST .../execution-plan/approve"},
+            )
+
+    if tasks_data is None:
+        tasks_data = await _materialize_plan_tasks_data(disc, plan_source)
 
     from .api import _submit_internal_task
+    import uuid as _uuid
 
+    group_id = dispatch_group_id or f"dg_{_uuid.uuid4().hex[:12]}"
+    team_ids = list(dispatch_team_ids or [team_id])
     created_tasks: List[Dict[str, Any]] = []
     plan_revision = _get_plan_revision(disc)
     for index, td in enumerate(tasks_data[:10]):
         title_raw = str(td.get("title", f"任务 {index + 1}"))
-        # 质量校验：跳过明显的无效标题
         if not _is_valid_task_title(title_raw):
             logger.warning("派发跳过无效任务标题: %s", title_raw[:80])
             continue
         expected_artifact = str(td.get("expected_artifact", "")).strip()
         responsible_role = str(td.get("responsible", "")).strip()
-        # 解析负责角色，匹配团队中具体智能体
         resolved_agent_id = _resolve_responsible_agent(team_id, responsible_role)
         description_lines = []
         if td.get("description"):
@@ -406,6 +453,10 @@ async def _dispatch_discussion_tasks(
             description_lines.append(f"负责角色: {responsible_role}")
             if resolved_agent_id:
                 description_lines.append(f"执行智能体: {resolved_agent_id[:12]}")
+        if len(team_ids) > 1:
+            description_lines.append(
+                f"多队并行赛道: {team_id}（共 {len(team_ids)} 队 · group={group_id}）"
+            )
         if td.get("dependencies"):
             description_lines.append(f"依赖: {str(td['dependencies']).strip()}")
         if expected_artifact:
@@ -413,7 +464,7 @@ async def _dispatch_discussion_tasks(
 
         task = await _submit_internal_task(
             team_id,
-            agent_id=resolved_agent_id,  # 将任务分配给具体智能体
+            agent_id=resolved_agent_id,
             title=title_raw[:120],
             description="\n".join(line for line in description_lines if line)[:2000],
             priority=int(td.get("priority", 2)),
@@ -427,10 +478,15 @@ async def _dispatch_discussion_tasks(
                 responsible_role=responsible_role,
                 acceptance_test=str(td.get("acceptance_test", "")).strip(),
                 expected_artifacts=[expected_artifact] if expected_artifact else [],
+                dispatch_group_id=group_id,
+                dispatch_team_ids=team_ids,
+                lane=lane if lane != "primary" else ("primary" if team_id == team_ids[0] else "rival"),
             ),
             auto_start=auto_start,
         )
-        created_tasks.append(task.to_dict())
+        td_out = task.to_dict()
+        td_out["_plan_item_index"] = index
+        created_tasks.append(td_out)
 
     disc.assigned_team_id = team_id
     if not disc.plan:
@@ -440,26 +496,155 @@ async def _dispatch_discussion_tasks(
             "revised_at": "",
             "content": plan_source,
         }
-    disc.plan["task_ids"] = [task["task_id"] for task in created_tasks]
-    disc.plan["task_count"] = len(created_tasks)
-    disc.plan["team_id"] = team_id
-    disc.plan["dispatched_at"] = datetime.now(timezone.utc).isoformat()
+    # 单队时写 task_ids；多队由外层聚合
+    if len(team_ids) <= 1:
+        disc.plan["task_ids"] = [task["task_id"] for task in created_tasks]
+        disc.plan["task_count"] = len(created_tasks)
+        disc.plan["team_id"] = team_id
+        disc.plan["dispatched_at"] = datetime.now(timezone.utc).isoformat()
 
-    # P5-2: 步骤 ↔ 任务 绑定（1 步骤 1 任务），执行状态可回流到计划。
-    if structured_plan is not None:
+    if structured_plan is not None and bind_structured_plan and len(team_ids) <= 1:
         by_title = {s.title: s for s in structured_plan.steps}
         pending_steps = [s for s in structured_plan.steps if s.status == "pending"]
         for i, task in enumerate(created_tasks):
             title = str(task.get("title", "")).strip()
             step = by_title.get(title) or by_title.get(title[:120])
             if step is None and i < len(pending_steps):
-                step = pending_steps[i]  # 同一解析器同序兜底
+                step = pending_steps[i]
             if step is not None and step.status == "pending":
                 step.status = "dispatched"
                 step.task_id = task.get("task_id", "")
         structured_plan.status = "dispatched"
         save_plan_to_discussion(disc, structured_plan)
     return created_tasks
+
+
+async def _dispatch_discussion_tasks_multi(
+    plaza_id: str,
+    disc,
+    team_ids: List[str],
+    *,
+    auto_start: bool,
+) -> Dict[str, Any]:
+    """Parallel multi-team dispatch: same plan steps cloned to each team lane.
+
+    Returns {
+      dispatch_group_id, team_ids, dispatches: [{team_id, task_ids, tasks}],
+      tasks: flat list, task_count
+    }
+    """
+    import uuid as _uuid
+
+    team_ids = _resolve_dispatch_team_ids(team_ids=team_ids)
+    if not team_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少选择一个团队")
+
+    plan_source = _get_plan_source(disc)
+    if not plan_source:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "尚无执行计划，请先完成讨论或生成计划")
+
+    structured_plan = load_plan_from_discussion(disc)
+    if structured_plan is not None:
+        plan_issues = validate_plan(structured_plan)
+        if plan_issues:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "落地性审查未通过，不允许派发", "issues": plan_issues},
+            )
+        if structured_plan.status not in ("approved", "dispatched"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": "执行计划尚未批准，请先 POST .../execution-plan/approve"},
+            )
+
+    tasks_data = await _materialize_plan_tasks_data(disc, plan_source)
+    group_id = f"dg_{_uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc).isoformat()
+    dispatches: List[Dict[str, Any]] = []
+    all_tasks: List[Dict[str, Any]] = []
+    # step_index → {team_id: task_id}
+    step_bindings: Dict[int, Dict[str, str]] = {}
+
+    for i, tid in enumerate(team_ids):
+        lane = "primary" if i == 0 else f"rival_{i}"
+        # 多队时只在第一队绑定 structured plan 状态；其余队仅创建任务
+        created = await _dispatch_discussion_tasks(
+            plaza_id,
+            disc,
+            tid,
+            auto_start=auto_start,
+            dispatch_group_id=group_id,
+            dispatch_team_ids=team_ids,
+            lane=lane,
+            tasks_data=tasks_data,
+            bind_structured_plan=(i == 0),
+            plan_source=plan_source,
+            structured_plan=structured_plan,
+        )
+        task_ids = [t.get("task_id", "") for t in created if t.get("task_id")]
+        for t in created:
+            idx = int(t.get("_plan_item_index") or 0)
+            step_bindings.setdefault(idx, {})[tid] = t.get("task_id", "")
+            t.pop("_plan_item_index", None)
+        dispatches.append(
+            {
+                "team_id": tid,
+                "lane": lane,
+                "task_ids": task_ids,
+                "task_count": len(task_ids),
+                "tasks": created,
+            }
+        )
+        all_tasks.extend(created)
+
+    # 聚合写入 disc.plan
+    if not disc.plan:
+        disc.plan = {
+            "revision": _get_plan_revision(disc),
+            "content": plan_source,
+        }
+    disc.plan["dispatch_group_id"] = group_id
+    disc.plan["team_ids"] = team_ids
+    disc.plan["team_id"] = team_ids[0]
+    disc.plan["dispatches"] = [
+        {
+            "team_id": d["team_id"],
+            "lane": d["lane"],
+            "task_ids": d["task_ids"],
+            "task_count": d["task_count"],
+        }
+        for d in dispatches
+    ]
+    disc.plan["task_ids"] = [t.get("task_id") for t in all_tasks if t.get("task_id")]
+    disc.plan["task_count"] = len(all_tasks)
+    disc.plan["dispatched_at"] = now
+    disc.plan["multi_team"] = len(team_ids) > 1
+    disc.assigned_team_id = team_ids[0]
+    # assigned_team_ids 若 discussion 支持则写
+    if hasattr(disc, "assigned_team_ids"):
+        disc.assigned_team_ids = list(team_ids)
+
+    # 多队：结构化计划步骤挂 task_ids_by_team
+    if structured_plan is not None:
+        for i, step in enumerate(structured_plan.steps):
+            by_team = step_bindings.get(i) or {}
+            if by_team:
+                step.task_id = by_team.get(team_ids[0]) or next(iter(by_team.values()), "")
+                step.task_ids_by_team = dict(by_team)
+                step.dispatch_group_id = group_id
+                if step.status == "pending":
+                    step.status = "dispatched"
+        structured_plan.status = "dispatched"
+        save_plan_to_discussion(disc, structured_plan)
+
+    return {
+        "dispatch_group_id": group_id,
+        "team_ids": team_ids,
+        "dispatches": dispatches,
+        "tasks": all_tasks,
+        "task_count": len(all_tasks),
+        "multi_team": len(team_ids) > 1,
+    }
 
 
 def _link_tasks_to_evolution_items(
@@ -842,12 +1027,13 @@ async def auto_seat_all_agents(plaza_id: str) -> Dict[str, Any]:
 # ── 计划指派给团队 ──────────────────────────────────────────
 
 class AssignPlanRequest(BaseModel):
-    team_id: str
+    team_id: str = ""
+    team_ids: List[str] = Field(default_factory=list)
     task_name: str = ""
     task_description: str = ""
 
 
-@router.post("/{plaza_id}/discussions/{disc_id}/assign", summary="将讨论计划指派给团队")
+@router.post("/{plaza_id}/discussions/{disc_id}/assign", summary="将讨论计划指派给团队（支持多队）")
 async def assign_plan_to_team(
     plaza_id: str, disc_id: str, req: AssignPlanRequest,
 ) -> Dict[str, Any]:
@@ -856,28 +1042,44 @@ async def assign_plan_to_team(
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    disc.assigned_team_id = req.team_id
+    team_ids = _resolve_dispatch_team_ids(req.team_id, req.team_ids)
+    if not team_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请至少选择一个团队")
 
+    disc.assigned_team_id = team_ids[0]
     try:
         from .api import _submit_internal_task
+        import uuid as _uuid
 
         task_name = req.task_name or f"[广场计划] {disc.topic[:50]}"
         task_desc = req.task_description or _get_plan_source(disc) or disc.topic
-        submitted = await _submit_internal_task(
-            req.team_id,
-            title=task_name,
-            description=task_desc[:2000],
-            metadata=_build_plaza_task_metadata(
-                plaza_id=plaza_id,
-                discussion_id=disc.id,
-                discussion_topic=disc.topic,
-                team_id=req.team_id,
-                plan_revision=_get_plan_revision(disc),
-                plan_item_index=0,
-                expected_artifacts=["执行结果记录"],
-            ),
-            auto_start=False,
-        )
+        group_id = f"dg_{_uuid.uuid4().hex[:12]}"
+        task_ids = []
+        per_team = []
+        for i, tid in enumerate(team_ids):
+            submitted = await _submit_internal_task(
+                tid,
+                title=task_name[:120],
+                description=(
+                    task_desc[:1800]
+                    + (f"\n多队赛道: {tid} ({i + 1}/{len(team_ids)})" if len(team_ids) > 1 else "")
+                )[:2000],
+                metadata=_build_plaza_task_metadata(
+                    plaza_id=plaza_id,
+                    discussion_id=disc.id,
+                    discussion_topic=disc.topic,
+                    team_id=tid,
+                    plan_revision=_get_plan_revision(disc),
+                    plan_item_index=0,
+                    expected_artifacts=["执行结果记录"],
+                    dispatch_group_id=group_id,
+                    dispatch_team_ids=team_ids,
+                    lane="primary" if i == 0 else f"rival_{i}",
+                ),
+                auto_start=False,
+            )
+            task_ids.append(submitted.task_id)
+            per_team.append({"team_id": tid, "task_id": submitted.task_id})
         if not disc.plan:
             disc.plan = {
                 "revision": _get_plan_revision(disc),
@@ -885,14 +1087,30 @@ async def assign_plan_to_team(
                 "revised_at": "",
                 "content": task_desc,
             }
-        disc.plan["task_ids"] = [submitted.task_id]
-        disc.plan["task_count"] = 1
-        disc.plan["team_id"] = req.team_id
+        disc.plan["task_ids"] = task_ids
+        disc.plan["task_count"] = len(task_ids)
+        disc.plan["team_id"] = team_ids[0]
+        disc.plan["team_ids"] = team_ids
+        disc.plan["dispatch_group_id"] = group_id
+        disc.plan["dispatches"] = [
+            {"team_id": p["team_id"], "task_ids": [p["task_id"]], "task_count": 1}
+            for p in per_team
+        ]
+        disc.plan["multi_team"] = len(team_ids) > 1
         engine._store.save_plaza(engine._plazas[plaza_id])
-        return {"status": "assigned", "team_id": req.team_id, "task_id": submitted.task_id}
+        return {
+            "status": "assigned",
+            "team_id": team_ids[0],
+            "team_ids": team_ids,
+            "task_id": task_ids[0] if task_ids else "",
+            "task_ids": task_ids,
+            "dispatch_group_id": group_id,
+            "multi_team": len(team_ids) > 1,
+            "per_team": per_team,
+        }
     except Exception as e:
         logger.warning("创建任务失败: %s", e)
-        return {"status": "assigned_no_task", "team_id": req.team_id, "error": str(e)}
+        return {"status": "assigned_no_task", "team_id": team_ids[0], "team_ids": team_ids, "error": str(e)}
 
 
 # ── 讨论输出对象记录 ──────────────────────────────────────
@@ -928,14 +1146,21 @@ async def record_discussion_output(
 # ── 讨论→任务批量派发 ──────────────────────────────────────
 
 class DispatchTasksRequest(BaseModel):
-    team_id: str = Field(..., min_length=1)
+    """单队: team_id；多队: team_ids（可并存，自动合并去重）.
+
+    mode=parallel（默认）: 每队各得一份完整步骤任务，共享 dispatch_group_id，便于孪生多队对抗。
+    """
+
+    team_id: str = Field(default="")
+    team_ids: List[str] = Field(default_factory=list)
+    mode: str = Field(default="parallel")  # parallel | single
 
 
-@router.post("/{plaza_id}/discussions/{disc_id}/dispatch", summary="从讨论结论自动拆解并派发任务")
+@router.post("/{plaza_id}/discussions/{disc_id}/dispatch", summary="从讨论结论自动拆解并派发任务（支持多队）")
 async def dispatch_tasks_from_discussion(
     plaza_id: str, disc_id: str, req: DispatchTasksRequest,
 ) -> Dict[str, Any]:
-    """解析执行计划中的任务表格，为每行创建独立的可追踪任务."""
+    """解析执行计划中的任务表格；可并行派发到多个智能体团队."""
     engine = get_plaza_engine()
     plaza = engine.get_plaza(plaza_id)
     if not plaza:
@@ -944,24 +1169,76 @@ async def dispatch_tasks_from_discussion(
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=False)
+    team_ids = _resolve_dispatch_team_ids(req.team_id, req.team_ids)
+    if not team_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请至少选择一个团队 (team_id 或 team_ids)")
+
+    if len(team_ids) == 1:
+        created_tasks = await _dispatch_discussion_tasks(
+            plaza_id, disc, team_ids[0], auto_start=False
+        )
+        multi = {
+            "dispatch_group_id": (disc.plan or {}).get("dispatch_group_id") or "",
+            "team_ids": team_ids,
+            "dispatches": [
+                {
+                    "team_id": team_ids[0],
+                    "lane": "primary",
+                    "task_ids": [t.get("task_id") for t in created_tasks],
+                    "task_count": len(created_tasks),
+                    "tasks": created_tasks,
+                }
+            ],
+            "tasks": created_tasks,
+            "task_count": len(created_tasks),
+            "multi_team": False,
+        }
+    else:
+        multi = await _dispatch_discussion_tasks_multi(
+            plaza_id, disc, team_ids, auto_start=False
+        )
+
+    created_tasks = multi["tasks"]
     output = _record_discussion_output(
         plaza,
         disc,
         output_type="task",
         target_ids=[task.get("task_id", "") for task in created_tasks],
-        team_id=req.team_id,
+        team_id=team_ids[0],
         status_value="dispatched",
     )
+    # 多队时额外记一条输出带 team_ids
+    if multi.get("multi_team"):
+        _record_discussion_output(
+            plaza,
+            disc,
+            output_type="task",
+            target_ids=[task.get("task_id", "") for task in created_tasks],
+            team_id=",".join(team_ids),
+            status_value="dispatched_multi",
+        )
     engine._store.save_plaza(engine._plazas[plaza_id])
 
     return {
         "status": "dispatched",
-        "team_id": req.team_id,
-        "task_count": len(created_tasks),
+        "team_id": team_ids[0],
+        "team_ids": team_ids,
+        "dispatch_group_id": multi.get("dispatch_group_id") or "",
+        "dispatches": multi.get("dispatches") or [],
+        "multi_team": bool(multi.get("multi_team")),
+        "task_count": multi.get("task_count") or len(created_tasks),
         "tasks": created_tasks,
         "output": output,
         "outputs": [output],
+        "twin_hint": {
+            "primary_team_id": team_ids[0],
+            "extra_team_ids": team_ids[1:],
+            "url_query": (
+                f"team_id={team_ids[0]}"
+                + (f"&team_ids={','.join(team_ids)}" if len(team_ids) > 1 else "")
+                + f"&dispatch_group_id={multi.get('dispatch_group_id') or ''}"
+            ),
+        },
     }
 
 
@@ -1023,10 +1300,21 @@ async def get_execution_plan(plaza_id: str, disc_id: str, rebuild: bool = False)
         save_plan_to_discussion(disc, plan)
         engine._store.save_plaza(plaza)
     issues = validate_plan(plan)
+    plan_meta = disc.plan if isinstance(getattr(disc, "plan", None), dict) else {}
+    multi = {
+        "multi_team": bool(plan_meta.get("multi_team")),
+        "team_ids": list(plan_meta.get("team_ids") or (
+            [plan_meta["team_id"]] if plan_meta.get("team_id") else []
+        )),
+        "dispatch_group_id": plan_meta.get("dispatch_group_id") or "",
+        "dispatches": list(plan_meta.get("dispatches") or []),
+        "task_count": int(plan_meta.get("task_count") or 0),
+    }
     return {
         "plan": plan.to_dict(),
         "issues": issues,
         "dispatchable": (not issues) and plan.status in ("approved", "dispatched"),
+        "multi_dispatch": multi,
     }
 
 
@@ -1118,11 +1406,11 @@ from .execution_plan import (
 )
 
 
-@router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行")
+@router.post("/{plaza_id}/discussions/{disc_id}/dispatch-and-execute", summary="拆解任务并立即启动执行（支持多队）")
 async def dispatch_and_execute(
     plaza_id: str, disc_id: str, req: DispatchTasksRequest,
 ) -> Dict[str, Any]:
-    """拆解执行计划为任务，并立即触发自动执行流水线."""
+    """拆解执行计划为任务并立即执行；支持 team_ids 多队并行赛道."""
     engine = get_plaza_engine()
     plaza = engine.get_plaza(plaza_id)
     if not plaza:
@@ -1131,20 +1419,52 @@ async def dispatch_and_execute(
     if not disc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "讨论不存在")
 
-    created_tasks = await _dispatch_discussion_tasks(plaza_id, disc, req.team_id, auto_start=True)
+    team_ids = _resolve_dispatch_team_ids(req.team_id, req.team_ids)
+    if not team_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请至少选择一个团队")
+
+    if len(team_ids) == 1:
+        created_tasks = await _dispatch_discussion_tasks(
+            plaza_id, disc, team_ids[0], auto_start=True
+        )
+        multi = {
+            "dispatch_group_id": (disc.plan or {}).get("dispatch_group_id") or "",
+            "team_ids": team_ids,
+            "dispatches": [
+                {
+                    "team_id": team_ids[0],
+                    "task_ids": [t.get("task_id") for t in created_tasks],
+                    "tasks": created_tasks,
+                    "task_count": len(created_tasks),
+                }
+            ],
+            "tasks": created_tasks,
+            "task_count": len(created_tasks),
+            "multi_team": False,
+        }
+    else:
+        multi = await _dispatch_discussion_tasks_multi(
+            plaza_id, disc, team_ids, auto_start=True
+        )
+
+    created_tasks = multi["tasks"]
     output = _record_discussion_output(
         plaza,
         disc,
         output_type="task_execution",
         target_ids=[task.get("task_id", "") for task in created_tasks],
-        team_id=req.team_id,
+        team_id=team_ids[0],
         status_value="executing",
     )
     engine._store.save_plaza(engine._plazas[plaza_id])
     return {
         "status": "executing",
-        "team_id": req.team_id,
-        "task_count": len(created_tasks),
+        "team_id": team_ids[0],
+        "team_ids": team_ids,
+        "dispatch_group_id": multi.get("dispatch_group_id") or "",
+        "dispatches": multi.get("dispatches") or [],
+        "multi_team": bool(multi.get("multi_team")),
+        "task_count": multi.get("task_count") or len(created_tasks),
         "tasks": created_tasks,
         "output": output,
         "outputs": [output],

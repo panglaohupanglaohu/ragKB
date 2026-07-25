@@ -33,6 +33,11 @@
 
 
 ## Key Learnings
+- [2026-07-25] 演练 403 `team_model_access_denied` deepseek-v4-pro：全局已配 glm-5.1 仍中招，因 TG `model_route` + ModelRouter 硬编码 standard=deepseek-v4-pro；测试连接因 `__model_test__`/model_override 跳过所以「成功」。修复：非 deepseek 网关三档同用全局 model；drill/twin skip；set_global_override 时 resync。
+- [2026-07-25] 议事大厅执行计划可多选 team_ids 并行派发（dispatch_group_id）；孪生深链 team_ids/extra_team_ids 接 eco drill 多队对抗。
+- [2026-07-24] 拟生记忆全收口：EventType.ECO_SURVIVAL_UPDATED + collab apply emit；vector-lite 哈希余弦（AG_MEMORY_VECTOR_LITE）；工作台配置页 pane；README 已改拟生专章。
+- [2026-07-24] 拟生记忆 P2/P3：drift_topology(fitness/survival)；working 槽位；transfer_narrative 小满连续/沈弥安凭吊；电荷 charge_transfer never/soft；中枢 systems 分栏+遗忘审计。
+- [2026-07-24] 拟生记忆：前瞻意图(prospective)=过程非层；affect=电荷场；层=感觉/情节/语义。consolidate_tick 情节→语义核；forget_tick soft-forget；感情=fitness→电荷→巩固。API: systems/consolidate/forget；UI 已正名。
 - [2026-07-24] `GET /api/v1/agent-config/teams` 控制台 500：api.js:363 只是全局 fetch 包装行号；常因 Vite 反代时后端重启瞬时失败。list_teams 已防御性跳过坏 team；配置页 loadAgent 须委托 window.loadAgent（agent-detail IIFE）否则记忆绑定 tab 空白。
 - [2026-07-24] 记忆默认 state=unbound（无 meta 非 active）；`ensure_memory_ready` 首次使用 auto-bind；`record_chat_turn` 对话入感知+日志；沈弥安 `maybe_reflect` 高重要度反思；中枢支持 ?team_id&agent_id&seg 深链。
 - [2026-07-24] Agent记忆 P3 收口：README 专章；配置页记忆 tab 对齐 lifecycle/persona/中枢；AAS `bridge_aas_experience`（`AG_MEMORY_AAS_BRIDGE=1`）。P0–P3 主链路完成。

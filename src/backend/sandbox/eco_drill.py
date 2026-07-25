@@ -1222,7 +1222,16 @@ async def _generate_cat_commentary(gen_rec: Dict[str, Any]) -> str:
             "你是数字办公室里的猫解说员小虎。用不超过30个汉字、拟猫语气播报这段自然选择世代摘要，"
             "不要标点堆砌：" + fallback
         )
-        reply = await asyncio.wait_for(harness.chat(prompt), timeout=5.0)  # type: ignore[misc]
+        model_override = None
+        try:
+            cfg = harness.get_provider_config()
+            model_override = getattr(cfg, "model", None) or None
+        except Exception:
+            model_override = None
+        reply = await asyncio.wait_for(
+            harness.chat(prompt, model_override=model_override),  # type: ignore[misc]
+            timeout=5.0,
+        )
         text = (reply or "").strip() if isinstance(reply, str) else ""
         return text[:60] if text else fallback
     except Exception:

@@ -9,6 +9,22 @@ class TestModelRouter:
         d = r.route()
         assert d.tier == ModelTier.STANDARD
 
+    def test_non_deepseek_primary_uses_same_model_all_tiers(self, monkeypatch):
+        """SJTU/codebuddy 全局 glm-5.1 时，三档不得硬编码 deepseek-v4-pro。"""
+        monkeypatch.setenv("AG_LLM_MODEL", "glm-5.1")
+        monkeypatch.setenv("AG_LLM_PROVIDER", "openai")
+        r = ModelRouter()
+        for tier in ModelTier:
+            assert r.tiers[tier].model == "glm-5.1"
+        d = r.route()
+        assert d.model == "glm-5.1"
+
+    def test_apply_primary_model_resyncs_tiers(self):
+        r = ModelRouter()
+        r.apply_primary_model("glm-5.1", "openai")
+        assert r.tiers[ModelTier.STANDARD].model == "glm-5.1"
+        assert r.tiers[ModelTier.ECONOMY].model == "glm-5.1"
+
     def test_budget_exhausted_downgrades_to_economy(self):
         r = ModelRouter(total_budget=10000)
         r.state.used_budget = 9000  # 90% used

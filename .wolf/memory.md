@@ -409,3 +409,19 @@
 
 ## 2026-07-23T23:53:06Z
 - 深链 atab=ag-memory 空白：config/detail 双 loadAgent 竞态，已 wait __detailLoadAgent + detail 二次加载。
+
+## 2026-07-24T00:45Z
+- 拟生记忆 P0+P1：SemanticCore/consolidate/forget/systems；UI 正名；18 memory tests pass
+
+## 2026-07-24T01:10Z
+- 拟生记忆 P2+P3：drift_topology / working / transfer_narrative / hub 层场过程分栏；20 memory tests pass
+
+## 2026-07-24T01:40Z
+- 拟生记忆收口：ECO_SURVIVAL_UPDATED EventBus、vector-lite、配置页工作台 pane、README 专章；21 tests pass
+
+## 2026-07-25T02:00Z
+- 广场多队派发：team_ids 并行赛道 + twin extra_team_ids 深链；13 dispatch tests pass
+
+## 2026-07-25T03:00Z
+- 多队派发加固：PlanStep.task_ids_by_team、multi_dispatch API、前两队对抗、多选记忆；14 tests pass
+| 02:13 | 修演练 model_route 改写 deepseek-v4-pro 403 | model_router/chat_harness/llm_decision | 三档跟随全局 glm-5.1 + twin skip | ~2k |

@@ -78,8 +78,14 @@
     return `<span class="chip ${cls}">${esc(lab)}</span>`;
   }
 
-  function personaLabel(p) {
-    return { xiaoman: '小满', shenmian: '沈弥安', hybrid: '混合' }[p] || p || '混合';
+  function memoryStyleName(a) {
+    const s = (a && a.memory_style) || {};
+    return s.name || `${(a && (a.name || a.agent_id)) || 'Agent'}的记忆方式`;
+  }
+
+  function pct(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? `${Math.round(n * 100)}%` : '—';
   }
 
   async function loadTeams() {
@@ -187,8 +193,8 @@
         const active = id === agentId ? 'active' : '';
         return `<button type="button" class="mem-agent ${active}" data-id="${esc(id)}">
           <div class="name">${esc(a.name || id)}</div>
-          <div class="meta">${stateChip(a.state)} ${esc(personaLabel(a.persona))}
-            · 日志 ${(a.counts && a.counts.log) || 0}
+          <div class="meta">${stateChip(a.state)} ${esc(memoryStyleName(a))}
+            · 情节 ${(a.counts && a.counts.log) || 0}
             · 健康 ${esc(String(a.health != null ? a.health : '—'))}
           </div>
         </button>`;
@@ -215,7 +221,6 @@
     const main = document.getElementById('main-panel');
     if (seg === 'overview') {
       const byS = (overview && overview.by_state) || {};
-      const byP = (overview && overview.by_persona) || {};
       const health = overview && overview.health_avg != null ? overview.health_avg : '—';
       const activeN = overview && overview.active_memory_agents != null
         ? overview.active_memory_agents
@@ -233,10 +238,8 @@
           <div class="stat"><b>${byS.sealed || 0}</b><span>封存/凭吊</span></div>
           <div class="stat"><b>${byS.destroyed || 0}</b><span>已销毁</span></div>
         </div>
-        <div class="stat-row">
-          <div class="stat"><b>${byP.xiaoman || 0}</b><span>小满</span></div>
-          <div class="stat"><b>${byP.shenmian || 0}</b><span>沈弥安</span></div>
-          <div class="stat"><b>${byP.hybrid || 0}</b><span>混合</span></div>
+        <div class="audit-line" style="margin-bottom:12px">
+          团队中的记忆方式不再按模板分组；每个 Agent 拥有自己的连续性、克制性、可塑性与情绪通透度。
         </div>
         <h3 style="font-size:13px;margin:8px 0">记忆健康 Top</h3>
         <div>${
@@ -254,7 +257,7 @@
             : '<div class="empty">暂无</div>'
         }</div>
         <p style="font-size:12px;color:#6B7280;line-height:1.55;margin-top:12px">
-          共享矩阵可预览授权层；传递台执行复制交接。配置页「记忆绑定」可写四层细节。
+          共享矩阵只共享有来源的痕迹；传递台复制自传连续性。程序性记忆由技能与熟练度承载，不伪装成文本记忆层。
         </p>
         <div class="panel-actions">
           <a class="btn" href="/agent-team-config.html">打开智能体配置</a>
@@ -294,7 +297,7 @@
       await renderLifecycle(main);
       return;
     }
-    // agents — 四层摘要 + 快捷
+    // agents — 拟生摘要 + 快捷
     await renderAgentDetail(main);
   }
 
@@ -329,31 +332,43 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div>
           <h2 style="margin:0;font-size:16px">${esc(data.agent_id || agentId)}</h2>
-          <div style="margin-top:6px">${stateChip(st.state)} 
-            <span class="chip">${esc(personaLabel(st.persona))}</span>
+          <div style="margin-top:6px">${stateChip(st.state)}
+            <span class="chip">${esc(memoryStyleName(data))}</span>
           </div>
         </div>
         <div class="panel-actions" style="margin:0">
-          <a class="btn" href="/agent-team-config.html?team_id=${encodeURIComponent(teamId)}&agent_id=${encodeURIComponent(agentId)}&atab=ag-memory">打开四层详情</a>
+          <a class="btn" href="/agent-team-config.html?team_id=${encodeURIComponent(teamId)}&agent_id=${encodeURIComponent(agentId)}&atab=ag-memory">打开记忆详情</a>
           <a class="btn" href="/agent-memory.html?team_id=${encodeURIComponent(teamId)}&agent_id=${encodeURIComponent(agentId)}&seg=share">共享</a>
           <a class="btn" href="/agent-memory.html?team_id=${encodeURIComponent(teamId)}&agent_id=${encodeURIComponent(agentId)}&seg=transfer">传递</a>
         </div>
       </div>
       <div class="stat-row" style="margin-top:14px">
-        <div class="stat"><b>${c.log || 0}</b><span>运行日志</span></div>
-        <div class="stat"><b>${c.perception || 0}</b><span>感知缓冲</span></div>
-        <div class="stat"><b>${c.intentions_pending || 0}</b><span>待办意图</span></div>
-        <div class="stat"><b>${c.affect_labels || 0}</b><span>情绪标签</span></div>
+        <div class="stat"><b>${c.log || 0}</b><span>情节</span></div>
+        <div class="stat"><b>${c.perception || 0}</b><span>感觉痕迹</span></div>
+        <div class="stat"><b>${c.semantic || 0}</b><span>语义核</span></div>
+        <div class="stat"><b>${c.intentions_pending || 0}</b><span>前瞻意图·过程</span></div>
+        <div class="stat"><b>${c.affect_labels || 0}</b><span>情绪选择场</span></div>
+        <div class="stat"><b>${c.forgotten || 0}</b><span>已遗忘</span></div>
       </div>
       <p style="font-size:12px;color:#6B7280">💬 ${esc(data.tone_hint || '—')}</p>
+      ${renderDynamicState(data)}
+      ${renderSystemsBlocks(data)}
       <div class="panel-actions">
         <button class="btn btn-primary" data-act="bind">绑定/激活</button>
         <button class="btn" data-act="save">保存固化</button>
+        <button class="btn" data-act="consolidate">巩固→语义</button>
+        <button class="btn" data-act="forget">遗忘 tick</button>
+        <button class="btn" data-act="drift">拓扑漂移</button>
         <button class="btn" data-act="seal">封存</button>
         <button class="btn" data-act="unseal">启封</button>
         <button class="btn btn-danger" data-act="destroy">销毁</button>
       </div>
-      <h3 style="font-size:13px;margin:16px 0 8px">最近日志</h3>
+      <h3 style="font-size:13px;margin:16px 0 8px">工作台</h3>
+      <div>${(data.working || [])
+        .map((w) => `<div class="audit-line">${esc(w.text || '')} <span style="color:#9CA3AF">${esc(w.source || '')}</span></div>`)
+        .join('') || '<div class="empty">空</div>'}
+      </div>
+      <h3 style="font-size:13px;margin:16px 0 8px">最近情节</h3>
       <div>${(data.log || [])
         .slice(-8)
         .reverse()
@@ -362,8 +377,80 @@
             `<div class="audit-line"><b>${esc(e.action || '')}</b> ${esc((e.detail || '').slice(0, 80))}</div>`
         )
         .join('') || '<div class="empty">暂无</div>'}
+      </div>
+      <h3 style="font-size:13px;margin:16px 0 8px">遗忘审计（soft）</h3>
+      <div>${(data.forgotten_recent || [])
+        .slice(0, 8)
+        .map(
+          (e) =>
+            `<div class="audit-line" style="opacity:.75">✕ ${esc(e.action || '')} · ${esc((e.detail || '').slice(0, 60))}</div>`
+        )
+        .join('') || '<div class="empty">尚无 soft-forget</div>'}
       </div>`;
     wireActions(main);
+  }
+
+  function renderDynamicState(data) {
+    const s = data.memory_style || {};
+    const d = data.dynamic_state || {};
+    return `<div style="border:1px solid #D8DEE8;border-radius:10px;padding:12px;margin:10px 0;background:linear-gradient(135deg,#F8FAFC,#F2F7F4)">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><b>${esc(s.name || memoryStyleName(data))}</b><div style="font-size:10px;color:#9CA3AF">version ${esc(String(s.version || 1))}</div></div>
+        <button type="button" class="btn" data-act="edit-style">调整我的记忆方式</button>
+      </div>
+      <div class="stat-row" style="margin:10px 0 0">
+        <div class="stat"><b>${pct(s.continuity)}</b><span>连续性</span></div>
+        <div class="stat"><b>${pct(s.restraint)}</b><span>克制性</span></div>
+        <div class="stat"><b>${pct(s.plasticity)}</b><span>可塑性</span></div>
+        <div class="stat"><b>${pct(s.affective_permeability)}</b><span>情绪通透度</span></div>
+        <div class="stat"><b>${pct(d.continuity_index)}</b><span>当前连续指数</span></div>
+      </div>
+      <div style="font-size:11px;color:#6B7280">活跃记忆质量 ${esc(String(d.active_memory_mass ?? '—'))} · 遗忘比 ${pct(d.forgetting_ratio)} · 情绪能量 ${pct(d.charge_energy)}</div>
+    </div>`;
+  }
+
+  function renderSystemsBlocks(data) {
+    const sys = (data.systems && data.systems.systems) || {};
+    const topo = data.topology || (data.systems && data.systems.topology) || {};
+    const order = [
+      ['layer', '保存的痕迹'],
+      ['field', '选择场 · 不存事实'],
+      ['process', '过程 · 不作为记忆层'],
+    ];
+    const byKind = { layer: [], field: [], process: [] };
+    Object.keys(sys).forEach((k) => {
+      const s = sys[k] || {};
+      const kind = s.kind || 'layer';
+      if (!byKind[kind]) byKind[kind] = [];
+      byKind[kind].push({ id: k, ...s });
+    });
+    const cols = order
+      .map(([kind, title]) => {
+        const items = byKind[kind] || [];
+        return `<div style="flex:1;min-width:140px;border:1px solid #E5E7EB;border-radius:8px;padding:10px;background:#FAFAFA">
+          <div style="font-size:11px;font-weight:700;color:#6B7280;margin-bottom:8px">${esc(title)}</div>
+          ${items
+            .map(
+              (it) =>
+                `<div style="font-size:12px;margin-bottom:6px"><b>${esc(it.label || it.id)}</b>
+                  <span style="color:#9CA3AF">${it.count != null ? it.count : (it.slots ? it.slots.length : '—')}</span>
+                  ${it.note ? `<div style="font-size:10px;color:#9CA3AF;line-height:1.3">${esc(it.note)}</div>` : ''}
+                </div>`
+            )
+            .join('') || '<div class="empty">—</div>'}
+        </div>`;
+      })
+      .join('');
+    const topoLine = `cap情节 ${esc(String(topo.episodic_soft_cap ?? '—'))} · 巩固≥${esc(
+      String(topo.consolidate_min_importance ?? '—')
+    )} · 遗忘 ${esc(String(topo.forget_aggressiveness ?? '—'))} · 电荷传 ${esc(
+      String(topo.charge_transfer ?? '—')
+    )}`;
+    return `
+      <h3 style="font-size:13px;margin:14px 0 8px">动态记忆系统：痕迹 / 过程 / 选择场</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">${cols}</div>
+      <div class="audit-line" style="font-size:11px;color:#6B7280">拓扑 ${topoLine}</div>
+    `;
   }
 
   async function renderLifecycle(main) {
@@ -380,7 +467,7 @@
     }
     main.innerHTML = `
       <h2 style="margin:0 0 8px;font-size:16px">生命周期</h2>
-      <p>当前状态 ${stateChip(st.state)} · Persona ${esc(personaLabel(st.persona))}</p>
+      <p>当前状态 ${stateChip(st.state)} · 记忆方式会随时间和适应度缓慢变化</p>
       <div class="panel-actions">
         <button class="btn btn-primary" data-act="bind">bind 激活</button>
         <button class="btn" data-act="save">save 固化(+反思)</button>
@@ -404,62 +491,50 @@
   }
 
   async function renderPersona(main) {
-    let st;
+    main.innerHTML = '<div class="empty">加载记忆方式…</div>';
     try {
-      st = await fetchStatus();
+      const data = await fetchOverviewAgent();
+      const style = data.memory_style || {};
+      const dyn = data.dynamic_state || {};
+      main.innerHTML = `
+        <h2 style="margin:0 0 8px;font-size:16px">${esc(style.name || memoryStyleName(data))}</h2>
+        <p style="font-size:12px;color:#6B7280;line-height:1.6">
+          这不是预设人格。它是该 Agent 经历任务、失败、物竞存活、巩固和遗忘后形成的独有记忆方式。
+          调整的是倾向，不直接改写记忆内容；后续经历仍会让它漂移。
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+          <label>名称<input class="fi" id="style-name" value="${esc(style.name || memoryStyleName(data))}" style="width:100%;box-sizing:border-box"></label>
+          <label>连续性 <span id="v-continuity">${pct(style.continuity)}</span><input id="style-continuity" type="range" min="0" max="1" step="0.05" value="${esc(String(style.continuity ?? .5))}" style="width:100%"></label>
+          <label>克制性 <span id="v-restraint">${pct(style.restraint)}</span><input id="style-restraint" type="range" min="0" max="1" step="0.05" value="${esc(String(style.restraint ?? .5))}" style="width:100%"></label>
+          <label>可塑性 <span id="v-plasticity">${pct(style.plasticity)}</span><input id="style-plasticity" type="range" min="0" max="1" step="0.05" value="${esc(String(style.plasticity ?? .5))}" style="width:100%"></label>
+          <label>情绪通透度 <span id="v-affective">${pct(style.affective_permeability)}</span><input id="style-affective" type="range" min="0" max="1" step="0.05" value="${esc(String(style.affective_permeability ?? .4))}" style="width:100%"></label>
+        </div>
+        <div class="audit-line" style="margin-top:14px">当前连续指数 ${pct(dyn.continuity_index)} · 遗忘比 ${pct(dyn.forgetting_ratio)} · 活跃质量 ${esc(String(dyn.active_memory_mass ?? '—'))}</div>
+        <div class="panel-actions"><button type="button" class="btn btn-primary" id="save-memory-style">保存倾向</button></div>
+        <h3 style="font-size:13px;margin:16px 0 8px">演化史</h3>
+        <div>${(style.history || []).slice(-12).reverse().map((h) => `<div class="audit-line">${esc(String(h.t || ''))} · ${esc(h.reason || '')}${h.fitness_delta != null ? ` · Δ${esc(String(h.fitness_delta))}` : ''}</div>`).join('') || '<div class="empty">尚无</div>'}</div>`;
+      [['continuity','continuity'],['restraint','restraint'],['plasticity','plasticity'],['affective','affective']].forEach(([id,vid]) => {
+        const input = document.getElementById(`style-${id}`);
+        const value = document.getElementById(`v-${vid}`);
+        if (input && value) input.oninput = () => { value.textContent = pct(input.value); };
+      });
+      document.getElementById('save-memory-style').onclick = async () => {
+        const body = {
+          name: document.getElementById('style-name').value,
+          continuity: Number(document.getElementById('style-continuity').value),
+          restraint: Number(document.getElementById('style-restraint').value),
+          plasticity: Number(document.getElementById('style-plasticity').value),
+          affective_permeability: Number(document.getElementById('style-affective').value),
+          reason: 'owner_tuning',
+        };
+        await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(agentId)}/memory-style`, { method: 'PUT', body: JSON.stringify(body) });
+        toast('已保存；后续经历仍会继续改变它');
+        await loadOverview();
+        await renderPersona(main);
+      };
     } catch (e) {
       main.innerHTML = `<div class="empty">${esc(e.message || e)}</div>`;
-      return;
     }
-    const cur = st.persona || 'hybrid';
-    const cards = [
-      {
-        id: 'xiaoman',
-        title: '小满 · 活体连续',
-        desc: '边做边记、感知易逝、情绪余温、意图常挂；对话注入语气与宽检索。适合日常自主。',
-      },
-      {
-        id: 'shenmian',
-        title: '沈弥安 · 深层沉静',
-        desc: '择要长存、定时反思、克制共享情绪、封存与交接优先；检索要求更高重要度。',
-      },
-      {
-        id: 'hybrid',
-        title: '混合（默认）',
-        desc: '小满写路径 + 沈弥安共享边界与 promote 门槛。',
-      },
-    ];
-    main.innerHTML = `
-      <h2 style="margin:0 0 12px;font-size:16px">自主策略 Persona</h2>
-      ${cards
-        .map(
-          (c) => `
-        <div class="persona-card ${c.id === cur ? 'active' : ''}" data-persona="${c.id}">
-          <h4>${esc(c.title)} ${c.id === cur ? '<span class="chip ok">当前</span>' : ''}</h4>
-          <p>${esc(c.desc)}</p>
-        </div>`
-        )
-        .join('')}
-      <div class="panel-actions">
-        <button class="btn" data-act="open-detail">打开四层详情页</button>
-      </div>`;
-    main.querySelectorAll('.persona-card').forEach((card) => {
-      card.onclick = async () => {
-        const p = card.getAttribute('data-persona');
-        try {
-          await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(agentId)}/persona`, {
-            method: 'PUT',
-            body: JSON.stringify({ persona: p }),
-          });
-          toast('已切换 ' + personaLabel(p));
-          await loadOverview();
-          await renderPersona(main);
-        } catch (e) {
-          toast('失败: ' + (e.message || e));
-        }
-      };
-    });
-    wireActions(main);
   }
 
   async function renderShare(main) {
@@ -478,8 +553,8 @@
     main.innerHTML = `
       <h2 style="margin:0 0 8px;font-size:16px">共享矩阵</h2>
       <p style="font-size:12px;color:#6B7280;margin:0 0 12px;line-height:1.5">
-        默认共享 <b>log / perception / intentions</b>，不含 <b>affect</b>。
-        沈弥安 Persona 强制剥离情绪层。
+        默认共享 <b>情节 / 感觉 / 前瞻 / 语义</b>，不含 <b>情绪电荷</b>。
+        沈弥安 Persona 强制剥离电荷场。前瞻意图是过程，不是记忆层。
       </p>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:14px">
         <div>
@@ -502,7 +577,8 @@
       <div style="font-size:11px;color:#6B7280;margin-bottom:8px">层（默认不含 affect）
         <label style="margin-left:8px"><input type="checkbox" class="share-layer" value="log" checked> log</label>
         <label style="margin-left:6px"><input type="checkbox" class="share-layer" value="perception" checked> perception</label>
-        <label style="margin-left:6px"><input type="checkbox" class="share-layer" value="intentions" checked> intentions</label>
+        <label style="margin-left:6px"><input type="checkbox" class="share-layer" value="intentions" checked> 前瞻意图</label>
+        <label style="margin-left:6px"><input type="checkbox" class="share-layer" value="semantic" checked> 语义核</label>
         <label style="margin-left:6px"><input type="checkbox" class="share-layer" value="affect"> affect</label>
       </div>
       <h3 style="font-size:13px;margin:12px 0 8px">当前授权 ${cells.length} 条</h3>
@@ -712,9 +788,26 @@
               note: document.getElementById('xfer-note').value || '',
             }),
           });
+          const nav = r.transfer && r.transfer.narrative;
           toast('传递完成 ' + (r.transfer && r.transfer.transfer_id));
+          if (nav && nav.narrative) {
+            const pre = document.createElement('pre');
+            pre.style.cssText =
+              'margin-top:12px;padding:12px;background:#F3F4F6;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto';
+            pre.textContent = (nav.title || '') + '\n\n' + nav.narrative;
+            main.appendChild(pre);
+          }
           await loadOverview();
+          // keep narrative visible: re-render then re-show last narrative
+          const lastNav = nav;
           await renderTransfer(main);
+          if (lastNav && lastNav.narrative) {
+            const box = document.createElement('div');
+            box.innerHTML = `<h3 style="font-size:13px;margin:12px 0 6px">交接叙事</h3><pre style="padding:12px;background:#F3F4F6;border-radius:8px;font-size:12px;white-space:pre-wrap">${esc(
+              (lastNav.title || '') + '\n\n' + lastNav.narrative
+            )}</pre>`;
+            main.appendChild(box);
+          }
         } catch (e) {
           toast('失败: ' + (e.message || e));
         }
@@ -726,27 +819,45 @@
     root.querySelectorAll('[data-act]').forEach((btn) => {
       btn.onclick = async () => {
         const act = btn.getAttribute('data-act');
+        if (act === 'edit-style') {
+          seg = 'persona'; setSegActive(); await renderPersona(root); return;
+        }
         if (act === 'open-detail') {
           location.href = `/agent-team-config.html?team_id=${encodeURIComponent(teamId)}&agent_id=${encodeURIComponent(agentId)}&atab=ag-memory`;
           return;
         }
         if (act === 'destroy') {
-          if (!confirm('销毁将删除四层记忆并写入墓碑，不可静默恢复。确认？')) return;
+          if (!confirm('销毁将删除记忆并写入墓碑，不可静默恢复。确认？')) return;
         }
         try {
+          const base = `${CFG}/teams/${encodeURIComponent(teamId)}/agents/${encodeURIComponent(agentId)}/memory-core`;
           if (act === 'bind') {
             await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(agentId)}/lifecycle`, {
               method: 'POST',
               body: JSON.stringify({ action: 'bind' }),
             });
+          } else if (act === 'consolidate') {
+            const r = await api(`${base}/consolidate`, { method: 'POST', body: JSON.stringify({ max_new: 5 }) });
+            toast(`巩固 ${(r && r.consolidated) || 0} 条→语义`);
+          } else if (act === 'forget') {
+            const r = await api(`${base}/forget`, { method: 'POST', body: JSON.stringify({}) });
+            toast(`遗忘 ${(r && r.forgotten) || 0} 条`);
+          } else if (act === 'drift') {
+            const r = await api(`${base}/drift`, {
+              method: 'POST',
+              body: JSON.stringify({ fitness_delta: 0.2, force: true }),
+            });
+            toast('拓扑已漂移');
+            console.info('topology', r && r.topology);
           } else {
             await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(agentId)}/lifecycle`, {
               method: 'POST',
               body: JSON.stringify({ action: act }),
             });
+            toast('已执行 ' + act);
           }
-          toast('已执行 ' + act);
           await loadOverview();
+          await renderMain();
         } catch (e) {
           toast('失败: ' + (e.message || e));
         }

@@ -757,6 +757,16 @@ class ChatHarness:
         """设置/清除全局模型 override。config=None 清除（回退到 per-team/default）。"""
         self._global_override = config
         self._global_override_meta = dict(meta or {}) if config else {}
+        # 全局连接变更时同步 ModelRouter 档位，避免仍改写成 deepseek-v4-pro
+        if config is not None and getattr(config, "model", None):
+            try:
+                from .runtime.model_router import resync_model_router_from_primary
+                resync_model_router_from_primary(
+                    config.model,
+                    str(getattr(config.provider, "value", config.provider) or ""),
+                )
+            except Exception:
+                pass
 
     def get_global_override(self) -> Optional[ProviderConfig]:
         return self._global_override
@@ -791,6 +801,15 @@ class ChatHarness:
             self._default_config.api_base_url = api_base_url
         if model and any(c.isalpha() for c in model):
             self._default_config.model = model
+        # 全局模型变更后同步 ModelRouter 三档，避免演练/任务仍被改写成 deepseek-v4-pro
+        try:
+            from .runtime.model_router import resync_model_router_from_primary
+            resync_model_router_from_primary(
+                self._default_config.model,
+                str(getattr(self._default_config.provider, "value", self._default_config.provider) or ""),
+            )
+        except Exception:
+            pass
         return self._default_config
 
     @staticmethod
@@ -1178,17 +1197,20 @@ class ChatHarness:
             _phase = str((_gtc() or {}).get("phase") or "")
         except Exception:
             _phase = ""
-        # 技能萃取 / TSE 必须用用户配置的默认模型名（如 qwen-36），禁止被
-        # cost_tier 改写成 deepseek-v4-flash/pro（上游 sub2api 无这些 model id → 假离线）。
+        # 技能萃取 / TSE / 演练 twin 必须用用户配置的默认模型名（如 glm-5.1），
+        # 禁止被 cost_tier 改写成 deepseek-v4-flash/pro
+        # （SJTU/codebuddy 无权限 → team_model_access_denied 403）。
         _extract_agents = (
             "skill_extractor",
             "tse_skill_extractor",
             "tse_silver",
         )
-        _skip_model_route = bool(model_override) or _phase in ("plaza", "extract") or (
+        _skip_phases = ("plaza", "extract", "drill", "eco", "twin", "sandbox")
+        _skip_model_route = bool(model_override) or _phase in _skip_phases or (
             isinstance(agent_id, str)
             and (
                 agent_id.startswith("__")
+                or agent_id.startswith("twin_")
                 or agent_id in ("__test__", "__model_test__")
                 or agent_id in _extract_agents
             )
@@ -1203,7 +1225,26 @@ class ChatHarness:
                 from .token_governance.settings import load_tg_settings
                 if load_tg_settings().get("model_route", True):
                     routed = str(_tg_prep["model"].get("model") or "")
-                    if routed:
+                    # 路由模型与当前连接模型不一致时：若当前不是 deepseek 多档网关，
+                    # 拒绝改写（避免 glm 全局配置被硬编码 deepseek-v4-pro 覆盖）。
+                    if routed and routed != model:
+                        base = (config.resolve_base_url() or "").lower()
+                        cfg_provider = str(getattr(config.provider, "value", config.provider) or "").lower()
+                        deepseek_native = (
+                            "deepseek" in cfg_provider
+                            or "api.deepseek.com" in base
+                            or str(model or "").lower().startswith("deepseek")
+                        )
+                        if deepseek_native or routed == model:
+                            model = routed
+                        else:
+                            logger.info(
+                                "TG model_route ignored: routed=%s kept=%s base=%s (non-deepseek gateway)",
+                                routed,
+                                model,
+                                base[:80],
+                            )
+                    elif routed:
                         model = routed
             except Exception:
                 pass

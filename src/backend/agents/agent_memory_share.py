@@ -23,9 +23,10 @@ from .agent_memory_lifecycle import (
     get_memory_lifecycle,
 )
 
-LAYERS = ("log", "perception", "intentions", "affect")
+# 兼容旧 ACL 名；semantic 为新层；affect = 电荷场默认不共享
+LAYERS = ("log", "perception", "intentions", "affect", "semantic")
 ROLES = ("reader", "co_writer")
-DEFAULT_LAYERS = ("log", "perception", "intentions")  # 默认不共享 affect
+DEFAULT_LAYERS = ("log", "perception", "intentions", "semantic")  # 默认不共享 affect
 NEVER_DEFAULT = ("affect",)
 
 
@@ -176,6 +177,8 @@ class AgentMemoryShare:
             data = core.intentions.all()[-limit:]
         elif layer == "affect":
             data = core.affect.residue()
+        elif layer == "semantic":
+            data = core.semantic.active()[-limit:]
         else:
             raise MemoryLifecycleError("invalid_layer", layer)
         return {

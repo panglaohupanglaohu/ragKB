@@ -59,7 +59,8 @@ class AgentMemoryTransfer:
             raise MemoryLifecycleError("beneficiary_destroyed", "受益者记忆已销毁")
 
         ho = handover_intentions if handover_intentions in HANDOVER else "ask_new_owner"
-        layer_set = layers or ["log", "perception", "intentions", "affect"]
+        # semantic 默认同传；affect 仍可由调用方显式包含（沈弥安侧 share 会剥）
+        layer_set = layers or ["log", "perception", "intentions", "semantic"]
         now = _now_ms()
         transfer_id = f"tr_{uuid.uuid4().hex[:12]}"
 
@@ -140,38 +141,106 @@ class AgentMemoryTransfer:
                 dst.intentions._save()
                 copied["intentions"] = n
 
-        if "affect" in layer_set:
+        if "semantic" in layer_set:
+            claims = list(layers_data.get("semantic") or [])
+            n = 0
+            for c in claims:
+                if c.get("forgotten_at"):
+                    continue
+                try:
+                    dst.semantic.add(
+                        c.get("claim") or "",
+                        source_event_ids=list(c.get("source_event_ids") or []),
+                        strength=float(c.get("strength") or 0.5),
+                        tags=list(c.get("tags") or []) + ["传递继承"],
+                        t=c.get("t"),
+                    )
+                    n += 1
+                except Exception:
+                    continue
+            copied["semantic"] = n
+
+        # 电荷传递：受 Persona topology.charge_transfer 约束（沈弥安 never）
+        src_status = self.lc.get_status(team_id, from_agent_id)
+        src_persona = (src_status.get("persona") or "hybrid").lower()  # legacy prototype only
+        topo = src.topology()
+        memory_style = src.memory_style()
+        permeability = float(memory_style.get("affective_permeability") or 0.0)
+        charge_policy = (topo.get("charge_transfer") or "ask").lower()
+        if permeability < 0.2:
+            charge_policy = "never"
+        elif permeability < 0.5 and charge_policy != "never":
+            charge_policy = "soft"
+
+        if "affect" in layer_set and charge_policy != "never":
             aff = layers_data.get("affect") or {}
             if isinstance(aff, dict) and (aff.get("labels") or aff.get("valence")):
-                # 合并标签（取 max 强度）
+                scale = min(permeability, 0.35 if charge_policy == "soft" else 0.5)
                 cur_aff = dst.affect.state
                 for lab, inten in (aff.get("labels") or {}).items():
                     prev = float((cur_aff.get("labels") or {}).get(lab) or 0)
-                    cur_aff.setdefault("labels", {})[lab] = max(prev, float(inten or 0))
+                    cur_aff.setdefault("labels", {})[lab] = max(
+                        prev, float(inten or 0) * scale
+                    )
                 cur_aff["valence"] = (
                     float(cur_aff.get("valence") or 0) * 0.5
-                    + float(aff.get("valence") or 0) * 0.5
+                    + float(aff.get("valence") or 0) * scale
                 )
                 cur_aff["arousal"] = (
                     float(cur_aff.get("arousal") or 0) * 0.5
-                    + float(aff.get("arousal") or 0) * 0.5
+                    + float(aff.get("arousal") or 0) * scale
                 )
                 cur_aff["updatedAt"] = now
                 dst.affect._save()
                 copied["affect"] = True
+                copied["charge_policy"] = charge_policy
             else:
                 copied["affect"] = False
+        else:
+            copied["affect"] = False
+            copied["charge_policy"] = charge_policy
+            if charge_policy == "never" and "affect" in layer_set:
+                copied["affect_stripped"] = True
 
-        # 受益方记录继承日志
+        # 传递叙事（小满连续 / 沈弥安凭吊）
+        narrative = src.transfer_narrative(
+            persona=src_persona,
+            to_agent_id=to_agent_id,
+            copied=copied,
+            keep_memorial=keep_memorial,
+        )
+
+        # 受益方记录继承日志 + 叙事入情节
         dst.log.append(
             {
                 "subject": to_agent_id,
                 "action": "记忆继承",
-                "detail": f"自 {from_agent_id} 传递接收；策略={ho}；{note}"[:500],
+                "detail": (
+                    f"自 {from_agent_id} 传递接收；策略={ho}；{note}\n"
+                    f"{narrative.get('narrative') or ''}"
+                )[:900],
                 "importance": 9,
-                "tags": ["传递", "继承", from_agent_id],
+                "tags": ["传递", "继承", from_agent_id, src_persona],
             }
         )
+        try:
+            dst.semantic.add(
+                (narrative.get("title") or "记忆交接")[:200],
+                strength=0.7,
+                tags=["传递", "叙事", src_persona],
+            )
+        except Exception:
+            pass
+        try:
+            dst.push_working(
+                {
+                    "text": (narrative.get("title") or "继承的记忆")[:200],
+                    "source": "transfer",
+                    "ref": from_agent_id,
+                }
+            )
+        except Exception:
+            pass
 
         # 4) 源：先封存（若需凭吊），再标记 archived
         if keep_memorial:
@@ -226,6 +295,10 @@ class AgentMemoryTransfer:
             "at": now,
             "schema": "ag.transfer/v1",
             "disclosure": "这是回放，不是本人" if keep_memorial else None,
+            "persona": src_persona,
+            "narrative": narrative,
+            "topology_snapshot": topo,
+            "memory_style_snapshot": memory_style,
         }
         path = self._transfer_dir() / f"{transfer_id}.json"
         path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")

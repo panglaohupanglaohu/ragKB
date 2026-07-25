@@ -203,6 +203,13 @@ class AgentMemoryLifecycle:
         else:
             # 切换 Persona 时重置为该预设默认自主策略
             meta["autonomy"] = _default_autonomy(persona)
+        # 拟生拓扑随 Persona 重置（动态架构）
+        try:
+            from .agent_memory_core import AgentMemoryCore
+
+            meta["topology"] = AgentMemoryCore._default_topology(persona)
+        except Exception:
+            pass
         self._save_meta(team_id, agent_id, meta)
         self._append_audit(
             team_id,
@@ -232,6 +239,8 @@ class AgentMemoryLifecycle:
             self.assert_writable(team_id, agent_id)
             core = AgentMemoryCore(team_id, agent_id, store=self.store)
             comp = core.perception.compress(core.log)
+            consolidated = core.consolidate_tick(max_new=5)
+            forgotten = core.forget_tick()
             reflected = False
             try:
                 from .agent_memory_runtime import maybe_reflect
@@ -253,6 +262,8 @@ class AgentMemoryLifecycle:
                     "t": _now_ms(),
                     "action": "save",
                     "compressed": bool(comp and comp.get("event")),
+                    "consolidated": (consolidated or {}).get("consolidated"),
+                    "forgotten": (forgotten or {}).get("forgotten"),
                     "reflected": reflected,
                     "reason": reason,
                 },
@@ -261,6 +272,8 @@ class AgentMemoryLifecycle:
                 "ok": True,
                 "action": "save",
                 "state": self.resolve_state(team_id, agent_id),
+                "consolidated": consolidated,
+                "forgotten": forgotten,
                 "compressed": bool(comp),
                 "reflected": reflected,
                 "detail": (comp or {}).get("detail"),
@@ -409,11 +422,15 @@ class AgentMemoryLifecycle:
                 st = self.get_status(team_id, aid)
                 counts = {}
                 health = 0
+                memory_style = {}
+                dynamic_state = {}
                 if st["state"] not in ("destroyed",):
                     try:
                         self.assert_readable(team_id, aid)
                         core = AgentMemoryCore(team_id, aid, store=self.store)
                         counts = core.counts()
+                        memory_style = core.memory_style()
+                        dynamic_state = core.dynamic_state()
                         # 简易健康分 0–100：有绑定+有日志+有意图/感知/语气
                         health = 20 if st.get("bound") else 0
                         if counts.get("log", 0) > 0:
@@ -438,6 +455,8 @@ class AgentMemoryLifecycle:
                         "role": a.get("role") or "",
                         "counts": counts,
                         "health": health,
+                        "memory_style": memory_style if st["state"] not in ("destroyed",) else {},
+                        "dynamic_state": dynamic_state if st["state"] not in ("destroyed",) else {},
                     }
                 )
             except Exception as e:

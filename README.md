@@ -524,24 +524,34 @@ PYTHONPATH=src/backend python3 scripts/train_tse.py --data storage/tse/silver/tr
 2. 浏览器打开技能萃取页，硬刷新后再跑；队列里历史「【回退草稿】」可删。  
 3. Plaza 讨论阶段 **不做 token 优化**（两阶段经济学）；萃取本身在讨论结束后发生，走 `phase=extract`。
 
-## Agent 记忆（四层 + 生命周期 + 自主）
+## Agent 记忆（拟生 · 动态 · 可遗忘 · 可传递）
 
-> 设计：`docs/Agent记忆生命周期plan.md` · 清单：`docs/Agent记忆生命周期todos.md`  
+> 设计：`docs/拟生记忆架构plan.md` · 清单：`docs/拟生记忆架构todos.md`  
 > 站级入口：**顶栏「Agent记忆」** → `/agent-memory.html`  
 > 配置页深链：智能体 → **记忆绑定** tab（`atab=ag-memory`）
 
 ### 它解决什么
 
-智能体需要**可拥有、可共享、可传递、可销毁**的记忆，而不是散落的 md 文件或仅沙箱内的经验池。记忆与 Agent 生命周期绑定，并按 Persona 自主读写。
+智能体需要**可拥有、可共享、可传递、可销毁**的拟生记忆：架构与内容均动态，细节可遗忘，语义可留，感情作为**选择压**（成败 / 物竞存活 → 电荷 → 巩固）。
 
-### 四层模型（记忆遗体）
+### 拟生分区（层 / 场 / 过程）
 
-| 层 | 含义 | 要点 |
-|----|------|------|
-| **运行日志 log** | 做过的事 | append-only；三因子 recall（时新×重要度×词面） |
-| **感知流 perception** | 易逝刺激 | 环形缓冲 500；达阈值 **compress** 固化进日志 |
-| **未发送队列 intentions** | 打算做还没做 | 创建者/触发/超时策略；传递时可 auto/ask/drop |
-| **情绪残留 affect** | 语气余烬 | 只影响 `tone_hint`，默认**不共享** |
+| 名称 | 类型 | 存储 | 说明 |
+|------|------|------|------|
+| **感觉痕迹** sensory | 层 | perception | 易逝环形缓冲；compress → 情节 |
+| **情节** episodic | 层 | log | append-only；recall 时新×重要×词面×vector-lite |
+| **语义核** semantic | 层 | semantic | 巩固后的主张；细节可忘主张可留 |
+| **工作台** working | 层 | meta.working | 容量极小的当前关注，跨轮次 |
+| **情绪电荷** affective | **场** | affect | 不存事实；调制语气与巩固；默认不共享 |
+| **前瞻意图** prospective | **过程** | intentions | **不是记忆层**；超时/交接策略 |
+
+### 动态过程
+
+- **巩固** `consolidate_tick`：情节 → 语义核  
+- **遗忘** `forget_tick`：soft-forget（`forgotten_at`，检索跳过）  
+- **拓扑漂移** `drift_topology`：容量/遗忘/门槛随 fitness · survival · 年龄慢变  
+- **感情闭环** `apply_fitness`：任务成败 / 物竞存活 → 电荷 + 漂移  
+- **传递叙事**：小满连续口吻 · 沈弥安凭吊清单；沈弥安强制剥电荷  
 
 ### 生命周期
 
@@ -549,48 +559,50 @@ PYTHONPATH=src/backend python3 scripts/train_tse.py --data storage/tse/silver/tr
 
 | 操作 | 含义 |
 |------|------|
-| **bind / save** | 拥有记忆；感知压缩固化 |
-| **share** | ACL：reader/co_writer + layer_mask |
-| **seal** | 仪式只读；凭吊披露「这是回放，不是本人」 |
-| **transfer** | **复制**到受益者；原件可凭吊 |
-| **destroy** | 删盘 + 墓碑，禁止静默复活 |
+| **bind / save** | 拥有；save = 压缩 + 巩固 + 遗忘 + 反思 |
+| **share** | ACL：reader/co_writer + layer_mask（默认可含 semantic） |
+| **seal** | 仪式只读；凭吊「这是回放，不是本人」 |
+| **transfer** | **复制**（含语义）；叙事写入受益方；原件可凭吊 |
+| **destroy** | 删盘 + 墓碑 |
 
 ### Persona（小满 / 沈弥安 / 混合）
 
 | Persona | 自主倾向 |
 |---------|----------|
-| **小满 xiaoman** | 边做边记、tool→感知、任务→日志、聊天宽检索 |
-| **沈弥安 shenmian** | 择要、克制共享 affect、更高 recall 重要度门槛 |
-| **hybrid** | 默认：小满写路径 + 沈弥安边界 |
+| **小满 xiaoman** | 宽编码、勤巩固、慢遗忘、电荷 soft 传递、连续叙事 |
+| **沈弥安 shenmian** | 窄编码、高门槛、快遗忘噪声、**电荷 never 传递**、凭吊清单 |
+| **hybrid** | 折中 |
 
 ### 运行时挂钩（自主）
 
-- **聊天**（`chat_harness`）：注入 `[AG_MEMORY]`（tone + recall + 意图）；`phase=plaza` 跳过  
-- **任务**（EventBus `TASK_COMPLETED/FAILED`）：写成功/失败日志 + 情绪  
-- **Tool loop**：tool 结果进感知流，达阈值自动 compress  
-- **AAS 孪生经验**（可选）：`AG_MEMORY_AAS_BRIDGE=1` 时，沙箱 `record_experience` 同步一条 episodic log（需 `team_id` 在 experience.metadata 或环境变量 `AG_TEAM_ID`）
+- **聊天**（`chat_harness`）：`[AG_MEMORY]` = 语气 + 情节 + 语义 + 前瞻 + 工作台；`phase=plaza` 跳过  
+- **任务**（EventBus `TASK_COMPLETED/FAILED`）：情节 + 电荷 + 巩固/遗忘 + 工作台  
+- **物竞**（EventBus `ECO_SURVIVAL_UPDATED`）：`collab-integration/apply` 写回后 emit → fitness/拓扑  
+- **Tool loop**：感知流 + 自动 compress  
+- **vector-lite**：默认开启字符哈希余弦（`AG_MEMORY_VECTOR_LITE=0` 可关）  
+- **AAS**（可选）：`AG_MEMORY_AAS_BRIDGE=1` 桥接孪生经验进情节  
 
 ### API 速查
 
 | 前缀 | 用途 |
 |------|------|
 | `/api/v1/agent-memory/overview?team_id=` | 团队总览 |
-| `/api/v1/agent-memory/{team}/{agent}/lifecycle` | 状态机动作 |
-| `.../persona` | 切换小满/沈弥安/混合 |
-| `.../share` · `.../share-matrix` | 共享 ACL |
-| `.../transfer` · `/transfers` | 传递 |
-| `.../runtime/recall` · `.../runtime/record` | 运行时读写 |
-| `/api/v1/agent-config/.../memory-core/*` | 兼容旧四层 CRUD |
+| `/api/v1/agent-memory/systems-catalog` | 层/场/过程目录 |
+| `/api/v1/agent-memory/{team}/{agent}/lifecycle` | 状态机 |
+| `.../persona` · `.../share` · `.../transfer` | Persona / 共享 / 传递 |
+| `.../memory-core/systems` · `consolidate` · `forget` · `drift` | 拟生过程 |
+| `.../memory-core/working` · `forgotten` | 工作台 / 遗忘审计 |
+| `/api/v1/agent-config/.../memory-core/*` | 兼容 CRUD |
 
-存储：`storage/agent_memory/<team>/<agent>/`（四层 JSON + meta + shares + audit + legacy）。
+存储：`storage/agent_memory/<team>/<agent>/`（log/perception/intentions/affect/**semantic** + meta + shares + audit + legacy）。
 
 ### 与其它记忆的关系
 
 | 体系 | 角色 |
 |------|------|
-| 四层 MemoryCore | **主记忆**（生命周期/共享/自主） |
-| 人格页 `memory_files` / 数字员工 `memory.md` | 文档式补充，不替代四层 |
-| 沙箱 AAS `memory_system` | 孪生试错经验；可选桥接进四层 log |
+| 拟生 MemoryCore | **主记忆**（生命周期 / 共享 / 自主 / 物竞） |
+| 人格页 `memory_files` / 数字员工 `memory.md` | 文档式补充 |
+| 沙箱 AAS `memory_system` | 孪生试错；可选桥接 |
 
 ## 核心概念速查
 

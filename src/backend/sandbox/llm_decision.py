@@ -105,10 +105,19 @@ async def llm_decision(
     prompt = f"当前是仿真第 {world.snapshot_count + 1} 步，请做出你的决策。"
 
     try:
+        # 钉死全局配置模型，禁止 TG model_route 改写成 deepseek-v4-pro
+        # （SJTU/codebuddy 会 403 team_model_access_denied）
+        model_override = None
+        try:
+            cfg = chat_harness.get_provider_config(f"twin_{twin.twin_id}")
+            model_override = getattr(cfg, "model", None) or None
+        except Exception:
+            model_override = None
         result = await chat_harness.chat(
             prompt=prompt,
             system_prompt=system,
             agent_id=f"twin_{twin.twin_id}",
+            model_override=model_override,
         )
 
         if result and getattr(result, "response", None):

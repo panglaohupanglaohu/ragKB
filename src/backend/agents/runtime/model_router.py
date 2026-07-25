@@ -10,14 +10,21 @@ ModelRouter — 三档模型路由（economy/standard/frontier）
 1. 预算耗尽 → 降档
 2. 连续失败 → 升档
 3. 档位粘滞（hysteresis）：避免频繁切换
+
+重要：档位默认模型必须跟随全局 LLM 配置。若用户网关只有 glm-5.1
+（如 SJTU/codebuddy），绝不能硬编码改写成 deepseek-v4-pro，否则上游
+返回 team_model_access_denied / 403。
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +75,37 @@ class RouterState:
     failure_threshold_up: int = 2         # 连续 2 次失败 → 升档
 
 
+def _resolve_primary_model() -> Tuple[str, str]:
+    """读取全局默认模型名与 provider（env > settings.json > deepseek 兜底）。"""
+    env_m = (os.getenv("AG_LLM_MODEL") or "").strip()
+    env_p = (os.getenv("AG_LLM_PROVIDER") or "").strip()
+    if env_m:
+        return env_m, env_p or "openai"
+    try:
+        path = Path(__file__).resolve().parents[4] / "config" / "settings.json"
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            llm = data.get("llm") or {}
+            model = str(llm.get("model") or "").strip()
+            provider = str(llm.get("provider") or "").strip()
+            if model:
+                return model, provider or "openai"
+    except Exception as e:
+        logger.debug("resolve primary model from settings failed: %s", e)
+    return "deepseek-v4-pro", "deepseek"
+
+
+def _is_deepseek_multi_tier(model: str, provider: str) -> bool:
+    """仅当全局就是 deepseek 多档体系时，才启用 flash/pro 分档。"""
+    m = (model or "").lower()
+    p = (provider or "").lower()
+    if "deepseek" in p:
+        return True
+    if m.startswith("deepseek"):
+        return True
+    return False
+
+
 class ModelRouter:
     """三档模型路由器."""
 
@@ -85,13 +123,30 @@ class ModelRouter:
 
     @staticmethod
     def _default_tiers() -> Dict[ModelTier, TierConfig]:
+        primary, provider = _resolve_primary_model()
+        # 单模型网关（SJTU glm / qwen / codebuddy 等）：三档同名，避免改写成无权访问的 deepseek-*
+        if not _is_deepseek_multi_tier(primary, provider):
+            return {
+                ModelTier.ECONOMY: TierConfig(
+                    tier=ModelTier.ECONOMY, model=primary,
+                    provider=provider or "openai", max_tokens=4096, temperature=0.5,
+                ),
+                ModelTier.STANDARD: TierConfig(
+                    tier=ModelTier.STANDARD, model=primary,
+                    provider=provider or "openai", max_tokens=8192, temperature=0.3,
+                ),
+                ModelTier.FRONTIER: TierConfig(
+                    tier=ModelTier.FRONTIER, model=primary,
+                    provider=provider or "openai", max_tokens=16384, temperature=0.2,
+                ),
+            }
         return {
             ModelTier.ECONOMY: TierConfig(
                 tier=ModelTier.ECONOMY, model="deepseek-v4-flash",
                 provider="deepseek", max_tokens=4096, temperature=0.5,
             ),
             ModelTier.STANDARD: TierConfig(
-                tier=ModelTier.STANDARD, model="deepseek-v4-pro",
+                tier=ModelTier.STANDARD, model=primary or "deepseek-v4-pro",
                 provider="deepseek", max_tokens=8192, temperature=0.3,
             ),
             ModelTier.FRONTIER: TierConfig(
@@ -99,6 +154,26 @@ class ModelRouter:
                 provider="codebuddy", max_tokens=16384, temperature=0.2,
             ),
         }
+
+    def apply_primary_model(self, model: str, provider: str = "") -> None:
+        """全局默认模型变更时同步三档（非 deepseek 多档时三档同名）。"""
+        model = (model or "").strip()
+        if not model:
+            return
+        provider = (provider or "").strip()
+        if not _is_deepseek_multi_tier(model, provider):
+            for tier, cfg in self.tiers.items():
+                cfg.model = model
+                if provider:
+                    cfg.provider = provider
+            logger.info("ModelRouter tiers synced to primary model=%s provider=%s", model, provider or "-")
+            return
+        # deepseek 多档：standard 跟随 primary，其余保留分档
+        std = self.tiers.get(ModelTier.STANDARD)
+        if std is not None:
+            std.model = model
+            if provider:
+                std.provider = provider
 
     def route(self, *, tokens_estimated: int = 0) -> RouteDecision:
         """根据当前状态决定使用哪个档位。返回 RouteDecision。"""
@@ -197,3 +272,12 @@ def get_model_router() -> ModelRouter:
     if _router is None:
         _router = ModelRouter()
     return _router
+
+
+def resync_model_router_from_primary(model: str = "", provider: str = "") -> None:
+    """供 chat_harness 更新全局 provider 后调用，避免进程内仍持有 deepseek-v4-pro 档位。"""
+    m = (model or "").strip()
+    p = (provider or "").strip()
+    if not m:
+        m, p = _resolve_primary_model()
+    get_model_router().apply_primary_model(m, p)
