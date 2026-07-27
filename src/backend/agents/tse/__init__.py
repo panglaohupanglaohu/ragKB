@@ -20,8 +20,14 @@ from .experiments import (
     benchmark_local_extraction,
     build_keyword_attention,
     compare_attention_baseline,
+    evidence_localization_metrics,
     load_experiment_samples,
     sha256_file,
+)
+from .full_attention_trainer import (
+    FullAttentionTrainConfig,
+    FullAttentionTrainer,
+    train_full_attention,
 )
 from .heads import MultiTaskHeads
 from .pipeline import (
@@ -54,11 +60,15 @@ __all__ = [
     "build_keyword_attention",
     "attention_distribution_metrics",
     "compare_attention_baseline",
+    "evidence_localization_metrics",
     "load_experiment_samples",
     "sha256_file",
     "KEYWORD_ATTENTION_ALGORITHM_VERSION",
     "LOCAL_BENCHMARK_BOUNDARY",
     "ATTENTION_DIAGNOSTIC_BOUNDARY",
+    "FullAttentionTrainConfig",
+    "FullAttentionTrainer",
+    "train_full_attention",
     "MultiTaskHeads",
     "TrainConfig",
     "TrainHistory",

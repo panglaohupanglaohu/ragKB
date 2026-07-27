@@ -402,6 +402,9 @@ window.selectTeamChip = function(el, teamId) {
   connectSSE();
   loadQueue();
   loadSkills();
+  if (document.body.classList.contains('mode-router') && window._refreshRouterContext) {
+    window._refreshRouterContext();
+  }
 };
 
 // ── Dynamic team chip rendering ─────────────────────────────────
@@ -5916,6 +5919,8 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   let currentPageMode = 'extract';
   let routerSelectedSkills = new Set();
   let routerResults = [];
+  let routerDisplayMode = 'catalog';
+  let catalogRequestId = 0;
   let selectedAgentId = 'default';
   let currentRouteSessionId = '';
 
@@ -5946,8 +5951,67 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       rebuildSkillNodes();
     }
     // Load agents list when entering router mode
-    if (mode === 'router') { loadRouterAgents(); _loadDashboard(); }
+    if (mode === 'router') window._refreshRouterContext();
   };
+
+  window._refreshRouterContext = function() {
+    return Promise.all([
+      loadRouterAgents(),
+      _loadDashboard(),
+      loadRouterSkillCatalog(),
+    ]);
+  };
+
+  async function loadRouterSkillCatalog() {
+    const container = document.getElementById('rresults');
+    const header = document.getElementById('rresults-header');
+    const title = document.getElementById('rresults-title');
+    const stats = document.getElementById('rr-stats');
+    routerDisplayMode = 'catalog';
+    const requestId = ++catalogRequestId;
+    const teamId = currentTeamId;
+    currentRouteSessionId = '';
+    routerSelectedSkills.clear();
+    if (header) header.style.display = 'flex';
+    if (title) title.textContent = '📚 可赋予技能';
+    if (stats) stats.textContent = '加载中…';
+    if (container) {
+      container.innerHTML = '<div style="text-align:center;padding:28px 12px;color:oklch(0.48 0.01 110);font-size:11px">正在加载技能目录…</div>';
+    }
+
+    if (!currentTeamId) {
+      routerResults = [];
+      if (stats) stats.textContent = '0 项';
+      if (container) container.innerHTML = '<div style="text-align:center;padding:28px 12px;color:oklch(0.48 0.01 110);font-size:11px">请先选择团队</div>';
+      updateAssignBar();
+      return;
+    }
+
+    const data = await routerApi(`/browse?team_id=${encodeURIComponent(teamId)}`);
+    if (requestId !== catalogRequestId || teamId !== currentTeamId) return;
+    if (!data) {
+      routerResults = [];
+      if (stats) stats.textContent = '加载失败';
+      if (container) container.innerHTML = '<div style="text-align:center;padding:28px 12px;color:oklch(0.58 0.08 30);font-size:11px">技能目录加载失败，请重新登录或稍后重试<br><button class="btn" style="margin-top:10px" onclick="window._refreshRouterContext()">重新加载</button></div>';
+      updateAssignBar();
+      return;
+    }
+    const skills = Array.isArray(data?.skills) ? data.skills : [];
+    routerResults = skills.map(skill => ({
+      ...skill,
+      _catalog: true,
+      score: null,
+      retrieval_score: null,
+      rerank_score: null,
+      match_reasons: [],
+    }));
+    renderRouterResults(routerResults);
+    if (skills.length) {
+      addRouterLog('sys', `📚 已加载 ${skills.length} 项可赋予技能，可直接勾选或输入需求进行路由`);
+    } else {
+      addRouterLog('sys', '⚠️ 当前团队没有可见技能，请先在技能萃取中批准技能或检查技能库');
+    }
+  }
 
   // Load agents
   async function loadRouterAgents() {
@@ -6219,16 +6283,32 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       if (data.stage1_ms) setPipelineStepTiming('retrieve', data.stage1_ms);
       await new Promise(r => setTimeout(r, 300));
 
-      // S-6.2 多需求累加:新结果并入已有列表(按 skill_id/name 去重),保留已勾选,不覆盖
+      // 目录视图切换为路由结果；保留用户已勾选的目录技能。
       const incoming = data.results || [];
-      const existingKeys = new Set(routerResults.map(x => x.skill_id || x.name));
+      if (routerDisplayMode === 'catalog') {
+        routerResults = routerResults.filter(r =>
+          routerSelectedSkills.has(r.skill_id || r.slug || r.name)
+        );
+      }
+      routerDisplayMode = 'route';
+      const existingByKey = new Map(
+        routerResults.map((item, index) => [item.skill_id || item.slug || item.name, index])
+      );
       let added = 0;
       incoming.forEach(r => {
-        const k = r.skill_id || r.name;
-        if (!existingKeys.has(k)) { routerResults.push(r); existingKeys.add(k); added++; }
+        const k = r.skill_id || r.slug || r.name;
+        if (existingByKey.has(k)) {
+          routerResults[existingByKey.get(k)] = r;
+        } else {
+          existingByKey.set(k, routerResults.length);
+          routerResults.push(r);
+          added++;
+        }
       });
       renderRouterResults(routerResults);
-      visualizeRoutedSkills(routerResults);
+      visualizeRoutedSkills(routerResults.filter(r =>
+        r.score !== null && r.score !== undefined && Number.isFinite(Number(r.score))
+      ));
 
       if (data.stage2_ms) setPipelineStepTiming('rerank', data.stage2_ms);
       setPipelineStep('assign', data.stage2_ms);
@@ -6268,11 +6348,12 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   function renderRouterResults(results) {
     const container = document.getElementById('rresults');
     const header = document.getElementById('rresults-header');
+    const title = document.getElementById('rresults-title');
     const stats = document.getElementById('rr-stats');
 
     // awsOps 待优化: 按 skill_id 严格去重(后端偶发同一 skill_id 重复返回),保留首项
     const _seenSkillIds = new Set();
-    results = results.filter(r => {
+    routerResults = results.filter(r => {
       const key = r.skill_id || r.slug || r.name;
       if (_seenSkillIds.has(key)) return false;
       _seenSkillIds.add(key);
@@ -6280,7 +6361,10 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
     });
 
     header.style.display = 'flex';
-    stats.textContent = `${results.length} results`;
+    if (title) title.textContent = routerDisplayMode === 'catalog' ? '📚 可赋予技能' : '🎯 路由结果';
+    stats.textContent = routerDisplayMode === 'catalog'
+      ? `${routerResults.length} 项`
+      : `${routerResults.length} results`;
     // S-6.2: 累加模式下提供「🧹 清空」入口(幂等,只插一次)
     if (!document.getElementById('rr-clear-btn')) {
       const clearBtn = document.createElement('button');
@@ -6292,9 +6376,21 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       header.appendChild(clearBtn);
     }
 
-    container.innerHTML = results.map((r, i) => {
-      const rs = r.retrieval_score != null ? r.retrieval_score : r.score;
-      const rk = r.rerank_score != null ? r.rerank_score : r.score;
+    if (!routerResults.length) {
+      container.innerHTML = `<div style="text-align:center;padding:32px 14px;color:oklch(0.48 0.01 110);font-size:11px">${routerDisplayMode === 'catalog' ? '当前团队没有可见技能' : '没有匹配的技能，请调整需求后重试'}</div>`;
+      updateAssignBar();
+      return;
+    }
+
+    container.innerHTML = routerResults.map((r, i) => {
+      const finiteScore = value => (
+        value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+          ? Number(value)
+          : null
+      );
+      const score = finiteScore(r.score);
+      const rs = finiteScore(r.retrieval_score) ?? score;
+      const rk = finiteScore(r.rerank_score) ?? score;
       const reasonTag = (t) => {
         const lo = String(t).toLowerCase();
         let reason = 'semantic';
@@ -6319,6 +6415,15 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       const lcBadge = `<span class="rr-lc-badge" title="${escHtml(lcTitle)}" style="font-size:9px;padding:1px 6px;border-radius:999px;margin-left:6px;font-weight:700;${lcStyle}">${escHtml(lcLabel)}${mult !== 1 && Number.isFinite(mult) ? ' ×' + mult.toFixed(2) : ''}</span>`;
       // Prefer non-lifecycle reasons in tags; lifecycle has dedicated badge
       const tags = (r.match_reasons || []).filter((t) => !String(t).includes('生命周期')).slice(0, 3);
+      const scorePanel = score == null ? `
+        <div class="rr-scores"><span class="rr-score-val" style="min-width:auto">目录</span></div>
+      ` : `
+        <div class="rr-scores">
+          <div class="rr-score-row"><span class="rr-score-label">R1</span><div class="rr-score-bar"><div class="rr-score-fill retrieve" style="width:${(rs*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rs*100).toFixed(0)}</span></div>
+          <div class="rr-score-row"><span class="rr-score-label">R2</span><div class="rr-score-bar"><div class="rr-score-fill rerank" style="width:${(rk*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rk*100).toFixed(0)}</span></div>
+          <div class="rr-score-row"><span class="rr-score-label">Σ</span><div class="rr-score-bar"><div class="rr-score-fill" style="width:${(score*100).toFixed(0)}%;background:var(--tg-accent,#1F6B4A)"></div></div><span class="rr-score-val">${(score*100).toFixed(0)}</span></div>
+        </div>
+      `;
       return `
       <div class="rr-item${routerSelectedSkills.has(r.skill_id || r.name) ? ' sel' : ''}" data-idx="${i}" onclick="window._toggleRouterResult(this, ${i})">
         <span class="rr-check">✓</span>
@@ -6328,11 +6433,7 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
           <div class="rr-desc">${escHtml(r.description || '')}</div>
           <div class="rr-tags">${tags.map(t => reasonTag(t)).join('')}${(r.lifecycle_note ? reasonTag(r.lifecycle_note) : '')}</div>
         </div>
-        <div class="rr-scores">
-          <div class="rr-score-row"><span class="rr-score-label">R1</span><div class="rr-score-bar"><div class="rr-score-fill retrieve" style="width:${(rs*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rs*100).toFixed(0)}</span></div>
-          <div class="rr-score-row"><span class="rr-score-label">R2</span><div class="rr-score-bar"><div class="rr-score-fill rerank" style="width:${(rk*100).toFixed(0)}%"></div></div><span class="rr-score-val">${(rk*100).toFixed(0)}</span></div>
-          <div class="rr-score-row"><span class="rr-score-label">Σ</span><div class="rr-score-bar"><div class="rr-score-fill" style="width:${((r.score||0)*100).toFixed(0)}%;background:var(--tg-accent,#1F6B4A)"></div></div><span class="rr-score-val">${((r.score||0)*100).toFixed(0)}</span></div>
-        </div>
+        ${scorePanel}
       </div>`;
     }).join('');
     updateAssignBar();
@@ -6416,13 +6517,14 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
   };
 
   // S-6.2: 清空累加的路由结果与勾选
-  window._clearRouterResults = function() {
+  window._clearRouterResults = async function() {
     routerResults = [];
     routerSelectedSkills.clear();
     const c = document.getElementById('rresults'); if (c) c.innerHTML = '';
     const stats = document.getElementById('rr-stats'); if (stats) stats.textContent = '0 results';
     updateAssignBar();
-    addRouterLog('sys', '🧹 已清空路由结果与勾选,可重新输入多项需求累加路由');
+    addRouterLog('sys', '🧹 已清空路由结果，恢复全部可赋予技能');
+    await loadRouterSkillCatalog();
   };
 
   function updateAssignBar() {
@@ -6571,7 +6673,12 @@ document.getElementById('viewport').addEventListener('contextmenu', (e) => {
       routerSelectedSkills.clear();
       updateAssignBar();
 
-      addRouterLog('assign', `✅ 注入完成！${data.assigned_count || skillIds.length} 项技能已融入智能体`);
+      const assignedCount = data.assigned_count ?? skillIds.length;
+      const agentSkillUrl = `/agent-team-config.html?team_id=${encodeURIComponent(currentTeamId || 'default')}&view=agent&agent_id=${encodeURIComponent(selectedAgentId)}&atab=ag-skills`;
+      addRouterLog('assign', `✅ 注入完成！${assignedCount} 项技能已融入智能体 · <a href="${agentSkillUrl}" style="color:var(--tg-accent,#1F6B4A);font-weight:700">查看 ${escHtml(selectedAgentId)} 的已绑定技能 →</a>`);
+
+      // 立即重读后端绑定结果，让当前页面的 Agent 技能画像同步显示刚注入的技能。
+      await _loadAgentProfile(selectedAgentId);
 
       // S-5.3: 注入次数 +1;若后端抬升了熟练度先验,提示并打通到数字孪生闭环
       _loadDashboard();

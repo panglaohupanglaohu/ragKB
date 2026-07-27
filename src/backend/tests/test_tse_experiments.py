@@ -254,7 +254,8 @@ def test_attention_cli_requires_checkpoint_and_writes_complete_report(tmp_path: 
     )
     assert completed.returncode == 0, completed.stderr
     report = json.loads(output.read_text(encoding="utf-8"))
-    assert report["schema_version"] == "tse-paper-experiments/v1"
+    assert report["schema_version"].startswith("tse-paper-experiments/")
+    assert report["result"].get("evidence_metrics", {}).get("available") is True
     assert report["input"]["sample_count"] == 12
     assert report["input"]["utterance_count"] == 53
     assert report["input"]["sha256"] == sha256_file(ATTENTION_FIXTURE)
@@ -310,3 +311,45 @@ def test_latency_cli_smoke_writes_environment_and_stage_timings(tmp_path: Path) 
             assert all(stages[key] > 0 for key in STAGE_KEYS)
     assert "Report:" in completed.stdout
     assert "9.3 complete" in completed.stdout
+
+
+def test_sweep_keeps_training_corpus_fixed_across_seeds(tmp_path: Path) -> None:
+    output = tmp_path / "sweep.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(CLI),
+            "sweep",
+            "--sample-sizes",
+            "2",
+            "--seeds",
+            "7,42",
+            "--epochs",
+            "1",
+            "--max-runs",
+            "2",
+            "--tiny",
+            "--ckpt-dir",
+            str(tmp_path / "ckpts"),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    sweep = json.loads(output.read_text(encoding="utf-8"))["sweep"]
+    assert sweep["training_corpus_seed"] == 0
+    assert sweep["failed_runs"] == 0
+    stability = sweep["by_sample_size"]["2"]["stability"]
+    assert 0.0 <= stability["topk_jaccard_mean"] <= 1.0
+    assert set(stability["field_evidence_f1_cv"]) == set(FIELD_NAMES)
+    hashes = {run["train_input_sha256"] for run in sweep["raw_runs"]}
+    assert len(hashes) == 1
+    for run in sweep["raw_runs"]:
+        checkpoint_meta = Path(run["ckpt_path"]).with_name("latest.meta.json")
+        metadata = json.loads(checkpoint_meta.read_text(encoding="utf-8"))
+        assert run["tools_f1"] == pytest.approx(metadata["tools_f1"])

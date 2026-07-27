@@ -34,6 +34,7 @@
 
 
 ## Key Learnings
+- [2026-07-27] 9.3/9.4 后续增强：完整注意力反传=`tse/full_attention_trainer.py`（trainer=full_attention_v1）；证据定位 Hit@1/Recall@k/F1=`evidence_localization_metrics`；schema v2；sweep CLI 12/24/48/96×seeds；图5/6 只读 JSON 渲染（render_tse_experiment_figures.py，需 matplotlib/venv）；禁止把关键词基线/规模当相变真值。
 - [2026-07-27] 论文 9.3/9.4 复现入口=`scripts/run_tse_paper_experiments.py`；夹具 `tse/fixtures/latency_9_3.jsonl`(5×5) 与 `attention_9_4.jsonl`(12/53)；关键词注意力算法版本 `field-keyword-cosine-v2-shared-hash-space`（同 hash_seed）；checkpoint 必须显式且 epoch=30；勿用旧 fig6 异种子口径拟合。
 - [2026-07-27] 技能发布门禁 `skill_publish_gate`：pass_rate≥0.70、min_samples≥3、twin 实际跑过时 target_gain≥0.05（或 twin_passed）；env `AG_SKILL_PUBLISH_PASS_RATE_MIN`/`TWIN_GAIN_MIN`/`MIN_SAMPLES`/`MIN_USAGE`；不达标 `publish_gate_blocked` + `candidate_held`，lifecycle 保持 verified/private。EvidenceRun.metrics_after 写 twin_* 扁平字段供门禁读取。E2E：`pytest -k skill_loop_e2e`。
 - [2026-07-25] 数字孪生 3D（office3d）猫静音：#office-cat-mute-btn（🐱🔊/🔇），OfficeAPI.toggleCatMute，LS=ag-office-cat-muted；静音只停语音，气泡仍可显示。

@@ -8,7 +8,7 @@ import json
 import math
 import time
 from pathlib import Path
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, List, Sequence
 
 import numpy as np
 
@@ -47,8 +47,58 @@ def sha256_file(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def validate_field_evidence_indices(
+    field_evidence: Any,
+    *,
+    n_messages: int,
+    sample_id: str = "",
+    line_number: int | None = None,
+) -> Dict[str, List[int]]:
+    """Validate optional per-field gold utterance indices (no OOB, non-empty fields)."""
+    loc = f"line {line_number} ({sample_id})" if line_number else sample_id or "sample"
+    if field_evidence is None:
+        return {}
+    if not isinstance(field_evidence, dict):
+        raise ValueError(f"{loc}: field_evidence_indices must be an object")
+    out: Dict[str, List[int]] = {}
+    for field in FIELD_NAMES:
+        raw = field_evidence.get(field)
+        if raw is None:
+            # partial labels allowed only if key missing for all or present for all
+            continue
+        if not isinstance(raw, (list, tuple)):
+            raise ValueError(f"{loc}: field_evidence_indices[{field!r}] must be a list")
+        idxs: List[int] = []
+        for item in raw:
+            try:
+                ii = int(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{loc}: field_evidence_indices[{field!r}] indices must be ints"
+                ) from exc
+            if ii < 0 or ii >= n_messages:
+                raise ValueError(
+                    f"{loc}: field_evidence_indices[{field!r}] index {ii} "
+                    f"out of range for n_messages={n_messages}"
+                )
+            if ii not in idxs:
+                idxs.append(ii)
+        out[field] = idxs
+    # If any field provided, require all five fields present (explicit empty list ok)
+    if out and set(out) != set(FIELD_NAMES):
+        missing = [f for f in FIELD_NAMES if f not in out]
+        raise ValueError(
+            f"{loc}: field_evidence_indices missing fields: {', '.join(missing)}"
+        )
+    return out
+
+
 def load_experiment_samples(path: str | Path) -> list[PlazaTranscript]:
-    """Load and validate the JSONL fixture format used by both experiments."""
+    """Load and validate the JSONL fixture format used by both experiments.
+
+    Optional per-sample ``field_evidence_indices`` is validated when present and
+    stored on ``transcript.meta['field_evidence_indices']`` (backward compatible).
+    """
     fixture_path = Path(path)
     samples: list[PlazaTranscript] = []
     seen_ids: set[str] = set()
@@ -95,6 +145,13 @@ def load_experiment_samples(path: str | Path) -> list[PlazaTranscript]:
                     f"message {message_index} content is required"
                 )
 
+        evidence = validate_field_evidence_indices(
+            sample.get("field_evidence_indices"),
+            n_messages=len(messages),
+            sample_id=sample_id,
+            line_number=line_number,
+        )
+
         transcript = parse_transcript(
             "",
             source_title=topic,
@@ -103,17 +160,177 @@ def load_experiment_samples(path: str | Path) -> list[PlazaTranscript]:
                 "sample_id": sample_id,
                 "topic": topic,
                 "messages": messages,
+                "field_evidence_indices": evidence,
             },
         )
         if len(transcript.messages) != len(messages):
             raise ValueError(
                 f"{fixture_path}:{line_number} ({sample_id}): one or more messages were rejected"
             )
+        if evidence:
+            transcript.meta["field_evidence_indices"] = evidence
         samples.append(transcript)
 
     if not samples:
         raise ValueError(f"{fixture_path}: fixture contains no samples")
     return samples
+
+
+def _top_indices(weights: np.ndarray, k: int) -> List[int]:
+    if weights.size == 0 or k <= 0:
+        return []
+    k = min(int(k), int(weights.size))
+    order = list(np.argsort(-weights.astype(np.float64)))
+    return [int(i) for i in order[:k]]
+
+
+def evidence_localization_metrics(
+    samples: Sequence[PlazaTranscript],
+    attention_matrices: Sequence[np.ndarray],
+    *,
+    field_names: Sequence[str] = FIELD_NAMES,
+    k_mode: str = "adaptive",
+    fixed_ks: Sequence[int] = (1, 3),
+) -> Dict[str, Any]:
+    """Hit@1, Recall@k, micro/macro P/R/F1 for field evidence localization.
+
+    Parameters
+    ----------
+    samples : transcripts with meta['field_evidence_indices']
+    attention_matrices : list of (n_fields, n_utterances) weight matrices
+    k_mode : 'adaptive' uses k=max(1, |gold|) per field instance
+    fixed_ks : also report fixed-k metrics (default 1 and 3)
+    """
+    if len(samples) != len(attention_matrices):
+        raise ValueError("samples and attention_matrices length mismatch")
+    if not samples:
+        raise ValueError("samples must not be empty")
+
+    names = tuple(field_names)
+    # micro counters for adaptive k
+    tp = fp = fn = 0
+    hit1_hits = 0
+    hit1_total = 0
+    recall_at = {int(k): {"num": 0.0, "den": 0.0} for k in fixed_ks}
+    per_field = {
+        f: {"tp": 0, "fp": 0, "fn": 0, "hit1_hits": 0, "hit1_total": 0} for f in names
+    }
+
+    labeled = 0
+    for sample, attn in zip(samples, attention_matrices):
+        gold_map = (sample.meta or {}).get("field_evidence_indices") or {}
+        if not gold_map:
+            raise ValueError(
+                f"sample {sample.discussion_id} missing field_evidence_indices "
+                "(empty labels are rejected for localization metrics)"
+            )
+        weights = np.asarray(attn, dtype=np.float64)
+        if weights.ndim != 2 or weights.shape[0] != len(names):
+            raise ValueError(
+                f"attention for {sample.discussion_id} must be "
+                f"({len(names)}, N); got {weights.shape}"
+            )
+        n_utt = weights.shape[1]
+        if n_utt != len(sample.messages):
+            raise ValueError(
+                f"attention width {n_utt} != message count {len(sample.messages)} "
+                f"for {sample.discussion_id}"
+            )
+        labeled += 1
+        for fi, field in enumerate(names):
+            raw_gold = gold_map.get(field)
+            if raw_gold is None:
+                raise ValueError(
+                    f"sample {sample.discussion_id} missing gold for field {field!r}"
+                )
+            gold = set(int(i) for i in raw_gold)
+            if not gold:
+                raise ValueError(
+                    f"sample {sample.discussion_id} field {field!r} has empty gold set"
+                )
+            for g in gold:
+                if g < 0 or g >= n_utt:
+                    raise ValueError(
+                        f"sample {sample.discussion_id} field {field!r} gold index {g} OOB"
+                    )
+
+            w = weights[fi]
+            top1 = int(np.argmax(w))
+            hit1_total += 1
+            per_field[field]["hit1_total"] += 1
+            if top1 in gold:
+                hit1_hits += 1
+                per_field[field]["hit1_hits"] += 1
+
+            k_adapt = max(1, len(gold))
+            pred = set(_top_indices(w, k_adapt))
+            tp_i = len(pred & gold)
+            fp_i = len(pred - gold)
+            fn_i = len(gold - pred)
+            tp += tp_i
+            fp += fp_i
+            fn += fn_i
+            per_field[field]["tp"] += tp_i
+            per_field[field]["fp"] += fp_i
+            per_field[field]["fn"] += fn_i
+
+            for k in fixed_ks:
+                pred_k = set(_top_indices(w, int(k)))
+                recall_at[int(k)]["num"] += len(pred_k & gold)
+                recall_at[int(k)]["den"] += len(gold)
+
+    def _prf(tp_: int, fp_: int, fn_: int) -> Dict[str, float]:
+        precision = tp_ / (tp_ + fp_) if (tp_ + fp_) else 0.0
+        recall = tp_ / (tp_ + fn_) if (tp_ + fn_) else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall)
+            else 0.0
+        )
+        return {
+            "precision": float(precision),
+            "recall": float(recall),
+            "f1": float(f1),
+            "tp": int(tp_),
+            "fp": int(fp_),
+            "fn": int(fn_),
+        }
+
+    micro = _prf(tp, fp, fn)
+    field_metrics = {}
+    macro_p = macro_r = macro_f = 0.0
+    for field in names:
+        m = _prf(per_field[field]["tp"], per_field[field]["fp"], per_field[field]["fn"])
+        ht = per_field[field]["hit1_total"]
+        m["hit_at_1"] = (
+            per_field[field]["hit1_hits"] / ht if ht else 0.0
+        )
+        field_metrics[field] = m
+        macro_p += m["precision"]
+        macro_r += m["recall"]
+        macro_f += m["f1"]
+    n_fields = max(1, len(names))
+    macro = {
+        "precision": float(macro_p / n_fields),
+        "recall": float(macro_r / n_fields),
+        "f1": float(macro_f / n_fields),
+    }
+
+    fixed = {}
+    for k, bucket in recall_at.items():
+        den = bucket["den"] or 1.0
+        fixed[f"recall_at_{k}"] = float(bucket["num"] / den)
+
+    return {
+        "sample_count": labeled,
+        "k_mode": k_mode,
+        "hit_at_1": float(hit1_hits / hit1_total) if hit1_total else 0.0,
+        "micro": micro,
+        "macro": macro,
+        "fields": field_metrics,
+        "fixed_k": fixed,
+        "adaptive_f1": micro["f1"],
+    }
 
 
 def _positive_int(value: int, name: str) -> int:
@@ -499,6 +716,19 @@ def compare_attention_baseline(
             },
         }
 
+    # Evidence localization (Hit@1 / Recall@k / F1) when gold labels present
+    evidence_metrics: Dict[str, Any] = {"available": False}
+    if all((t.meta or {}).get("field_evidence_indices") for t in transcripts):
+        evidence_metrics = {
+            "available": True,
+            "trained": evidence_localization_metrics(transcripts, trained_attention),
+            "keyword": evidence_localization_metrics(transcripts, keyword_attention),
+            "note": (
+                "Predictions use top-k per field with k=max(1, |gold|) plus fixed k=1/3; "
+                "keyword baseline is diagnostic, not human ground truth."
+            ),
+        }
+
     checkpoint_path = Path(checkpoint)
     return {
         "experiment": "9.4_attention_keyword_diagnostic",
@@ -519,5 +749,6 @@ def compare_attention_baseline(
         },
         "interpretation_boundary": ATTENTION_DIAGNOSTIC_BOUNDARY,
         "fields": fields,
+        "evidence_metrics": evidence_metrics,
         "samples": per_sample,
     }

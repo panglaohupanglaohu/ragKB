@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from agents import api as api_module
 from agents.models import AgentProfile, SkillDefinition
+from agents.skill_extractor import SkillExtractorEngine, SkillReviewItem
 from agents.skill_library import init_skill_library
 from agents.skill_registry import SkillRegistry
 from agents.tool_registry import ToolRegistry
@@ -48,6 +51,44 @@ class DummyHarness:
 
 
 class TestAgentSkillBinding:
+    @pytest.mark.asyncio
+    async def test_trait_approval_persists_same_team_agent_binding(
+        self,
+        isolated_api_state,
+        monkeypatch,
+    ):
+        team_manager, team, agent = isolated_api_state
+        item = SkillReviewItem(
+            item_id="trait-bind-item",
+            team_id=team.team_id,
+            draft_name="注入后可见技能",
+            draft_slug="injected-visible-skill",
+            draft_instructions="执行注入后的绑定验证。",
+        )
+        engine = SkillExtractorEngine.__new__(SkillExtractorEngine)
+        engine._queues = {team.team_id: {item.item_id: item}}
+        engine._write_skill_to_tables = AsyncMock()
+        engine._broadcast = AsyncMock()
+        engine._persist_queue = lambda _team_id: None
+
+        class _ClassificationStore:
+            def seed_reserve_from_extraction(self, **_kwargs):
+                return None
+
+        from agents import skill_classifier
+        monkeypatch.setattr(skill_classifier, "get_classification_store", lambda: _ClassificationStore())
+
+        await engine.approve_item(
+            team.team_id,
+            item.item_id,
+            skill_type="trait",
+            target_agent_id=agent.agent_id,
+        )
+
+        assert len(agent.skills) == 1
+        reloaded = team_manager._store.load_all()[team.team_id]
+        assert reloaded.agents[agent.agent_id].skills == agent.skills
+
     def test_update_agent_skills_materializes_team_skill_and_persists(self, isolated_api_state):
         team_manager, team, agent = isolated_api_state
 

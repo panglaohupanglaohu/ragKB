@@ -1,0 +1,21 @@
+{
+  "version": "tse-synthetic-corpus/v1",
+  "sizes": [
+    12,
+    24,
+    48,
+    96
+  ],
+  "files": {
+    "12": "train_scale_12.jsonl",
+    "24": "train_scale_24.jsonl",
+    "48": "train_scale_48.jsonl",
+    "96": "train_scale_96.jsonl"
+  },
+  "sha256": {
+    "12": "01bd098533a9890588d358161c3c359a11c69968f117720e8543b1b11560439a",
+    "24": "fb704ba25f19340ccde257efd3278ff8241550dcbada7b39cfb5dcaa4cdc42c8",
+    "48": "9bab0e1da7a0d713a3ebc5f04743beca7dc431dbb0e9f83e14ff24a41ff1ec7c",
+    "96": "9de6646bb8a0f03e98359c45954b90ed852094c24832e957e204c9b0b97a8e76"
+  }
+}

@@ -438,3 +438,10 @@
 | 10:13 | S4 P2-1/P2-2 skill publish gate + loop e2e | skill_publish_gate.py skill_library skill_verifier tests | 19 skill tests pass | ~3k |
 | 10:48 | 9.3/9.4 TSE paper experiments: fixtures+experiments+CLI+tests+local runs | tse/experiments.py fixtures run_tse_paper_experiments.py test_tse_experiments.py | 10 pytest; tse_9_3/9_4_local.json | ~4k |
 | 10:53 | Close 9.3/9.4 todos E-11/F: publish_gate isolation review + repro notes | docs/结构群体协商9.3与9.4实验实现todos.md | all items [x]; 19 tests green | ~0.5k |
+| 11:18 | P0/P1 9.3/9.4 follow-up: full attn trainer, evidence metrics, sweep, fig5/6 | full_attention_trainer synthetic_corpus experiments CLI renderer fixtures tests | 29 joint tests; sweep 12×3 seeds failed=0; figures PNG/SVG | ~8k |
+
+## Session: 2026-07-27 21:54
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 21:56 | 续会话验收：9.3/9.4 后续增强全 [x]；skill 目录赋予+同队绑定落盘改动 31 pytest + 7 vitest 绿 | tse/* skill_extractor skill-extract agent-detail tests | ready, 无未完成 todo | ~1k |

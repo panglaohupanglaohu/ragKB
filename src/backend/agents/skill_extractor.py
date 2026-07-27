@@ -1321,6 +1321,7 @@ class SkillExtractorEngine:
                 # 跨团队赋予：assign_team 可以不是萃取项所属团队
                 assign_team_id = item.target_team_id or team_id
                 assign_team = _team_manager.get_team(assign_team_id)
+                binding_changed = False
                 # 跨团队时把技能也写入目标团队的技能表，保证该团队智能体可解析
                 if assign_team and assign_team_id != team_id and not already_registered:
                     try:
@@ -1335,12 +1336,14 @@ class SkillExtractorEngine:
                     for agent in assign_team.agents.values():
                         if skill_id not in agent.skills:
                             agent.skills.append(skill_id)
+                            binding_changed = True
                     logger.info(f"🌍 公共技能 {skill_id} 已赋予全部智能体")
                 elif st == "trait" and (assign_scope or "").strip().lower() == "team":
                     # 团队级特质：赋予目标团队的所有智能体（不全局公开）
                     for agent in assign_team.agents.values():
                         if skill_id not in agent.skills:
                             agent.skills.append(skill_id)
+                            binding_changed = True
                     logger.info(
                         f"👥 团队级特质 {skill_id} 已赋予团队 {assign_team_id} 全部 {len(assign_team.agents)} 个智能体"
                     )
@@ -1348,12 +1351,15 @@ class SkillExtractorEngine:
                     agent = assign_team.agents.get(item.target_agent_id)
                     if agent and skill_id not in agent.skills:
                         agent.skills.append(skill_id)
+                        binding_changed = True
                         logger.info(f"🎯 特质技能 {skill_id} 已赋予智能体 {item.target_agent_id}（团队 {assign_team_id}）")
                     elif not agent:
                         logger.warning(f"目标智能体 {item.target_agent_id} 不在团队 {assign_team_id} 中，跳过赋予")
                 else:
                     logger.info(f"📦 储备技能 {skill_id} 已入库，未赋予任何智能体")
-                if assign_team and assign_team_id != team_id:
+                # 技能表会在赋予前持久化，但 agent.skills 是随后才更新的；
+                # 同团队赋予也必须再次落盘，否则服务重载后绑定会消失。
+                if assign_team and binding_changed:
                     _team_manager._persist()
         except Exception as e:
             logger.warning(f"Could not assign skill to agents: {e}")
