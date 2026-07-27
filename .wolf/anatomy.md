@@ -429,6 +429,7 @@
 - `skill_extract_ws.py` — -*- coding: utf-8 -*- (~3018 tok)
 - `skill_extractor.py` — 技能萃取引擎 — approve_item 支持跨团队赋予(target_team_id)与团队级特质(assign_scope=team). (~11669 tok)
 - `skill_indexer.py` — SkillIndexer — 异步 Indexing Worker，消费领域事件构建向量索引。 (~3443 tok)
+- `skill_publish_gate.py` — 技能发布量化门禁 (pass_rate/twin gain/samples, env AG_SKILL_PUBLISH_*). (~2.5k tok)
 - `skill_library.py` — 统一技能库 — 桥接 SkillRegistry + SkillStore + Team-local 三套存储. (~6985 tok)
 - `skill_querier.py` — SkillQuerier — 技能检索器，带衰减策略与相关性排序。 (~2952 tok)
 - `skill_registry.py` — AgentsGroup2026 Agent Team Framework — Skill Registry. (~6750 tok)
@@ -626,6 +627,8 @@
 - `test_sandbox_security.py` — Security regression tests for lightweight sandboxed execution. (~3545 tok)
 - `test_sandbox_smoke.py` — Minimal sandbox smoke test used by docker self-checks. (~50 tok)
 - `test_security_headers.py` — Tests for security response headers and request_id middleware. (~590 tok)
+- `test_skill_loop_e2e.py` — P2-1 skill closed loop e2e (verify→gate→publish→route). (~1.5k tok)
+- `test_tse_experiments.py` — TSE paper 9.3/9.4 experiment unit+CLI tests. (~3k tok)
 - `test_skill_publish_gate.py` — Skill publish quality gate regressions. (~1037 tok)
 - `test_skill_verifier.py` — SkillVerifier sandbox evidence regressions. (~1614 tok)
 - `test_start_script_auth_bootstrap.py` — Regression checks for local quick-start auth bootstrap. (~259 tok)
@@ -798,6 +801,7 @@
 - `silver.py` — LLM/heuristic silver label bootstrap (~180 tok)
 - `trainer.py` — Numpy multi-task SGD trainer AE+cat+tools (~280 tok)
 - `checkpoint.py` — save/load npz weights into pipeline (~160 tok)
+- `experiments.py` — Paper §9.3/9.4 pure experiment APIs (benchmark/keyword attn/compare). (~5k tok)
 - `evaluate.py` — name P/R/F1 + head metrics (~120 tok)
 - `active.py` — uncertainty active-learning queue (~100 tok)
 
@@ -805,3 +809,4 @@
 ## scripts/
 
 - `train_tse.py` — TSE silver bootstrap + multi-task train CLI (~120 tok)
+- `run_tse_paper_experiments.py` — Paper §9.3/9.4 reproducible CLI (latency/attention/all). (~2k tok)

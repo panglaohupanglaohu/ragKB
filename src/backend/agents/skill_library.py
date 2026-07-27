@@ -161,87 +161,19 @@ class SkillLibrary:
         }
 
     def evaluate_publish_gate(self, team_id: str, skill_id: str) -> Dict[str, Any]:
-        """Return whether a skill is allowed to enter public/production publish."""
+        """Return whether a skill is allowed to enter public/production publish.
+
+        Quantified thresholds live in ``skill_publish_gate``:
+        pass_rate / twin A/B gain / sample floor (env-overridable).
+        """
         skill = self._find_skill(team_id, skill_id)
         if not skill:
             return {"ok": False, "reason": "skill_not_found", "checks": []}
 
+        from .skill_publish_gate import evaluate_publish_gate as _eval_gate
+
         latest = self._latest_skill_verification(team_id, skill_id)
-        checks: List[Dict[str, Any]] = []
-
-        def add_check(name: str, passed: bool, detail: str) -> None:
-            checks.append({"name": name, "passed": passed, "detail": detail})
-
-        if not latest:
-            add_check("recent_verification", False, "no skill_verify EvidenceRun found")
-            return {
-                "ok": False,
-                "reason": "missing_verification_evidence",
-                "checks": checks,
-                "required": {
-                    "evidence_type": "skill_verify",
-                    "status": ["verified", "passed"],
-                    "pass_rate_min": 0.7,
-                    "exit_code": 0,
-                },
-            }
-
-        latest_dict = latest.to_dict()
-        metrics = latest.metrics_after or {}
-        runtime = latest.runtime or {}
-        status_value = str(latest.status or "").lower()
-        pass_rate = float(metrics.get("pass_rate") or skill.quality_score or 0)
-        lifecycle = skill.lifecycle_stage.value if hasattr(skill.lifecycle_stage, "value") else str(skill.lifecycle_stage)
-
-        add_check(
-            "verification_status",
-            status_value in {"verified", "passed"},
-            f"latest status={latest.status}",
-        )
-        add_check(
-            "pass_rate",
-            pass_rate >= 0.7,
-            f"pass_rate={pass_rate:.2f}",
-        )
-        add_check(
-            "runtime_ready",
-            bool(runtime.get("ready", False)),
-            f"runtime mode={runtime.get('mode', 'unknown')} ready={runtime.get('ready', False)}",
-        )
-        add_check(
-            "exit_code",
-            latest.exit_code == 0,
-            f"exit_code={latest.exit_code}",
-        )
-        add_check(
-            "lifecycle_verified",
-            lifecycle == SkillLifecycleStage.VERIFIED.value or status_value in {"verified", "passed"},
-            f"lifecycle_stage={lifecycle}",
-        )
-
-        ok = all(c["passed"] for c in checks)
-        return {
-            "ok": ok,
-            "reason": "" if ok else "latest_verification_not_publishable",
-            "checks": checks,
-            "latest_evidence": {
-                "evidence_id": latest.evidence_id,
-                "created_at": latest.created_at,
-                "status": latest.status,
-                "runtime": runtime,
-                "command": latest.command,
-                "exit_code": latest.exit_code,
-                "artifact_dir": latest.artifact_dir,
-                "request_id": latest.request_id,
-                "metrics_after": metrics,
-            },
-            "skill": {
-                "skill_id": skill.skill_id,
-                "name": skill.name,
-                "quality_score": skill.quality_score,
-                "lifecycle_stage": lifecycle,
-            },
-        }
+        return _eval_gate(skill, latest)
 
     def _latest_skill_verification(self, team_id: str, skill_id: str):
         try:

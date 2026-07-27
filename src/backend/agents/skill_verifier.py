@@ -423,11 +423,40 @@ class SkillVerifier:
             "treatment_all_rate": t.get("all_rate") if isinstance(t, dict) else twin.get("treatment_all_rate"),
             "baseline_uses": b.get("target_uses") if isinstance(b, dict) else twin.get("baseline_uses"),
             "treatment_uses": t.get("target_uses") if isinstance(t, dict) else twin.get("treatment_uses"),
+            "target_gain": twin.get("target_gain"),
             "target_gain_pp": twin.get("target_gain_pp"),
             "all_gain_pp": twin.get("all_gain_pp"),
             "gain_threshold": twin.get("gain_threshold"),
             "criteria": (twin.get("criteria") or "")[:200],
         }
+
+    @staticmethod
+    def _twin_metrics_for_evidence(twin: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Flat twin fields for EvidenceRun.metrics_after (publish gate)."""
+        twin = twin or {}
+        if not twin:
+            return {}
+        skipped = bool(twin.get("skipped"))
+        status = str(twin.get("status") or "")
+        ran = (not skipped) and (
+            status in ("ok", "error") or twin.get("target_gain") is not None
+        )
+        if not ran and not skipped:
+            return {}
+        out: Dict[str, Any] = {
+            "twin_ran": bool(ran),
+            "twin_skipped": skipped,
+            "twin_status": status,
+            "twin_passed": twin.get("passed"),
+            "twin_n_seeds": twin.get("n_seeds"),
+        }
+        if twin.get("target_gain") is not None:
+            out["twin_target_gain"] = twin.get("target_gain")
+        if twin.get("target_gain_pp") is not None:
+            out["twin_target_gain_pp"] = twin.get("target_gain_pp")
+        if twin.get("gain_threshold") is not None:
+            out["twin_gain_threshold"] = twin.get("gain_threshold")
+        return out
 
     def _persist_last_verify(
         self,
@@ -556,6 +585,8 @@ class SkillVerifier:
                     "passed": result.passed,
                     "failed": result.failed,
                     "total_tests": result.total_tests,
+                    # twin A/B flat fields for publish gate (optional when skipped)
+                    **self._twin_metrics_for_evidence(evidence.get("twin_ab") or {}),
                 },
                 detail={
                     "error_detail": result.error_detail,
@@ -564,6 +595,8 @@ class SkillVerifier:
                     "process_log": list(result.process_log),
                     "sandbox_ok": evidence.get("sandbox_ok", False),
                     "runtime_ready": result.runtime_ready,
+                    "twin_ab": self._summarize_twin(evidence.get("twin_ab") or {}),
+                    "twin_summary": self._summarize_twin(evidence.get("twin_ab") or {}),
                 },
             )
             await get_evidence_store().append_evidence(run)

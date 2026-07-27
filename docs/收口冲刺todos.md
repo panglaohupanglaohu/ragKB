@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="CodeBuddy" kind="llm" doc="todos" ts="2026-07-06T16:01:09Z" -->
+<!-- docs-signoff: author="grok-4.5" kind="llm" doc="todos" ts="2026-07-27T02:13:00Z" -->
 # 收口冲刺 Todos（三线合一 · 标注 自己/codebuddy）
 
 > 配套 [收口冲刺plan.md](收口冲刺plan.md)。合并 [OPTIMIZATION_TODOS_2026H2.md](OPTIMIZATION_TODOS_2026H2.md) + [数字办公室协作演练todos.md](数字办公室协作演练todos.md) + [数字孪生联动todos.md](数字孪生联动todos.md) 的**未竟项**。
@@ -40,10 +40,10 @@
 
 ## S4 · 闭环通（技能进化）
 
-- [ ] **【自己】P2-1 闭环端到端打通**：演练→skill_extractor→skill_verifier→孪生 A/B→ratchet 门禁→skill_library 发布→skill_router 可路由，补桥接与状态机 + 一条 E2E。
-  验收：`pytest -k skill_loop_e2e` 通过，全程无人工步骤。
-- [ ] **【自己】P2-2 发布门禁规则**：skill_publish_gate 量化门槛（验证通过率、A/B 增益、样本数下限）。
-  验收：门禁规则有测试覆盖，不达标技能停留 candidate。
+- [x] **【自己】P2-1 闭环端到端打通**：演练→skill_extractor→skill_verifier→孪生 A/B→ratchet 门禁→skill_library 发布→skill_router 可路由，补桥接与状态机 + 一条 E2E。
+  验收：`pytest -k skill_loop_e2e` 通过，全程无人工步骤。⟦已落地 `tests/test_skill_loop_e2e.py`：candidate 拦截 → verify 证据+last_verify+twin → publish_gate → library.publish → SkillRouter lifecycle=published；`pytest -k skill_loop_e2e` 2 passed⟧
+- [x] **【自己】P2-2 发布门禁规则**：skill_publish_gate 量化门槛（验证通过率、A/B 增益、样本数下限）。
+  验收：门禁规则有测试覆盖，不达标技能停留 candidate。⟦`agents/skill_publish_gate.py`：pass_rate≥0.70 / twin_gain≥0.05(若 twin 跑过) / min_samples≥3；env: AG_SKILL_PUBLISH_*；EvidenceRun 写入 twin_* 扁平指标；`test_skill_publish_gate.py` 7 passed；不达标 `candidate_held`+`publish_gate_blocked`⟧
 - [x] **【codebuddy】P2-3 技能库治理**：similarity 去重批处理、命中率淘汰、周期报表。
   验收：治理脚本有测试；技能库无 similarity>0.9 重复对。⟦已落地 scripts/skill_dedup.py; Jaccard 相似度去重; --auto-merge 自动合并; 测试运行发现 302 对重复(skill_dedup.py --threshold 0.85 扫描通过)⟧
 - [ ] **【codebuddy】P2-4 SKILL.md 导入/导出**（依赖 P1-2 互转规格）：import/export CLI 与 API。

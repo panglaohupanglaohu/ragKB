@@ -12,6 +12,17 @@ See methodology.md and reasoning.md for architecture rationale.
 
 from .config import DEFAULT_CONFIG, TSEConfig
 from .dataset import ExtractionExample, PlazaExtractionDataset
+from .experiments import (
+    ATTENTION_DIAGNOSTIC_BOUNDARY,
+    KEYWORD_ATTENTION_ALGORITHM_VERSION,
+    LOCAL_BENCHMARK_BOUNDARY,
+    attention_distribution_metrics,
+    benchmark_local_extraction,
+    build_keyword_attention,
+    compare_attention_baseline,
+    load_experiment_samples,
+    sha256_file,
+)
 from .heads import MultiTaskHeads
 from .pipeline import (
     TSEPipeline,
@@ -39,6 +50,15 @@ __all__ = [
     "validate_skill_fields",
     "PlazaExtractionDataset",
     "ExtractionExample",
+    "benchmark_local_extraction",
+    "build_keyword_attention",
+    "attention_distribution_metrics",
+    "compare_attention_baseline",
+    "load_experiment_samples",
+    "sha256_file",
+    "KEYWORD_ATTENTION_ALGORITHM_VERSION",
+    "LOCAL_BENCHMARK_BOUNDARY",
+    "ATTENTION_DIAGNOSTIC_BOUNDARY",
     "MultiTaskHeads",
     "TrainConfig",
     "TrainHistory",

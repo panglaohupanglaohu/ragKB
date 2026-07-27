@@ -34,6 +34,8 @@
 
 
 ## Key Learnings
+- [2026-07-27] 论文 9.3/9.4 复现入口=`scripts/run_tse_paper_experiments.py`；夹具 `tse/fixtures/latency_9_3.jsonl`(5×5) 与 `attention_9_4.jsonl`(12/53)；关键词注意力算法版本 `field-keyword-cosine-v2-shared-hash-space`（同 hash_seed）；checkpoint 必须显式且 epoch=30；勿用旧 fig6 异种子口径拟合。
+- [2026-07-27] 技能发布门禁 `skill_publish_gate`：pass_rate≥0.70、min_samples≥3、twin 实际跑过时 target_gain≥0.05（或 twin_passed）；env `AG_SKILL_PUBLISH_PASS_RATE_MIN`/`TWIN_GAIN_MIN`/`MIN_SAMPLES`/`MIN_USAGE`；不达标 `publish_gate_blocked` + `candidate_held`，lifecycle 保持 verified/private。EvidenceRun.metrics_after 写 twin_* 扁平字段供门禁读取。E2E：`pytest -k skill_loop_e2e`。
 - [2026-07-25] 数字孪生 3D（office3d）猫静音：#office-cat-mute-btn（🐱🔊/🔇），OfficeAPI.toggleCatMute，LS=ag-office-cat-muted；静音只停语音，气泡仍可显示。
 - [2026-07-25] 用户铁律：在「模型与连接」配置了全局 LLM 后，全系统只走该连接；resolve_effective_config/model 忽略 config_override、model_override、model_route、团队槽；tool_loop 入口强制替换 config；仅 __model_test__ 等探针可临时测其它 model。
 - [2026-07-25] 产品铁律「全局配置为主」：默认 prefer_global_model=True，chat_harness/tool_loop 上游 model=连接配置；model_route 只记 tier；仅 AG_MODEL_ROUTE_ALLOW_SWITCH=1 才允许 deepseek 多档改名。

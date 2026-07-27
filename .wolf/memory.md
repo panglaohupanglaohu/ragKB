@@ -430,3 +430,11 @@
 | 10:29 | 全局LLM绝对锁定：has_global_llm时忽略override/route/团队槽 | chat_harness/tool_loop/api | 仅__探针可临时改 | ~1k |
 | 10:31 | 补全模型与连接 global-model-banner 已启用态 | agent-team-config.js | 与全局LLM硬锁语义对齐 | ~0.5k |
 | 10:33 | 数字孪生3D窗口加猫静音按键 | office-boot.js | localStorage+停播TTS | ~0.8k |
+
+## Session: 2026-07-27 10:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 10:13 | S4 P2-1/P2-2 skill publish gate + loop e2e | skill_publish_gate.py skill_library skill_verifier tests | 19 skill tests pass | ~3k |
+| 10:48 | 9.3/9.4 TSE paper experiments: fixtures+experiments+CLI+tests+local runs | tse/experiments.py fixtures run_tse_paper_experiments.py test_tse_experiments.py | 10 pytest; tse_9_3/9_4_local.json | ~4k |
+| 10:53 | Close 9.3/9.4 todos E-11/F: publish_gate isolation review + repro notes | docs/结构群体协商9.3与9.4实验实现todos.md | all items [x]; 19 tests green | ~0.5k |

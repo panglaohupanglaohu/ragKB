@@ -10,6 +10,13 @@ The keyword-based attention uses FIELD_KEYWORD_SEEDS to compute
 cosine_similarity(field_keywords_embedding, utterance_content_embedding),
 which produces genuinely differentiated attention patterns.
 This serves as the interpretable baseline.
+
+DEPRECATED for paper-section reproduction:
+  Prefer scripts/run_tse_paper_experiments.py (attention|all).
+  This legacy script hard-codes paths, uses mismatched hash seeds for field vs
+  utterance vectors, and may yield 57 utterances from SAMPLE_DEFS[:12].
+  The productized experiment uses fixtures/attention_9_4.jsonl (12/53) and
+  shared-hash-space keyword attention (algorithm field-keyword-cosine-v2).
 """
 
 import json, sys, os

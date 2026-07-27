@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Complete experiment: TSE extraction → classification → report."""
+"""Complete experiment: TSE extraction → classification → report.
+
+DEPRECATED for paper section 9.3 latency reproduction:
+  Prefer scripts/run_tse_paper_experiments.py latency|all
+  with fixtures latency_9_3.jsonl (5 topics × 5 utterances, 10 runs + warmups).
+  This legacy script hard-codes absolute paths and does not emit stage timings.
+"""
 
 import asyncio, json, sys, time
 
