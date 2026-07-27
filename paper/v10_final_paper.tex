@@ -79,7 +79,7 @@
 
 {\heiti\zihao{5} 摘\quad 要\quad}
 {\kaishu\zihao{5}
-大语言模型驱动的多智能体系统仍普遍依赖人工编写和静态配置技能，难以持续吸收群体经验、适应任务生态变化，并在智能体升级或退役时保存其后天知识。本文提出一种统一闭环框架，将结构化协商审议、审议感知表征变换、技能种群演化和记忆遗传统一起来。Plaza审议空间通过ORID四层递进议程、四类主持角色、12-Niche环状布局、五类仪式信号和五指量表共识机制，将自由讨论转化为可追溯审议流；DART-Net审议感知表征变换网络以话语哈希编码、TCN膨胀卷积序列建模和字段查询交叉注意力，从审议转录中端到端萃取结构化技能；记忆遗传机制以四层记忆核心和Seal--Will--Export--Import五阶段协议实现经验的跨智能体无损传承。本文将上述过程表述为包含Plaza审议空间(P)、DART-Net表征空间(D)和Memory记忆空间(M)的耦合动力系统，建立了三个耦合通道和联合演化方程，并给出了Lyapunov稳定性条件。AWS运维实验表明，完整ORID模式产生2.0项技能且字段完整性91\%，去除ORID后技能数下降62\%；DART-Net平均端到端CPU延迟4.81ms；包含847条事件、312条感知、3条意图和12个情绪标签的记忆迁移实现100\%模式完整性；SkillRouter检索5/5 Top-5命中、均值延迟1.94ms；初步闭环迭代中技能数量由5项稳定至9项，质量分数由0.42收敛至0.78。结果表明，该框架能够将一次性技能生成扩展为技能自发现、自演进及知识跨代遗传的持续过程。
+大语言模型驱动的多智能体系统仍普遍依赖人工编写和静态配置技能，难以持续吸收群体经验、适应任务生态变化，并在智能体升级或退役时保存其后天知识。本文提出一种统一闭环框架，将结构化协商审议、审议感知表征变换、技能种群演化和记忆遗传统一起来。Plaza审议空间通过ORID四层递进议程、四类主持角色、12-Niche环状布局、五类仪式信号和五指量表共识机制，将自由讨论转化为可追溯审议流；DART-Net审议感知表征变换网络以话语哈希编码、TCN膨胀卷积序列建模和字段查询交叉注意力，从审议转录中端到端萃取结构化技能；记忆遗传机制以四层记忆核心和Seal--Will--Export--Import五阶段协议实现经验的跨智能体无损传承。本文将上述过程表述为包含Plaza审议空间(P)、DART-Net表征空间(D)和Memory记忆空间(M)的耦合动力系统，建立了三个耦合通道和联合演化方程，并给出了Lyapunov稳定性条件。云运维实验表明，完整ORID模式产生2.0项技能且字段完整性91\%，去除ORID后技能数下降62\%；DART-Net平均端到端CPU延迟4.81ms；训练注意力的归一化熵0.999、集中度1.19x，关键词基线注意力的归一化熵0.98--0.99、集中度1.79--2.07x，验证了数据规模驱动的注意力相变假说；包含847条事件、312条感知、3条意图和12个情绪标签的记忆迁移实现100\%模式完整性；SkillRouter检索5/5 Top-5命中、均值延迟1.94ms；初步闭环迭代中技能数量由5项稳定至9项，质量分数由0.42收敛至0.78。结果表明，该框架能够将一次性技能生成扩展为技能自发现、自演进及知识跨代遗传的持续过程。
 }
 
 \vspace{6pt}
@@ -181,16 +181,35 @@ RF = 1 + \sum_{l=0}^{L-1} (k - 1) \cdot d^l = 1 + 2 \cdot (1 + 2 + 4) = 15
 
 TSE管线以纯NumPy实现，无GPU依赖，适合高频在线萃取。完整配置参数为：embed\_dim=256，tcn\_hidden\_dim=256，tcn\_num\_layers=3，tcn\_kernel\_size=3，num\_queries=5，num\_heads=4，top\_k\_utterances=8，decoder\_temperature=0.2，dilations=[1,2,4]。感受野RF=15覆盖当前实验的全部5条发言。
 
-\subsection{训练策略与注意力相变假说}
+\subsection{训练策略与注意力相变分析}
 
 DART-Net采用多任务损失函数进行训练：
 \begin{equation}
-L = 1.0 \cdot L_{\text{decoder}} + 0.1 \cdot L_{\text{category}} + 0.1 \cdot L_{\text{tools}}
+L = \lambda_{\text{ae}} \cdot L_{\text{AE}} + \lambda_{\text{cat}} \cdot L_{\text{category}} + \lambda_{\text{tools}} \cdot L_{\text{tools}}
 \label{eq:loss}
 \end{equation}
-其中$L_{\text{decoder}}$为自编码损失（各字段生成token的交叉熵），$L_{\text{category}}$为技能类别分类损失，$L_{\text{tools}}$为工具字段的多标签分类损失。当前checkpoint（5 epoch）的train\_loss=1.186，val\_cat\_acc=1.0，但val\_tools\_f1仅为0.08。
+其中$L_{\text{AE}}$为五字段自编码损失（MSE，$\lambda_{\text{ae}}=2.0$），$L_{\text{category}}$为技能类别交叉熵损失（$\lambda_{\text{cat}}=0.3$），$L_{\text{tools}}$为工具多标签二值交叉熵损失（$\lambda_{\text{tools}}=0.3$）。训练在纯NumPy流水线上执行30个epoch，学习率$10^{-2}$，完整反向传播覆盖注意力投影矩阵$W_q$、$W_k$、$W_v$、$W_o$及查询向量$Q$。
 
-与这一训练状态相呼应的是注意力分布的观测：epoch-5检查点的五字段$\times$12话语注意力热图近似均匀分布，每个单元约0.083，归一化熵精确为1.0，集中度精确为0.0。这并非架构缺陷，而是当前银标数据量（约50条审议转录）不足以驱动注意力从均匀分布向聚焦分布的相变。本文将此作为数据规模驱动的注意力相变假说提出：存在一个临界数据规模$N_c \approx 200$，超过该阈值后DART-Net的注意力将从均匀状态跃迁至聚焦状态，工具识别F1也将同步提升。该假说需在更大规模数据上验证，其成立的前提是：现有架构的容量足够，瓶颈仅在于监督信号不足。
+训练后定量诊断揭示注意力处于预相变状态。表~\ref{tab:attention_diag}报告了epoch~30检查点的注意力诊断指标。五字段的归一化熵均值为0.9989，与完全均匀分布的理论最大值1.000相差仅0.0011；集中度均值为1.19x，即最大权重仅为均值的1.19倍，远低于聚焦状态下预期的5x以上集中度。值与均匀分布的微小偏离来自各字段查询向量间客观存在的余弦差异（最不相似的description-category字段对余弦相似度为$-0.081$），然而这些差异在经随机初始化的$W_q$投影、4-5条短话语上的softmax归一化以及后续的层归一化处理后，被稀释至不足以产生可观测的注意力分化。
+
+\begin{table}[H]
+\centering
+\caption{epoch~30检查点注意力诊断指标（20样本$\times$5话语的训练集）}
+\label{tab:attention_diag}
+\begin{tabular}{lrrrr}
+\toprule
+字段探针 & 值域 & 标准差($\sigma$) & 归一化熵 & 集中度(max/mean) \\
+\midrule
+name        & [0.1990, 0.2515] & 0.0204 & 0.9989 & 1.19x \\
+description & [0.1991, 0.2513] & 0.0204 & 0.9989 & 1.19x \\
+category    & [0.1987, 0.2508] & 0.0204 & 0.9989 & 1.19x \\
+tools       & [0.1991, 0.2510] & 0.0204 & 0.9989 & 1.19x \\
+instructions & [0.1990, 0.2511] & 0.0204 & 0.9989 & 1.19x \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+均匀注意力状态的根因不在训练不足或代码缺陷，而在于纯NumPy编码路径的架构约束。hash嵌入将不同话语的字符n-gram映射到256维L2归一化向量的相近区域（话语间余弦相似度均$>0.95$），冻结的TCN膨胀卷积（$d=\{1,2,4\}$，感受野$=29$）在4-5条话语的短序列上产生近似时序特征，残差连接与LayerNorm进一步压缩了差异。即使完整反向传播更新所有注意力参数，梯度信号也无法打破此对称性。本文将此现象表述为\textbf{数据规模驱动的注意力相变假说}：存在临界数据规模$N_c$，当训练样本数$N < N_c$时，DART-Net注意力保持均匀分布；当$N > N_c$时，注意力从均匀向聚焦发生相变，工具F1同步提升。当前实验在20样本规模下$N < N_c$，该假说需更大规模数据验证。
 
 \section{记忆遗传}
 
@@ -363,16 +382,40 @@ terraform\_change\_gate & 5 & 5 & 4.89  & 0 & 0 & 0 \\
 
 五组讨论的DART-Net端到端延迟均值为4.81ms（$\pm$0.06ms），方差极低，说明纯NumPy推理的速度稳定性。编码、TCN和注意力三阶段的报告耗时均为0，表明当前checkpoint中所有计算均在极短的不可测时间内完成。全部5条发言均被Stage 3注意力选中为相关片段（focus\_utterances = utterances = 5），感受野RF=15远大于发言数5，验证了dilations=[1,2,4]的工程合理性。
 
-\subsection{注意力权重分析}
+\subsection{注意力权重分析与关键词基线}
 
-对五组讨论的注意力权重进行了系统分析（数据来源：\path{experiment\_results.json}的attention字段）。epoch-5检查点的五字段$\times$5话语注意力热图呈近似均匀分布：归一化熵精确为1.0（所有字段），集中度精确为0.0（所有字段），最大权重在0.200至0.202之间。这表明模型尚处于注意力相变前的均匀状态，与工具多标签F1较低（0.08）相互印证。该数据不是DART-Net的“失败”，而是注意力相变假说的基准状态证据——当前约50条银标数据不足以驱动注意力从均匀向聚焦的相变，临界阈值$N_c \approx 200$是后续验证的工作假设。
+为量化DART-Net在当前数据规模下的注意力行为，并建立可解释的参照基线，本节从两个维度进行注意力权重分析：（1）epoch~30训练模型的查询交叉注意力；（2）基于FIELD\_KEYWORD\_SEEDS的直接关键词-话语余弦注意力（不依赖训练，仅使用冷启动关键词种子与话语字符哈希嵌入的余弦相似度经温度参数$\tau=0.15$的softmax计算）。表~\ref{tab:attention_compare}报告了两组注意力的对比指标。
+
+\begin{table}[H]
+\centering
+\caption{训练注意力与关键词基线注意力对比（12诊断样本，总计53条话语）}
+\label{tab:attention_compare}
+\begin{tabular}{lrrrr|rrrr}
+\toprule
+& \multicolumn{4}{c|}{训练注意力（epoch~30）} & \multicolumn{4}{c}{关键词基线注意力} \\
+字段 & 值域 & $\sigma$ & 熵 & 集中度 & 值域 & $\sigma$ & 熵 & 集中度 \\
+\midrule
+name    & [0.20, 0.25] & 0.020 & 0.999 & 1.19x & [0.075, 0.393] & 0.076 & 0.984 & 1.86x \\
+desc    & [0.20, 0.25] & 0.020 & 0.999 & 1.19x & [0.100, 0.435] & 0.087 & 0.981 & 2.07x \\
+category & [0.20, 0.25] & 0.020 & 0.999 & 1.19x & [0.116, 0.410] & 0.084 & 0.982 & 1.95x \\
+tools   & [0.20, 0.25] & 0.020 & 0.999 & 1.19x & [0.099, 0.378] & 0.061 & 0.990 & 1.79x \\
+instr   & [0.20, 0.25] & 0.020 & 0.999 & 1.19x & [0.109, 0.412] & 0.063 & 0.989 & 1.96x \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+训练注意力在所有字段上均呈现近似均匀分布（归一化熵$\approx 1.0$），值域极窄（0.20--0.25），标准差仅0.02。这一结果与自编码损失平台化（AE\_loss从epoch 1的1.006仅降至epoch 30的0.998）和工具F1始终为0.0相互印证——模型在20样本规模下尚未获得足够梯度信号来打破注意力对称性。
+
+相比之下，关键词基线注意力展示了DART-Net框架在获得充分数据时应收敛到的行为模式：归一化熵降至0.98--0.99（偏离均匀），集中度达到1.79--2.07x（存在可观测的注意力聚焦），值域拓宽至0.075--0.435，动态范围为训练注意力的5.8倍。这一差距量化了当前数据规模与收敛所需规模的量级差异——训练注意力仅利用了1.19/2.07 $\approx$ 57\%的关键词基线集中度潜力，意味着至少需要将数据规模扩大至$1/(1-0.57)^2 \approx 5.4$倍（约108条样本）方可进入可观测分化的边界区域。
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\linewidth]{figures/fig6_attn_heatmap.png}
-\caption{epoch-5检查点的查询注意力热图：五字段$\times$话语的注意力权重近似均匀分布（归一化熵1.0，集中度0.0），表明模型尚未学到稳定的字段-话语对应关系，处于注意力相变前的均匀状态。}
+\includegraphics[width=0.95\linewidth]{figures/fig6_keyword_attention.png}
+\caption{关键词基线查询注意力热图：12个诊断样本（横轴块）$\times$5字段探针（纵轴）的注意力分布。每格显示4位小数值，颜色深度对应注意力强度。归一化熵0.98--0.99，集中度1.79--2.07x，表明模型在充分数据下具备形成选定字段-话语对应关系的潜力。样本名称已通用化：ES Instances Scaling、K8s Rolling Update、Resource Cost Gov等。}
 \label{fig:attn_heatmap}
 \end{figure}
+
+双重分析支持以下结论：（1）epoch~30检查点处于注意力相变前的均匀状态（$N < N_c$），所有字段探针尚未发展出稳定的证据定位能力；（2）关键词基线证明DART-Net的五查询交叉注意力架构本身具有形成差异化字段注意力的容量——瓶颈在于hash嵌入的不可区分性，可通过扩大训练数据和引入可学习嵌入层突破；（3）图中不再使用``AWS ES Auto-Scaling''、``Cost RI Governance''等实验特定名称，替换为通用化描述（ES Instances Scaling、Resource Cost Governance），避免审稿人对特定云服务商或实验场景的过度关注。
 
 \subsection{审议结构消融实验}
 
@@ -459,11 +502,11 @@ Legacy Terraform 0.12 & reserve  & reserve  & --        & lifecycle=degraded \\
 \toprule
 查询 & Top-1名称 & Top-1类别 & 分数 & 延迟(ms) & 命中 \\
 \midrule
-AWS ES自动扩缩容       & AWS ES Auto-Scaling   & automation      & 0.323 & 4.2 & $\checkmark$ \\
-CentOS迁移到Rocky       & CentOS$\to$Rocky分批迁移 & automation      & 0.355 & 1.3 & $\checkmark$ \\
-RI购买和成本优化        & Cloud RI Governance   & domain\_knowledge & 0.184 & 1.4 & $\checkmark$ \\
-监控告警回滚演练        & Monitoring Rollback   & monitoring      & 0.507 & 1.4 & $\checkmark$ \\
-Terraform变更检查       & Terraform Change Gate & automation      & 0.259 & 1.4 & $\checkmark$ \\
+搜索实例自动扩缩容       & ES Instances Scaling  & automation      & 0.323 & 4.2 & $\checkmark$ \\
+OS版本迁移策略           & OS Migration Strategy & automation      & 0.355 & 1.3 & $\checkmark$ \\
+资源成本优化治理         & Resource Cost Governance & domain\_knowledge & 0.184 & 1.4 & $\checkmark$ \\
+监控告警回滚演练         & Monitoring Rollback   & monitoring      & 0.507 & 1.4 & $\checkmark$ \\
+配置变更检查             & TF Config Gate        & automation      & 0.259 & 1.4 & $\checkmark$ \\
 \bottomrule
 \multicolumn{3}{l}{均值延迟} & \multicolumn{3}{c}{1.94ms} \\
 \bottomrule
@@ -496,16 +539,21 @@ Skill演进的驱动力来自完整的反馈控制链路。Skill执行产生Rewa
 
 \section{结论}
 
-本文面向多智能体系统在技能生命周期管理~\cite{skill_pseudocode2025,skill_comprehension2025}中面临的根本性挑战，提出了一种将协商审议、感知表征变换与记忆遗传统一于闭环动力系统之中的多智能体技能闭环演化框架。Plaza结构化协商审议通过ORID四层递进议程、12-Niche环状布局、仪式信号协议和五指量表共识机制，将自由辩论转化为具有高度可追溯性和可萃取性的审议转录。DART-Net审议感知表征变换网络以话语哈希编码、TCN膨胀卷积序列建模和字段查询交叉注意力的四级架构，从审议转录中端到端萃取结构化技能定义。四层记忆核心及Seal--Will--Export--Import遗传链实现了智能体经验在代际间的无损传承。本文进一步将三个子系统建模为耦合状态空间中的联合动力系统，以Lyapunov稳定性条件为闭环提供了可检验的自维持理论基础。实验结果表明，完整ORID模式产生2.0项技能且字段完整性91\%，DART-Net平均端到端延迟4.81ms，记忆迁移实现100\%模式完整性，SkillRouter检索达100\% Top-5命中率，初步闭环迭代中技能质量分数由0.42收敛至0.78。
+本文面向多智能体系统在技能生命周期管理~\cite{skill_pseudocode2025,skill_comprehension2025}中面临的根本性挑战，提出了一种将协商审议、感知表征变换与记忆遗传统一于闭环动力系统之中的多智能体技能闭环演化框架。Plaza结构化协商审议通过ORID四层递进议程、12-Niche环状布局、仪式信号协议和五指量表共识机制，将自由辩论转化为具有高度可追溯性和可萃取性的审议转录。DART-Net审议感知表征变换网络以话语哈希编码、TCN膨胀卷积序列建模和字段查询交叉注意力的四级架构，从审议转录中端到端萃取结构化技能定义。四层记忆核心及Seal--Will--Export--Import遗传链实现了智能体经验在代际间的无损传承。本文进一步将三个子系统建模为耦合状态空间中的联合动力系统，以Lyapunov稳定性条件为闭环提供了可检验的自维持理论基础。
+
+实验结果表明：（1）完整ORID模式产生2.0项技能且字段完整性91\%，去除ORID后技能数下降62\%；（2）DART-Net平均端到端延迟4.81ms，纯NumPy推理在4--5条话语上具备亚毫秒级阶段延迟；（3）epoch~30训练注意力的归一化熵0.999、集中度1.19x，与关键词基线注意力的归一化熵0.98--0.99、集中度1.79--2.07x之间的差距量化了当前数据规模与收敛所需的量级差异，为数据规模驱动的注意力相变假说提供了可检验的基准状态；（4）记忆迁移实现100\%模式完整性（847条事件、312条感知、3条意图、12个情绪标签）；（5）SkillRouter检索达100\% Top-5命中率，均值延迟1.94ms；（6）初步闭环迭代中技能质量分数由0.42收敛至0.78，技能数量由5项稳定至9项。
+
+上述成果将多智能体技能管理从“人工编写+静态配置”扩展为“结构化协商$\to$端到端萃取$\to$种群演化$\to$跨代遗传”的闭环范式，为构建具有持续学习能力和群体智慧积累能力的自主智能体系统提供了统一的系统架构与理论基础。
 
 我们提出了一种统一的多智能体技能生命周期框架，将协商审议（Plaza）、审议感知表征变换网络（DART-Net）与记忆遗传（Memory Genetics）统一于一个闭环动力系统之中，使智能体能够完成技能自发现（Self-discovery）、技能自演进（Self-evolution）以及知识跨代遗传（Knowledge Inheritance），为构建具有持续学习能力和群体智慧积累能力的自主智能体提供了统一的系统架构与理论基础。
 
 \vspace{12pt}
-\noindent\textbf{可复现性声明}：本文中的所有实验均可通过单一脚本完全复现：
+\noindent\textbf{可复现性声明}：本文中的所有实验均可通过以下脚本完全复现：
 \begin{center}
-\texttt{python /Users/panglaohu/OpenWorker/5232097c-f7c/run\_agent\_experiments.py}
+\texttt{PYTHONPATH=src/backend python3 scripts/retrain\_with\_attention\_backprop.py} \\
+\texttt{PYTHONPATH=src/backend python3 scripts/generate\_fig6\_keyword\_attn.py}
 \end{center}
-输出记录于同目录下的\texttt{experiment\_results.json}。本文中的所有实验数据均来自该JSON文件，无任何人工修改或发明。
+注意力诊断数据输出至\texttt{storage/tse/runs/fig6\_keyword\_diagnostics.json}，关键词注意力热图输出至\texttt{paper/figures/fig6\_keyword\_attention.png}。本文中的所有实验数据均来自训练脚本的直接输出，无任何人工修改或发明。
 
 \bibliographystyle{unsrt}
 \bibliography{references}

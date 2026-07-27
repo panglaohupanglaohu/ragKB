@@ -59,7 +59,7 @@ events = [c["event"] or "none" for c in data["classification"]]
 pool_colors = {"reserve": "#E8913A", "general": "#32B897", "exclusive": "#2878B5"}
 x = np.arange(len(skills))
 w = 0.35
-labels_short = ["AWS ES", "CentOS", "Cost RI", "Old Mon", "TF 0.12"]
+labels_short = ["ES Scaling", "OS Migration", "Cost Gov", "Monitor", "TF Gate"]
 for i, (inst, aft) in enumerate(zip(instant, after)):
     ax1.bar(
         i - w / 2,
@@ -171,7 +171,7 @@ fig, ax = plt.subplots(figsize=(6, 3.2))
 queries = [r["query"] for r in data["router"]]
 scores = [r["top1_score"] for r in data["router"]]
 latencies = [r["latency_ms"] for r in data["router"]]
-labels = ["ES Auto", "CentOS Mig", "Cost RI", "Monitor", "TF Gate"]
+labels = ["ES Scaling", "OS Migration", "Cost Gov", "Monitor", "TF Gate"]
 colors = ["#2878B5", "#32B897", "#E8913A", "#7B5EA7", "#E24B4B"]
 
 bars = ax.bar(
