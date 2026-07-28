@@ -39,6 +39,19 @@ describe('agent-memory hub page', () => {
     expect(page).toContain('memoryStyleName');
   });
 
+  it('supports Will create preflight execute and migration audit UI', () => {
+    expect(page).toContain('/wills');
+    expect(page).toContain('will-create');
+    expect(page).toContain('will-preflight');
+    expect(page).toContain('will-execute');
+    expect(page).toContain('/migrations');
+    expect(page).toContain('/inherited');
+    expect(page).toContain('conflict_strategy');
+    expect(page).toContain('merge 继承分区');
+    expect(page).toContain('继承自');
+    expect(page).toContain('rolled_back');
+  });
+
   it('hides prototype names and exposes an agent-owned memory style', () => {
     expect(html).not.toContain('<b>小满</b>');
     expect(html).not.toContain('<b>沈弥安</b>');

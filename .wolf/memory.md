@@ -444,4 +444,12 @@
 
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
+| 22:25 | Agent记忆补完 M-0.1~M-3.4：v2迁移/Will/半衰期/Plaza证据/UI/五组实验 | agent_memory_migration.py core transfer routes runtime page tests reports | 39 pytest + 7 vitest; todos all [x] | ~12k |
+| 22:12 | S1 L3 当前演练卡：全局 KPI 不按 team 过滤 + dtContext 摘要卡 + by_status 映射 + vitest | digital-twin-cli.js secs-core.js 收口冲刺todos | 3 vitest pass; L3 [x] | ~2k |
 | 21:56 | 续会话验收：9.3/9.4 后续增强全 [x]；skill 目录赋予+同队绑定落盘改动 31 pytest + 7 vitest 绿 | tse/* skill_extractor skill-extract agent-detail tests | ready, 无未完成 todo | ~1k |
+
+## Session: 2026-07-28 08:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 08:19 | Agent记忆 M-3.2b/M-3.3b 收口：修继承软检索+真LLM 30 cells+审计 | migration.py llm实验脚本 reports todos | 49 pytest+7 vitest；inheritance_injected=1.0 | ~8k |

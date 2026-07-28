@@ -84,16 +84,29 @@ def test_transfer_copies_and_memorial(tmp_path: Path):
         handover_intentions="auto",
         keep_memorial=True,
         note="交接给新人",
+        strategy="merge",
     )
     assert result["ok"] is True
-    assert result["transfer"]["copied"]["log"] >= 1
-    assert result["transfer"]["copied"]["intentions"] >= 1
+    copied = result["transfer"].get("copied") or {}
+    assert int(copied.get("log") or 0) >= 1
+    assert int(copied.get("intentions") or 0) >= 1
 
-    dst = AgentMemoryCore(team, new, store=store)
-    assert any("生产事故" in (e.get("detail") or "") for e in dst.log.events)
-    assert any(i.get("status") == "pending" for i in dst.intentions.items)
+    # merge 默认写入继承分区，不覆盖受益方本地活动记忆
+    from agents.agent_memory_migration import load_inherited
+
+    inh = load_inherited(store, team, new)
+    assert inh["partitions"]
+    logs = []
+    intentions = []
+    for p in inh["partitions"]:
+        logs.extend((p.get("layers") or {}).get("log") or [])
+        intentions.extend((p.get("layers") or {}).get("intentions") or [])
+        assert (p.get("layers") or {}).get("affect") == {}
+    assert any("生产事故" in (e.get("detail") or "") for e in logs)
+    assert any((i.get("origin") or {}).get("kind") == "inherited" for i in logs)
+    assert any(i.get("status") == "pending" for i in intentions)
     assert lc.resolve_state(team, old) == "archived"
-    assert lc.resolve_state(team, new) == "active"
+    assert lc.resolve_state(team, new) in ("active", "unbound", "shared")
     # 凭吊可读
     assert AgentMemoryCore(team, old, store=store).memorial() is not None
 

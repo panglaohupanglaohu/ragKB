@@ -705,22 +705,57 @@
   }
 
   async function renderTransfer(main) {
-    main.innerHTML = '<div class="empty">加载传递台…</div>';
+    main.innerHTML = '<div class="empty">加载 Will 传递台…</div>';
     let history = [];
+    let wills = [];
+    let migrations = [];
+    let inherited = null;
     try {
       const r = await api(`${HUB}/transfers?team_id=${encodeURIComponent(teamId)}&limit=20`);
       history = r.transfers || [];
     } catch (_) {
       history = [];
     }
+    try {
+      const wr = await api(
+        `${HUB}/wills?team_id=${encodeURIComponent(teamId)}&limit=20`
+      );
+      wills = wr.wills || [];
+    } catch (_) {
+      wills = [];
+    }
+    try {
+      const mr = await api(`${HUB}/migrations?limit=15`);
+      migrations = mr.transactions || [];
+    } catch (_) {
+      migrations = [];
+    }
+    if (agentId) {
+      try {
+        const ir = await api(
+          `${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(agentId)}/inherited`
+        );
+        inherited = ir.inherited || null;
+      } catch (_) {
+        inherited = null;
+      }
+    }
     const options = agents
       .map((a) => `<option value="${esc(a.agent_id)}">${esc(a.name || a.agent_id)}</option>`)
       .join('');
+    const layerChecks = ['log', 'perception', 'intentions', 'semantic', 'affect']
+      .map(
+        (l) =>
+          `<label style="margin-right:10px;font-size:12px"><input type="checkbox" class="will-layer" value="${l}" ${
+            l === 'affect' ? '' : 'checked'
+          }> ${l}</label>`
+      )
+      .join('');
     main.innerHTML = `
-      <h2 style="margin:0 0 8px;font-size:16px">传递台</h2>
+      <h2 style="margin:0 0 8px;font-size:16px">Will 传递台</h2>
       <p style="font-size:12px;color:#6B7280;line-height:1.5;margin:0 0 12px">
-        传递 = <b>复制</b>到受益者；原件默认封存凭吊（「这是回放，不是本人」）。
-        意图交接：auto 直接挂载 / ask_new_owner 待确认 / drop 放弃。
+        流程：创建 Will → 预检（计数/哈希/冲突）→ 执行事务。默认 <b>merge</b> 写入继承分区，不覆盖受益方本地记忆。
+        失败会回滚并显示原因；凭吊源显示「这是回放，不是本人」。
       </p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div>
@@ -732,6 +767,14 @@
           <select class="fi" id="xfer-to" style="width:100%">${options}</select>
         </div>
         <div>
+          <label style="font-size:11px;color:#6B7280">冲突策略</label><br>
+          <select class="fi" id="xfer-strategy" style="width:100%">
+            <option value="merge" selected>merge 继承分区（默认）</option>
+            <option value="selective">selective 仅所选层</option>
+            <option value="replace_all">replace_all 覆盖活动层</option>
+          </select>
+        </div>
+        <div>
           <label style="font-size:11px;color:#6B7280">意图交接</label><br>
           <select class="fi" id="xfer-ho" style="width:100%">
             <option value="ask_new_owner">ask_new_owner 待新主人确认</option>
@@ -739,7 +782,11 @@
             <option value="drop">drop 全部放弃</option>
           </select>
         </div>
-        <div>
+        <div style="grid-column:1/-1">
+          <label style="font-size:11px;color:#6B7280">迁移层 scope</label><br>
+          ${layerChecks}
+        </div>
+        <div style="grid-column:1/-1">
           <label style="font-size:11px;color:#6B7280">备注</label><br>
           <input class="fi" id="xfer-note" style="width:100%;box-sizing:border-box" placeholder="交接说明"/>
         </div>
@@ -747,10 +794,73 @@
       <label style="font-size:12px;color:#4B5568;display:flex;align-items:center;gap:6px;margin-bottom:12px">
         <input type="checkbox" id="xfer-keep" checked> 保留原件凭吊 keep_memorial
       </label>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-primary" id="xfer-run">执行传递</button>
+      <div class="panel-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn" id="will-create">① 创建 Will</button>
+        <button type="button" class="btn" id="will-preflight" disabled>② 预检</button>
+        <button type="button" class="btn btn-primary" id="will-execute" disabled>③ 执行</button>
       </div>
-      <h3 style="font-size:13px;margin:18px 0 8px">历史记录</h3>
+      <div id="will-report" style="margin-top:12px"></div>
+      <h3 style="font-size:13px;margin:18px 0 8px">遗嘱列表</h3>
+      <div id="will-list">
+        ${
+          wills.length
+            ? wills
+                .map(
+                  (w) => `<div class="audit-line">
+            <b>${esc((w.testator && w.testator.agent_id) || '')}</b> →
+            <b>${esc((w.beneficiary && w.beneficiary.agent_id) || '')}</b>
+            · ${esc(w.conflict_strategy || '')} · <span class="chip">${esc(w.status || '')}</span>
+            <span style="color:#9AA3AF">${esc(w.will_id || '')}</span>
+          </div>`
+                )
+                .join('')
+            : '<div class="empty">暂无遗嘱</div>'
+        }
+      </div>
+      <h3 style="font-size:13px;margin:18px 0 8px">迁移事务</h3>
+      <div>
+        ${
+          migrations.length
+            ? migrations
+                .map((tx) => {
+                  const st = tx.state || '';
+                  const color =
+                    st === 'committed' ? '#059669' : st === 'rolled_back' ? '#DC2626' : '#6B7280';
+                  return `<div class="audit-line">
+              <span style="color:${color};font-weight:600">${esc(st)}</span>
+              · ${esc(tx.strategy || '')}
+              · tx ${esc(tx.tx_id || '')}
+              ${tx.error ? `· <span style="color:#DC2626">${esc(tx.error)}</span>` : ''}
+              ${
+                tx.validation
+                  ? `· strength=${esc((tx.validation && tx.validation.validation_strength) || '')}`
+                  : ''
+              }
+            </div>`;
+                })
+                .join('')
+            : '<div class="empty">暂无迁移事务</div>'
+        }
+      </div>
+      <h3 style="font-size:13px;margin:18px 0 8px">当前 Agent 继承分区</h3>
+      <div>
+        ${
+          inherited && (inherited.partitions || []).length
+            ? (inherited.partitions || [])
+                .map((p) => {
+                  const src = (p.source_agent && p.source_agent.agent_id) || '?';
+                  const counts = p.record_counts || {};
+                  return `<div class="audit-line">
+              <span class="chip warn">继承自 ${esc(src)}</span>
+              · log ${counts.log || 0} · semantic ${counts.semantic || 0}
+              · transfer ${esc(p.transfer_id || '')}
+            </div>`;
+                })
+                .join('')
+            : '<div class="empty">无继承分区（或未选中 Agent）</div>'
+        }
+      </div>
+      <h3 style="font-size:13px;margin:18px 0 8px">历史传递</h3>
       <div>
         ${
           history.length
@@ -758,9 +868,10 @@
                 .map(
                   (t) => `<div class="audit-line">
             <b>${esc(t.from)}</b> → <b>${esc(t.to)}</b>
-            · ${esc(t.handover_intentions)} · 日志${(t.copied && t.copied.log) || 0}
+            · ${esc(t.strategy || t.handover_intentions || '')}
+            · 日志${(t.copied && t.copied.log) || 0}
             ${t.keep_memorial ? '<span class="chip warn">凭吊</span>' : ''}
-            <span style="color:#9AA3AF">${esc(t.transfer_id || '')}</span>
+            <span style="color:#9AA3AF">${esc(t.transfer_id || t.will_id || '')}</span>
           </div>`
                 )
                 .join('')
@@ -768,48 +879,155 @@
         }
       </div>`;
 
-    const run = document.getElementById('xfer-run');
-    if (run) {
-      run.onclick = async () => {
+    let currentWillId = '';
+    const reportEl = document.getElementById('will-report');
+    const btnPre = document.getElementById('will-preflight');
+    const btnEx = document.getElementById('will-execute');
+
+    function selectedLayers() {
+      return Array.from(main.querySelectorAll('.will-layer:checked')).map((el) => el.value);
+    }
+
+    function renderReport(report, title) {
+      if (!reportEl) return;
+      const counts = report.record_counts || (report.validation && report.validation.counts) || {};
+      const hashes = report.layer_hashes || (report.validation && report.validation.layer_hashes) || {};
+      const conflicts = report.conflicts || [];
+      const ok = report.ok !== false && !(report.validation && report.validation.ok === false);
+      reportEl.innerHTML = `
+        <div style="border:1px solid ${ok ? '#86EFAC' : '#FECACA'};background:${
+          ok ? '#F0FDF4' : '#FEF2F2'
+        };border-radius:8px;padding:12px">
+          <div style="font-weight:600;margin-bottom:6px">${esc(title || '预检报告')} · ${
+            ok ? '通过' : '未通过'
+          }</div>
+          <div style="font-size:12px;color:#374151">策略 ${esc(
+            report.strategy || ''
+          )} · strength ${esc(
+            (report.validation && report.validation.validation_strength) || report.validation_strength || ''
+          )}</div>
+          <div style="font-size:12px;margin-top:6px">计数：${esc(JSON.stringify(counts))}</div>
+          <div style="font-size:11px;margin-top:4px;color:#6B7280;word-break:break-all">哈希：${esc(
+            JSON.stringify(hashes)
+          )}</div>
+          ${
+            conflicts.length
+              ? `<div style="font-size:12px;color:#B45309;margin-top:6px">冲突：${esc(
+                  conflicts.join('; ')
+                )}</div>`
+              : ''
+          }
+          ${
+            report.error
+              ? `<div style="font-size:12px;color:#DC2626;margin-top:6px">错误：${esc(
+                  report.error
+                )}</div>`
+              : ''
+          }
+        </div>`;
+    }
+
+    const createBtn = document.getElementById('will-create');
+    if (createBtn) {
+      createBtn.onclick = async () => {
         const from = document.getElementById('xfer-from').value;
         const to = document.getElementById('xfer-to').value;
         if (!from || !to || from === to) {
           toast('请选择不同的源与受益者');
           return;
         }
-        if (!confirm(`确认将 ${from} 的记忆传递给 ${to}？`)) return;
         try {
-          const r = await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(from)}/transfer`, {
+          const r = await api(`${HUB}/${encodeURIComponent(teamId)}/${encodeURIComponent(from)}/wills`, {
             method: 'POST',
             body: JSON.stringify({
-              to,
+              beneficiary: to,
+              strategy: document.getElementById('xfer-strategy').value,
+              layers: selectedLayers(),
               handover_intentions: document.getElementById('xfer-ho').value,
               keep_memorial: document.getElementById('xfer-keep').checked,
               note: document.getElementById('xfer-note').value || '',
             }),
           });
-          const nav = r.transfer && r.transfer.narrative;
-          toast('传递完成 ' + (r.transfer && r.transfer.transfer_id));
-          if (nav && nav.narrative) {
-            const pre = document.createElement('pre');
-            pre.style.cssText =
-              'margin-top:12px;padding:12px;background:#F3F4F6;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto';
-            pre.textContent = (nav.title || '') + '\n\n' + nav.narrative;
-            main.appendChild(pre);
-          }
-          await loadOverview();
-          // keep narrative visible: re-render then re-show last narrative
-          const lastNav = nav;
-          await renderTransfer(main);
-          if (lastNav && lastNav.narrative) {
-            const box = document.createElement('div');
-            box.innerHTML = `<h3 style="font-size:13px;margin:12px 0 6px">交接叙事</h3><pre style="padding:12px;background:#F3F4F6;border-radius:8px;font-size:12px;white-space:pre-wrap">${esc(
-              (lastNav.title || '') + '\n\n' + lastNav.narrative
-            )}</pre>`;
-            main.appendChild(box);
+          currentWillId = (r.will && r.will.will_id) || '';
+          toast('Will 已创建 ' + currentWillId);
+          if (btnPre) btnPre.disabled = !currentWillId;
+          if (btnEx) btnEx.disabled = true;
+          if (reportEl) {
+            reportEl.innerHTML = `<div class="audit-line">will_id=${esc(currentWillId)} status=${esc(
+              (r.will && r.will.status) || 'draft'
+            )}</div>`;
           }
         } catch (e) {
-          toast('失败: ' + (e.message || e));
+          toast('创建失败: ' + (e.message || e));
+        }
+      };
+    }
+
+    if (btnPre) {
+      btnPre.onclick = async () => {
+        if (!currentWillId) {
+          toast('请先创建 Will');
+          return;
+        }
+        try {
+          const r = await api(`${HUB}/wills/${encodeURIComponent(currentWillId)}/preflight`, {
+            method: 'POST',
+            body: '{}',
+          });
+          renderReport(r.report || r, '预检报告');
+          const ok = r.report && r.report.ok;
+          if (btnEx) btnEx.disabled = !ok;
+          toast(ok ? '预检通过，可执行' : '预检未通过');
+        } catch (e) {
+          toast('预检失败: ' + (e.message || e));
+          if (btnEx) btnEx.disabled = true;
+        }
+      };
+    }
+
+    if (btnEx) {
+      btnEx.onclick = async () => {
+        if (!currentWillId) {
+          toast('请先创建并预检 Will');
+          return;
+        }
+        if (!confirm('确认执行遗嘱迁移？失败将回滚受益方文件。')) return;
+        try {
+          const r = await api(`${HUB}/wills/${encodeURIComponent(currentWillId)}/execute`, {
+            method: 'POST',
+            body: JSON.stringify({ idempotency_key: currentWillId }),
+          });
+          const exec = r.execution || r;
+          const state = r.state || exec.state || '';
+          if (reportEl) {
+            reportEl.innerHTML += `
+              <div style="margin-top:10px;border:1px solid #BFDBFE;background:#EFF6FF;border-radius:8px;padding:12px">
+                <div style="font-weight:600">执行结果 · ${esc(state)}</div>
+                <div style="font-size:12px;margin-top:4px">tx ${esc(exec.tx_id || '')}</div>
+                <div style="font-size:12px">partition ${esc(
+                  (exec.partition && exec.partition.partition_id) ||
+                    (exec.report && exec.report.partition_id) ||
+                    ''
+                )}</div>
+                <div style="font-size:12px">计数 ${esc(
+                  JSON.stringify((exec.report && exec.report.record_counts) || {})
+                )}</div>
+                ${
+                  state === 'rolled_back' || exec.error
+                    ? `<div style="color:#DC2626">回滚原因：${esc(exec.error || '')}</div>`
+                    : ''
+                }
+              </div>`;
+          }
+          toast(state === 'executed' || r.ok ? '迁移已提交' : '执行结束: ' + state);
+          await loadOverview();
+          await renderTransfer(main);
+        } catch (e) {
+          const msg = e.message || String(e);
+          toast('执行失败(已回滚): ' + msg);
+          if (reportEl) {
+            reportEl.innerHTML += `<div style="margin-top:8px;color:#DC2626">回滚：${esc(msg)}</div>`;
+          }
         }
       };
     }

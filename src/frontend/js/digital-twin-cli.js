@@ -165,9 +165,34 @@ function switchView(el){
 }
 
 // ── 联动调度器：右侧演练面板(团队/场景/步进/混沌) 变化 → 只刷新当前可见 Tab ──
-function dtContext(){return{team:window._selectedTeamId||'',scenarioId:(window._sx&&window._sx.scenarioId)||'',
-  steps:(window._sx&&window._sx.steps)||0,running:!!(window._sx&&window._sx.simRunning),
-  trialId:(window._DTS&&window._DTS.activeTrialId)||''};}
+// L3 数据源判定：
+// - loadLiveMetrics 拉的 /tasks/stats 与 /extraction/stats 是进程级全局聚合（无 team/trial 过滤）；
+//   保留为「平台全局 KPI」，不要伪装成当前演练指标。
+// - 「当前演练」摘要卡只读 dtContext() + window._sx / SECS 选择态（team/scene/task/steps/reward），
+//   经 dtRefresh(team|scenario|task|step|tab) → renderArchitecture → renderDashboard 联动刷新。
+function dtContext(){
+  var sx=window._sx||{};
+  var team=window._selectedTeamId||(window.S&&window.S.selectedTeams&&window.S.selectedTeams[0])||'';
+  var rewards=Array.isArray(sx.rewardPoints)?sx.rewardPoints:[];
+  var lastReward=rewards.length?rewards[rewards.length-1]:null;
+  var bestReward=rewards.length?Math.max.apply(null,rewards.map(Number).filter(function(n){return Number.isFinite(n);})):null;
+  if(bestReward!=null&&!Number.isFinite(bestReward))bestReward=null;
+  var taskGoal=window._selectedTaskGoal||null;
+  return{
+    team:team,
+    teamName:window._selectedTeamName||'',
+    scenarioId:sx.scenarioId||window._selectedSceneId||'',
+    scenarioName:window._selectedSceneName||'',
+    taskId:(taskGoal&&taskGoal.task_id)||window._selectedTaskId||'',
+    taskName:(taskGoal&&(taskGoal.name||taskGoal.title))||window._selectedTaskTitle||'',
+    steps:sx.steps||0,
+    maxSteps:sx.maxSteps||0,
+    running:!!sx.simRunning,
+    trialId:(window._DTS&&window._DTS.activeTrialId)||'',
+    lastReward:lastReward,
+    bestReward:bestReward,
+  };
+}
 window.dtContext=dtContext;
 window.dtRefresh=function(reason){
   var p=document.querySelector('.view-panel.active');var v=p?p.id:'';
@@ -256,13 +281,32 @@ function showAgentDrawer(ag){
 function closeDrawer(){document.getElementById('agent-drawer').classList.remove('open')}
 
 function renderArchitecture(){
+  // 先画本地「当前演练」卡（即时联动），再拉全局 KPI 回填下方卡片
   renderDashboard();
   loadLiveMetrics();
+}
+function _mapTaskEngineStats(d){
+  // task_engine.stats() → {total, by_status:{pending|running|completed|failed|...}, running:bool}
+  // 前端 KPI 需要的是状态计数，不能把 engine.running(bool) 当活跃任务数。
+  var by=(d&&d.by_status)||{};
+  return{
+    total:Number(d&&d.total)||0,
+    running:Number(by.running)||0,
+    completed:Number(by.completed)||0,
+    failed:Number(by.failed)||0,
+    pending:Number(by.pending)||0,
+    cancelled:Number(by.cancelled)||0,
+    engine_running:!!(d&&d.running),
+  };
 }
 async function loadLiveMetrics(){
   try{
     const[taskR,extR]=await Promise.allSettled([_af(`${API}/tasks/stats`),_af('/api/v1/extraction/stats')]);
-    if(taskR.status==='fulfilled'&&taskR.value.ok){const d=await taskR.value.json();Object.assign(liveMetrics.tasks,d)}
+    // 全局 KPI：不按 team/trial 过滤（后端当前无过滤参数；演练态看上方「当前演练」卡）
+    if(taskR.status==='fulfilled'&&taskR.value.ok){
+      const d=await taskR.value.json();
+      Object.assign(liveMetrics.tasks,_mapTaskEngineStats(d));
+    }
     if(extR.status==='fulfilled'&&extR.value.ok){const d=await extR.value.json();if(d.funnel)Object.assign(liveMetrics.extraction,d.funnel)}
   }catch(e){console.warn('[dt] loadLiveMetrics',e)}
   liveMetrics.lastRefresh=new Date();
@@ -277,19 +321,28 @@ function renderDashboard(){
   const taskCompleted=liveMetrics.tasks.completed||0;
   const taskFailed=liveMetrics.tasks.failed||0;
   const taskTotal=liveMetrics.tasks.total||0;
-  const successRate=taskCompleted>0?Math.round(taskCompleted/(taskCompleted+taskFailed)*100):100;
-  // L3: 当前演练摘要（随右侧选团队/选场景/运行步进联动）
+  const successRate=(taskCompleted+taskFailed)>0?Math.round(taskCompleted/(taskCompleted+taskFailed)*100):100;
+  // L3: 当前演练摘要（team/scene/task/steps/reward；随 dtRefresh 刷新）
   var _c=(window.dtContext?window.dtContext():{});
-  var _tn=(S.teams.find(t=>t.id===_c.team)||{}).name||_c.team||'未选团队';
-  var _sn=(window._pipeScnCache&&window._pipeScnCache.data&&window._pipeScnCache.data.name)||_c.scenarioId||'未选场景';
-  var _mx=(window._sx&&window._sx.maxSteps)||150;
-  var _rw=(window._sx&&window._sx.rewardPoints&&window._sx.rewardPoints.length)?window._sx.rewardPoints[window._sx.rewardPoints.length-1]:null;
-  var _drill=`<div style="background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(34,211,238,.02));border:1px solid var(--cyan);border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+  var _tn=_c.teamName||(S.teams.find(t=>t.id===_c.team)||{}).name||_c.team||'未选团队';
+  var _sn=_c.scenarioName
+    ||(window._pipeScnCache&&window._pipeScnCache.data&&window._pipeScnCache.data.name)
+    ||_c.scenarioId
+    ||'未选场景';
+  var _mx=_c.maxSteps||(window._sx&&window._sx.maxSteps)||150;
+  var _rw=_c.lastReward;
+  var _best=_c.bestReward;
+  var _task=_c.taskName||_c.taskId||'';
+  var _trial=_c.trialId||'';
+  var _drill=`<div id="dt-current-drill-card" data-team="${esc(_c.team||'')}" data-scenario="${esc(_c.scenarioId||'')}" data-steps="${Number(_c.steps)||0}" data-running="${_c.running?'1':'0'}" style="background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(34,211,238,.02));border:1px solid var(--cyan);border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
     <div style="font-size:12px;font-weight:600;color:var(--cyan)">◎ 当前演练</div>
     <div style="font-size:12px;color:var(--text)">👥 ${esc(_tn)}</div>
     <div style="font-size:12px;color:var(--text)">🎯 ${esc(_sn)}</div>
+    ${_task?`<div style="font-size:12px;color:var(--text)">📋 ${esc(_task)}</div>`:''}
     <div style="font-size:12px;color:${_c.running?'var(--green)':'var(--dim)'}">${_c.running?'▶ 运行中':'空闲'} · 步 ${_c.steps}/${_mx}</div>
-    ${_rw!=null?`<div style="font-size:12px;color:var(--amber)">收益 ${Number(_rw).toFixed(3)}</div>`:''}
+    ${_rw!=null&&Number.isFinite(Number(_rw))?`<div style="font-size:12px;color:var(--amber)">收益 ${Number(_rw).toFixed(3)}${_best!=null&&Number(_best)!==Number(_rw)?` · 最优 ${Number(_best).toFixed(3)}`:''}</div>`:''}
+    ${_trial?`<div style="font-size:11px;color:var(--dim);font-family:JetBrains Mono,monospace">trial ${esc(String(_trial).slice(0,12))}</div>`:''}
+    <div style="font-size:10px;color:var(--dim);margin-left:auto">全局 KPI 不随团队过滤 · 本卡读 dtContext</div>
   </div>`;
   el.innerHTML=_drill+`
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px">

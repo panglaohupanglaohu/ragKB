@@ -810,3 +810,14 @@
 
 - `train_tse.py` — TSE silver bootstrap + multi-task train CLI (~120 tok)
 - `run_tse_paper_experiments.py` — Paper §9.3/9.4 reproducible CLI (latency/attention/all). (~2k tok)
+- `experiment_agent_memory_adaptation.py` — 五组记忆适应确定性机制实验（隔离 tempfile）(~400 tok)
+- `experiment_agent_memory_adaptation_llm.py` — 真实 LLM 五组记忆行为实验；blocked 不冒充(~700 tok)
+- `audit_agent_memory_migration_counts.py` — 20/40 迁移计数生产扫描+协议重跑(~400 tok)
+
+## src/backend/agents/ (agent memory)
+
+- `agent_memory_migration.py` — v2 导出/三策略导入/Will/继承分区/软检索 inherited_hits (~8k tok)
+- `agent_memory_core.py` — 四层+语义核+半衰期+export_v2
+- `agent_memory_runtime.py` — prepare inject / update_from_evidence / plaza 回写
+- `agent_memory_transfer.py` — transfer_via_will 薄适配
+- `agent_memory_routes.py` — hub wills/migrations/inherited API

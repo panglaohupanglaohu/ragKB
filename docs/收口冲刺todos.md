@@ -1,4 +1,4 @@
-<!-- docs-signoff: author="grok-4.5" kind="llm" doc="todos" ts="2026-07-27T02:13:00Z" -->
+<!-- docs-signoff: author="grok-4.5" kind="llm" doc="todos" ts="2026-07-27T14:11:30Z" -->
 # 收口冲刺 Todos（三线合一 · 标注 自己/codebuddy）
 
 > 配套 [收口冲刺plan.md](收口冲刺plan.md)。合并 [OPTIMIZATION_TODOS_2026H2.md](OPTIMIZATION_TODOS_2026H2.md) + [数字办公室协作演练todos.md](数字办公室协作演练todos.md) + [数字孪生联动todos.md](数字孪生联动todos.md) 的**未竟项**。
@@ -15,8 +15,11 @@
   验收：grep 不到「切 Tab/选团队后手动逐个 renderXxx」；统一走 dtRefresh。⟦六处均已调用 dtRefresh; 仍有部分手动 renderTeamSelector/renderAgentList 保留（团队切换需要立即刷新左侧面板）⟧
 - [x] **【codebuddy】L4 交互时间线运行时实时追加**：确认演练 SSE 消息进 `S.messages`；若未进补一处标准化 push。
   验收：运行中在协作·交互 Tab 时间线随步数增长。⟦已确认 secs-core.js:1453 SSE 步进消息 push 到 S.messages; dtRefresh('step') 刷新时间线⟧
-- [ ] **【自己】L3 仪表盘「当前演练」卡数据源判定**：`loadLiveMetrics` 是否按当前 team/trial 过滤需定性；给出 renderArchitecture 摘要卡规格交 codebuddy 接线。
+- [x] **【自己】L3 仪表盘「当前演练」卡数据源判定**：`loadLiveMetrics` 是否按当前 team/trial 过滤需定性；给出 renderArchitecture 摘要卡规格交 codebuddy 接线。
   验收：切团队/跑演练时系统状态顶部「当前演练」卡随之变。
+  ⟦**数据源判定（2026-07-27）**：`/tasks/stats` 与 `/extraction/stats` 均为进程级全局聚合（`task_engine.stats()` 无 team_id 参数；`running` 字段是 engine bool 而非任务计数）。**不按 team/trial 过滤全局 KPI**；演练态单独用「当前演练」卡。
+  **规格 / 接线**：`dtContext()` 输出 team/teamName/scenarioId/scenarioName/taskId/taskName/steps/maxSteps/running/trialId/lastReward/bestReward；`renderDashboard` 顶部 `#dt-current-drill-card` 只读该快照；`dtRefresh(team|scenario|task|step|tab)` → `renderArchitecture` → 即时本地卡 + `loadLiveMetrics` 回填全局 KPI。`loadLiveMetrics` 经 `_mapTaskEngineStats` 把 `by_status` 映射为 running/completed/failed 计数。SECS `sexySelectTeam/Scene/Task` 写 window 选择态并 `dtRefresh`。
+  验收：`npx vitest run src/frontend/__tests__/digital-twin-current-drill-card.test.js` 3 passed；`node --check` cli/secs-core OK⟧
 - [ ] **【自己】L5 精确节点状态（需后端）**：定义 step 事件带 `active_task_id/done_task_ids` 的后端契约（进阶项，不阻塞 L1~L4）。
   验收：后端 emit 契约文档 + 前端按之标状态的规格。
 

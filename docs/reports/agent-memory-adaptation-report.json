@@ -1,0 +1,1680 @@
+{
+  "schema": "ag.memory.adaptation_experiment/v1",
+  "experiment_type": "deterministic_memory_mechanism",
+  "claim_boundary": "验证迁移、检索、过时/污染干扰与再学习机制；不调用真实 LLM，不能替代线上 Agent 行为效果或统计显著性实验。",
+  "generated_at": "2026-07-27T17:19:09.032065+00:00",
+  "seeds": [
+    7,
+    42,
+    2026
+  ],
+  "max_rounds": 3,
+  "groups": [
+    "cold_start",
+    "full_inheritance",
+    "selective_inheritance",
+    "stale_memory",
+    "contaminated_memory"
+  ],
+  "scenarios": [
+    "es_scale",
+    "centos_migrate",
+    "cost_ri"
+  ],
+  "stale_definition": {
+    "boundary": "event.t < 1700000000000 或 tags 含 stale/过时",
+    "note": "过时组继承旧版流程记忆，需在后续轮次重学"
+  },
+  "n_runs": 45,
+  "summary": {
+    "by_group": {
+      "cold_start": {
+        "n": 9,
+        "first_task_success_mean": 0.0,
+        "first_task_success_std": 0.0,
+        "adaptation_rounds_mean": 1,
+        "adaptation_rounds_std": 0.0,
+        "repeated_historic_failure_rate_mean": 0.0,
+        "negative_transfer_rate": 0.0
+      },
+      "full_inheritance": {
+        "n": 9,
+        "first_task_success_mean": 1.0,
+        "first_task_success_std": 0.0,
+        "adaptation_rounds_mean": 0,
+        "adaptation_rounds_std": 0.0,
+        "repeated_historic_failure_rate_mean": 0.0,
+        "negative_transfer_rate": 0.0
+      },
+      "selective_inheritance": {
+        "n": 9,
+        "first_task_success_mean": 1.0,
+        "first_task_success_std": 0.0,
+        "adaptation_rounds_mean": 0,
+        "adaptation_rounds_std": 0.0,
+        "repeated_historic_failure_rate_mean": 0.0,
+        "negative_transfer_rate": 0.0
+      },
+      "stale_memory": {
+        "n": 9,
+        "first_task_success_mean": 0.0,
+        "first_task_success_std": 0.0,
+        "adaptation_rounds_mean": 2,
+        "adaptation_rounds_std": 0.0,
+        "repeated_historic_failure_rate_mean": 1.0,
+        "negative_transfer_rate": 1.0
+      },
+      "contaminated_memory": {
+        "n": 9,
+        "first_task_success_mean": 0.0,
+        "first_task_success_std": 0.0,
+        "adaptation_rounds_mean": 2,
+        "adaptation_rounds_std": 0.0,
+        "repeated_historic_failure_rate_mean": 1.0,
+        "negative_transfer_rate": 1.0,
+        "precision_mean": 0.0,
+        "recall_mean": 0.0,
+        "false_positive_rate_mean": 1.0
+      }
+    },
+    "cold_start_first_success_mean": 0
+  },
+  "rows": [
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "cold_start",
+      "first_task_success": false,
+      "first_task_score": 0.15,
+      "adaptation_rounds": 1,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.15,
+          "used_inherited": false,
+          "detail": "冷启动探索"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.75,
+          "used_inherited": false,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "full_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "selective_inheritance",
+      "first_task_success": true,
+      "first_task_score": 0.9,
+      "adaptation_rounds": 0,
+      "repeated_historic_failure_rate": 0.0,
+      "negative_transfer": false,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "first_task_success": false,
+      "first_task_score": 0.1,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": null,
+      "recall": null,
+      "false_positive_rate": null,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": false,
+          "score": 0.1,
+          "used_inherited": true,
+          "detail": "过时记忆未适配"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "first_task_success": false,
+      "first_task_score": 0.05,
+      "adaptation_rounds": 2,
+      "repeated_historic_failure_rate": 1.0,
+      "negative_transfer": true,
+      "precision": 0.0,
+      "recall": 0.0,
+      "false_positive_rate": 1.0,
+      "rounds": [
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": false,
+          "score": 0.05,
+          "used_inherited": true,
+          "detail": "负迁移：污染记忆主导"
+        },
+        {
+          "success": true,
+          "score": 0.9,
+          "used_inherited": true,
+          "detail": "命中有效经验"
+        }
+      ]
+    }
+  ],
+  "failure_cases": [
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 7,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 7,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 7,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 42,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 42,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 42,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 2026,
+      "scenario": "es_scale",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 2026,
+      "scenario": "centos_migrate",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "stale_memory",
+      "detail": "过时记忆未适配"
+    },
+    {
+      "seed": 2026,
+      "scenario": "cost_ri",
+      "group": "contaminated_memory",
+      "detail": "负迁移：污染记忆主导"
+    }
+  ],
+  "storage": "isolated tempfile (not production storage/agent_memory)"
+}

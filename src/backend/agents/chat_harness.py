@@ -1231,18 +1231,22 @@ class ChatHarness:
             from .token_context import get_token_ctx as _gtc_mem
             _mctx = _gtc_mem() or {}
             _mphase = str(_mctx.get("phase") or "")
-            # 议事广场集体阶段不塞记忆（避免污染共识）；单 agent 配置聊天 / 任务可注入
-            if _mphase != "plaza" and agent_id and team_id:
+            # 广场发言是单 Agent 私有 prompt，可注入该 Agent 自己的记忆（含继承分区来源）；
+            # 不向主持人/公共共识 prompt 塞他人私有记忆（那些路径通常无 team/agent 或走匿名汇总）。
+            if agent_id and team_id:
                 from .agent_memory_runtime import (
                     inject_memory_into_messages,
                     prepare_memory_system_addon,
                 )
                 _mem_addon = prepare_memory_system_addon(
-                    str(team_id), str(agent_id), query=prompt or ""
+                    str(team_id),
+                    str(agent_id),
+                    query=prompt or "",
+                    include_inherited=True,
                 )
                 if _mem_addon:
                     messages = inject_memory_into_messages(messages, _mem_addon)
-                    session.history.add("ag_memory", f"injected {len(_mem_addon)}c")
+                    session.history.add("ag_memory", f"injected {len(_mem_addon)}c phase={_mphase or '-'}")
         except Exception as _mem_err:
             logger.debug("ag_memory inject skip: %s", _mem_err)
 

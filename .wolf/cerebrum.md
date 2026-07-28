@@ -34,6 +34,9 @@
 
 
 ## Key Learnings
+- [2026-07-28] Agent记忆补完收口：M-3.2b 真 LLM 五组（`experiment_agent_memory_adaptation_llm.py`，glm-5.1，30 cells）；`inherited_hits_for_recall` 必须软相关（token/bigram/hash），禁止整句精确子串——否则中文标题召不回 es_scale 继承记忆（首轮全 mem_chars=67 假阳性）。M-3.3b 审计：生产 team_v/* log=20+sum=40 + 协议重跑。
+- [2026-07-27] Agent记忆补完：迁移引擎 `agent_memory_migration.py`（export v2 强校验/三策略/inherited 分区/事务回滚/Will preflight+execute）；默认 merge；旧 /transfer 走 Will；AFFECT 72h 半衰期用 0.5**(dt/half_life)；Plaza 发言后 after_agent_plaza_message；实验 `scripts/experiment_agent_memory_adaptation.py` 隔离 tempfile。
+- [2026-07-27] S1 L3：数字孪生 loadLiveMetrics=/tasks/stats+/extraction/stats 是全局 KPI，不按 team/trial 过滤；「当前演练」卡只读 dtContext/_sx（team/scene/task/steps/reward/trial），经 dtRefresh→renderArchitecture→renderDashboard；task_engine.stats 的 running 是 engine bool，前端用 by_status 计数（_mapTaskEngineStats）。
 - [2026-07-27] 9.3/9.4 后续增强：完整注意力反传=`tse/full_attention_trainer.py`（trainer=full_attention_v1）；证据定位 Hit@1/Recall@k/F1=`evidence_localization_metrics`；schema v2；sweep CLI 12/24/48/96×seeds；图5/6 只读 JSON 渲染（render_tse_experiment_figures.py，需 matplotlib/venv）；禁止把关键词基线/规模当相变真值。
 - [2026-07-27] 论文 9.3/9.4 复现入口=`scripts/run_tse_paper_experiments.py`；夹具 `tse/fixtures/latency_9_3.jsonl`(5×5) 与 `attention_9_4.jsonl`(12/53)；关键词注意力算法版本 `field-keyword-cosine-v2-shared-hash-space`（同 hash_seed）；checkpoint 必须显式且 epoch=30；勿用旧 fig6 异种子口径拟合。
 - [2026-07-27] 技能发布门禁 `skill_publish_gate`：pass_rate≥0.70、min_samples≥3、twin 实际跑过时 target_gain≥0.05（或 twin_passed）；env `AG_SKILL_PUBLISH_PASS_RATE_MIN`/`TWIN_GAIN_MIN`/`MIN_SAMPLES`/`MIN_USAGE`；不达标 `publish_gate_blocked` + `candidate_held`，lifecycle 保持 verified/private。EvidenceRun.metrics_after 写 twin_* 扁平字段供门禁读取。E2E：`pytest -k skill_loop_e2e`。

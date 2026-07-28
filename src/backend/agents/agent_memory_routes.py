@@ -13,6 +13,14 @@ from .agent_memory_lifecycle import (
     MemoryLifecycleError,
     get_memory_lifecycle,
 )
+from .agent_memory_migration import (
+    MemoryMigrationError,
+    get_memory_migration,
+    inherited_hits_for_recall,
+    list_migration_txs,
+    list_wills,
+    load_will,
+)
 from .agent_memory_share import AgentMemoryShare, get_memory_share
 from .agent_memory_transfer import AgentMemoryTransfer, get_memory_transfer
 
@@ -42,6 +50,17 @@ def _share() -> AgentMemoryShare:
 
 def _xfer() -> AgentMemoryTransfer:
     return get_memory_transfer()
+
+
+def _mig():
+    return get_memory_migration()
+
+
+def _http_mig(e: MemoryMigrationError) -> HTTPException:
+    code = status.HTTP_400_BAD_REQUEST
+    if e.code in ("will_not_ready", "will_not_found"):
+        code = status.HTTP_409_CONFLICT if e.code == "will_not_ready" else status.HTTP_404_NOT_FOUND
+    return HTTPException(code, detail={"code": e.code, "detail": e.detail, "tx_id": e.tx_id})
 
 
 def _http_lc(e: MemoryLifecycleError) -> HTTPException:
@@ -477,28 +496,55 @@ def memory_memorial(team_id: str, agent_id: str) -> Dict[str, Any]:
 
 @router.get(
     "/teams/{team_id}/agents/{agent_id}/memory-core/export",
-    summary="导出整只记忆",
+    summary="导出整只记忆（默认 v2 强校验信封；?v=1 兼容旧格式）",
 )
-def memory_export(team_id: str, agent_id: str) -> Dict[str, Any]:
-    return _core(team_id, agent_id).export_all()
+def memory_export(
+    team_id: str,
+    agent_id: str,
+    v: int = Query(default=2, ge=1, le=2),
+) -> Dict[str, Any]:
+    core = _core(team_id, agent_id)
+    if v == 1:
+        return core.export_all()
+    return core.export_v2()
 
 
 @router.post(
     "/teams/{team_id}/agents/{agent_id}/memory-core/import",
-    summary="导入整只记忆（覆盖四层）",
+    summary="导入记忆（事务：merge|selective|replace_all）",
 )
 def memory_import(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     core = _writable(team_id, agent_id)
-    ok = core.import_all(body)
-    if not ok:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_memory_payload")
+    payload = body or {}
+    strategy = (payload.get("strategy") or "merge").strip()
+    selected = payload.get("selected_layers") or payload.get("layers_filter")
+    bundle = payload.get("bundle") if isinstance(payload.get("bundle"), dict) else payload
+    try:
+        result = _mig().import_bundle(
+            team_id,
+            agent_id,
+            bundle,
+            strategy=strategy,
+            selected_layers=selected,
+            transfer_id=payload.get("transfer_id") or payload.get("tx_id"),
+        )
+    except MemoryMigrationError as e:
+        raise _http_mig(e)
     _mark_agent_metadata(team_id, agent_id, {"enabled": True, "imported": True})
-    return {"ok": True, "meta": core.meta(), "counts": core.counts()}
+    # reload core after transaction
+    core = AgentMemoryCore(team_id, agent_id)
+    return {
+        "ok": True,
+        "meta": core.meta(),
+        "counts": core.counts(),
+        "migration": result,
+        "validation_strength": (result.get("validation") or {}).get("validation_strength"),
+    }
 
 
 @router.get(
     "/teams/{team_id}/agents/{agent_id}/memory-core/will",
-    summary="遗嘱草稿（协议 define-only）",
+    summary="遗嘱草稿模板（可执行协议见 /wills）",
 )
 def memory_will(team_id: str, agent_id: str) -> Dict[str, Any]:
     return _core(team_id, agent_id).draft_will()
@@ -592,6 +638,16 @@ def hub_list_transfers(
     limit: int = Query(default=30, ge=1, le=100),
 ) -> Dict[str, Any]:
     return {"ok": True, "transfers": _xfer().list_transfers(team_id=team_id, limit=limit)}
+
+
+@hub_router.get("/wills/{will_id}", summary="读取遗嘱")
+def hub_get_will(will_id: str) -> Dict[str, Any]:
+    from .agent_memory_core import get_memory_store
+
+    try:
+        return {"ok": True, "will": load_will(get_memory_store(), will_id)}
+    except MemoryMigrationError as e:
+        raise _http_mig(e)
 
 
 @hub_router.get("/{team_id}/share-matrix", summary="团队共享矩阵")
@@ -762,7 +818,7 @@ def hub_cowrite_log(
         raise _http_lc(e)
 
 
-@hub_router.post("/{team_id}/{agent_id}/transfer", summary="执行记忆传递")
+@hub_router.post("/{team_id}/{agent_id}/transfer", summary="执行记忆传递（经 Will 引擎）")
 def hub_transfer(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     to_id = (body or {}).get("to") or (body or {}).get("beneficiary") or ""
     try:
@@ -774,9 +830,104 @@ def hub_transfer(team_id: str, agent_id: str, body: Dict[str, Any] = Body(defaul
             keep_memorial=bool((body or {}).get("keep_memorial", True)),
             layers=(body or {}).get("layers"),
             note=(body or {}).get("note") or "",
+            strategy=(body or {}).get("strategy") or "merge",
         )
     except MemoryLifecycleError as e:
         raise _http_lc(e)
+
+
+@hub_router.get("/wills", summary="列出遗嘱")
+def hub_list_wills(
+    team_id: str = Query(default=""),
+    agent_id: str = Query(default=""),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> Dict[str, Any]:
+    from .agent_memory_core import get_memory_store
+
+    return {
+        "ok": True,
+        "wills": list_wills(get_memory_store(), team_id=team_id, agent_id=agent_id, limit=limit),
+    }
+
+
+@hub_router.post("/{team_id}/{agent_id}/wills", summary="创建遗嘱")
+def hub_create_will(team_id: str, agent_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    try:
+        will = _mig().create_will(team_id, agent_id, body or {})
+    except MemoryMigrationError as e:
+        raise _http_mig(e)
+    return {"ok": True, "will": will}
+
+
+@hub_router.post("/wills/{will_id}/preflight", summary="遗嘱预检")
+def hub_preflight_will(will_id: str) -> Dict[str, Any]:
+    try:
+        report = _mig().preflight(will_id)
+    except MemoryMigrationError as e:
+        raise _http_mig(e)
+    return {"ok": True, "report": report}
+
+
+@hub_router.post("/wills/{will_id}/execute", summary="执行遗嘱迁移")
+def hub_execute_will(will_id: str, body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    try:
+        result = _mig().execute(
+            will_id,
+            idempotency_key=(body or {}).get("idempotency_key") or will_id,
+        )
+    except MemoryMigrationError as e:
+        raise _http_mig(e)
+    return result
+
+
+@hub_router.get("/migrations", summary="迁移事务审计")
+def hub_list_migrations(limit: int = Query(default=30, ge=1, le=100)) -> Dict[str, Any]:
+    return {"ok": True, "transactions": list_migration_txs(limit=limit)}
+
+
+@hub_router.get(
+    "/{team_id}/{agent_id}/inherited",
+    summary="继承分区只读",
+)
+def hub_list_inherited(team_id: str, agent_id: str) -> Dict[str, Any]:
+    from .agent_memory_core import get_memory_store
+    from .agent_memory_migration import load_inherited
+
+    data = load_inherited(get_memory_store(), team_id, agent_id)
+    return {"ok": True, "inherited": data}
+
+
+@hub_router.get(
+    "/{team_id}/{agent_id}/recall-with-origin",
+    summary="带来源的记忆检索（本地+继承）",
+)
+def hub_recall_with_origin(
+    team_id: str,
+    agent_id: str,
+    q: str = Query(default=""),
+    k: int = Query(default=8, ge=1, le=30),
+) -> Dict[str, Any]:
+    from .agent_memory_core import get_memory_store
+
+    core = _core(team_id, agent_id)
+    local = []
+    for h in core.log.recall(query=q, k=k):
+        e = h.get("event") or {}
+        local.append(
+            {
+                "summary": f"{e.get('action') or ''}: {e.get('detail') or ''}",
+                "layer": "log",
+                "origin": e.get("origin")
+                or {"kind": "local", "source_agent": {"team_id": team_id, "agent_id": agent_id}},
+                "item": e,
+            }
+        )
+    inherited = inherited_hits_for_recall(get_memory_store(), team_id, agent_id, q, k=k)
+    return {
+        "ok": True,
+        "hits": local + inherited,
+        "disclosure": "这是回放，不是本人" if core.is_sealed() else None,
+    }
 
 
 # 兼容旧 path

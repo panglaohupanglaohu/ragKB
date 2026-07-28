@@ -1257,6 +1257,21 @@ class PlazaEngine:
         msg.seq = len(disc.messages)
         disc.messages.append(msg)
 
+        # 拟生记忆：仅写回当前发言 Agent（私有证据，不进公共共识 prompt）
+        try:
+            from .agent_memory_runtime import after_agent_plaza_message
+
+            after_agent_plaza_message(
+                disc,
+                participant,
+                msg,
+                turn_result={
+                    "failure_type": "llm_fallback" if getattr(self, "_last_call_was_fallback", False) else None,
+                },
+            )
+        except Exception:
+            pass
+
         await self._broadcast(disc.id, {
             "type": "message",
             "message": msg.to_dict(),
@@ -1298,6 +1313,17 @@ class PlazaEngine:
         )
         msg.seq = len(disc.messages)
         disc.messages.append(msg)
+        try:
+            from .agent_memory_runtime import after_agent_plaza_message
+
+            after_agent_plaza_message(
+                disc,
+                participant,
+                msg,
+                turn_result={"usage": (metadata or {}).get("usage")} if metadata else None,
+            )
+        except Exception:
+            pass
         await self._broadcast(disc.id, {
             "type": "message",
             "message": msg.to_dict(),

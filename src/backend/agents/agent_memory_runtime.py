@@ -84,8 +84,12 @@ def prepare_memory_system_addon(
     *,
     store: Optional[AgentMemoryStore] = None,
     max_chars: int = 1800,
+    include_inherited: bool = True,
 ) -> str:
-    """Return a short system-addon string for chat injection (may be empty)."""
+    """Return a short system-addon string for chat injection (may be empty).
+
+    仅面向该 agent 的私有上下文；继承分区条目带「继承自…」来源，不伪装本地经历。
+    """
     if not team_id or not agent_id or agent_id in _SKIP_AGENTS:
         return ""
     store = store or get_memory_store()
@@ -115,6 +119,8 @@ def prepare_memory_system_addon(
         "[AG_MEMORY]",
         "以下为该智能体拟生记忆提供的上下文（痕迹+语义+电荷；非用户原文）：",
     ]
+    if core.is_sealed():
+        parts.append("披露：这是回放，不是本人")
 
     # 语气（电荷场）
     try:
@@ -180,12 +186,137 @@ def prepare_memory_system_addon(
     except Exception:
         pass
 
+    # 继承分区（带来源，不可伪装本地）
+    if include_inherited and auto.get("auto_recall_on_chat", True):
+        try:
+            from .agent_memory_migration import inherited_hits_for_recall
+
+            inh = inherited_hits_for_recall(
+                store, team_id, agent_id, query=query or "", k=3
+            )
+            if inh:
+                parts.append("继承记忆（非本地经历）：")
+                for h in inh:
+                    src = ((h.get("origin") or {}).get("source_agent") or {})
+                    who = src.get("agent_id") or "?"
+                    parts.append(f"- [继承自 {who}] {(h.get('summary') or '')[:140]}")
+        except Exception as e:
+            logger.debug("inherited recall skip: %s", e)
+
     text = "\n".join(parts)
     if len(parts) <= 2:
         return ""  # only header, no real content
     if len(text) > max_chars:
         text = text[: max_chars - 20] + "\n…(记忆截断)"
     return text
+
+
+def update_agent_memory(
+    team_id: str,
+    agent_id: str,
+    evidence: Dict[str, Any],
+    *,
+    store: Optional[AgentMemoryStore] = None,
+) -> Dict[str, Any]:
+    """统一证据写入口（Plaza/任务/用量/人工干预）。"""
+    if not team_id or not agent_id or agent_id in _SKIP_AGENTS:
+        return {"ok": False, "reason": "skip"}
+    store = store or get_memory_store()
+    ready = ensure_memory_ready(team_id, agent_id, store=store, auto_bind=True)
+    if not ready.get("ok"):
+        return {"ok": False, "reason": ready.get("reason") or "not_ready"}
+    lc = _lc(store)
+    try:
+        lc.assert_writable(team_id, agent_id)
+    except MemoryLifecycleError as e:
+        return {"ok": False, "reason": e.code}
+    core = AgentMemoryCore(team_id, agent_id, store=store)
+    payload = dict(evidence or {})
+    payload.setdefault("agent_id", agent_id)
+    try:
+        return core.update_from_evidence(payload)
+    except Exception as e:
+        logger.debug("update_agent_memory failed: %s", e)
+        return {"ok": False, "reason": str(e)}
+
+
+def after_agent_plaza_message(
+    discussion: Any,
+    participant: Any,
+    message: Any,
+    turn_result: Optional[Any] = None,
+    *,
+    store: Optional[AgentMemoryStore] = None,
+) -> Dict[str, Any]:
+    """Plaza 发言后写回该参与者的协商/用量/失败/人工干预证据。"""
+    team_id = getattr(participant, "team_id", None) or ""
+    agent_id = getattr(participant, "agent_id", None) or ""
+    if not team_id or not agent_id:
+        return {"ok": False, "reason": "no_participant"}
+
+    meta = {}
+    if hasattr(message, "metadata") and isinstance(message.metadata, dict):
+        meta = message.metadata
+    elif isinstance(message, dict):
+        meta = message.get("metadata") or {}
+
+    content = getattr(message, "content", None)
+    if content is None and isinstance(message, dict):
+        content = message.get("content")
+    seq = getattr(message, "seq", None)
+    if seq is None and isinstance(message, dict):
+        seq = message.get("seq")
+    round_number = getattr(message, "round_number", None)
+    if round_number is None and isinstance(message, dict):
+        round_number = message.get("round_number")
+
+    disc_id = getattr(discussion, "id", None) or getattr(discussion, "discussion_id", "") or ""
+    usage = None
+    failure = None
+    if turn_result is not None:
+        if isinstance(turn_result, dict):
+            usage = turn_result.get("usage") or turn_result.get("usage_evidence")
+            failure = turn_result.get("failure_type") or turn_result.get("error")
+        else:
+            usage = getattr(turn_result, "usage", None)
+            failure = getattr(turn_result, "error", None) or getattr(turn_result, "failure_type", None)
+    if usage is None and isinstance(meta.get("usage"), dict):
+        usage = meta.get("usage")
+    if isinstance(usage, dict):
+        usage = {
+            **usage,
+            "discussion_id": disc_id,
+            "agent_id": agent_id,
+            "run_id": meta.get("run_id") or usage.get("run_id") or f"{disc_id}:{seq}",
+        }
+
+    human = meta.get("human_intervention") or meta.get("interjection")
+    evidence = {
+        "source_type": "plaza_turn",
+        "source_id": f"{disc_id}:{seq}",
+        "agent_id": agent_id,
+        "action": "广场发言",
+        "summary": (str(content or ""))[:240],
+        "importance": 6,
+        "deliberation_state": {
+            "discussion_id": disc_id,
+            "round": round_number,
+            "phase": meta.get("orid_phase") or meta.get("phase") or "",
+            "position": (str(content or ""))[:400],
+        },
+        "usage_evidence": usage,
+        "failure_type": failure,
+        "human_intervention": human,
+        "provenance": {
+            "source_type": "plaza_turn",
+            "source_id": f"{disc_id}:{seq}",
+            "agent_id": agent_id,
+            "discussion_id": disc_id,
+            "timestamp": meta.get("timestamp"),
+        },
+        "tags": ["plaza", "deliberation"],
+    }
+    return update_agent_memory(team_id, agent_id, evidence, store=store)
 
 
 def _read_survival_ticks(team_id: str, agent_id: str) -> Optional[float]:

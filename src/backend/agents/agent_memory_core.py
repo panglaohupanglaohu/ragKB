@@ -28,7 +28,9 @@ MEMORY_SCHEMA = "ag.memory/v1"
 LEGACY_SCHEMA = "ag.legacy/v1"
 PERCEPTION_CAPACITY = 500
 RECENCY_DECAY_PER_HOUR = 0.995
-AFFECT_ETA_MS = 72 * 3_600_000  # 72h
+# 72h 半衰期：强度按 0.5 ** (dt / half_life) 衰减（72h→50%，144h→25%）
+AFFECT_HALF_LIFE_MS = 72 * 3_600_000
+AFFECT_ETA_MS = AFFECT_HALF_LIFE_MS  # 兼容旧名；语义已改为 half-life 而非 e 时间常数
 AFFECT_FLOOR = 0.01
 SEMANTIC_MAX = 200
 EPISODIC_SOFT_CAP = 400  # forget_tick 压力线
@@ -255,6 +257,10 @@ class EpisodicLog:
             "tags": [str(t) for t in (event.get("tags") or [])],
             "lastAccessAt": event.get("lastAccessAt"),
         }
+        if isinstance(event.get("origin"), dict):
+            e["origin"] = dict(event["origin"])
+        if isinstance(event.get("provenance"), dict):
+            e["provenance"] = dict(event["provenance"])
         self.events.append(e)
         self._save()
         return e
@@ -626,7 +632,8 @@ class AffectResidue:
         dt = now - int(s.get("updatedAt") or now)
         if dt <= 0:
             return
-        f = math.exp(-dt / AFFECT_ETA_MS)
+        # half-life formula: I(t) = I0 * 0.5 ** (dt / half_life)
+        f = 0.5 ** (max(0, dt) / float(AFFECT_HALF_LIFE_MS))
         s["valence"] = float(s.get("valence") or 0) * f
         s["arousal"] = float(s.get("arousal") or 0) * f
         labels = dict(s.get("labels") or {})
@@ -1227,12 +1234,36 @@ class AgentMemoryCore:
         }
 
     def import_all(self, data: Any) -> bool:
+        """Legacy import: v1 weak or v2 via migration engine (default replace_all)."""
         if isinstance(data, str):
             try:
                 data = json.loads(data)
             except json.JSONDecodeError:
                 return False
-        if not isinstance(data, dict) or data.get("schema") != MEMORY_SCHEMA:
+        if not isinstance(data, dict):
+            return False
+        schema = data.get("schema_version") or data.get("schema") or ""
+        # Prefer transactional migration for v2 / explicit strategy
+        if schema in ("ag.memory.export/v2", MEMORY_SCHEMA) or "layers" in data:
+            try:
+                from .agent_memory_migration import import_transaction
+
+                strategy = (data.get("strategy") or "replace_all").strip()
+                if strategy not in ("replace_all", "import_all", "merge", "selective"):
+                    strategy = "replace_all"
+                import_transaction(
+                    self,
+                    data,
+                    strategy=strategy,
+                    selected_layers=data.get("selected_layers") or data.get("layers_filter"),
+                    allow_legacy_v1=True,
+                )
+                return True
+            except Exception:
+                # fall through to legacy path for pure v1
+                if schema != MEMORY_SCHEMA:
+                    return False
+        if schema != MEMORY_SCHEMA:
             return False
         layers = data.get("layers") or {}
         if not isinstance(layers, dict):
@@ -1250,8 +1281,169 @@ class AgentMemoryCore:
             meta.update(data["meta"])
             meta["bound"] = True
             meta["imported_at"] = _now_ms()
+            meta["validation_strength"] = "legacy_weak"
             self.store.save(self.team_id, self.agent_id, "meta", meta)
         return True
+
+    def export_v2(self, **kwargs: Any) -> Dict[str, Any]:
+        from .agent_memory_migration import build_export_v2
+
+        return build_export_v2(self, **kwargs)
+
+    def update_from_evidence(self, evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """统一记忆更新入口：证据 → 情节/感知/意图推进/电荷 → consolidate → forget."""
+        evidence = evidence or {}
+        now = _now_ms()
+        provenance = dict(evidence.get("provenance") or {})
+        source_type = evidence.get("source_type") or provenance.get("source_type") or "unknown"
+        source_id = evidence.get("source_id") or provenance.get("source_id") or ""
+        agent_id = evidence.get("agent_id") or self.agent_id
+        ts = int(evidence.get("timestamp") or provenance.get("timestamp") or now)
+        provenance.setdefault("source_type", source_type)
+        provenance.setdefault("source_id", source_id)
+        provenance.setdefault("agent_id", agent_id)
+        provenance.setdefault("timestamp", ts)
+
+        # episodic encode
+        detail_parts = []
+        if evidence.get("deliberation_state"):
+            d = evidence["deliberation_state"]
+            if isinstance(d, dict):
+                detail_parts.append(
+                    f"协商 r{d.get('round','?')} phase={d.get('phase','')} pos={(d.get('position') or '')[:200]}"
+                )
+            else:
+                detail_parts.append(str(d)[:200])
+        if evidence.get("failure_type"):
+            detail_parts.append(f"失败类型={evidence.get('failure_type')}")
+        if evidence.get("usage_evidence"):
+            u = evidence["usage_evidence"]
+            if isinstance(u, dict):
+                detail_parts.append(
+                    f"用量 tokens={u.get('total_tokens') or u.get('tokens') or '?'} "
+                    f"run={u.get('run_id') or u.get('discussion_id') or u.get('task_id') or ''}"
+                )
+        if evidence.get("environment_delta"):
+            detail_parts.append(f"环境Δ={str(evidence.get('environment_delta'))[:160]}")
+        if evidence.get("human_intervention"):
+            detail_parts.append(f"人工干预={str(evidence.get('human_intervention'))[:160]}")
+        if evidence.get("summary"):
+            detail_parts.append(str(evidence.get("summary"))[:240])
+        if not detail_parts:
+            detail_parts.append(str(evidence.get("detail") or source_type)[:240])
+
+        event = self.log.append(
+            {
+                "t": ts,
+                "subject": agent_id,
+                "action": evidence.get("action") or f"证据:{source_type}",
+                "detail": " · ".join(detail_parts)[:900],
+                "importance": int(evidence.get("importance") or 6),
+                "tags": list(evidence.get("tags") or []) + [source_type, "evidence"],
+                "place": evidence.get("place") or source_id,
+                "origin": {
+                    "kind": "local",
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "agent_id": agent_id,
+                    "timestamp": ts,
+                },
+            }
+        )
+
+        # perception
+        if evidence.get("environment_delta") or evidence.get("tool_trace"):
+            self.perception.perceive(
+                {
+                    "t": ts,
+                    "modality": evidence.get("modality") or "system",
+                    "payload": {
+                        "environment_delta": evidence.get("environment_delta"),
+                        "tool_trace": evidence.get("tool_trace"),
+                        "source_type": source_type,
+                        "source_id": source_id,
+                    },
+                }
+            )
+
+        # intention progression
+        progressed = self._progress_intentions_from_evidence(evidence, now=ts)
+
+        # risk / affect charge
+        failure = evidence.get("failure_type")
+        if failure or evidence.get("human_intervention"):
+            self.affect.feel(
+                str(failure or "人工干预"),
+                intensity=float(evidence.get("intensity") or 0.55),
+                valence=float(evidence.get("valence") or (-0.35 if failure else -0.1)),
+                arousal=float(evidence.get("arousal") or 0.45),
+                now=ts,
+            )
+        elif evidence.get("success") is True:
+            self.apply_fitness(success=True, magnitude=float(evidence.get("magnitude") or 0.35), drift=False)
+        elif evidence.get("success") is False:
+            self.apply_fitness(success=False, magnitude=float(evidence.get("magnitude") or 0.4), drift=False)
+
+        consolidated = self.consolidate_tick()
+        forgotten = self.forget_tick()
+        return {
+            "ok": True,
+            "event_id": event.get("id"),
+            "provenance": provenance,
+            "progressed_intentions": progressed,
+            "consolidated": consolidated,
+            "forgotten": forgotten,
+        }
+
+    def _progress_intentions_from_evidence(
+        self, evidence: Dict[str, Any], *, now: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """推进相关 pending 意图；不误改无关意图。"""
+        now = now if now is not None else _now_ms()
+        outcome = (evidence.get("intention_outcome") or evidence.get("outcome") or "").lower()
+        failure = (evidence.get("failure_type") or "").lower()
+        if evidence.get("success") is True and not outcome:
+            outcome = "completed"
+        if evidence.get("success") is False and not outcome:
+            outcome = "failed"
+        if evidence.get("human_intervention") and not outcome:
+            outcome = "withdrawn"
+        if failure in ("timeout", "timed_out") or outcome == "timeout":
+            outcome = "timeout"
+
+        target_ids = set(evidence.get("intention_ids") or [])
+        needle = (
+            str(evidence.get("intention_match") or evidence.get("summary") or evidence.get("action") or "")
+            .strip()
+            .lower()
+        )
+        changed: List[Dict[str, Any]] = []
+        for it in list(self.intentions.items):
+            if it.get("status") != "pending":
+                continue
+            iid = it.get("id")
+            text = f"{it.get('instruction') or ''} {it.get('trigger') or ''}".lower()
+            matched = False
+            if iid in target_ids:
+                matched = True
+            elif needle and (needle in text or any(needle in str(t).lower() for t in (it.get("tags") or []))):
+                matched = True
+            elif evidence.get("match_all_pending"):
+                matched = True
+            if not matched:
+                continue
+            if outcome in ("completed", "confirmed", "success", "done"):
+                row = self.intentions.confirm(iid, now=now)
+            elif outcome in ("failed", "drop", "dropped", "withdrawn", "timeout"):
+                row = self.intentions.drop(iid, now=now)
+                if row is not None:
+                    row["drop_reason"] = outcome or failure or "evidence"
+                    self.intentions._save()
+            else:
+                continue
+            if row:
+                changed.append({"id": iid, "status": row.get("status"), "outcome": outcome or failure})
+        return changed
 
     def consolidate_tick(self, *, max_new: int = 5) -> Dict[str, Any]:
         """情节 → 语义核巩固（确定性规则，不依赖 LLM）."""
@@ -1403,12 +1595,17 @@ class AgentMemoryCore:
                 "testator": self.agent_id,
                 "team_id": self.team_id,
                 "beneficiary": "",
-                "migrate_preferences": [],
+                "migration_scope": ["log", "perception", "intentions", "semantic"],
+                "conflict_strategy": "merge",
                 "handover_intentions": "ask_new_owner",
                 "keep_memorial": True,
             },
             "draftedAt": now,
-            "note": "协议已定，迁移未实现 —— 本草稿仅声明意图。",
+            "note": "请 POST /wills 创建可执行遗嘱，再 preflight / execute。",
+            "api": {
+                "create": f"/api/v1/agent-memory/{self.team_id}/{self.agent_id}/wills",
+                "list": f"/api/v1/agent-memory/wills?team_id={self.team_id}&agent_id={self.agent_id}",
+            },
         }
 
     def overview(self) -> Dict[str, Any]:

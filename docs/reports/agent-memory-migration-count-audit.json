@@ -1,0 +1,458 @@
+{
+  "schema": "ag.memory.count_audit/v2",
+  "generated_at": "2026-07-28T00:00:55.318056+00:00",
+  "old_claims": [
+    20,
+    40
+  ],
+  "production_root": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory",
+  "production_scan": {
+    "n_agents": 20,
+    "matches_20_and_40_pair": [
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_legacy",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fed_5829af",
+        "manifest_sha256": "2924e663a81a39e730e6e82c7162ee55ff0fdb4be013927ac930aa5d57285e77",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "ef689cb243dbfd31aa5654c41422164f8212475fc3005e038297e6265165dabf",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/perception.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/affect.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      },
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_modern",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fee_30d331",
+        "manifest_sha256": "621066a93cffac769d2704d019ca857b33ed0c4cf82fa669d7af98c78e71705d",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "5da53035e55475033f9434ea8c676b50484bbb690a7859d988456c40e8648f39",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      }
+    ],
+    "matches_20": [
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_legacy",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fed_5829af",
+        "manifest_sha256": "2924e663a81a39e730e6e82c7162ee55ff0fdb4be013927ac930aa5d57285e77",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "ef689cb243dbfd31aa5654c41422164f8212475fc3005e038297e6265165dabf",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/perception.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/affect.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      },
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_modern",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fee_30d331",
+        "manifest_sha256": "621066a93cffac769d2704d019ca857b33ed0c4cf82fa669d7af98c78e71705d",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "5da53035e55475033f9434ea8c676b50484bbb690a7859d988456c40e8648f39",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      }
+    ],
+    "matches_40": [
+      {
+        "team_id": "team_finops",
+        "agent_id": "fin_learner",
+        "record_counts": {
+          "log": 40,
+          "perception": 40,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 80,
+        "export_id": "mexp_19fa6063fd2_bc0999",
+        "manifest_sha256": "86a98ac2cd03abb5bb3567c3a6719f2c58d924b2c318c06ff5667d1c075be199",
+        "layer_hashes": {
+          "log": "6b556fd77949ac91556734fd7a6e67893bec21e2522f935a9fadb4ae7a3820e2",
+          "perception": "d2a5f23f38e3aec07d3d238e30d8ede45ef1fc3d30aa3b03bbb0338e0bea8607",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "eb247a355abe486061e98179f87cb71e376caf5b9d2d3c96b1c888b5670538e4",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_finops/fin_learner/meta.json"
+        },
+        "matches_old_claim_20": false,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": false
+      },
+      {
+        "team_id": "team_ops",
+        "agent_id": "ops_expert",
+        "record_counts": {
+          "log": 40,
+          "perception": 40,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 80,
+        "export_id": "mexp_19fa6063fe3_3e3bf3",
+        "manifest_sha256": "7ea1929bfc17af4e15b34142fa42a3957819f42a2a3977f2c2ae10d546c570f7",
+        "layer_hashes": {
+          "log": "6b556fd77949ac91556734fd7a6e67893bec21e2522f935a9fadb4ae7a3820e2",
+          "perception": "d2a5f23f38e3aec07d3d238e30d8ede45ef1fc3d30aa3b03bbb0338e0bea8607",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "c981c69e5503cf71f6849ec523a42a23069c7430f2d543374270844f13586902",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_ops/ops_expert/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_ops/ops_expert/perception.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_ops/ops_expert/affect.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_ops/ops_expert/meta.json"
+        },
+        "matches_old_claim_20": false,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": false
+      },
+      {
+        "team_id": "team_security",
+        "agent_id": "sec_learner",
+        "record_counts": {
+          "log": 40,
+          "perception": 40,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 80,
+        "export_id": "mexp_19fa6063fe6_2bcbf3",
+        "manifest_sha256": "9f25f4be5c86c47a26c26868f1e68815e64650ff61cc39dbd9c99b2de23b5d6b",
+        "layer_hashes": {
+          "log": "6b556fd77949ac91556734fd7a6e67893bec21e2522f935a9fadb4ae7a3820e2",
+          "perception": "d2a5f23f38e3aec07d3d238e30d8ede45ef1fc3d30aa3b03bbb0338e0bea8607",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "eb247a355abe486061e98179f87cb71e376caf5b9d2d3c96b1c888b5670538e4",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_security/sec_learner/meta.json"
+        },
+        "matches_old_claim_20": false,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": false
+      },
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_legacy",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fed_5829af",
+        "manifest_sha256": "2924e663a81a39e730e6e82c7162ee55ff0fdb4be013927ac930aa5d57285e77",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "ef689cb243dbfd31aa5654c41422164f8212475fc3005e038297e6265165dabf",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/perception.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/affect.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      },
+      {
+        "team_id": "team_v",
+        "agent_id": "agent_modern",
+        "record_counts": {
+          "log": 20,
+          "perception": 20,
+          "intentions": 0,
+          "affect": 0,
+          "semantic": 0
+        },
+        "sum_counts": 40,
+        "export_id": "mexp_19fa6063fee_30d331",
+        "manifest_sha256": "621066a93cffac769d2704d019ca857b33ed0c4cf82fa669d7af98c78e71705d",
+        "layer_hashes": {
+          "log": "f057f3a1a87a3fa08f59ccdae2add2577fd5bd173955875bbf81e8a9a3e8e46e",
+          "perception": "dd9ef58e28c07818e723bb9a012161cae7dc5753c26c9012367ac9647c140118",
+          "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "affect": "5da53035e55475033f9434ea8c676b50484bbb690a7859d988456c40e8648f39",
+          "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/meta.json"
+        },
+        "matches_old_claim_20": true,
+        "matches_old_claim_40": true,
+        "matches_20_and_40_pair": true
+      }
+    ]
+  },
+  "protocol_rerun": {
+    "seed": 20260728,
+    "protocol": {
+      "source_team": "ops",
+      "targets": [
+        "security",
+        "finops"
+      ],
+      "strategy": "merge",
+      "record_generation_rule": "20 log + 20 perception deterministic details ops-protocol-{seed}-{i}",
+      "variant_40_rule": "40 log + 40 perception"
+    },
+    "export_20": {
+      "export_id": "mexp_19fa6064008_f4219e",
+      "record_counts": {
+        "log": 20,
+        "perception": 20,
+        "intentions": 0,
+        "affect": 0,
+        "semantic": 0
+      },
+      "sum": 40,
+      "manifest_sha256": "b04fb6a723e86a4e7e151b629ff2d77ee4ebdaf824dfb7a4309dd1392ade93e1",
+      "layer_hashes": {
+        "log": "44ff227f73020baa3cb9139f670792aa848be2315289ce2d02d4308d84b57cb1",
+        "perception": "e03cf710681f486724d58f139caa1dbb08ddabae19e12b6959b57a5ef046893e",
+        "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "affect": "9473e68b82ac84889af22a99c67bac491707aa4c3ff63931eeaf4b97ffb0fe9f",
+        "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    },
+    "export_40": {
+      "export_id": "mexp_19fa6064008_b8c2fa",
+      "record_counts": {
+        "log": 40,
+        "perception": 40,
+        "intentions": 0,
+        "affect": 0,
+        "semantic": 0
+      },
+      "sum": 80,
+      "manifest_sha256": "86b753f0f7cfd2a67f1e6ccaa46dd6edc27dd12f112f0765dfea04158ea6dabb"
+    },
+    "import_security": {
+      "tx_id": "tx_ops_sec_20260728",
+      "state": "committed",
+      "partition_record_counts": {
+        "log": 20,
+        "perception": 20,
+        "intentions": 0,
+        "affect": 0,
+        "semantic": 0
+      },
+      "partition_hashes": {
+        "log": "19ebdece14b42abb8affc8ed8fc224cbd9ee5afa950a1943aa8cba686d01ccc7",
+        "perception": "02dd21590cab10c65f994870d5f315218220c1783a91192ef81ed9fc481a9baa",
+        "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "affect": "d2ccc420bfd00970796f4309ed9625e233b32caf619c779d7aa84e79770e4b7a",
+        "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "local_log_preserved": true
+    },
+    "import_finops": {
+      "tx_id": "tx_ops_fin_20260728",
+      "state": "committed",
+      "partition_record_counts": {
+        "log": 20,
+        "perception": 20,
+        "intentions": 0,
+        "affect": 0,
+        "semantic": 0
+      },
+      "partition_hashes": {
+        "log": "fc9fafbe1a469618ae37b8f3cb26abd81ab4c1f220c3ab8ad06c97a9ac15f9b4",
+        "perception": "ea6aa97a183a403206368f4c4fb9e9233d0e7318f6cc66355c959ff1683f8b34",
+        "intentions": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "affect": "efa98cfcd005c8a7cd982147f5de0442e4a1ca185c52f25e8d890ca940f9ccf6",
+        "semantic": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "local_log_preserved": true
+    },
+    "import_security_from40": {
+      "tx_id": "tx_ops40_sec_20260728",
+      "partition_record_counts": {
+        "log": 40,
+        "perception": 40,
+        "intentions": 0,
+        "affect": 0,
+        "semantic": 0
+      }
+    },
+    "assertions": {
+      "export20_log_is_20": true,
+      "export20_sum_is_40": true,
+      "export40_log_is_40": true,
+      "import_counts_match_export20": true
+    }
+  },
+  "discrepancy_cause": "生产库存在 log=20 且 layers 合计=40 的样本（如 team_v/*），旧文档可能把「log 计数 20」与「层合计 40」混称为 20/40。 v2 信封以 layers 重新计数+哈希为准；无旧 export 哈希时不能断言历史声明哪一个错误。",
+  "conclusion": {
+    "can_adjudicate_historical_20_or_40_as_ground_truth": "partial_with_path_evidence",
+    "authoritative_today": "v2 record_counts + manifest_sha256 from layers",
+    "protocol_export20": {
+      "log": 20,
+      "perception": 20,
+      "intentions": 0,
+      "affect": 0,
+      "semantic": 0
+    },
+    "protocol_export40": {
+      "log": 40,
+      "perception": 40,
+      "intentions": 0,
+      "affect": 0,
+      "semantic": 0
+    },
+    "protocol_import_security_counts": {
+      "log": 20,
+      "perception": 20,
+      "intentions": 0,
+      "affect": 0,
+      "semantic": 0
+    },
+    "protocol_import_finops_counts": {
+      "log": 20,
+      "perception": 20,
+      "intentions": 0,
+      "affect": 0,
+      "semantic": 0
+    }
+  },
+  "raw_artifact_paths": {
+    "production_matches": [
+      {
+        "team": "team_v",
+        "agent": "agent_legacy",
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/perception.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/affect.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_legacy/meta.json"
+        },
+        "manifest": "2924e663a81a39e730e6e82c7162ee55ff0fdb4be013927ac930aa5d57285e77"
+      },
+      {
+        "team": "team_v",
+        "agent": "agent_modern",
+        "paths": {
+          "log": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/log.json",
+          "perception": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/perception.json",
+          "intentions": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/intentions.json",
+          "affect": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/affect.json",
+          "semantic": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/semantic.json",
+          "meta": "/Users/panglaohu/Downloads/AgentsGroup2026/storage/agent_memory/team_v/agent_modern/meta.json"
+        },
+        "manifest": "621066a93cffac769d2704d019ca857b33ed0c4cf82fa669d7af98c78e71705d"
+      }
+    ],
+    "protocol": "ephemeral tempfile; hashes recorded in protocol_rerun section"
+  }
+}

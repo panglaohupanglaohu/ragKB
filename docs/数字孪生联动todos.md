@@ -1,3 +1,4 @@
+<!-- docs-signoff: author="grok-4.5" kind="llm" doc="todos" ts="2026-07-27T14:12:00Z" -->
 # 数字孪生联动 TODOS（事无巨细 + 伪代码）
 
 > 配套 `docs/数字孪生联动plan.md`。核心：**建一个 `dtRefresh(reason)` 调度器**，把"上下文变→刷新当前 Tab"收成一处，替代各处零散补渲染。
@@ -32,11 +33,12 @@ window.dtRefresh=function(reason){
 - **验收**：grep 不到"选团队/切Tab 后手动逐个 renderXxx"；统一走 dtRefresh。
 
 ## L3 · 系统状态(仪表盘) 团队/运行联动 ★★ ✅已落地(当前演练摘要卡)
-- [人工核] `loadLiveMetrics` 现拉 `/tasks/stats` `/extraction/stats`——**是否需要按当前团队 / 当前 trial 过滤**？
-  - 若指标是全局的：加一块"当前演练"卡（团队/会话/步数/评分，读 `dtContext()` + `_sx`）。
-  - 若能按 team 过滤：`/tasks/stats?team_id=` 传 `dtContext().team`。
-- [VSCode] `renderArchitecture` 里追加"当前演练"摘要卡（team/步数/running/最优分），随 dtRefresh 刷新。
-- **验收**：切团队/跑演练时，系统状态顶部"当前演练"卡随之变。
+- [x] [人工核] `loadLiveMetrics` 现拉 `/tasks/stats` `/extraction/stats`——**是否需要按当前团队 / 当前 trial 过滤**？
+  - **结论：全局 KPI 不按 team/trial 过滤**（后端无过滤参数；`running` 是 engine bool）。
+  - 演练态单独用「当前演练」卡：读 `dtContext()` + `_sx`/SECS 选择态（team/scene/task/steps/reward/trial）。
+  - 不做 `/tasks/stats?team_id=`，避免把全局任务引擎统计伪装成当前演练。
+- [x] [VSCode] `renderArchitecture` → `renderDashboard` 顶部 `#dt-current-drill-card`（team/场景/任务/步数/running/收益/最优分/trial），随 dtRefresh 刷新；`_mapTaskEngineStats` 修正 by_status 计数。
+- **验收**：切团队/跑演练时，系统状态顶部"当前演练"卡随之变。⟦vitest `digital-twin-current-drill-card.test.js` 3 passed⟧
 
 ## L4 · 协作·交互 时间线运行时实时追加 ★★ ✅已落地(step 的 agent_actions 喂入 S.messages)
 - [x] 团队过滤已做(bug-086)。

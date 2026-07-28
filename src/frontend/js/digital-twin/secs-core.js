@@ -469,11 +469,11 @@
   window.sexySelectTeam = function(teamId, teamName) {
     _selectedTeamId = teamId;
     _selectedTeamName = teamName;
-    // 暴露到 window，让 director.js（创建试炼）能读到当前选中的团队（_selectedTeamId 本是 IIFE 私有）
+    // 暴露到 window，让 director.js（创建试炼）/ 当前演练卡能读到当前选中的团队
     window._selectedTeamId = teamId; window._selectedTeamName = teamName;
     // 切换团队时清空已选任务（任务属于团队，换团队后旧任务无效）
     _selectedTaskId = null; _selectedTaskTitle = ''; _selectedTaskGoal = null;
-    window._selectedTaskId = null; window._selectedTaskGoal = null;
+    window._selectedTaskId = null; window._selectedTaskTitle = ''; window._selectedTaskGoal = null;
     var taskBtn = document.getElementById('secs-task-btn');
     if (taskBtn) { taskBtn.textContent = '📋 选择演练任务'; taskBtn.style.color = ''; }
 
@@ -535,6 +535,9 @@
 
     // ── 10.6.1: 确保该团队所有 agent 在房间有位置（无则填充到当前房间）──
     ensureTeamPositioned(teamId, team, window._currentRoomId || 'council');
+
+    // L3: 无论是否触发左侧 toggleTeam，都刷新当前可见 Tab（系统状态「当前演练」卡）
+    try { if (window.dtRefresh) window.dtRefresh('team'); } catch (e) {}
 
     showToast('已选择团队: '+teamName+' ('+agentCount+' 智能体)', 'success');
   };
@@ -755,6 +758,8 @@
 
   window.sexySelectScene = function(sceneId, sceneName, sceneDesc) {
     _selectedSceneId = sceneId;
+    window._selectedSceneId = sceneId;
+    window._selectedSceneName = sceneName || sceneId || '';
     // 真实场景 id（capacity_incident 等）→ 设 _sx.scenarioId，createTrial 传给后端编译 taskflow/rubric；
     // 房间(room_*)/模式(__*)/SOP(sop_*) 不是真实场景，清空避免误传。
     window._sx = window._sx || {};
@@ -883,7 +888,7 @@
     // 「整条场景流程」→ 不指定单任务，清空 override，让 createTrial 用场景默认 taskflow
     if (taskId === '__flow__') {
       _selectedTaskId = null; _selectedTaskTitle = ''; _selectedTaskGoal = null;
-      window._selectedTaskId = null; window._selectedTaskGoal = null;
+      window._selectedTaskId = null; window._selectedTaskTitle = ''; window._selectedTaskGoal = null;
       var fb = document.getElementById('secs-task-btn');
       if (fb) { fb.textContent = '📋 整条场景流程'; fb.style.color = 'var(--green)'; }
       var ot = document.getElementById('o-task'); if (ot) ot.style.display = 'none';
@@ -899,8 +904,9 @@
       name: taskTitle,
       description: taskDesc,
     };
-    // 暴露到 window，供 director.js createTrial 读取
+    // 暴露到 window，供 director.js createTrial / 当前演练卡读取
     window._selectedTaskId = taskId;
+    window._selectedTaskTitle = taskTitle || '';
     window._selectedTaskGoal = _selectedTaskGoal;
 
     var btn = document.getElementById('secs-task-btn');

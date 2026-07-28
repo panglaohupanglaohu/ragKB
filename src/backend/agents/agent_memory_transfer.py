@@ -1,30 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Agent 记忆传递：执行遗嘱 — 复制到受益方 + 意图交接 + 可选凭吊.
+"""Agent 记忆传递：薄适配层 → Will / 迁移引擎.
 
-原则：传递 = 复制；原件默认可凭吊（keep_memorial）；不静默销毁。
-handover_intentions: ask_new_owner | auto | drop
+旧 execute() API 保留，内部改为 create_will → preflight → execute_will。
 """
 
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .agent_memory_core import (
-    AgentMemoryCore,
-    AgentMemoryStore,
-    MEMORY_SCHEMA,
-    get_memory_store,
-    _now_ms,
-)
+from .agent_memory_core import AgentMemoryStore, get_memory_store
 from .agent_memory_lifecycle import (
     AgentMemoryLifecycle,
     MemoryLifecycleError,
 )
-
-HANDOVER = ("ask_new_owner", "auto", "drop")
+from .agent_memory_migration import (
+    MemoryMigrationError,
+    MemoryMigrationService,
+    get_memory_migration,
+    list_migration_txs,
+)
 
 
 class AgentMemoryTransfer:
@@ -32,9 +28,11 @@ class AgentMemoryTransfer:
         self,
         store: Optional[AgentMemoryStore] = None,
         lifecycle: Optional[AgentMemoryLifecycle] = None,
+        migration: Optional[MemoryMigrationService] = None,
     ):
         self.store = store or get_memory_store()
         self.lc = lifecycle or AgentMemoryLifecycle(store=self.store)
+        self.migration = migration or MemoryMigrationService(store=self.store, lifecycle=self.lc)
 
     def _transfer_dir(self) -> Path:
         d = self.store.root / "_transfers"
@@ -51,18 +49,13 @@ class AgentMemoryTransfer:
         keep_memorial: bool = True,
         layers: Optional[List[str]] = None,
         note: str = "",
+        strategy: str = "merge",
     ) -> Dict[str, Any]:
         if not to_agent_id or to_agent_id == from_agent_id:
             raise MemoryLifecycleError("invalid_beneficiary", "受益者必须是其他 agent")
         self.lc.assert_readable(team_id, from_agent_id)
         if self.lc.is_tombstoned(team_id, to_agent_id):
             raise MemoryLifecycleError("beneficiary_destroyed", "受益者记忆已销毁")
-
-        ho = handover_intentions if handover_intentions in HANDOVER else "ask_new_owner"
-        # semantic 默认同传；affect 仍可由调用方显式包含（沈弥安侧 share 会剥）
-        layer_set = layers or ["log", "perception", "intentions", "semantic"]
-        now = _now_ms()
-        transfer_id = f"tr_{uuid.uuid4().hex[:12]}"
 
         cur = self.lc.resolve_state(team_id, from_agent_id)
         if cur not in ("active", "shared", "sealed", "transferring"):
@@ -71,252 +64,49 @@ class AgentMemoryTransfer:
                 f"状态 {cur} 不可发起传递",
             )
 
+        try:
+            result = self.migration.transfer_via_will(
+                team_id,
+                from_agent_id,
+                to_agent_id,
+                handover_intentions=handover_intentions,
+                keep_memorial=keep_memorial,
+                layers=layers,
+                strategy=strategy or "merge",
+                note=note,
+            )
+        except MemoryMigrationError as e:
+            raise MemoryLifecycleError(e.code, e.detail) from e
+
+        transfer = result.get("transfer") or {}
+        # enrich narrative for UI compatibility
+        from .agent_memory_core import AgentMemoryCore
+
         src = AgentMemoryCore(team_id, from_agent_id, store=self.store)
-        blob = src.export_all()
-        layers_data = blob.get("layers") or {}
-
-        # 受益方确保 active
-        to_state = self.lc.resolve_state(team_id, to_agent_id)
-        if to_state == "destroyed":
-            raise MemoryLifecycleError("beneficiary_destroyed", "受益者已销毁")
-        if to_state in ("unbound",):
-            try:
-                self.lc.transition(team_id, to_agent_id, "bind", reason="transfer_beneficiary")
-            except MemoryLifecycleError:
-                pass
-
-        dst = AgentMemoryCore(team_id, to_agent_id, store=self.store)
-
-        # 3) 复制各层（merge：追加而非整盘覆盖，避免抹掉受益方已有记忆）
-        copied = {}
-        if "log" in layer_set:
-            events = list(layers_data.get("log") or [])
-            for e in events:
-                e = dict(e)
-                e["id"] = e.get("id") or f"ev_xfer_{uuid.uuid4().hex[:8]}"
-                tags = list(e.get("tags") or [])
-                if "传递继承" not in tags:
-                    tags.append("传递继承")
-                e["tags"] = tags
-                e["place"] = (e.get("place") or "") + f" [from:{from_agent_id}]"
-                dst.log.events.append(e)
-            dst.log._save()
-            copied["log"] = len(events)
-
-        if "perception" in layer_set:
-            buf = list(layers_data.get("perception") or [])
-            for item in buf:
-                dst.perception.buffer.append(dict(item))
-            if len(dst.perception.buffer) > 500:
-                dst.perception.buffer = dst.perception.buffer[-500:]
-            dst.perception._save()
-            copied["perception"] = len(buf)
-
-        pending_for_ask: List[Dict[str, Any]] = []
-        if "intentions" in layer_set:
-            intentions = list(layers_data.get("intentions") or [])
-            if ho == "drop":
-                copied["intentions"] = 0
-                copied["intentions_dropped"] = len(intentions)
-            else:
-                n = 0
-                for it in intentions:
-                    it = dict(it)
-                    if it.get("status") != "pending":
-                        continue
-                    it["id"] = f"in_xfer_{uuid.uuid4().hex[:8]}"
-                    it["creator"] = it.get("creator") or from_agent_id
-                    it["handover"] = {
-                        "from": from_agent_id,
-                        "policy": ho,
-                        "transferred_at": now,
-                    }
-                    if ho == "ask_new_owner":
-                        it["status"] = "pending"
-                        it["trigger"] = (it.get("trigger") or "") + " [待新主人确认]"
-                        pending_for_ask.append(it)
-                    # auto & ask: both copy as pending
-                    dst.intentions.items.append(it)
-                    n += 1
-                dst.intentions._save()
-                copied["intentions"] = n
-
-        if "semantic" in layer_set:
-            claims = list(layers_data.get("semantic") or [])
-            n = 0
-            for c in claims:
-                if c.get("forgotten_at"):
-                    continue
-                try:
-                    dst.semantic.add(
-                        c.get("claim") or "",
-                        source_event_ids=list(c.get("source_event_ids") or []),
-                        strength=float(c.get("strength") or 0.5),
-                        tags=list(c.get("tags") or []) + ["传递继承"],
-                        t=c.get("t"),
-                    )
-                    n += 1
-                except Exception:
-                    continue
-            copied["semantic"] = n
-
-        # 电荷传递：受 Persona topology.charge_transfer 约束（沈弥安 never）
-        src_status = self.lc.get_status(team_id, from_agent_id)
-        src_persona = (src_status.get("persona") or "hybrid").lower()  # legacy prototype only
-        topo = src.topology()
-        memory_style = src.memory_style()
-        permeability = float(memory_style.get("affective_permeability") or 0.0)
-        charge_policy = (topo.get("charge_transfer") or "ask").lower()
-        if permeability < 0.2:
-            charge_policy = "never"
-        elif permeability < 0.5 and charge_policy != "never":
-            charge_policy = "soft"
-
-        if "affect" in layer_set and charge_policy != "never":
-            aff = layers_data.get("affect") or {}
-            if isinstance(aff, dict) and (aff.get("labels") or aff.get("valence")):
-                scale = min(permeability, 0.35 if charge_policy == "soft" else 0.5)
-                cur_aff = dst.affect.state
-                for lab, inten in (aff.get("labels") or {}).items():
-                    prev = float((cur_aff.get("labels") or {}).get(lab) or 0)
-                    cur_aff.setdefault("labels", {})[lab] = max(
-                        prev, float(inten or 0) * scale
-                    )
-                cur_aff["valence"] = (
-                    float(cur_aff.get("valence") or 0) * 0.5
-                    + float(aff.get("valence") or 0) * scale
-                )
-                cur_aff["arousal"] = (
-                    float(cur_aff.get("arousal") or 0) * 0.5
-                    + float(aff.get("arousal") or 0) * scale
-                )
-                cur_aff["updatedAt"] = now
-                dst.affect._save()
-                copied["affect"] = True
-                copied["charge_policy"] = charge_policy
-            else:
-                copied["affect"] = False
-        else:
-            copied["affect"] = False
-            copied["charge_policy"] = charge_policy
-            if charge_policy == "never" and "affect" in layer_set:
-                copied["affect_stripped"] = True
-
-        # 传递叙事（小满连续 / 沈弥安凭吊）
         narrative = src.transfer_narrative(
-            persona=src_persona,
+            persona=(self.lc.get_status(team_id, from_agent_id).get("persona") or "hybrid"),
             to_agent_id=to_agent_id,
-            copied=copied,
+            copied=transfer.get("copied") or {},
             keep_memorial=keep_memorial,
         )
-
-        # 受益方记录继承日志 + 叙事入情节
-        dst.log.append(
-            {
-                "subject": to_agent_id,
-                "action": "记忆继承",
-                "detail": (
-                    f"自 {from_agent_id} 传递接收；策略={ho}；{note}\n"
-                    f"{narrative.get('narrative') or ''}"
-                )[:900],
-                "importance": 9,
-                "tags": ["传递", "继承", from_agent_id, src_persona],
-            }
-        )
-        try:
-            dst.semantic.add(
-                (narrative.get("title") or "记忆交接")[:200],
-                strength=0.7,
-                tags=["传递", "叙事", src_persona],
-            )
-        except Exception:
-            pass
-        try:
-            dst.push_working(
-                {
-                    "text": (narrative.get("title") or "继承的记忆")[:200],
-                    "source": "transfer",
-                    "ref": from_agent_id,
-                }
-            )
-        except Exception:
-            pass
-
-        # 4) 源：先封存（若需凭吊），再标记 archived
-        if keep_memorial:
-            st_now = self.lc.resolve_state(team_id, from_agent_id)
-            if st_now in ("active", "shared") and not src.is_sealed():
+        if isinstance(transfer, dict):
+            transfer = dict(transfer)
+            transfer["narrative"] = narrative
+            transfer["disclosure"] = "这是回放，不是本人" if keep_memorial else None
+            path = self._transfer_dir() / f"{transfer.get('transfer_id')}.json"
+            if path.is_file():
                 try:
-                    self.lc.transition(team_id, from_agent_id, "seal", reason="transfer_memorial")
-                except MemoryLifecycleError:
-                    src.seal(now)
-            elif not src.is_sealed():
-                src.seal(now)
-            # 直接落 archived（传递完成）
-            meta = self.store.load(team_id, from_agent_id, "meta", {}) or {}
-            if not isinstance(meta, dict):
-                meta = {}
-            meta["state"] = "archived"
-            meta["sealed"] = True
-            meta["transferred_to"] = to_agent_id
-            meta["transfer_id"] = transfer_id
-            meta["transferred_at"] = now
-            self.store.save(team_id, from_agent_id, "meta", meta)
-        else:
-            meta = self.store.load(team_id, from_agent_id, "meta", {}) or {}
-            if not isinstance(meta, dict):
-                meta = {}
-            meta["state"] = "sealed" if src.is_sealed() else "active"
-            meta["transferred_to"] = to_agent_id
-            meta["transfer_id"] = transfer_id
-            meta["transferred_at"] = now
-            self.store.save(team_id, from_agent_id, "meta", meta)
-
-        # 受益方 state active
-        meta_b = self.store.load(team_id, to_agent_id, "meta", {}) or {}
-        if isinstance(meta_b, dict):
-            meta_b["state"] = "active"
-            meta_b["bound"] = True
-            meta_b["inherited_from"] = from_agent_id
-            meta_b["transfer_id"] = transfer_id
-            self.store.save(team_id, to_agent_id, "meta", meta_b)
-
-        record = {
-            "transfer_id": transfer_id,
-            "team_id": team_id,
-            "from": from_agent_id,
-            "to": to_agent_id,
-            "handover_intentions": ho,
-            "keep_memorial": keep_memorial,
-            "layers": layer_set,
-            "copied": copied,
-            "pending_confirm_intentions": len(pending_for_ask),
-            "note": note,
-            "at": now,
-            "schema": "ag.transfer/v1",
-            "disclosure": "这是回放，不是本人" if keep_memorial else None,
-            "persona": src_persona,
-            "narrative": narrative,
-            "topology_snapshot": topo,
-            "memory_style_snapshot": memory_style,
-        }
-        path = self._transfer_dir() / f"{transfer_id}.json"
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        self.lc._append_audit(
-            team_id,
-            from_agent_id,
-            {"t": now, "action": "transfer_out", "to": to_agent_id, "transfer_id": transfer_id},
-        )
-        self.lc._append_audit(
-            team_id,
-            to_agent_id,
-            {"t": now, "action": "transfer_in", "from": from_agent_id, "transfer_id": transfer_id},
-        )
+                    disk = json.loads(path.read_text(encoding="utf-8"))
+                    disk["narrative"] = narrative
+                    path.write_text(json.dumps(disk, ensure_ascii=False, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
 
         return {
             "ok": True,
-            "transfer": record,
+            "transfer": transfer,
+            "will": result.get("will"),
+            "execution": result.get("execution"),
             "memorial_path": f"/api/v1/agent-memory/{team_id}/{from_agent_id}"
             if keep_memorial
             else None,
@@ -327,8 +117,8 @@ class AgentMemoryTransfer:
     def list_transfers(self, team_id: str = "", limit: int = 30) -> List[Dict[str, Any]]:
         rows = []
         d = self._transfer_dir()
-        files = sorted(d.glob("tr_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for p in files[:limit]:
+        files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in files[: limit * 2]:
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
                 if team_id and data.get("team_id") != team_id:
@@ -336,7 +126,12 @@ class AgentMemoryTransfer:
                 rows.append(data)
             except Exception:
                 continue
+            if len(rows) >= limit:
+                break
         return rows
+
+    def list_migration_audit(self, limit: int = 30) -> List[Dict[str, Any]]:
+        return list_migration_txs(self.store, limit=limit)
 
 
 _transfer: Optional[AgentMemoryTransfer] = None
