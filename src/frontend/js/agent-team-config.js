@@ -584,12 +584,12 @@ function renderTeamTopology(teamDetail){
     <circle cx="${cx}" cy="${cy}" r="${R * 0.45}" fill="none" stroke="var(--line)" stroke-width="1" opacity="0.4" />
 
     <!-- 中心徽章 -->
-    <g class="topo-center-badge">
+    <g class="topo-center-badge" style="cursor:pointer" onclick="toggleTopologyEditMode()" title="${_isEditingTopology ? '点击完成编辑' : '点击继续编辑连线'}">
       <circle cx="${cx}" cy="${cy}" r="54" fill="var(--panel2)" stroke="${_isEditingTopology ? '#fbbf24' : '#22d3ee'}" stroke-width="1.8" opacity="0.95" />
-      <text x="${cx}" y="${cy - 16}" text-anchor="middle" font-size="20">🤖</text>
+      <text x="${cx}" y="${cy - 16}" text-anchor="middle" font-size="20">${_isEditingTopology ? '✏️' : '🤖'}</text>
       <text x="${cx}" y="${cy + 6}" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">${escapeHtml(teamDetail.name || tid).slice(0, 10)}</text>
-      <text x="${cx}" y="${cy + 22}" text-anchor="middle" fill="${_isEditingTopology ? '#fbbf24' : '#22d3ee'}" font-size="10" font-family="var(--font-mono)">${links.length} 协作链路</text>
-      <text x="${cx}" y="${cy + 34}" text-anchor="middle" fill="var(--muted)" font-size="9">${totalAgents} 名成员</text>
+      <text x="${cx}" y="${cy + 22}" text-anchor="middle" fill="${_isEditingTopology ? '#fbbf24' : '#22d3ee'}" font-size="10" font-family="var(--font-mono)">${_isEditingTopology ? '✏️ 编辑中' : `${links.length} 协作链路`}</text>
+      <text x="${cx}" y="${cy + 34}" text-anchor="middle" fill="var(--muted)" font-size="9">${_isEditingTopology ? '点击完成编辑' : '点击继续编辑'}</text>
     </g>
   `;
 
@@ -696,6 +696,7 @@ function toggleTopologyEditMode(forceState){
   _selectedSourceAgentId = null;
 
   const btnEdit = el('btn-edit-topo');
+  const btnQuick = el('btn-quick-edit-topo');
   const btnSave = el('btn-save-topo');
   const btnUndo = el('btn-undo-topo');
   const btnRedo = el('btn-redo-topo');
@@ -707,6 +708,7 @@ function toggleTopologyEditMode(forceState){
 
   if(_isEditingTopology){
     if(btnEdit){ btnEdit.textContent = '✓ 完成编辑'; btnEdit.className = 'btn btn-sm btn-ghost'; }
+    if(btnQuick){ btnQuick.textContent = '💾 保存连线拓扑'; btnQuick.className = 'btn btn-sm btn-pink'; btnQuick.onclick = () => saveCustomTopology(); }
     btnSave?.classList.remove('hidden');
     btnUndo?.classList.remove('hidden');
     btnRedo?.classList.remove('hidden');
@@ -717,7 +719,7 @@ function toggleTopologyEditMode(forceState){
     if(hintText){
       hintText.innerHTML = `💡 <b>连线编辑中：</b> 点击起点成员，再点击目标成员建立协作连线（支持随时点击「↩ 回退」与「↪ 下一步」）`;
     }
-    // 首次进入自定义连线模式时，若无已存自定义连线，则保持为空白画布（0条连线），不携带任何预设连线
+    // 进入编辑模式时，保留团队已有的自定义连线
     if(Array.isArray(_currentTeamDetail?.metadata?.custom_topology)){
       _customTopologyLinks = [..._currentTeamDetail.metadata.custom_topology];
     } else {
@@ -729,6 +731,7 @@ function toggleTopologyEditMode(forceState){
     toast('已进入自定义连线模式：点击起点成员，再点击目标成员开始连线', 'info');
   } else {
     if(btnEdit){ btnEdit.textContent = '✏️ 连线编辑'; btnEdit.className = 'btn btn-sm btn-pink'; }
+    if(btnQuick){ btnQuick.textContent = '✏️ 连线编辑 / 继续画线'; btnQuick.className = 'btn btn-sm btn-pink'; btnQuick.onclick = () => toggleTopologyEditMode(true); }
     btnSave?.classList.add('hidden');
     btnUndo?.classList.add('hidden');
     btnRedo?.classList.add('hidden');
@@ -805,8 +808,17 @@ window.redoTopologyStep = redoTopologyStep;
 function handleTopoNodeClick(agentId){
   if(!agentId) return;
   if(!_isEditingTopology){
-    // 非编辑模式：点击选择成员，高亮并进入成员详情
-    selectAgent(agentId);
+    // 非编辑模式下点击任意成员：自动进入连线编辑模式，并以该成员作为起点！
+    toggleTopologyEditMode(true);
+    _selectedSourceAgentId = agentId;
+    const agents = Array.isArray(_currentTeamDetail?.agents) ? _currentTeamDetail.agents : Object.values(_currentTeamDetail?.agents || {});
+    const agent = agents.find(a => a.agent_id === agentId);
+    const hintText = el('topo-hint-text');
+    if(hintText){
+      hintText.innerHTML = `👉 已选起点 <b>${escapeHtml(agent?.name || agentId)}</b>，请点击目标成员建立协作连线`;
+    }
+    toast(`已进入连线编辑，起点：${agent?.name || agentId}，请点击目标成员连线`, 'info');
+    renderTeamTopology(_currentTeamDetail);
     return;
   }
 
