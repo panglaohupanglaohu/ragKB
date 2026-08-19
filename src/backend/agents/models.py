@@ -562,6 +562,8 @@ class AgentTeam:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     # ── 物竞天择 ND-1.1: 团队级运行时模式 ("legacy"=现有SECS演练 / "eco"=自然选择生境) ──
     runtime: str = "legacy"
+    # ── 团队级任务流水线模式: "single"=单步 / "auto"=智能自适应 / "xops"=云运维运营 / "dev"=研发协作 / "energy"=能效优化 / "star"=星型 / "mesh"=网状 / "custom"=自定义 ──
+    workflow_mode: str = "single"
 
     def __post_init__(self) -> None:
         if not self.team_id:
@@ -570,6 +572,8 @@ class AgentTeam:
             self.agents = AgentCollection(self.agents)
         if self.runtime not in ("eco", "legacy"):
             self.runtime = "legacy"
+        if self.workflow_mode not in ("single", "auto", "full", "xops", "dev", "energy", "star", "mesh", "custom"):
+            self.workflow_mode = "single"
 
     def add_agent(self, agent: AgentProfile) -> None:
         self.agents[agent.agent_id] = agent
@@ -615,4 +619,5 @@ class AgentTeam:
             "created_at": self.created_at,
             # ND-1.1: 运行时模式
             "runtime": self.runtime,
+            "workflow_mode": self.workflow_mode,
         }

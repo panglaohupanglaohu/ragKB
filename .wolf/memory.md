@@ -3,6 +3,10 @@
 > Chronological action log. Hooks and AI append to this file automatically.
 > Old sessions are consolidated by the daemon weekly.
 
+- 2026-08-15T07:55:00Z | 议事广场国际化并修复页面无限加载 | src/frontend/plaza.html, src/frontend/js/plaza.js | 接入共享 i18n 与顶部语言切换；补广场静态/动态中英词条；修复 MutationObserver 调 applyAll 后因语言按钮 textContent 重写而自触发的主线程无限循环。node --check、编辑器诊断、Vite 资源 200、浏览器 401 自动跳登录页均通过 | ~3k |
+
+| 08:45 | 审计任务页面 Build System/AWS Ops 流程并产出专用 plan/todos | docs/任务页面Build与AWS运维流程优化plan.md, docs/任务页面Build与AWS运维流程优化todos.md | 确认 AWS 中文 role 未映射到 workflow、execution_mode 未进请求模型、启动失败不回滚、独立 tasks.html 未兼容分页；后端基线因 .venv 缺 pytest 未执行 | ~4k |
+
 - 2026-07-05T02:11:00Z | 撤销猫按有效技能跳桌逻辑(用户要求) | src/frontend/js/office/office-scene.js, office-state.js, office-boot.js, __tests__/office-state.test.js | 移除 skills/effectiveSkillCount 透传+跳桌+阈值+相关单测; 保留最近Agent转身+光圈吸引; office-state 13/13, node --check, build 通过 | ~1k |
 
 - 2026-07-05T01:55:00Z | 设计并落地撸猫过程 | src/frontend/js/office/office-scene.js | 动画层新增 nearestCatLure(): 最近的非递文件 Agent 转身面向猫, 脚下 glowRing 按正弦脉冲闪烁/放大吸引猫; 其他 Agent 光圈复位。node --check、office-state 13/13、vite build 通过 | ~1k |
@@ -453,3 +457,15 @@
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
 | 08:19 | Agent记忆 M-3.2b/M-3.3b 收口：修继承软检索+真LLM 30 cells+审计 | migration.py llm实验脚本 reports todos | 49 pytest+7 vitest；inheritance_injected=1.0 | ~8k |
+
+| 16:30 | 团队流水线模式（full/single）支持，消除 build_system 硬编码，支持公有云xOPs开启 7 步分工 | models.py team_store.py api.py agent-team-config.html/js | round-trip + 单元逻辑通过 | ~2k |
+
+| 16:15 | 团队成员环状拓扑图与可视化连线设计落地，支持预设拓扑（xOPs运维/研发/能效/星型/网状）与用户交互式自由连线编辑 | models.py api.py agent-team-config.html/js | test_workflow_pipeline_mode.py 自动化测试全通过 | ~3k |
+
+| 17:30 | 修复拓扑连线编辑在内存数组被重新渲染重置的bug，确保点击两成员即时绘制高亮连线并与metadata双向同步 | agent-team-config.js | 测试通过 | ~1k |
+
+| 17:36 | 优化自定义拓扑连线行为：首次选择自定义拓扑时默认给出一张干净无连线的空白画布，不继承预设连线；点击两节点直接画线 | agent-team-config.js/html | 测试通过 | ~1k |
+
+| 17:42 | 拓扑连线编辑工具栏新增「↩ 回退」与「↪ 下一步」Undo/Redo功能，支持多步历史回退与重做 | agent-team-config.html/js | 测试通过 | ~1k |
+
+| 18:28 | 修复团队拓扑模式与当前选中团队自动对齐逻辑：切换团队自动切至团队所属领域专属拓扑（Build System->研发全流水线/公有云xOPs->xOPs运营环/Energy->能效治理环），下拉菜单动态显示当前团队智能自适应匹配项 | agent-team-config.js | 测试通过 | ~1k |

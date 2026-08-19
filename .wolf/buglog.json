@@ -1,5 +1,35 @@
 [
   {
+    "id": "bug-plaza-assign-silent-no-task",
+    "timestamp": "2026-08-17T08:20:00.000000+00:00",
+    "error_message": "广场勾选两个团队点「派发」后，各团队任务页没有相关任务",
+    "file": "src/backend/agents/plaza_routes.py, src/frontend/js/plaza.js",
+    "root_cause": "assign_plan_to_team 的整个建任务循环包在 try/except Exception 里静默吞错返回 assigned_no_task（0 任务）；前端 assignPlan 只看 r.multi_team 就 toast『已派发』，从不检查 error/task_count",
+    "fix": "后端零任务时 RuntimeError → logger.exception + HTTPException 500 带真实原因，返回体加 task_count；前端只在 status==='assigned' 且 task_count>0 时 toast 成功，error/非2xx 时 toast『派发失败：原因』",
+    "tags": [
+      "backend",
+      "frontend",
+      "plaza",
+      "assign",
+      "dispatch",
+      "silent-failure"
+    ]
+  },
+  {
+    "id": "bug-cancel-all-tasks-a-scope",
+    "timestamp": "2026-08-17T07:40:00.000000+00:00",
+    "error_message": "任务页「清理」弹窗输入 a（全部）后任务没被清除",
+    "file": "src/frontend/js/tasks-view.js",
+    "root_cause": "cancelAllTasks 的 'a' 分支只 targets running+pending，页面残留任务全是 failed/completed 终态 → 匹配 0 个、toast『没有 running/pending 状态的任务』，用户误以为清除失败",
+    "fix": "'a' 改为全部五种状态（running/pending/failed/completed/cancelled），新增 'd'=仅已完成，prompt 文案同步；后端 DELETE /tasks/{id}/remove 无状态限制，无需改后端",
+    "tags": [
+      "frontend",
+      "tasks",
+      "cancelAllTasks",
+      "ux-copy"
+    ]
+  },
+  {
     "id": "bug-ag-memory-deeplink-blank",
     "timestamp": "2026-07-23T23:53:06.895085+00:00",
     "error_message": "agent-team-config.html?team_id=...&agent_id=...&atab=ag-memory 空白/仅 stub",
@@ -2547,5 +2577,56 @@
     "related_bugs": [],
     "occurrences": 2,
     "last_seen": "2026-07-25T02:17:39Z"
+  },
+  {
+    "id": "bug-106",
+    "timestamp": "2026-08-04T08:45:00Z",
+    "error_message": "任务流程基线测试未能运行：.venv 中缺少 pytest（No module named pytest）",
+    "file": "src/backend/tests/test_aws_ops_costdown.py, src/backend/tests/test_request_models.py",
+    "root_cause": "当前虚拟环境未安装 pytest，后端测试命令在收集测试前退出；因此 AWS 模板和任务请求模型的实际测试结果不可判定为通过。",
+    "fix": "已在任务页面 Build/AWS 优化 todos 中加入可重复测试环境检查和 CI 硬失败门禁；本次仅产出审计文档，未修改依赖。",
+    "tags": [
+      "tests",
+      "pytest",
+      "environment",
+      "task-flow",
+      "aws-ops"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-08-04T08:45:00Z"
+  },
+  {
+    "id": "bug-plaza-i18n-mutation-loop",
+    "timestamp": "2026-08-15T07:55:00Z",
+    "error_message": "议事广场页面持续显示加载中，浏览器主线程无响应，Playwright DOM 检查超时",
+    "file": "src/frontend/js/plaza.js",
+    "root_cause": "广场国际化的 MutationObserver 监听整个 body 的 childList，并在回调中调用 PX_I18N.applyAll；applyAll 每次重写 #px-lang-btn.textContent，再次触发 observer，形成无限微任务循环",
+    "fix": "applyPlazaI18n 在调用 applyAll 前 disconnect 观察器，翻译完成后再按原选项 observe；保留动态内容翻译且切断自触发链",
+    "tags": [
+      "frontend",
+      "plaza",
+      "i18n",
+      "mutation-observer",
+      "infinite-loop",
+      "loading"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-08-15T07:55:00Z"
+  },
+  {
+    "id": "bug-workflow-build-system-hardcode",
+    "timestamp": "2026-08-18T07:50:44Z",
+    "error_message": "公有云xOPs 等多成员团队派发任务只有单步执行，无 Build System 式的 7 步分工流水线",
+    "file": "src/backend/agents/api.py",
+    "root_cause": "_generate_workflow 兜底分支硬编码 team_id==build_system 才给 _FULL_PIPELINE；其他团队 agent role 不在 _ROLE_WORKFLOW_MAP 时只能落到单步 execute，且无配置入口",
+    "fix": "AgentTeam 新增 workflow_mode 字段(single/full, __post_init__ 校验, to_dict + team_store 反序列化向后兼容)；_generate_workflow 改为 workflow_mode==full 或 build_system(保留历史) 或 is_cross；PUT /teams/{team_id} 接受 workflow_mode 并 _persist；团队概览页加流水线模式切换下拉",
+    "tags": [
+      "workflow",
+      "pipeline",
+      "team-config",
+      "fairness"
+    ]
   }
 ]

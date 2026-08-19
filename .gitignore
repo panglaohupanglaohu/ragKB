@@ -43,3 +43,6 @@ src/docs/agent_handoffs/
 
 # CodeGraph local index (MIT CLI)
 .codegraph/
+
+# Temp screenshot test files
+_temp/

@@ -1319,6 +1319,8 @@ def team_overview(team_id: str) -> Dict[str, Any]:
 class UpdateTeamRequest(BaseModel):
     name: str = ""
     description: str = ""
+    workflow_mode: str = ""  # ""=不改；single/auto/xops/dev/energy/star/mesh/custom
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class UpdateModelRequest(BaseModel):
@@ -1369,6 +1371,11 @@ def update_team(team_id: str, req: UpdateTeamRequest) -> Dict[str, Any]:
         team.name = req.name
     if req.description:
         team.description = req.description
+    if req.workflow_mode in ("single", "auto", "full", "xops", "dev", "energy", "star", "mesh", "custom"):
+        team.workflow_mode = req.workflow_mode
+    if req.metadata is not None:
+        team.metadata = {**team.metadata, **req.metadata}
+    _tm()._persist()
     return team.to_dict()
 
 
@@ -2780,21 +2787,21 @@ async def _ensure_task_engine_running():
 
 
 async def _check_token_factory_ready(log_prefix: str) -> bool:
-    try:
-        from token_factory import TokenFactory as _TF
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        token_ready = tf_status.get("ready", False)
+    """Check whether LLM backend is available for task execution.
+
+    ponytail: 旧实现 from token_factory import TokenFactory 导入不存在的类，
+    ImportError 被吞导致永远返回 False。改为直接复用 ChatHarness provider
+    config（config/settings.json llm 段），与模型连接测试同源。
+    """
+    api_key, base_url, model_name = _get_deepseek_credentials()
+    if api_key:
         _harness_log.info(
-            "[%s] Token Factory ready=%s, providers=%s",
-            log_prefix,
-            token_ready,
-            [n for n, p in tf._provider_health.items() if p.reachable],
+            "[%s] LLM backend ready via harness: model=%s base_url=%s",
+            log_prefix, model_name, base_url,
         )
-        return token_ready
-    except Exception as exc:
-        _harness_log.warning("[%s] Token Factory check failed: %s", log_prefix, exc)
-        return False
+        return True
+    _harness_log.warning("[%s] LLM backend not ready — no api_key in harness config", log_prefix)
+    return False
 
 
 def _has_execution_backend(log_prefix: str) -> bool:
@@ -3039,18 +3046,14 @@ async def _real_task_executor(task) -> Any:
     ):
         return {"message": "Workflow already running via REST endpoint"}
 
-    # Token Factory preflight — but if direct DeepSeek API is available, skip
+    # LLM backend preflight — use ChatHarness provider config (authoritative)
     api_key, _, _ = _get_deepseek_credentials()
     if api_key:
-        _harness_log.info("[Executor] Direct DeepSeek API available — skipping Token Factory check")
+        _harness_log.info("[Executor] LLM backend available via harness config — proceeding")
     else:
-        from token_factory import TokenFactory as _TF
-        tf = _TF.instance()
-        tf_status = await tf.ensure_ready()
-        if not tf_status.get("ready", False):
-            _harness_log.error("[Executor] Token Factory not ready for task %s — aborting", task.task_id)
-            raise RuntimeError("Token Factory (LLM 推理后端) 不可用，无法执行任务。"
-                               "请确保 Ollama 或其他 LLM 端点已启动。")
+        _harness_log.error("[Executor] LLM backend not available for task %s — aborting", task.task_id)
+        raise RuntimeError("LLM 推理后端不可用，无法执行任务。"
+                           "请在 config/settings.json llm 段配置 api_key。")
 
     # Generate workflow if none exists
     wf = task.metadata.get("workflow")
@@ -3337,50 +3340,284 @@ _ROLE_WORKFLOW_MAP: Dict[str, list] = {
     ],
 }
 
-# Default full pipeline (used for cross-team tasks assigned to PM)
-_FULL_PIPELINE = _ROLE_WORKFLOW_MAP["project_manager"]
+# ── 领域专属流水线模板定义 ──────────────────────────────────────────
+_PIPELINE_TEMPLATES: Dict[str, list] = {
+    # 1. 研发全流程流水线 (适用于 Build System、AI 编程等研发团队)
+    "dev": [
+        {"key": "pm_decompose", "label": "PM需求分解", "agent_role": "project_manager"},
+        {"key": "research", "label": "技术研究分析", "agent_role": "researcher"},
+        {"key": "architecture", "label": "系统架构设计", "agent_role": "architect"},
+        {"key": "develop", "label": "核心代码开发", "agent_role": "developer"},
+        {"key": "test", "label": "质量测试验证", "agent_role": "qa_engineer"},
+        {"key": "deploy", "label": "部署构建上线", "agent_role": "devops"},
+        {"key": "document", "label": "项目文档更新", "agent_role": "documentation"},
+    ],
+    # 2. xOPs 云运维与SRE运营流水线 (适用于 公有云xOPs、AWS运维、公有云平台运维运营 等运维团队)
+    "xops": [
+        {"key": "ops_triage", "label": "事件响应与调度", "agent_role": "incident_commander"},
+        {"key": "sre_design", "label": "SRE方案设计", "agent_role": "platform_sre_architect"},
+        {"key": "automation_exec", "label": "自动化作业实施", "agent_role": "automation_platform_engineer"},
+        {"key": "cloud_delivery", "label": "多云服务落地", "agent_role": "cloud_service_owner"},
+        {"key": "security_audit", "label": "安全合规审计", "agent_role": "security_compliance_engineer"},
+        {"key": "finops_review", "label": "FinOps成本复盘", "agent_role": "finops_analyst"},
+        {"key": "sop_postmortem", "label": "运营归档与SOP", "agent_role": "domestic_cloud_service_owner"},
+    ],
+    # 3. 绿色数据中心与能效调优流水线 (适用于 Energy First Principle 等能效治理团队)
+    "energy": [
+        {"key": "anomaly_sensing", "label": "异常功耗感知", "agent_role": "anomaly_detector"},
+        {"key": "thermal_analysis", "label": "热力分布分析", "agent_role": "thermal_engineer"},
+        {"key": "pue_opt", "label": "PUE能效调优", "agent_role": "energy_optimizer"},
+        {"key": "evolution_verify", "label": "达尔文演化验证", "agent_role": "evolution_engineer"},
+        {"key": "policy_audit", "label": "政策合规审计", "agent_role": "policy_analyst"},
+        {"key": "forecast_archive", "label": "负荷预测与归档", "agent_role": "forecast_analyst"},
+    ],
+}
+
+# Default full pipeline (backward compatibility alias for dev)
+_FULL_PIPELINE = _PIPELINE_TEMPLATES["dev"]
+
+# Candidate aliases for pipeline step roles across all team domains
+_ROLE_FALLBACK_CANDIDATES: Dict[str, list] = {
+    # 研发类角色候选别名
+    "project_manager": [
+        "project_manager", "cloud_ops_finops_owner", "运维Leader", "incident_commander",
+        "leader", "owner", "manager", "pm", "负责人", "指挥官",
+    ],
+    "researcher": [
+        "researcher", "finops_analyst", "anomaly_detector", "巡检监控员", "成本优化成员",
+        "analyst", "sentinel", "watchdog", "分析", "巡检", "研究",
+    ],
+    "architect": [
+        "architect", "platform_sre_architect", "上云架构师", "sre", "架构",
+    ],
+    "developer": [
+        "developer", "automation_platform_engineer", "运维操作员", "engineer",
+        "automation", "operator", "开发", "工程师", "操作",
+    ],
+    "qa_engineer": [
+        "qa_engineer", "security_compliance_engineer", "tester", "qa", "security",
+        "compliance", "verifier", "安全", "合规", "测试",
+    ],
+    "devops": [
+        "devops", "aws_service_owner", "azure_service_owner", "aliyun_service_owner",
+        "gcp_service_owner", "domestic_cloud_service_owner", "deployer", "运维操作员",
+        "运维", "部署",
+    ],
+    "documentation": [
+        "documentation", "domestic_cloud_service_owner", "doc_writer", "文档", "writer", "doc",
+    ],
+
+    # xOPs / 云运维 / SRE 类角色候选别名
+    "incident_commander": [
+        "incident_commander", "cloud_ops_finops_owner", "运维Leader", "operations_lead",
+        "project_manager", "leader", "指挥官", "值班", "调度", "负责人",
+    ],
+    "platform_sre_architect": [
+        "platform_sre_architect", "上云架构师", "cloud_architect", "architect", "sre", "架构",
+    ],
+    "automation_platform_engineer": [
+        "automation_platform_engineer", "运维操作员", "operations_operator", "developer",
+        "automation", "自动化", "操作", "平台", "工程师",
+    ],
+    "cloud_service_owner": [
+        "aws_service_owner", "azure_service_owner", "aliyun_service_owner", "gcp_service_owner",
+        "domestic_cloud_service_owner", "北美AI项目运维员", "devops", "云服务", "实施", "运维",
+    ],
+    "security_compliance_engineer": [
+        "security_compliance_engineer", "regional_compliance", "qa_engineer", "tester",
+        "security", "compliance", "安全", "合规", "风控",
+    ],
+    "finops_analyst": [
+        "finops_analyst", "cost_optimizer", "成本优化成员", "cloud-finops", "finops", "成本", "财务", "分析",
+    ],
+    "domestic_cloud_service_owner": [
+        "domestic_cloud_service_owner", "cloud_ops_finops_owner", "doc_writer", "documentation",
+        "ccoe", "云卓越中心治理", "文档", "归档", "复盘", "SOP",
+    ],
+
+    # 能效治理类角色候选别名
+    "anomaly_detector": [
+        "anomaly_detector", "anomaly_watchdog", "巡检监控员", "monitoring", "watchdog", "巡检", "异常",
+    ],
+    "thermal_engineer": [
+        "thermal_engineer", "thermal_sentinel", "sentinel", "热力", "温控",
+    ],
+    "energy_optimizer": [
+        "energy_optimizer", "pue_optimizer", "optimizer", "能效", "pue",
+    ],
+    "evolution_engineer": [
+        "evolution_engineer", "darwin_ratchet", "ratchet", "演化", "棘轮",
+    ],
+    "policy_analyst": [
+        "policy_analyst", "policy_engine", "合规", "政策", "审计",
+    ],
+    "forecast_analyst": [
+        "forecast_analyst", "forecast_planner", "planner", "预测", "调度",
+    ],
+}
+
+
+def _infer_team_pipeline_type(team: Optional[Any], team_id: str) -> str:
+    """Infer the domain-specific pipeline template ('xops', 'dev', or 'energy') for a team."""
+    t_id = (getattr(team, "team_id", "") if team else "") or team_id or ""
+    t_name = (getattr(team, "name", "") if team else "") or ""
+    combined = f"{t_id} {t_name}".lower()
+
+    # 1. Check Energy domain
+    if any(k in combined for k in ("energy", "pue", "thermal", "节能", "能效")):
+        return "energy"
+    # 2. Check xOPs / Cloud Ops domain
+    if any(k in combined for k in ("ops", "cloud", "aws", "sre", "运维", "云平台", "finops")):
+        return "xops"
+
+    # 3. Check agent roles inside team
+    agents_list = []
+    if team:
+        agents_val = getattr(team, "agents", None)
+        if isinstance(agents_val, dict):
+            agents_list = list(agents_val.values())
+        elif isinstance(agents_val, list):
+            agents_list = agents_val
+
+    ops_role_markers = (
+        "cloud_ops", "sre", "finops", "incident", "aws_", "azure_", "aliyun_", "gcp_",
+        "domestic_cloud", "运维", "巡检", "上云"
+    )
+    for a in agents_list:
+        a_role = (getattr(a, "role", "") or "").lower()
+        if any(m in a_role for m in ops_role_markers):
+            return "xops"
+
+    energy_role_markers = ("energy", "pue", "thermal", "ratchet")
+    for a in agents_list:
+        a_role = (getattr(a, "role", "") or "").lower()
+        if any(m in a_role for m in energy_role_markers):
+            return "energy"
+
+    return "dev"
+
+
+def _find_agent_for_pipeline_role(
+    role_needed: str,
+    agents_list: list,
+    default_agent_id: str = "",
+) -> str:
+    """Find the best matching agent in team for a pipeline role, with semantic fallbacks."""
+    if not agents_list:
+        return default_agent_id
+    # 1. Exact role match
+    for a in agents_list:
+        a_role = a.get("role", "") if isinstance(a, dict) else getattr(a, "role", "")
+        a_id = a.get("agent_id", "") if isinstance(a, dict) else getattr(a, "agent_id", "")
+        if a_role == role_needed and a_id:
+            return a_id
+    # 2. Candidate role list / substring match on role or name
+    candidates = _ROLE_FALLBACK_CANDIDATES.get(role_needed, [role_needed])
+    for cand in candidates:
+        for a in agents_list:
+            a_role = (a.get("role", "") if isinstance(a, dict) else getattr(a, "role", "")) or ""
+            a_name = (a.get("name", "") if isinstance(a, dict) else getattr(a, "name", "")) or ""
+            a_id = a.get("agent_id", "") if isinstance(a, dict) else getattr(a, "agent_id", "")
+            if not a_id:
+                continue
+            if cand.lower() in a_role.lower() or cand.lower() in a_name.lower():
+                return a_id
+    # 3. Fallback: default_agent_id or first agent in team
+    if default_agent_id:
+        return default_agent_id
+    first = agents_list[0]
+    return first.get("agent_id", "") if isinstance(first, dict) else getattr(first, "agent_id", "")
 
 
 def _generate_workflow(task: "AgentTask", team_id: str) -> list:
-    """Generate workflow steps for a task based on its agent role."""
+    """Generate workflow steps for a task based on its agent role and team pipeline mode."""
     tm = _tm()
     agent = tm.get_agent(team_id, task.agent_id) if task.agent_id else None
+    team = tm.get_team(team_id)
+
+    # Resolve agent list in team
+    agents_list = []
+    if team:
+        agents_val = team.get("agents", []) if isinstance(team, dict) else getattr(team, "agents", [])
+        if isinstance(agents_val, dict):
+            agents_list = list(agents_val.values())
+        elif isinstance(agents_val, list):
+            agents_list = agents_val
 
     # Determine role
     role = ""
     if agent:
         role = getattr(agent, "role", "")
-    # Cross-team tasks default to full pipeline
     is_cross = task.metadata.get("cross_team", False)
-    if is_cross and not role:
-        role = "project_manager"
 
-    steps_template = _ROLE_WORKFLOW_MAP.get(role, [])
-    if not steps_template:
-        # Default to full pipeline for build_system team, single step otherwise
-        if team_id == "build_system" or is_cross:
-            steps_template = _FULL_PIPELINE
-        else:
+    wf_mode = getattr(team, "workflow_mode", "single") if team else "single"
+    if wf_mode == "full":
+        # "full" is normalized to "auto"
+        wf_mode = "auto"
+
+    steps_template = []
+    if wf_mode == "single":
+        # Check if individual agent role has a mapped workflow
+        steps_template = _ROLE_WORKFLOW_MAP.get(role, [])
+        if not steps_template:
             label = (agent.name if agent else task.agent_id) or "执行"
             steps_template = [{"key": "execute", "label": label, "agent_role": role or "unknown"}]
-
-    # Resolve agent_id for each role in this team
-    role_to_agent: Dict[str, str] = {}
-    team = tm.get_team(team_id)
-    if team:
-        agents_list = team.get("agents", []) if isinstance(team, dict) else getattr(team, "agents", [])
-        if isinstance(agents_list, dict):
-            agents_list = list(agents_list.values())
+    elif wf_mode in _PIPELINE_TEMPLATES:
+        steps_template = _PIPELINE_TEMPLATES[wf_mode]
+    elif wf_mode == "star":
+        leader_id = _find_agent_for_pipeline_role("incident_commander", agents_list, default_agent_id=task.agent_id or "")
+        leader_agent = next((a for a in agents_list if (a.get("agent_id") if isinstance(a, dict) else getattr(a, "agent_id", "")) == leader_id), None)
+        leader_name = (leader_agent.get("name") if isinstance(leader_agent, dict) else getattr(leader_agent, "name", "")) if leader_agent else "中枢总控"
+        steps_template = [{"key": "star_dispatch", "label": f"{leader_name}·总控分发", "agent_role": "incident_commander"}]
         for a in agents_list:
-            a_role = a.get("role", "") if isinstance(a, dict) else getattr(a, "role", "")
-            a_id = a.get("agent_id", "") if isinstance(a, dict) else getattr(a, "agent_id", "")
-            a_name = a.get("name", "") if isinstance(a, dict) else getattr(a, "name", "")
-            if a_role and a_id:
-                role_to_agent[a_role] = a_id
+            aid = a.get("agent_id") if isinstance(a, dict) else getattr(a, "agent_id", "")
+            aname = a.get("name") if isinstance(a, dict) else getattr(a, "name", "")
+            arole = a.get("role") if isinstance(a, dict) else getattr(a, "role", "")
+            if aid and aid != leader_id:
+                steps_template.append({"key": f"star_{aid}", "label": f"{aname}·专项协同", "agent_role": arole or "developer"})
+        steps_template.append({"key": "star_aggregate", "label": f"{leader_name}·汇总验收", "agent_role": "incident_commander"})
+    elif wf_mode == "mesh":
+        steps_template = []
+        for i, a in enumerate(agents_list):
+            aid = a.get("agent_id") if isinstance(a, dict) else getattr(a, "agent_id", "")
+            aname = a.get("name") if isinstance(a, dict) else getattr(a, "name", "")
+            arole = a.get("role") if isinstance(a, dict) else getattr(a, "role", "")
+            if aid:
+                steps_template.append({"key": f"mesh_step_{i+1}", "label": f"{aname}·对等协同", "agent_role": arole or "developer"})
+        if not steps_template:
+            steps_template = [{"key": "execute", "label": "全员协同执行", "agent_role": "collaborator"}]
+    elif wf_mode == "custom":
+        custom_links = (team.metadata or {}).get("custom_topology", []) if team else []
+        if custom_links:
+            seen_steps = set()
+            steps_template = []
+            for link in custom_links:
+                src = link.get("source")
+                tgt = link.get("target")
+                for node_id in (src, tgt):
+                    if node_id and node_id not in seen_steps:
+                        seen_steps.add(node_id)
+                        node_agent = next((a for a in agents_list if (a.get("agent_id") if isinstance(a, dict) else getattr(a, "agent_id", "")) == node_id), None)
+                        node_name = (node_agent.get("name") if isinstance(node_agent, dict) else getattr(node_agent, "name", "")) if node_agent else node_id
+                        node_role = (node_agent.get("role") if isinstance(node_agent, dict) else getattr(node_agent, "role", "")) if node_agent else "developer"
+                        steps_template.append({
+                            "key": f"custom_{node_id}",
+                            "label": f"{node_name}·作业阶段",
+                            "agent_role": node_role or "developer",
+                        })
+        if not steps_template:
+            inferred_domain = _infer_team_pipeline_type(team, team_id)
+            steps_template = _PIPELINE_TEMPLATES.get(inferred_domain, _PIPELINE_TEMPLATES["dev"])
+    else:
+        # "auto" or cross-team or fallback: infer domain pipeline for the team
+        inferred_domain = _infer_team_pipeline_type(team, team_id)
+        steps_template = _PIPELINE_TEMPLATES.get(inferred_domain, _PIPELINE_TEMPLATES["dev"])
 
     steps = []
     for i, tmpl in enumerate(steps_template):
-        resolved_agent = role_to_agent.get(tmpl["agent_role"], "")
+        resolved_agent = _find_agent_for_pipeline_role(
+            tmpl["agent_role"], agents_list, default_agent_id=task.agent_id or ""
+        )
         steps.append({
             "index": i,
             "key": tmpl["key"],
@@ -3625,14 +3862,11 @@ async def resume_blocked_task(team_id: str, task_id: str) -> Dict[str, Any]:
     if task is None or task.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    # Token Factory preflight
-    from token_factory import TokenFactory as _TF
-    tf = _TF.instance()
-    tf_status = await tf.ensure_ready()
-    if not tf_status.get("ready", False):
+    # LLM backend preflight — use ChatHarness provider config
+    if not _has_execution_backend("resume_blocked_task"):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Token Factory (LLM 推理后端) 仍不可用，请先确保 Ollama 或 LLM 端点已启动。"
+            detail="LLM 推理后端不可用，请在 config/settings.json llm 段配置 api_key。"
         )
 
     wf = task.metadata.get("workflow", [])

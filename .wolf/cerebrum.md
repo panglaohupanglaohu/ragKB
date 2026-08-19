@@ -5,6 +5,7 @@
 > Last updated: 2026-06-12
 
 ## User Preferences
+- [2026-08-15] 议事广场国际化不接受页面内巨型中英文本映射 + 全 body MutationObserver 重扫方案；应使用明确翻译键、可控动态渲染和项目共享 i18n 接口，避免隐式文本替换与主线程风险。
 - [2026-07-25] 模型与连接里配的全局 LLM 必须全局生效，其它路由/团队模型/硬编码一律不要生效。
 - [2026-07-16] **Taste Skill 官方源** = https://www.tasteskill.dev （`npx skills add Leonxlnx/taste-skill --skill design-taste-frontend`；本地 `.agents/skills/design-taste-frontend/SKILL.md`）。规则要点：Page Theme Lock / Color Consistency Lock（单 accent）/ 禁 AI-purple·mesh / off-white+off-black 勿纯色。产品台浅色壳：`html.taste-light` + `css/taste-light.css`（除数字孪生暗色沉浸）；Skill 原文偏 landing，控制台取 cockpit 密度 dials。
 - [2026-07-16] skill-extract 3D 用 **TASTE3D**（`skill-extract.js`）：背景 `#F3F5F8`、accent `#1F6B4A`、冷 slate 基质；技能私有=forest 系、公共=warn amber 语义色；**禁止** twin sexy 彩虹（紫/粉/霓虹青）。数字孪生页仍可暗色沉浸，勿与 skill-extract 浅色培养皿混用同一套 neon palette。
@@ -34,6 +35,10 @@
 
 
 ## Key Learnings
+- [2026-08-15] DOM-walker i18n 与 MutationObserver 组合时，调用 `applyAll()` 前必须 `disconnect()`，完成后再 `observe()`；`applyAll()` 会重写语言按钮 `textContent`，若观察 `childList` 且不断开会自触发微任务循环，页面表现为永久加载、Playwright 无法执行。
+- [2026-08-05] 用户确认「智能体团队→模型与连接」的模型连接测试可用；排查任务 `token_factory_ready=false` 时，不能把它归因于上游大模型不可用，需区分模型连接状态与 TokenFactory 运行时类/适配器是否存在。
+- [2026-08-04] 任务页审计：AWS 运维团队 Agent 的展示 role 是中文业务角色，不能直接假设等于 `_ROLE_WORKFLOW_MAP` 的规范 role；任务 workflow 必须显式保存 `workflow_role` 并在启动前拒绝 unresolved agent。`tasks.html` 仍有旧数组读取，不能只看 `tasks-view.js` 的分页测试。
+- [2026-08-04] 任务提交存在单条 REST、批量、手动启动三条不同路径；任何新增字段（如 `execution_mode`）和预检都必须在三条路径共享，否则 UI 选择值会被丢弃或流程行为不一致。
 - [2026-07-28] Agent记忆补完收口：M-3.2b 真 LLM 五组（`experiment_agent_memory_adaptation_llm.py`，glm-5.1，30 cells）；`inherited_hits_for_recall` 必须软相关（token/bigram/hash），禁止整句精确子串——否则中文标题召不回 es_scale 继承记忆（首轮全 mem_chars=67 假阳性）。M-3.3b 审计：生产 team_v/* log=20+sum=40 + 协议重跑。
 - [2026-07-27] Agent记忆补完：迁移引擎 `agent_memory_migration.py`（export v2 强校验/三策略/inherited 分区/事务回滚/Will preflight+execute）；默认 merge；旧 /transfer 走 Will；AFFECT 72h 半衰期用 0.5**(dt/half_life)；Plaza 发言后 after_agent_plaza_message；实验 `scripts/experiment_agent_memory_adaptation.py` 隔离 tempfile。
 - [2026-07-27] S1 L3：数字孪生 loadLiveMetrics=/tasks/stats+/extraction/stats 是全局 KPI，不按 team/trial 过滤；「当前演练」卡只读 dtContext/_sx（team/scene/task/steps/reward/trial），经 dtRefresh→renderArchitecture→renderDashboard；task_engine.stats 的 running 是 engine bool，前端用 by_status 计数（_mapTaskEngineStats）。

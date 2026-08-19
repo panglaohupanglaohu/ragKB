@@ -119,6 +119,8 @@ class TeamStore:
             metadata=data.get("metadata", {}),
             # ND-1.1: runtime 字段向后兼容（旧数据缺字段默认 "legacy"）
             runtime=data.get("runtime", "legacy") or "legacy",
+            # 流水线模式向后兼容（旧数据缺字段默认 "single"）
+            workflow_mode=data.get("workflow_mode", "single") or "single",
         )
         # Agents
         for aid, adata in data.get("agents", {}).items():

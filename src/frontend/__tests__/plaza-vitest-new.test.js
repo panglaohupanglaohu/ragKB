@@ -13,8 +13,8 @@ describe('Plaza confirm→modal (E-1)', () => {
   it('deletePlaza uses showConfirm not confirm()', () => {
     const src = read('src/frontend/js/plaza.js');
     expect(src).toContain('function showConfirm(');
-    expect(src).toContain('showConfirm(`确定删除广场');
-    expect(src).toContain('showConfirm(\'删除这个讨论？\'');
+    expect(src).toContain("showConfirm(plazaT('confirm.deletePlaza'");
+    expect(src).toContain("showConfirm(plazaT('confirm.deleteDiscussion')");
     expect(src).not.toContain("confirm('删除这个讨论？')");
     expect(src).not.toContain("confirm(`确定删除广场");
   });

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="taste-light">
+<html lang="zh-CN" class="taste-light" data-px-i18n-manual>
 <head>
 <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://ga.jspm.io https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://ga.jspm.io; media-src 'self' data: blob:; img-src 'self' data:;">
@@ -291,9 +291,9 @@ html.taste-light{
 
 <header class="topbar-ws">
   <div class="topbar-ws__left">
-    <h1>议事广场</h1>
+    <h1 data-plaza-i18n="page.heading">议事广场</h1>
   </div>
-  <nav class="topbar-ws__nav" aria-label="主导航" data-nav-auto>
+  <nav class="topbar-ws__nav" aria-label="主导航" data-plaza-i18n-aria-label="nav.aria" data-nav-auto>
     <a href="/agent-team-config.html">智能体团队</a>
     <a href="/plaza.html">议事广场</a>
     <a href="/skill-extract.html">技能萃取</a>
@@ -302,28 +302,29 @@ html.taste-light{
     <a href="/pet-config.html">生态配置</a>
   </nav>
   <div class="topbar-ws__right">
+    <button type="button" class="topbar-ws__logout-btn" id="px-lang-btn" data-plaza-i18n="action.language">中/EN</button>
     <div class="topbar-ws__user">
       <span class="topbar-ws__user-avatar" id="topbar-avatar">U</span>
       <span class="topbar-ws__user-name" id="topbar-user">guest</span>
-      <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()">登出</button>
+      <button class="topbar-ws__logout-btn" onclick="window._agLogout && window._agLogout()" data-plaza-i18n="action.logout">登出</button>
     </div>
   </div>
 </header>
 
 <div class="layout">
   <div class="left">
-    <div class="hd"><h2>广场</h2><div class="sub">CONCRETE ARENA</div></div>
-    <div class="list" id="plaza-list"><div class="plaza-loading" style="padding:20px;color:var(--dim);text-align:center;font-size:10px">加载中…</div></div>
-    <button class="btn-new" onclick="openCreatePlaza()">+ 新建广场</button>
+    <div class="hd"><h2 data-plaza-i18n="plaza.heading">广场</h2><div class="sub">CONCRETE ARENA</div></div>
+    <div class="list" id="plaza-list"><div class="plaza-loading" style="padding:20px;color:var(--dim);text-align:center;font-size:10px" data-plaza-i18n="plaza.loading">加载中…</div></div>
+    <button class="btn-new" onclick="openCreatePlaza()" data-plaza-i18n="plaza.new">+ 新建广场</button>
   </div>
 
   <div class="center" id="arena-container">
     <canvas id="three-canvas"></canvas>
-    <button class="tts-btn" id="tts-toggle" title="语音播报">
+    <button class="tts-btn" id="tts-toggle" title="语音播报" data-plaza-i18n-title="tts.toggle">
       <svg id="tts-icon-on" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
       <svg id="tts-icon-off" style="display:none" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
     </button>
-    <button class="tts-btn" id="pause-toggle" style="top:52px;right:12px" title="暂停/继续">
+    <button class="tts-btn" id="pause-toggle" style="top:52px;right:12px" title="暂停/继续" data-plaza-i18n-title="tts.pause">
       <svg id="pause-icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
       <svg id="play-icon" style="display:none" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
     </button>
@@ -331,22 +332,22 @@ html.taste-light{
 
   <div class="right">
     <div class="section" id="disc-section">
-      <div class="sec-title">DISCUSSIONS</div>
-      <div id="disc-list"><div style="color:var(--dim);font-size:10px">先选择广场</div></div>
-      <button class="btn" style="width:100%;margin-top:8px" onclick="openCreateDisc()">+ 新建讨论</button>
+      <div class="sec-title" data-plaza-i18n="discussion.heading">讨论</div>
+      <div id="disc-list"><div style="color:var(--dim);font-size:10px" data-plaza-i18n="plaza.selectFirst">先选择广场</div></div>
+      <button class="btn" style="width:100%;margin-top:8px" onclick="openCreateDisc()" data-plaza-i18n="discussion.new">+ 新建讨论</button>
     </div>
     <div class="msg-log" id="msg-log">
       <div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;letter-spacing:1px;font-family:var(--font-mono)">
-        SELECT PLAZA · CREATE DISCUSSION<br>全员自动入座
+        SELECT PLAZA · CREATE DISCUSSION<br><span data-plaza-i18n="discussion.seatingHint">全员自动入座</span>
       </div>
     </div>
     <div id="plan-panel" style="display:none"></div>
     <div class="chat-input-bar" id="chat-input-bar">
-      <input type="text" class="chat-input" id="chat-input" placeholder="向议事长提问或建议…" onkeydown="if(event.key==='Enter')sendInterject()">
-      <button class="chat-send-btn" onclick="sendInterject()">发送</button>
+      <input type="text" class="chat-input" id="chat-input" placeholder="向议事长提问或建议…" data-plaza-i18n-placeholder="chat.placeholder" onkeydown="if(event.key==='Enter')sendInterject()">
+      <button class="chat-send-btn" onclick="sendInterject()" data-plaza-i18n="action.send">发送</button>
     </div>
     <div class="ctrl-bar">
-      <button class="btn-start" id="btn-start" onclick="startDiscussion()" disabled>开始</button>
+      <button class="btn-start" id="btn-start" onclick="startDiscussion()" disabled data-plaza-i18n="action.start">开始</button>
       <span class="status-text" id="status-text"></span>
     </div>
   </div>
@@ -356,52 +357,52 @@ html.taste-light{
 
 <div class="modal-overlay" id="m-plaza" onclick="if(event.target===this)closeM(this.id)">
   <div class="modal" style="width:520px">
-    <h3>创建广场</h3>
-    <div class="fg"><label class="fl">NAME</label><input class="fi" id="inp-pn" placeholder="如: 技术决策广场"></div>
-    <div class="fg"><label class="fl">DESCRIPTION</label><textarea class="fi" id="inp-pd" placeholder="广场用途"></textarea></div>
+    <h3 data-plaza-i18n="plaza.create">创建广场</h3>
+    <div class="fg"><label class="fl">NAME</label><input class="fi" id="inp-pn" placeholder="如: 技术决策广场" data-plaza-i18n-placeholder="plaza.name.placeholder"></div>
+    <div class="fg"><label class="fl">DESCRIPTION</label><textarea class="fi" id="inp-pd" placeholder="广场用途" data-plaza-i18n-placeholder="plaza.description.placeholder"></textarea></div>
     <div class="fg">
-      <label class="fl">选择智能体 <span id="agent-sel-count" style="color:var(--slit-glow)"></span></label>
+      <label class="fl"><span data-plaza-i18n="plaza.selectAgents">选择智能体</span> <span id="agent-sel-count" style="color:var(--slit-glow)"></span></label>
       <div class="agent-tree" id="agent-tree"><div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div></div>
     </div>
     <div class="fg">
-      <label class="fl">议事长（CHAIRPERSON）</label>
-      <select class="chair-select" id="inp-chair"><option value="">— 请先勾选智能体 —</option></select>
+      <label class="fl" data-plaza-i18n="plaza.chairperson">议事长（CHAIRPERSON）</label>
+      <select class="chair-select" id="inp-chair"><option value="" data-plaza-i18n="plaza.selectAgentsFirst">— 请先勾选智能体 —</option></select>
     </div>
-    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-plaza')">取消</button><button class="btn-primary" onclick="doCreatePlaza()">创建</button></div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-plaza')" data-plaza-i18n="action.cancel">取消</button><button class="btn-primary" onclick="doCreatePlaza()" data-plaza-i18n="action.create">创建</button></div>
   </div>
 </div>
 
 <div class="modal-overlay" id="m-edit-plaza" onclick="if(event.target===this)closeM(this.id)">
   <div class="modal" style="width:520px">
-    <h3 id="edit-plaza-title">编辑广场</h3>
+    <h3 id="edit-plaza-title" data-plaza-i18n="plaza.edit">编辑广场</h3>
     <div class="fg">
       <label class="fl">选择智能体 <span id="edit-agent-sel-count" style="color:var(--slit-glow)"></span></label>
       <div class="agent-tree" id="edit-agent-tree"><div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div></div>
     </div>
-    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-edit-plaza')">取消</button><button class="btn-primary" onclick="doSaveEditPlaza()">保存</button></div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-edit-plaza')" data-plaza-i18n="action.cancel">取消</button><button class="btn-primary" onclick="doSaveEditPlaza()" data-plaza-i18n="action.save">保存</button></div>
   </div>
 </div>
 
 <div class="modal-overlay" id="m-disc" onclick="if(event.target===this)closeM(this.id)">
-  <div class="modal"><h3>创建讨论</h3>
-    <div class="fg"><label class="fl">TOPIC</label><input class="fi" id="inp-dt" placeholder="核心问题"></div>
-    <div class="fg"><label class="fl">GOAL</label><input class="fi" id="inp-dg" placeholder="期望达成"></div>
-    <div class="fg"><label class="fl">CONTEXT</label><textarea class="fi" id="inp-dd" placeholder="背景与产出"></textarea></div>
+  <div class="modal"><h3 data-plaza-i18n="discussion.create">创建讨论</h3>
+    <div class="fg"><label class="fl">TOPIC</label><input class="fi" id="inp-dt" placeholder="核心问题" data-plaza-i18n-placeholder="discussion.topic.placeholder"></div>
+    <div class="fg"><label class="fl">GOAL</label><input class="fi" id="inp-dg" placeholder="期望达成" data-plaza-i18n-placeholder="discussion.goal.placeholder"></div>
+    <div class="fg"><label class="fl">CONTEXT</label><textarea class="fi" id="inp-dd" placeholder="背景与产出" data-plaza-i18n-placeholder="discussion.context.placeholder"></textarea></div>
     <div class="fg"><label class="fl">MODERATOR</label><select class="fi" id="inp-dm"></select></div>
     <div class="fg"><label class="fl">ROUNDS</label><select class="fi" id="inp-dr">
-      <option value="1">1 轮</option><option value="2" selected>2 轮</option><option value="3">3 轮</option><option value="5">5 轮</option>
+      <option value="1" data-plaza-i18n="discussion.rounds.one">1 轮</option><option value="2" selected>2 轮</option><option value="3">3 轮</option><option value="5">5 轮</option>
     </select></div>
-    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-disc')">取消</button><button class="btn-primary" onclick="doCreateDisc()">创建</button></div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeM('m-disc')" data-plaza-i18n="action.cancel">取消</button><button class="btn-primary" onclick="doCreateDisc()" data-plaza-i18n="action.create">创建</button></div>
   </div>
 </div>
 
 <div class="modal-overlay" id="m-confirm" onclick="if(event.target===this)closeM(this.id)">
   <div class="modal" style="max-width:360px">
-    <h3 style="margin-bottom:10px">确认操作</h3>
+    <h3 style="margin-bottom:10px" data-plaza-i18n="confirm.heading">确认操作</h3>
     <div id="confirm-msg" style="font-size:12px;padding:12px 0;color:var(--text);line-height:1.6"></div>
     <div class="modal-actions">
-      <button class="btn-cancel" onclick="closeM('m-confirm')">取消</button>
-      <button id="confirm-ok-btn" class="btn-primary">确认</button>
+      <button class="btn-cancel" onclick="closeM('m-confirm')" data-plaza-i18n="action.cancel">取消</button>
+      <button id="confirm-ok-btn" class="btn-primary" data-plaza-i18n="action.confirm">确认</button>
     </div>
   </div>
 </div>
@@ -409,6 +410,7 @@ html.taste-light{
 <script src="/js/utils.js"></script>
   <script src="/js/api.js"></script>
 <script src="/js/nav.js" data-page="plaza"></script>
+  <script src="/js/i18n.js"></script>
   <script src="/js/evidence-runs.js"></script>
   <script src="/js/ag-context.js"></script>
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.1/dist/es-module-shims.js"></script>

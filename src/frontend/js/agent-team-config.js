@@ -166,7 +166,11 @@ async function loadTeams(){
   s.innerHTML=d.map(t=>`<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join('');
   if(!tid)tid=d[0].team_id;s.value=tid;loadView();
 }
-el('team-select').onchange=e=>{tid=e.target.value;loadView()};
+el('team-select').onchange=e=>{
+  tid=e.target.value;
+  if(typeof toggleTopologyEditMode==='function') toggleTopologyEditMode(false);
+  loadView();
+};
 
 // ── View switch ──
 function switchView(v,extra){
@@ -271,6 +275,713 @@ window.deleteAgentFromList=deleteAgentFromList;
 
 // ── Overview ──
 let _ovTimer=null;
+
+// ── 团队成员协作环状图 & 拓扑设计系统 ──────────────────────────────
+const _TOPO_PRESETS = {
+  dev: {
+    key: 'dev',
+    name: '全流程研发协作环',
+    badge: '💻 研发全流水线',
+    steps: [
+      { key: 'pm_decompose', label: 'PM需求分解', role: 'project_manager', icon: '📋' },
+      { key: 'research', label: '技术研究分析', role: 'researcher', icon: '🔬' },
+      { key: 'architecture', label: '系统架构设计', role: 'architect', icon: '📐' },
+      { key: 'develop', label: '核心代码开发', role: 'developer', icon: '💻' },
+      { key: 'test', label: '质量测试验证', role: 'qa_engineer', icon: '🧪' },
+      { key: 'deploy', label: '部署构建上线', role: 'devops', icon: '🚀' },
+      { key: 'document', label: '项目文档更新', role: 'documentation', icon: '📝' },
+    ]
+  },
+  xops: {
+    key: 'xops',
+    name: 'xOPs 云运维与SRE运营环',
+    badge: '☁️ xOPs 运营环',
+    steps: [
+      { key: 'ops_triage', label: '事件响应与调度', role: 'incident_commander', icon: '🚨' },
+      { key: 'sre_design', label: 'SRE方案设计', role: 'platform_sre_architect', icon: '🛡️' },
+      { key: 'automation_exec', label: '自动化作业实施', role: 'automation_platform_engineer', icon: '⚙️' },
+      { key: 'cloud_delivery', label: '多云服务落地', role: 'cloud_service_owner', icon: '🌐' },
+      { key: 'security_audit', label: '安全合规审计', role: 'security_compliance_engineer', icon: '🔒' },
+      { key: 'finops_review', label: 'FinOps成本复盘', role: 'finops_analyst', icon: '💰' },
+      { key: 'sop_postmortem', label: '运营归档与SOP', role: 'domestic_cloud_service_owner', icon: '📚' },
+    ]
+  },
+  energy: {
+    key: 'energy',
+    name: '绿色能效与达尔文演化环',
+    badge: '⚡ 能效治理环',
+    steps: [
+      { key: 'anomaly_sensing', label: '异常功耗感知', role: 'anomaly_detector', icon: '📡' },
+      { key: 'thermal_analysis', label: '热力分布分析', role: 'thermal_engineer', icon: '🌡️' },
+      { key: 'pue_opt', label: 'PUE能效调优', role: 'energy_optimizer', icon: '⚡' },
+      { key: 'evolution_verify', label: '达尔文演化验证', role: 'evolution_engineer', icon: '🧬' },
+      { key: 'policy_audit', label: '政策合规审计', role: 'policy_analyst', icon: '📜' },
+      { key: 'forecast_archive', label: '负荷预测与归档', role: 'forecast_analyst', icon: '📈' },
+    ]
+  }
+};
+
+const _ROLE_FALLBACK_CANDIDATES = {
+  project_manager: ['project_manager', 'cloud_ops_finops_owner', '运维Leader', 'incident_commander', 'leader', 'owner', 'manager', 'pm', '负责人', '指挥官'],
+  researcher: ['researcher', 'finops_analyst', 'anomaly_detector', '巡检监控员', '成本优化成员', 'analyst', 'sentinel', 'watchdog', '分析', '巡检', '研究'],
+  architect: ['architect', 'platform_sre_architect', '上云架构师', 'sre', '架构'],
+  developer: ['developer', 'automation_platform_engineer', '运维操作员', 'engineer', 'automation', 'operator', '开发', '工程师', '操作'],
+  qa_engineer: ['qa_engineer', 'security_compliance_engineer', 'tester', 'qa', 'security', 'compliance', 'verifier', '安全', '合规', '测试'],
+  devops: ['devops', 'aws_service_owner', 'azure_service_owner', 'aliyun_service_owner', 'gcp_service_owner', 'domestic_cloud_service_owner', 'deployer', '运维操作员', '运维', '部署'],
+  documentation: ['documentation', 'domestic_cloud_service_owner', 'doc_writer', '文档', 'writer', 'doc'],
+
+  incident_commander: ['incident_commander', 'cloud_ops_finops_owner', '运维Leader', 'operations_lead', 'leader', '指挥官', '值班', '调度', '负责人'],
+  platform_sre_architect: ['platform_sre_architect', '上云架构师', 'cloud_architect', 'architect', 'sre', '架构'],
+  automation_platform_engineer: ['automation_platform_engineer', '运维操作员', 'operations_operator', 'developer', 'automation', '自动化', '操作', '平台', '工程师'],
+  cloud_service_owner: ['aws_service_owner', 'azure_service_owner', 'aliyun_service_owner', 'gcp_service_owner', 'domestic_cloud_service_owner', '北美AI项目运维员', 'devops', '云服务', '实施', '运维'],
+  security_compliance_engineer: ['security_compliance_engineer', 'regional_compliance', 'qa_engineer', 'tester', 'security', 'compliance', '安全', '合规', '风控'],
+  finops_analyst: ['finops_analyst', 'cost_optimizer', '成本优化成员', 'cloud-finops', 'finops', '成本', '财务', '分析'],
+  domestic_cloud_service_owner: ['domestic_cloud_service_owner', 'cloud_ops_finops_owner', 'doc_writer', 'documentation', 'ccoe', '云卓越中心治理', '文档', '归档', '复盘', 'SOP'],
+
+  anomaly_detector: ['anomaly_detector', 'anomaly_watchdog', '巡检监控员', 'monitoring', 'watchdog', '巡检', '异常'],
+  thermal_engineer: ['thermal_engineer', 'thermal_sentinel', 'sentinel', '热力', '温控'],
+  energy_optimizer: ['energy_optimizer', 'pue_optimizer', 'optimizer', '能效', 'pue'],
+  evolution_engineer: ['evolution_engineer', 'darwin_ratchet', 'ratchet', '演化', '棘轮'],
+  policy_analyst: ['policy_analyst', 'policy_engine', '合规', '政策', '审计'],
+  forecast_analyst: ['forecast_analyst', 'forecast_planner', 'planner', '预测', '调度'],
+};
+
+const _AGENT_ACCENT_COLORS = ['#22d3ee', '#34d399', '#a78bfa', '#fbbf24', '#f472b6', '#60a5fa', '#f97316', '#38bdf8', '#4ade80', '#e879f9', '#fb7185'];
+
+let _isEditingTopology = false;
+let _selectedSourceAgentId = null;
+let _currentTeamDetail = null;
+let _customTopologyLinks = [];
+let _customTopologyUndoStack = [];
+let _customTopologyRedoStack = [];
+
+function _pushTopologyUndo(){
+  _customTopologyUndoStack.push(JSON.parse(JSON.stringify(_customTopologyLinks)));
+  _customTopologyRedoStack = [];
+  _updateUndoRedoBtnState();
+}
+
+function _updateUndoRedoBtnState(){
+  const btnUndo = el('btn-undo-topo');
+  const btnRedo = el('btn-redo-topo');
+  if(btnUndo){
+    const canUndo = _customTopologyUndoStack.length > 0;
+    btnUndo.disabled = !canUndo;
+    btnUndo.style.opacity = canUndo ? '1' : '0.45';
+    btnUndo.style.cursor = canUndo ? 'pointer' : 'not-allowed';
+  }
+  if(btnRedo){
+    const canRedo = _customTopologyRedoStack.length > 0;
+    btnRedo.disabled = !canRedo;
+    btnRedo.style.opacity = canRedo ? '1' : '0.45';
+    btnRedo.style.cursor = canRedo ? 'pointer' : 'not-allowed';
+  }
+}
+
+function _inferTeamDomain(team, teamId){
+  const tId = (team?.team_id || teamId || '').toLowerCase();
+  const tName = (team?.name || '').toLowerCase();
+  const combined = `${tId} ${tName}`;
+  if (['energy', 'pue', 'thermal', '节能', '能效'].some(k => combined.includes(k))) return 'energy';
+  if (['ops', 'cloud', 'aws', 'sre', '运维', '云平台', 'finops'].some(k => combined.includes(k))) return 'xops';
+  const agents = Array.isArray(team?.agents) ? team.agents : Object.values(team?.agents || {});
+  const opsMarkers = ['cloud_ops', 'sre', 'finops', 'incident', 'aws_', 'azure_', 'aliyun_', 'gcp_', 'domestic_cloud', '运维', '巡检', '上云'];
+  for(const a of agents){
+    const r = (a.role || '').toLowerCase();
+    if(opsMarkers.some(m => r.includes(m))) return 'xops';
+  }
+  const energyMarkers = ['energy', 'pue', 'thermal', 'ratchet'];
+  for(const a of agents){
+    const r = (a.role || '').toLowerCase();
+    if(energyMarkers.some(m => r.includes(m))) return 'energy';
+  }
+  return 'dev';
+}
+
+function _findAgentForRole(roleNeeded, agentsList, defaultAgentId=''){
+  if(!agentsList || !agentsList.length) return defaultAgentId;
+  for(const a of agentsList){
+    if(a.role === roleNeeded && a.agent_id) return a.agent_id;
+  }
+  const candidates = _ROLE_FALLBACK_CANDIDATES[roleNeeded] || [roleNeeded];
+  for(const cand of candidates){
+    for(const a of agentsList){
+      const aRole = (a.role || '').toLowerCase();
+      const aName = (a.name || '').toLowerCase();
+      if(!a.agent_id) continue;
+      if(aRole.includes(cand.toLowerCase()) || aName.includes(cand.toLowerCase())){
+        return a.agent_id;
+      }
+    }
+  }
+  return defaultAgentId || agentsList[0]?.agent_id || '';
+}
+
+/** 渲染成员环状拓扑图 */
+function renderTeamTopology(teamDetail){
+  _currentTeamDetail = teamDetail;
+  const svg = el('topo-ring-svg');
+  const sel = el('topo-mode-sel');
+  const badge = el('topo-badge');
+  const stepsBar = el('topo-steps-bar');
+  if(!svg || !teamDetail) return;
+
+  const rawAgents = teamDetail.agents;
+  const agents = Array.isArray(rawAgents) ? rawAgents : Object.values(rawAgents || {});
+  const totalAgents = agents.length;
+  const inferredDomain = _inferTeamDomain(teamDetail, tid);
+  const autoPreset = _TOPO_PRESETS[inferredDomain] || _TOPO_PRESETS.dev;
+  const mode = _isEditingTopology ? 'custom' : (teamDetail.workflow_mode || 'auto');
+
+  // 1. 同步下拉选择框第一项（自适应文本）与当前选定值
+  if(sel){
+    const optAuto = sel.querySelector('option[value="auto"]');
+    if(optAuto){
+      optAuto.textContent = `✨ 智能自适应（匹配：${autoPreset.name}）`;
+    }
+    const targetMode = _isEditingTopology ? 'custom' : (teamDetail.workflow_mode || 'auto');
+    if(sel.value !== targetMode && document.activeElement !== sel){
+      sel.value = targetMode;
+    }
+  }
+
+  // 仅在非编辑状态或 _customTopologyLinks 未初始化时从 metadata 同步
+  if(!_isEditingTopology){
+    if(Array.isArray(teamDetail.metadata?.custom_topology)){
+      _customTopologyLinks = [...teamDetail.metadata.custom_topology];
+    } else {
+      _customTopologyLinks = [];
+    }
+  }
+
+  if(totalAgents === 0){
+    svg.innerHTML = `<text x="380" y="220" text-anchor="middle" fill="var(--dim)" font-size="14">团队暂无成员，请点击左侧「＋ 新建智能体」添加成员</text>`;
+    if(stepsBar) stepsBar.innerHTML = '<span style="color:var(--dim);font-size:12px">暂无协作步骤</span>';
+    return;
+  }
+
+  // 2. 环状坐标计算 (中心 380, 220，半径根据成员数自适应)
+  const cx = 380, cy = 220;
+  const R = totalAgents <= 4 ? 130 : totalAgents <= 7 ? 145 : 155;
+  const nodeCoords = {};
+  agents.forEach((a, i) => {
+    const angle = (2 * Math.PI * i / totalAgents) - (Math.PI / 2);
+    nodeCoords[a.agent_id] = {
+      x: cx + R * Math.cos(angle),
+      y: cy + R * Math.sin(angle),
+      angle: angle,
+      agent: a,
+      color: _AGENT_ACCENT_COLORS[i % _AGENT_ACCENT_COLORS.length]
+    };
+  });
+
+  // 3. 计算当前拓扑模式下的步骤和连线
+  let links = [];
+  let flowSteps = [];
+  let currentBadgeText = autoPreset.badge;
+
+  if(_isEditingTopology || mode === 'custom'){
+    currentBadgeText = '✏️ 自定义连线 (编辑中)';
+    links = [..._customTopologyLinks];
+    flowSteps = links.map((lnk, idx) => {
+      const srcA = agents.find(a => a.agent_id === lnk.source);
+      const tgtA = agents.find(a => a.agent_id === lnk.target);
+      return {
+        key: `custom_step_${idx + 1}`,
+        label: `${srcA?.name || '起点'} ➔ ${tgtA?.name || '目标'}`,
+        icon: '🔗',
+        agent_id: lnk.source,
+        target_id: lnk.target
+      };
+    });
+    if(!flowSteps.length){
+      flowSteps = [{ key: 'custom_empty', label: '请点击任意成员作为起点开始连线', icon: '✏️', agent_id: '' }];
+    }
+  } else if(mode === 'single'){
+    currentBadgeText = '👤 单步独立模式';
+    flowSteps = [{ key: 'execute', label: '单步独立执行', icon: '👤', agent_id: agents[0]?.agent_id || '' }];
+  } else if(mode === 'star'){
+    currentBadgeText = '⭐ 星型中枢模式';
+    const hubId = _findAgentForRole('incident_commander', agents) || agents[0]?.agent_id;
+    agents.forEach(a => {
+      if(a.agent_id !== hubId){
+        links.push({ source: hubId, target: a.agent_id, label: '调度/汇聚' });
+      }
+    });
+    const hubAgent = agents.find(a => a.agent_id === hubId);
+    flowSteps = [
+      { key: 'star_hub', label: `${hubAgent?.name || '中枢'}·总控分发`, icon: '⭐', agent_id: hubId },
+      ...agents.filter(a => a.agent_id !== hubId).map(a => ({ key: `star_${a.agent_id}`, label: `${a.name}·专项协同`, icon: '🔹', agent_id: a.agent_id })),
+      { key: 'star_agg', label: `${hubAgent?.name || '中枢'}·汇总验收`, icon: '🏁', agent_id: hubId }
+    ];
+  } else if(mode === 'mesh'){
+    currentBadgeText = '🕸️ 全网状自由协同';
+    for(let i = 0; i < agents.length; i++){
+      for(let j = i + 1; j < agents.length; j++){
+        links.push({ source: agents[i].agent_id, target: agents[j].agent_id, label: '对等通信' });
+      }
+    }
+    flowSteps = agents.map((a, idx) => ({ key: `mesh_${a.agent_id}`, label: `${a.name}·对等协同`, icon: '🔄', agent_id: a.agent_id }));
+  } else {
+    // 领域预设环 (xops / dev / energy / auto)
+    const effectivePresetKey = (mode === 'auto' || mode === 'full') ? inferredDomain : mode;
+    const preset = _TOPO_PRESETS[effectivePresetKey] || _TOPO_PRESETS.dev;
+    currentBadgeText = preset.badge;
+
+    flowSteps = preset.steps.map(s => {
+      const aid = _findAgentForRole(s.role, agents);
+      const ag = agents.find(a => a.agent_id === aid);
+      return {
+        ...s,
+        agent_id: aid,
+        agent_name: ag?.name || '待指定'
+      };
+    });
+
+    // 顺序建立首尾或链式连线
+    for(let i = 0; i < flowSteps.length - 1; i++){
+      const srcId = flowSteps[i].agent_id;
+      const tgtId = flowSteps[i + 1].agent_id;
+      if(srcId && tgtId && srcId !== tgtId){
+        links.push({ source: srcId, target: tgtId, label: `S${i+1}➔S${i+2}` });
+      }
+    }
+    // 闭环连接（最后一步连回第一步，形成生命周期持续演进闭环）
+    if(flowSteps.length > 2){
+      const lastId = flowSteps[flowSteps.length - 1].agent_id;
+      const firstId = flowSteps[0].agent_id;
+      if(lastId && firstId && lastId !== firstId){
+        links.push({ source: lastId, target: firstId, label: '闭环反馈' });
+      }
+    }
+  }
+
+  if(badge) badge.textContent = currentBadgeText;
+
+  // 4. 构建 SVG 视图
+  let svgContent = `
+    <defs>
+      <!-- 箭头标记 -->
+      <marker id="topo-arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#22d3ee" />
+      </marker>
+      <marker id="topo-arrow-amber" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#fbbf24" />
+      </marker>
+      <marker id="topo-arrow-active" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
+      </marker>
+      <!-- 发光滤镜 -->
+      <filter id="topo-glow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+      </filter>
+    </defs>
+
+    <!-- 背景科技同心圆环 -->
+    <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 6" opacity="0.6" />
+    <circle cx="${cx}" cy="${cy}" r="${R + 32}" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 10" opacity="0.3" />
+    <circle cx="${cx}" cy="${cy}" r="${R * 0.45}" fill="none" stroke="var(--line)" stroke-width="1" opacity="0.4" />
+
+    <!-- 中心徽章 -->
+    <g class="topo-center-badge">
+      <circle cx="${cx}" cy="${cy}" r="54" fill="var(--panel2)" stroke="${_isEditingTopology ? '#fbbf24' : '#22d3ee'}" stroke-width="1.8" opacity="0.95" />
+      <text x="${cx}" y="${cy - 16}" text-anchor="middle" font-size="20">🤖</text>
+      <text x="${cx}" y="${cy + 6}" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">${escapeHtml(teamDetail.name || tid).slice(0, 10)}</text>
+      <text x="${cx}" y="${cy + 22}" text-anchor="middle" fill="${_isEditingTopology ? '#fbbf24' : '#22d3ee'}" font-size="10" font-family="var(--font-mono)">${links.length} 协作链路</text>
+      <text x="${cx}" y="${cy + 34}" text-anchor="middle" fill="var(--muted)" font-size="9">${totalAgents} 名成员</text>
+    </g>
+  `;
+
+  // 5. 渲染连线 (二次贝塞尔曲线，平滑弯向圆心)
+  svgContent += `<g class="topo-links-group">`;
+  links.forEach((lnk, idx) => {
+    const s = nodeCoords[lnk.source];
+    const t = nodeCoords[lnk.target];
+    if(!s || !t) return;
+
+    // 控制点稍微拉向中心
+    const bend = 0.45;
+    const qx = (s.x + t.x) * 0.5 * (1 - bend) + cx * bend;
+    const qy = (s.y + t.y) * 0.5 * (1 - bend) + cy * bend;
+
+    const isCustom = _isEditingTopology || (mode === 'custom');
+    const strokeColor = isCustom ? '#fbbf24' : '#22d3ee';
+    const markerId = isCustom ? 'topo-arrow-amber' : 'topo-arrow';
+
+    svgContent += `
+      <g class="topo-link-item" style="cursor:${_isEditingTopology ? 'pointer' : 'default'}" onclick="handleTopoLinkClick('${escapeHtml(lnk.source)}', '${escapeHtml(lnk.target)}')">
+        <!-- 拓宽鼠标拾取区域 -->
+        <path d="M ${s.x} ${s.y} Q ${qx} ${qy} ${t.x} ${t.y}" fill="none" stroke="transparent" stroke-width="18" />
+        <!-- 实体连线 -->
+        <path class="topo-link-path" d="M ${s.x} ${s.y} Q ${qx} ${qy} ${t.x} ${t.y}" fill="none" stroke="${strokeColor}" stroke-width="${isCustom ? '2.4' : '2'}" opacity="0.85" marker-end="url(#${markerId})">
+          <title>协作交接：${escapeHtml(s.agent.name || s.agent.agent_id)} ➔ ${escapeHtml(t.agent.name || t.agent.agent_id)}${_isEditingTopology ? '（点击删除此连线）' : ''}</title>
+        </path>
+      </g>
+    `;
+  });
+  svgContent += `</g>`;
+
+  // 6. 渲染成员节点
+  svgContent += `<g class="topo-nodes-group">`;
+  agents.forEach((a, i) => {
+    const node = nodeCoords[a.agent_id];
+    if(!node) return;
+    const isSelectedSource = (_selectedSourceAgentId === a.agent_id);
+    const nodeColor = node.color;
+    const name = a.name || a.agent_id || `Agent-${i+1}`;
+    const role = a.role || '成员';
+    const initial = name.slice(0, 1).toUpperCase();
+
+    // 标签位置与对齐
+    const cosA = Math.cos(node.angle);
+    const sinA = Math.sin(node.angle);
+    let labelX = node.x + (cosA > 0.2 ? 24 : cosA < -0.2 ? -24 : 0);
+    let labelY = node.y + (sinA > 0.5 ? 26 : sinA < -0.5 ? -20 : 4);
+    let textAnchor = cosA > 0.2 ? 'start' : cosA < -0.2 ? 'end' : 'middle';
+
+    svgContent += `
+      <g class="topo-node-item" style="cursor:pointer" onclick="handleTopoNodeClick('${escapeHtml(a.agent_id)}')" transform="translate(0,0)">
+        <!-- 选中态扩散光环 -->
+        ${isSelectedSource ? `
+          <circle cx="${node.x}" cy="${node.y}" r="28" fill="none" stroke="#fbbf24" stroke-width="2.5" opacity="0.95" stroke-dasharray="4 2">
+            <animateTransform attributeName="transform" type="rotate" from="0 ${node.x} ${node.y}" to="360 ${node.x} ${node.y}" dur="3s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="${node.x}" cy="${node.y}" r="34" fill="rgba(251,191,36,0.2)" />
+        ` : ''}
+
+        <!-- 节点主圆 -->
+        <circle cx="${node.x}" cy="${node.y}" r="18" fill="var(--panel2)" stroke="${isSelectedSource ? '#fbbf24' : nodeColor}" stroke-width="${isSelectedSource ? '3' : '2'}" filter="url(#topo-glow)" />
+        
+        <!-- 成员首字 / 头像 -->
+        <text x="${node.x}" y="${node.y + 5}" text-anchor="middle" fill="${isSelectedSource ? '#fbbf24' : nodeColor}" font-size="12" font-weight="800" font-family="var(--font-mono)">${escapeHtml(initial)}</text>
+        
+        <!-- 状态小圆点 -->
+        <circle cx="${node.x + 13}" cy="${node.y - 13}" r="4" fill="${a.state === 'working' ? 'var(--cyan)' : a.state === 'error' ? 'var(--red)' : 'var(--lime)'}" stroke="var(--bg)" stroke-width="1.5" />
+
+        <!-- 姓名与角色标签 -->
+        <g transform="translate(${labelX}, ${labelY})">
+          <text x="0" y="0" text-anchor="${textAnchor}" fill="${isSelectedSource ? '#fbbf24' : 'var(--text)'}" font-size="11" font-weight="700">${escapeHtml(name)}</text>
+          <text x="0" y="12" text-anchor="${textAnchor}" fill="var(--muted)" font-size="9.5">${escapeHtml(role.length > 14 ? role.slice(0, 13) + '…' : role)}</text>
+        </g>
+        
+        <title>${escapeHtml(name)} (${escapeHtml(role)})\n状态: ${stL(a.state || 'idle')}${_isEditingTopology ? '\n点击可连接/解除协作关系' : '\n点击可查看成员详情'}</title>
+      </g>
+    `;
+  });
+  svgContent += `</g>`;
+
+  svg.innerHTML = svgContent;
+
+  // 7. 渲染底部时序胶囊条
+  if(stepsBar){
+    stepsBar.innerHTML = flowSteps.map((st, idx) => {
+      const ag = agents.find(a => a.agent_id === st.agent_id);
+      const isCur = (_selectedSourceAgentId === st.agent_id);
+      return `
+        <div class="chip" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:6px;background:${isCur ? 'rgba(251,191,36,0.15)' : 'var(--panel2)'};border:1px solid ${isCur ? 'var(--amber)' : 'var(--line)'};cursor:pointer" onclick="handleTopoNodeClick('${escapeHtml(st.agent_id)}')">
+          <span style="font-family:var(--font-mono);color:var(--cyan);font-weight:700">${idx + 1}</span>
+          <span>${st.icon || '🔹'} <b>${escapeHtml(st.label || '')}</b></span>
+          <span style="color:var(--muted)">(${escapeHtml(ag?.name || '自动指派')})</span>
+        </div>
+      `;
+    }).join('<span style="color:var(--dim);font-size:11px">➔</span>');
+  }
+}
+
+/** 切换编辑模式 */
+function toggleTopologyEditMode(forceState){
+  const willEdit = (forceState !== undefined) ? Boolean(forceState) : !_isEditingTopology;
+  _isEditingTopology = willEdit;
+  _selectedSourceAgentId = null;
+
+  const btnEdit = el('btn-edit-topo');
+  const btnSave = el('btn-save-topo');
+  const btnUndo = el('btn-undo-topo');
+  const btnRedo = el('btn-redo-topo');
+  const btnLoop = el('btn-autoloop-topo');
+  const btnClear = el('btn-clear-topo');
+  const hintBox = el('topo-edit-hint');
+  const hintText = el('topo-hint-text');
+  const sel = el('topo-mode-sel');
+
+  if(_isEditingTopology){
+    if(btnEdit){ btnEdit.textContent = '✓ 完成编辑'; btnEdit.className = 'btn btn-sm btn-ghost'; }
+    btnSave?.classList.remove('hidden');
+    btnUndo?.classList.remove('hidden');
+    btnRedo?.classList.remove('hidden');
+    btnLoop?.classList.remove('hidden');
+    btnClear?.classList.remove('hidden');
+    hintBox?.classList.remove('hidden');
+    if(sel) sel.value = 'custom';
+    if(hintText){
+      hintText.innerHTML = `💡 <b>连线编辑中：</b> 点击起点成员，再点击目标成员建立协作连线（支持随时点击「↩ 回退」与「↪ 下一步」）`;
+    }
+    // 首次进入自定义连线模式时，若无已存自定义连线，则保持为空白画布（0条连线），不携带任何预设连线
+    if(Array.isArray(_currentTeamDetail?.metadata?.custom_topology)){
+      _customTopologyLinks = [..._currentTeamDetail.metadata.custom_topology];
+    } else {
+      _customTopologyLinks = [];
+    }
+    _customTopologyUndoStack = [];
+    _customTopologyRedoStack = [];
+    _updateUndoRedoBtnState();
+    toast('已进入自定义连线模式：点击起点成员，再点击目标成员开始连线', 'info');
+  } else {
+    if(btnEdit){ btnEdit.textContent = '✏️ 连线编辑'; btnEdit.className = 'btn btn-sm btn-pink'; }
+    btnSave?.classList.add('hidden');
+    btnUndo?.classList.add('hidden');
+    btnRedo?.classList.add('hidden');
+    btnLoop?.classList.add('hidden');
+    btnClear?.classList.add('hidden');
+    hintBox?.classList.add('hidden');
+  }
+
+  if(_currentTeamDetail){
+    _currentTeamDetail.workflow_mode = _isEditingTopology ? 'custom' : (sel?.value || 'auto');
+    if(_currentTeamDetail.metadata){
+      _currentTeamDetail.metadata.custom_topology = _customTopologyLinks;
+    }
+    renderTeamTopology(_currentTeamDetail);
+  }
+}
+window.toggleTopologyEditMode = toggleTopologyEditMode;
+
+/** 回退上一步操作 (Undo) */
+function undoTopologyStep(){
+  if(!_customTopologyUndoStack.length){
+    toast('没有可回退的操作', 'info');
+    return;
+  }
+  _customTopologyRedoStack.push(JSON.parse(JSON.stringify(_customTopologyLinks)));
+  _customTopologyLinks = _customTopologyUndoStack.pop() || [];
+  if(_currentTeamDetail){
+    _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+    _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+    _currentTeamDetail.workflow_mode = 'custom';
+  }
+  if(_customTopologyLinks.length){
+    _selectedSourceAgentId = _customTopologyLinks[_customTopologyLinks.length - 1].target;
+  } else {
+    _selectedSourceAgentId = null;
+  }
+  const hintText = el('topo-hint-text');
+  if(hintText){
+    hintText.innerHTML = `↩️ <b>已回退上一步：</b> 当前剩余 ${_customTopologyLinks.length} 条连线，可继续点击成员连线或点击「💾 保存」`;
+  }
+  _updateUndoRedoBtnState();
+  toast('已回退上一步连线', 'info');
+  renderTeamTopology(_currentTeamDetail);
+}
+window.undoTopologyStep = undoTopologyStep;
+
+/** 重做/下一步操作 (Redo) */
+function redoTopologyStep(){
+  if(!_customTopologyRedoStack.length){
+    toast('没有可前进/下一步的操作', 'info');
+    return;
+  }
+  _customTopologyUndoStack.push(JSON.parse(JSON.stringify(_customTopologyLinks)));
+  _customTopologyLinks = _customTopologyRedoStack.pop() || [];
+  if(_currentTeamDetail){
+    _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+    _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+    _currentTeamDetail.workflow_mode = 'custom';
+  }
+  if(_customTopologyLinks.length){
+    _selectedSourceAgentId = _customTopologyLinks[_customTopologyLinks.length - 1].target;
+  }
+  const hintText = el('topo-hint-text');
+  if(hintText){
+    hintText.innerHTML = `↪️ <b>已前进到下一步：</b> 当前已有 ${_customTopologyLinks.length} 条连线`;
+  }
+  _updateUndoRedoBtnState();
+  toast('已恢复下一步连线', 'info');
+  renderTeamTopology(_currentTeamDetail);
+}
+window.redoTopologyStep = redoTopologyStep;
+
+/** 点击成员节点交互 */
+function handleTopoNodeClick(agentId){
+  if(!agentId) return;
+  if(!_isEditingTopology){
+    // 非编辑模式：点击选择成员，高亮并进入成员详情
+    selectAgent(agentId);
+    return;
+  }
+
+  const agents = Array.isArray(_currentTeamDetail?.agents) ? _currentTeamDetail.agents : Object.values(_currentTeamDetail?.agents || {});
+  const agent = agents.find(a => a.agent_id === agentId);
+  const hintText = el('topo-hint-text');
+
+  if(_selectedSourceAgentId === null){
+    _selectedSourceAgentId = agentId;
+    if(hintText){
+      hintText.innerHTML = `👉 已选起点 <b>${escapeHtml(agent?.name || agentId)}</b>，请点击目标成员建立/取消协作连线`;
+    }
+    renderTeamTopology(_currentTeamDetail);
+  } else if(_selectedSourceAgentId === agentId){
+    // 再次点击自己 -> 取消选择
+    _selectedSourceAgentId = null;
+    if(hintText){
+      hintText.innerHTML = `💡 <b>连线编辑中：</b> 点击起点成员，再点击目标成员建立协作连线（点击已有连线可删除）`;
+    }
+    renderTeamTopology(_currentTeamDetail);
+  } else {
+    // 记录回退快照
+    _pushTopologyUndo();
+
+    // 建立或移除 A -> B 连线
+    const srcId = _selectedSourceAgentId;
+    const tgtId = agentId;
+    const srcAgent = agents.find(a => a.agent_id === srcId);
+    const tgtAgent = agents.find(a => a.agent_id === tgtId);
+
+    const existIdx = _customTopologyLinks.findIndex(l => l.source === srcId && l.target === tgtId);
+    if(existIdx >= 0){
+      _customTopologyLinks.splice(existIdx, 1);
+      toast(`已移除连线：${srcAgent?.name || srcId} ⤬ ${tgtAgent?.name || tgtId}`, 'info');
+    } else {
+      _customTopologyLinks.push({ source: srcId, target: tgtId, label: '协作交接' });
+      toast(`已建立连线：${srcAgent?.name || srcId} ➔ ${tgtAgent?.name || tgtId}`, 'success');
+    }
+
+    // 同步到内存对象，防止被覆盖
+    if(_currentTeamDetail){
+      _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+      _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+      _currentTeamDetail.workflow_mode = 'custom';
+    }
+
+    // 链式推进：将目标成员作为下一个潜在起点
+    _selectedSourceAgentId = tgtId;
+    if(hintText){
+      hintText.innerHTML = `👉 已连至 <b>${escapeHtml(tgtAgent?.name || tgtId)}</b>，可继续点击下一个目标成员，或点击「💾 保存拓扑」`;
+    }
+    _updateUndoRedoBtnState();
+    renderTeamTopology(_currentTeamDetail);
+  }
+}
+window.handleTopoNodeClick = handleTopoNodeClick;
+
+/** 点击连线直接删除 */
+function handleTopoLinkClick(srcId, tgtId){
+  if(!_isEditingTopology) return;
+  const existIdx = _customTopologyLinks.findIndex(l => l.source === srcId && l.target === tgtId);
+  if(existIdx >= 0){
+    _pushTopologyUndo();
+    _customTopologyLinks.splice(existIdx, 1);
+    if(_currentTeamDetail){
+      _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+      _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+    }
+    _updateUndoRedoBtnState();
+    toast('已删除协作连线', 'info');
+    renderTeamTopology(_currentTeamDetail);
+  }
+}
+window.handleTopoLinkClick = handleTopoLinkClick;
+
+/** 自动首尾成环 */
+function autoLoopTopology(){
+  const agents = Array.isArray(_currentTeamDetail?.agents) ? _currentTeamDetail.agents : Object.values(_currentTeamDetail?.agents || {});
+  if(agents.length < 2){
+    toast('成员不足 2 人，无法成环', 'warning');
+    return;
+  }
+  _pushTopologyUndo();
+  _customTopologyLinks = [];
+  for(let i = 0; i < agents.length; i++){
+    const nextIdx = (i + 1) % agents.length;
+    _customTopologyLinks.push({
+      source: agents[i].agent_id,
+      target: agents[nextIdx].agent_id,
+      label: '顺序协作'
+    });
+  }
+  if(_currentTeamDetail){
+    _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+    _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+  }
+  _updateUndoRedoBtnState();
+  toast(`已自动将 ${agents.length} 名成员连成闭环`, 'success');
+  renderTeamTopology(_currentTeamDetail);
+}
+window.autoLoopTopology = autoLoopTopology;
+
+/** 清空连线 */
+function clearTopologyLinks(){
+  _pushTopologyUndo();
+  _customTopologyLinks = [];
+  _selectedSourceAgentId = null;
+  if(_currentTeamDetail){
+    _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+    _currentTeamDetail.metadata.custom_topology = [];
+  }
+  _updateUndoRedoBtnState();
+  toast('已清空所有连线', 'info');
+  renderTeamTopology(_currentTeamDetail);
+}
+window.clearTopologyLinks = clearTopologyLinks;
+
+/** 保存自定义拓扑配置 */
+async function saveCustomTopology(){
+  if(!tid) return;
+  const r = await api(`${A}/teams/${tid}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workflow_mode: 'custom',
+      metadata: { custom_topology: _customTopologyLinks }
+    })
+  });
+  if(r && r.workflow_mode === 'custom'){
+    if(_currentTeamDetail){
+      _currentTeamDetail.workflow_mode = 'custom';
+      _currentTeamDetail.metadata = _currentTeamDetail.metadata || {};
+      _currentTeamDetail.metadata.custom_topology = [..._customTopologyLinks];
+    }
+    toast('💾 自定义协作拓扑已成功保存！后续派发任务将按此顺序流转', 'success');
+    toggleTopologyEditMode(false);
+  } else {
+    toast('保存自定义拓扑失败', 'error');
+  }
+}
+window.saveCustomTopology = saveCustomTopology;
+
+// 下拉菜单切换拓扑模式
+async function handleTopoModeSelectChange(sel){
+  const val = sel?.value || 'auto';
+  if(val === 'custom'){
+    toggleTopologyEditMode(true);
+  } else {
+    if(_isEditingTopology) toggleTopologyEditMode(false);
+    const r = await api(`${A}/teams/${tid}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow_mode: val })
+    });
+    if(r){
+      toast(`已切换拓扑模式：${sel?.options[sel.selectedIndex]?.text || val}`, 'success');
+      if(_currentTeamDetail){
+        _currentTeamDetail.workflow_mode = val;
+        renderTeamTopology(_currentTeamDetail);
+      }
+    } else {
+      toast('切换拓扑模式失败', 'error');
+    }
+  }
+}
+window.handleTopoModeSelectChange = handleTopoModeSelectChange;
+
+// DOM 兜底绑定
+try {
+  const selEl = el('topo-mode-sel');
+  if(selEl) {
+    selEl.onchange = () => handleTopoModeSelectChange(selEl);
+  }
+} catch(e) {}
+
 async function loadOverview(){
   if(_ovTimer)clearInterval(_ovTimer);
   const [teamsList,ov]=await Promise.all([
@@ -288,13 +999,20 @@ async function loadOverview(){
     const taskSummary=curTm?.tasks||{};
     const totalModels=allTeams.reduce((n,t)=>n+(Number(t?.model_count)||0),0);
     const totalAgents=allTeams.reduce((n,t)=>n+(Number(t?.agent_count)||0),0);
-    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer;position:relative" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';loadView()"><input type="checkbox" class="ov-team-cb" value="${escapeHtml(t.team_id)}" onclick="event.stopPropagation()" style="position:absolute;top:6px;right:6px;width:auto;margin:0;cursor:pointer" title="勾选后可批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
+    const teamCards=allTeams.filter(Boolean).map(t=>{const ic=_teamIcons[t.team_id]||'🤖';return`<div class="stat-card" style="cursor:pointer;position:relative" onclick="el('team-select').value='${t.team_id}';tid='${t.team_id}';if(typeof toggleTopologyEditMode==='function')toggleTopologyEditMode(false);loadView()"><input type="checkbox" class="ov-team-cb" value="${escapeHtml(t.team_id)}" onclick="event.stopPropagation()" style="position:absolute;top:6px;right:6px;width:auto;margin:0;cursor:pointer" title="勾选后可批量删除"><div class="label">${ic} ${escapeHtml(t.name||t.team_id)}</div><div class="value">${t.agent_count??0}</div><div class="sub">${escapeHtml(t.description||'').slice(0,30)}</div></div>`}).join('');
     sc.innerHTML=`<div class="stat-card"><div class="label">📊 调度器</div><div class="value" style="font-size:16px;color:${sh.running?'var(--lime)':'var(--red)'}">${sh.running?'运行中':'已停止'}</div><div class="sub">Tick ${sh.tick_count??0} · 运行 ${Math.round((sh.uptime_seconds||0)/60)}m</div></div>${teamCards}<div class="stat-card"><div class="label">🔄 自我演进</div><div class="value">${ev?.evolution_items_count??'-'}</div><div class="sub">规则 ${ev?.audit_rules_count??0} · 已验证 ${evs?.total_verified??0}</div></div><div class="stat-card"><div class="label">📦 模型</div><div class="value">${totalModels}</div></div><div class="stat-card"><div class="label">🤖 智能体</div><div class="value">${totalAgents}</div></div><div class="stat-card"><div class="label">📋 任务</div><div class="value">${taskSummary.total||0}</div><div class="sub">${Object.entries(taskSummary.by_status||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'无任务'}</div></div>`;
     const curTmMeta=allTeams.find(t=>t&&t.team_id===tid);
     const teamTitle=(curTm&&curTm.name)||(curTmMeta&&curTmMeta.name)||tid;
     const teamIcon=_teamIcons[tid]||'🤖';
     renderSbAgents(curTm);
     el('ov-team-title').textContent=`${teamIcon} ${teamTitle}`;
+    
+    // 渲染成员环状拓扑图与协作流
+    api(`${A}/teams/${tid}`).then(fullTeam => {
+      renderTeamTopology(fullTeam || curTm);
+    }).catch(() => {
+      renderTeamTopology(curTm);
+    });
     const tbody=el('ov-team-agents');tbody.innerHTML='';
     if(curTm&&curTm.agents){
       const aa=Array.isArray(curTm.agents)?curTm.agents:Object.values(curTm.agents);

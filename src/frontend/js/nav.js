@@ -80,9 +80,9 @@
     for (var i = 0; i < PAGES.length; i++) {
       var p = PAGES[i];
       if (p.id === currentId) {
-        html += '<span class="cur" aria-current="page">' + p.label + '</span>';
+        html += '<span class="cur" aria-current="page" data-nav-id="' + p.id + '">' + p.label + '</span>';
       } else {
-        html += '<a href="' + p.href + '">' + p.label + '</a>';
+        html += '<a href="' + p.href + '" data-nav-id="' + p.id + '">' + p.label + '</a>';
       }
     }
     return html;

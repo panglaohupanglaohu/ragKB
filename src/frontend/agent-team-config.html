@@ -61,7 +61,59 @@
       </div>
     </div>
     <!-- Views -->
-    <div id="view-overview" class="main-inner"><div class="main-scroll"><div class="card-grid" id="ov-stats"></div><div class="section" id="ov-team-section"><div class="section-title" id="ov-team-title"></div><table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table></div>
+    <div id="view-overview" class="main-inner"><div class="main-scroll">
+      <div class="card-grid" id="ov-stats"></div>
+      
+      <!-- 团队协作拓扑环状图 -->
+      <div class="section" id="ov-topology-section">
+        <div class="card" style="padding:16px 20px 20px;margin-bottom:20px;position:relative;overflow:hidden">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px">🌐 团队协作拓扑与流水线</span>
+              <span id="topo-badge" class="badge" style="background:rgba(34,211,238,0.15);color:var(--cyan);font-size:11px">自适应环</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:12px;color:var(--muted)">拓扑模式：</span>
+              <select id="topo-mode-sel" class="fi" onchange="handleTopoModeSelectChange(this)" style="width:auto;padding:4px 10px;font-size:12px;font-weight:600">
+                <option value="auto">✨ 智能自适应（按团队自动推断）</option>
+                <option value="xops">☁️ xOPs 云运维与SRE运营环 (7步分工)</option>
+                <option value="dev">💻 全流程研发协作环 (7步分工)</option>
+                <option value="energy">⚡ 绿色能效与达尔文演化环 (6步闭环)</option>
+                <option value="star">⭐ 星型中枢协作（总控-各专项协同）</option>
+                <option value="mesh">🕸️ 全网状自由协同（全员点对点）</option>
+                <option value="single">👤 单步独立模式（无交接连线）</option>
+                <option value="custom">✏️ 自定义拓扑（可编辑连线）</option>
+              </select>
+              <button id="btn-edit-topo" class="btn btn-sm btn-pink" onclick="toggleTopologyEditMode()">✏️ 连线编辑</button>
+              <button id="btn-undo-topo" class="btn btn-sm hidden" onclick="undoTopologyStep()" title="回退上一步连线操作">↩ 回退</button>
+              <button id="btn-redo-topo" class="btn btn-sm hidden" onclick="redoTopologyStep()" title="前进到下一步连线操作">↪ 下一步</button>
+              <button id="btn-save-topo" class="btn btn-sm btn-pink hidden" onclick="saveCustomTopology()">💾 保存拓扑</button>
+              <button id="btn-autoloop-topo" class="btn btn-sm hidden" onclick="autoLoopTopology()">✨ 自动成环</button>
+              <button id="btn-clear-topo" class="btn btn-sm btn-ghost hidden" onclick="clearTopologyLinks()">🔄 清空连线</button>
+            </div>
+          </div>
+          
+          <!-- 编辑模式提示横幅 -->
+          <div id="topo-edit-hint" class="hidden" style="margin-bottom:12px;padding:8px 14px;background:rgba(251,191,36,0.12);border:1px dashed var(--amber);border-radius:6px;font-size:12px;color:var(--text);display:flex;justify-content:space-between;align-items:center">
+            <span id="topo-hint-text">💡 <b>连线编辑中：</b> 点击起点成员，再点击目标成员建立协作连线（点击已有连线可删除）</span>
+            <span style="font-size:11px;color:var(--muted)">点击「💾 保存拓扑」后生效</span>
+          </div>
+
+          <!-- 环状图 SVG 画布 -->
+          <div id="topo-ring-container" style="width:100%;min-height:360px;display:flex;justify-content:center;align-items:center;background:var(--bg-glass, rgba(0,0,0,0.1));border:1px solid var(--line);border-radius:8px;position:relative;overflow:hidden">
+            <svg id="topo-ring-svg" viewBox="0 0 760 440" style="width:100%;max-width:760px;height:auto;user-select:none"></svg>
+          </div>
+
+          <!-- 步骤时序胶囊条 -->
+          <div id="topo-steps-bar" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+        </div>
+      </div>
+
+      <!-- 团队成员列表与管理 -->
+      <div class="section" id="ov-team-section">
+        <div class="section-title" id="ov-team-title"></div>
+        <table class="tbl"><thead><tr><th>Agent</th><th>角色</th><th>状态</th><th>技能</th><th>操作</th></tr></thead><tbody id="ov-team-agents"></tbody></table>
+      </div>
 <!-- 演进状态摘要 -->
 <div class="section" id="evo-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>演进状态</span><a href="/system-evolution.html" class="btn btn-sm">→ 系统演进</a></div><div id="evo-compliance" class="card-grid"></div></div>
 <div class="section" id="budget-section"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>预算与告警</span><div style="display:flex;gap:8px;align-items:center"><select class="fi" id="budget-trend-days" onchange="refreshBudgetPanel()" style="width:auto;padding:5px 8px;font-size:12px"><option value="7">最近 7 天</option><option value="30">最近 30 天</option></select><button class="btn btn-sm" onclick="refreshBudgetPanel()">刷新</button></div></div><div id="budget-summary" class="card-grid"></div><div id="budget-trend"></div><div id="budget-alerts"></div></div>

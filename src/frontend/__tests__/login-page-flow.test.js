@@ -8,7 +8,7 @@ function read(relPath) {
 
 function buildGetNextUrl(search) {
   const source = read('src/frontend/login.html');
-  const match = source.match(/function getNextUrl\(\) \{[\s\S]*?return next;\n\s*\}/);
+  const match = source.match(/function getNextUrl\(\) \{[\s\S]*?return next;\r?\n\s*\}/);
   if (!match) throw new Error('getNextUrl not found in login.html');
   const windowObj = { location: { search } };
   return new Function('window', 'URLSearchParams', `${match[0]}; return getNextUrl;`)(windowObj, URLSearchParams);

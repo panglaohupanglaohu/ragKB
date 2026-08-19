@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildExtractRouting } from './extract-routing.js';
+import { applyPlazaTranslations, getPlazaLanguage, plazaT } from './plaza-i18n.js';
 
 /* ═══════════ GLOBALS ═══════════ */
 const API = '/api/v1/agent-config';
@@ -11,6 +12,7 @@ const twarn = (...a) => { if (DEBUG_TTS) console.warn(...a); };
 let curPlaza = null, curDisc = null, curDiscData = null, evtSrc = null;
 let allTeams = [], allParticipants = [];
 let knownPlazas = [];
+let knownDiscussions = [];
 let curVerificationState = null;
 let curConsensusState = null;
 let curEscalationState = null;
@@ -33,6 +35,32 @@ const deepLinkDiscussionId = Q.get('discussion_id') || '';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const asItems = payload => Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
+
+const NAV_I18N_KEYS = {
+  agents: 'nav.teams', plaza: 'nav.plaza', 'skill-extract': 'nav.extract', memory: 'nav.memory',
+  'digital-twin': 'nav.twin', cost: 'nav.cost', pet: 'nav.ecosystem'
+};
+
+function renderPlazaLanguage() {
+  applyPlazaTranslations();
+  $('three-canvas')?.setAttribute('aria-label', plazaT('arena.aria'));
+  document.querySelectorAll('[data-nav-id]').forEach((item) => {
+    const key = NAV_I18N_KEYS[item.dataset.navId];
+    if (key) item.textContent = plazaT(key);
+  });
+  document.querySelectorAll('#inp-dr option').forEach((option) => {
+    const count = Number(option.value);
+    option.textContent = plazaT(count === 1 ? 'discussion.rounds.one' : 'discussion.rounds.other', { count });
+  });
+  renderPlazaList(knownPlazas);
+  if (curPlaza || knownDiscussions.length) renderDiscList(knownDiscussions);
+  if (curDiscData?.messages) renderMessages(curDiscData.messages);
+  if (curDiscData?.status === 'closed' && curDiscData.summary) renderPlan(curDiscData);
+  else if (curDiscData?.plan?.content) renderLivePlan(curDiscData.plan);
+}
+
+$('px-lang-btn')?.addEventListener('click', () => window.PX_I18N?.toggleLang?.());
+window.addEventListener('px-lang-change', renderPlazaLanguage);
 
 function stripQueryParams(keys) {
   if (!Array.isArray(keys) || !keys.length) return;
@@ -64,11 +92,11 @@ function normalizePlazaSelectionOnError() {
   clearSpeechPlayback();
   teardownSSE();
   renderArena3D([]);
-  $('disc-list').innerHTML = '<div style="color:var(--dim);font-size:10px">先选择广场</div>';
-  $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;letter-spacing:1px;font-family:var(--font-mono)">SELECT PLAZA · CREATE DISCUSSION<br>全员自动入座</div>';
+  $('disc-list').innerHTML = `<div style="color:var(--dim);font-size:10px">${plazaT('plaza.selectFirst')}</div>`;
+  $('msg-log').innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;letter-spacing:1px;font-family:var(--font-mono)">SELECT PLAZA · CREATE DISCUSSION<br>${plazaT('discussion.seatingHint')}</div>`;
   $('plan-panel').style.display = 'none';
   $('btn-start').disabled = true;
-  $('btn-start').textContent = '开始';
+  $('btn-start').textContent = plazaT('action.start');
   $('status-text').textContent = '';
 }
 
@@ -154,12 +182,12 @@ function showConfirm(msg, onOk) {
     m.setAttribute('role', 'dialog');
     m.setAttribute('aria-modal', 'true');
     m.onclick = function(e) { if (e.target === m) closeM('m-confirm'); };
-    m.innerHTML = '<div class="modal" style="max-width:360px">' +
-      '<h3 style="margin-bottom:10px">确认操作</h3>' +
+    m.innerHTML = `<div class="modal" style="max-width:360px">` +
+      `<h3 style="margin-bottom:10px">${plazaT('confirm.heading')}</h3>` +
       '<div id="confirm-msg" style="font-size:12px;padding:12px 0;color:var(--text);line-height:1.6"></div>' +
       '<div class="modal-actions">' +
-      '<button class="btn-cancel" onclick="closeM(\'m-confirm\')">取消</button>' +
-      '<button id="confirm-ok-btn" class="btn-primary">确认</button></div></div>';
+      `<button class="btn-cancel" onclick="closeM('m-confirm')">${plazaT('action.cancel')}</button>` +
+      `<button id="confirm-ok-btn" class="btn-primary">${plazaT('action.confirm')}</button></div></div>`;
     document.body.appendChild(m);
     // E-4.2: Esc 关闭 + 焦点归还
     m.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeM('m-confirm'); } });
@@ -191,8 +219,8 @@ const teamCSS = {
 };
 const teamNames = {
   build_system: 'BUILD',
-  ai_coding: '编程',
-  energy_first_principle: '能源'
+  ai_coding: 'AI Coding',
+  energy_first_principle: 'Energy'
 };
 function tColor(tid) { return teamColors[tid] || 0x7A7470; }
 
@@ -204,7 +232,7 @@ function nextVividColor() { const c = VIVID_AGENT_COLORS[_plazaSeatColorIdx % VI
 /* ═══════════ THREE.JS — 浅色清水混凝土议事厅 (Taste light) ═══════════ */
 const canvas = $('three-canvas');
 // E-4.1: 屏幕阅读器可访问
-if (canvas) canvas.setAttribute('aria-label', '议事厅 3D 场景');
+if (canvas) canvas.setAttribute('aria-label', plazaT('arena.aria'));
 const container = $('arena-container');
 const scene = new THREE.Scene();
 
@@ -1039,7 +1067,7 @@ async function ttsSpeak(text, playbackToken, agentName) {
       // Both Edge-TTS and Web Speech failed — show user-facing warning (once per session)
       if (!window._ttsWarned) {
         window._ttsWarned = true;
-        toast('语音播报不可用：请检查网络或浏览器语音设置');
+        toast(plazaT('error.ttsUnavailable'));
       }
     }
     return fallbackOk;
@@ -1137,20 +1165,24 @@ onResize(); animate();
 async function loadPlazas() {
   const ps = await listApi(`${API}/plaza`, 200, 0);
   knownPlazas = Array.isArray(ps) ? ps : [];
+  renderPlazaList(knownPlazas);
+  return knownPlazas;
+}
+
+function renderPlazaList(ps) {
   const list = $('plaza-list');
   if (!ps || !ps.length) {
-    list.innerHTML = '<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">无广场</div>';
-    return [];
+    list.innerHTML = `<div style="padding:20px;color:var(--dim);text-align:center;font-size:10px">${plazaT('plaza.empty')}</div>`;
+    return;
   }
   list.innerHTML = ps.map(p =>
     `<div class="plaza-card ${p.id === curPlaza ? 'active' : ''}" data-plaza-id="${esc(p.id)}" onclick="selectPlaza('${esc(p.id)}')">
       <div class="nm">${esc(p.name)}</div>
-      <div class="mt"><span>${p.participant_count} 人</span><span>${p.discussion_count} 题</span></div>
-      <button class="btn-edit" title="编辑广场" onclick="event.stopPropagation();openEditPlaza('${esc(p.id)}')">✎</button>
-      <button class="btn-del" title="删除广场" onclick="event.stopPropagation();deletePlaza('${esc(p.id)}','${esc(p.name)}')">×</button>
+      <div class="mt"><span>${plazaT('plaza.participants', { count: p.participant_count })}</span><span>${plazaT('plaza.topics', { count: p.discussion_count })}</span></div>
+      <button class="btn-edit" title="${plazaT('plaza.edit')}" onclick="event.stopPropagation();openEditPlaza('${esc(p.id)}')">✎</button>
+      <button class="btn-del" title="${plazaT('action.delete')}" onclick="event.stopPropagation();deletePlaza('${esc(p.id)}','${esc(p.name)}')">×</button>
     </div>`
   ).join('');
-  return ps;
 }
 
 window.selectPlaza = async function(id) {
@@ -1167,11 +1199,11 @@ window.selectPlaza = async function(id) {
       if (localStorage.getItem('plaza_curDisc')) localStorage.removeItem('plaza_curDisc');
       const fallback = knownPlazas.find(p => p.id !== id);
       if (fallback?.id) {
-        toast('目标广场不存在，已切换到可用广场');
+        toast(plazaT('error.plazaNotFoundSwitched'));
         return window.selectPlaza(fallback.id);
       }
       normalizePlazaSelectionOnError();
-      toast('目标广场不存在，请重新创建或选择其他广场');
+      toast(plazaT('error.plazaNotFound'));
     }
     return false;
   }
@@ -1193,7 +1225,7 @@ window.selectPlaza = async function(id) {
   }
   renderArena3D(plaza.participants || []);
   renderDiscList(await listApi(`${API}/plaza/${id}/discussions`, 200, 0));
-  $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
+  $('msg-log').innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">${plazaT('discussion.beginHint')}</div>`;
   $('plan-panel').style.display = 'none';
   $('btn-start').disabled = true; $('status-text').textContent = '';
   return true;
@@ -1205,7 +1237,7 @@ let _agentTreeData = []; // cached teams-tree
 function renderAgentTree(teams) {
   _agentTreeData = teams;
   const el = $('agent-tree');
-  if (!teams.length) { el.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">无团队</div>'; return; }
+  if (!teams.length) { el.innerHTML = `<div style="color:var(--dim);font-size:10px;padding:8px">${plazaT('plaza.noTeams')}</div>`; return; }
   el.innerHTML = teams.map((t, ti) => {
     const agents = t.agents.map((a, ai) =>
       `<div class="tree-agent">
@@ -1241,11 +1273,11 @@ window.toggleTeamAll = function(ti, checked) {
 
 window.onAgentCheck = function() {
   const checked = getSelectedAgents();
-  $('agent-sel-count').textContent = checked.length ? `(${checked.length} 已选)` : '';
+  $('agent-sel-count').textContent = checked.length ? plazaT('plaza.selected', { count: checked.length }) : '';
   // Update chairperson dropdown
   const sel = $('inp-chair');
   const prevVal = sel.value;
-  sel.innerHTML = '<option value="">— 未指定 —</option>' +
+  sel.innerHTML = `<option value="">${plazaT('plaza.notSpecified')}</option>` +
     checked.map(a => `<option value="${esc(a.agent_id)}">${esc(a.agent_name)} (${esc(a.role || a.team_id)})</option>`).join('');
   // Restore previous selection if still valid
   if (checked.some(a => a.agent_id === prevVal)) sel.value = prevVal;
@@ -1278,7 +1310,7 @@ window.openCreatePlaza = async function() {
   openM('m-plaza');
   $('inp-pn').value = ''; $('inp-pd').value = '';
   $('agent-sel-count').textContent = '';
-  $('inp-chair').innerHTML = '<option value="">— 请先勾选智能体 —</option>';
+  $('inp-chair').innerHTML = `<option value="">${plazaT('plaza.selectAgentsFirst')}</option>`;
   // Fetch agent tree
   renderAgentTree(await listApi(`${API}/teams-tree`, 200, 0));
   $('inp-pn').focus();
@@ -1286,9 +1318,9 @@ window.openCreatePlaza = async function() {
 
 window.doCreatePlaza = async function() {
   const name = $('inp-pn').value.trim();
-  if (!name) { toast('请输入名称'); return; }
+  if (!name) { toast(plazaT('error.enterName')); return; }
   const selectedAgents = getSelectedAgents();
-  if (!selectedAgents.length) { toast('请至少选择一个智能体'); return; }
+  if (!selectedAgents.length) { toast(plazaT('error.selectAgent')); return; }
   const chairId = $('inp-chair').value;
   const body = {
     name,
@@ -1297,7 +1329,7 @@ window.doCreatePlaza = async function() {
     chairperson_agent_id: chairId,
   };
   const r = await api(`${API}/plaza`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  if (r) { closeM('m-plaza'); toast('广场已创建'); await loadPlazas(); selectPlaza(r.id); }
+  if (r) { closeM('m-plaza'); toast(plazaT('notice.plazaCreated')); await loadPlazas(); selectPlaza(r.id); }
 };
 
 /* ═══════════ EDIT PLAZA ═══════════ */
@@ -1310,7 +1342,7 @@ function renderEditAgentTree(teams, currentParticipants) {
   const currentIds = new Set((currentParticipants || []).map(p => p.agent_id));
   _editOriginalAgentIds = new Set(currentIds);
   const el = $('edit-agent-tree');
-  if (!teams.length) { el.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">无团队</div>'; return; }
+  if (!teams.length) { el.innerHTML = `<div style="color:var(--dim);font-size:10px;padding:8px">${plazaT('plaza.noTeams')}</div>`; return; }
   el.innerHTML = teams.map((t, ti) => {
     const agents = t.agents.map((a, ai) => {
       const checked = currentIds.has(a.agent_id) ? 'checked' : '';
@@ -1349,7 +1381,7 @@ window.toggleEditTeamAll = function(ti, checked) {
 
 window.onEditAgentCheck = function() {
   const cbs = document.querySelectorAll('#edit-agent-tree input[type="checkbox"][data-aid]:checked');
-  $('edit-agent-sel-count').textContent = cbs.length ? `(${cbs.length} 已选)` : '';
+  $('edit-agent-sel-count').textContent = cbs.length ? plazaT('plaza.selected', { count: cbs.length }) : '';
   _editAgentTreeData.forEach((t, ti) => {
     const teamCbs = document.querySelectorAll(`#edit-tree-agents-${ti} input[type="checkbox"]`);
     const hdr = document.querySelector(`#ecb-t-${ti}`);
@@ -1376,19 +1408,19 @@ window.openEditPlaza = async function(plazaId) {
   _editPlazaId = plazaId;
   openM('m-edit-plaza');
   $('edit-agent-sel-count').textContent = '';
-  $('edit-agent-tree').innerHTML = '<div style="color:var(--dim);font-size:10px;padding:8px">加载中...</div>';
+  $('edit-agent-tree').innerHTML = `<div style="color:var(--dim);font-size:10px;padding:8px">${plazaT('loading.agents')}</div>`;
   const [tree, plaza] = await Promise.all([
     listApi(`${API}/teams-tree`, 200, 0),
     api(`${API}/plaza/${plazaId}`)
   ]);
-  $('edit-plaza-title').textContent = `编辑广场 — ${plaza?.name || ''}`;
+  $('edit-plaza-title').textContent = `${plazaT('plaza.edit')} — ${plaza?.name || ''}`;
   renderEditAgentTree(tree, plaza?.participants || []);
 };
 
 window.doSaveEditPlaza = async function() {
   if (!_editPlazaId) return;
   const selected = getEditSelectedAgents();
-  if (!selected.length) { toast('请至少保留一个智能体'); return; }
+  if (!selected.length) { toast(plazaT('error.keepAgent')); return; }
   const newIds = new Set(selected.map(a => a.agent_id));
   // Remove agents no longer selected
   const toRemove = [..._editOriginalAgentIds].filter(id => !newIds.has(id));
@@ -1405,17 +1437,17 @@ window.doSaveEditPlaza = async function() {
     if (!r) ok = false;
   }
   closeM('m-edit-plaza');
-  toast(ok ? '广场参与者已更新' : '部分操作失败');
+  toast(ok ? plazaT('notice.plazaUpdated') : plazaT('notice.partialFailure'));
   await loadPlazas();
   if (curPlaza === _editPlazaId) selectPlaza(_editPlazaId);
 };
 
 window.deletePlaza = async function(id, name) {
-  showConfirm(`确定删除广场「${name}」？所有讨论数据将一并删除。`, async () => {
+  showConfirm(plazaT('confirm.deletePlaza', { name }), async () => {
     const r = await api(`${API}/plaza/${id}`, { method: 'DELETE' });
     if (r) {
-      toast('广场已删除');
-      if (curPlaza === id) { curPlaza = null; curDisc = null; curDiscData = null; localStorage.removeItem('plaza_curPlaza'); localStorage.removeItem('plaza_curDisc'); renderArena3D([]); $('msg-log').innerHTML = ''; $('disc-list').innerHTML = '<div style="color:var(--dim);font-size:10px">先选择广场</div>'; }
+      toast(plazaT('notice.plazaDeleted'));
+      if (curPlaza === id) { curPlaza = null; curDisc = null; curDiscData = null; localStorage.removeItem('plaza_curPlaza'); localStorage.removeItem('plaza_curDisc'); renderArena3D([]); $('msg-log').innerHTML = ''; $('disc-list').innerHTML = `<div style="color:var(--dim);font-size:10px">${plazaT('plaza.selectFirst')}</div>`; }
       await loadPlazas();
     }
   });
@@ -1423,39 +1455,44 @@ window.deletePlaza = async function(id, name) {
 
 /* ═══════════ DISCUSSIONS ═══════════ */
 function renderDiscList(ds) {
+  knownDiscussions = Array.isArray(ds) ? ds : [];
   $('disc-list').innerHTML = ds.map(d => {
     const closedActions = d.status === 'closed'
-      ? `<div class="disc-actions"><button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">重新讨论</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">萃取</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">网页</button></div>`
+      ? `<div class="disc-actions"><button class="disc-act" onclick="reopenDisc(event, '${esc(d.id)}')">${plazaT('action.reopen')}</button><button class="disc-act" onclick="extractFromDisc(event, '${esc(d.id)}')">${plazaT('action.extract')}</button><button class="disc-act" onclick="exportDiscPDF(event, '${esc(d.id)}')">${plazaT('action.web')}</button></div>`
       : '';
     return `<div class="disc-item ${d.id === curDisc ? 'active' : ''}" data-discussion-id="${esc(d.id)}" onclick="selectDisc('${esc(d.id)}')">
-      <div class="dh"><div class="tp">${esc(d.topic)}</div><button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">删除</button></div>
-      <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${d.message_count} 消息</span></div>
+      <div class="dh"><div class="tp">${esc(d.topic)}</div><button class="disc-del" onclick="deleteDisc(event, '${esc(d.id)}')">${plazaT('action.delete')}</button></div>
+      <div class="dm"><span class="pill pill-${d.status}">${statusTxt(d.status)}</span><span>${plazaT('discussion.messages', { count: d.message_count })}</span></div>
       ${closedActions}
     </div>`;
-  }).join('') || '<div style="color:var(--dim);font-size:10px">无讨论</div>';
+  }).join('') || `<div style="color:var(--dim);font-size:10px">${plazaT('discussion.empty')}</div>`;
 }
-function statusTxt(s) { return { open: '待启动', in_progress: '进行中', summarizing: '总结中', closed: '已结束' }[s] || s; }
+function statusTxt(s) {
+  const key = `discussion.status.${s}`;
+  const translated = plazaT(key);
+  return translated === key ? s : translated;
+}
 
 window.deleteDisc = async function(event, discId) {
   event?.stopPropagation();
   if (!curPlaza) return;
-  showConfirm('删除这个讨论？', async () => {
+  showConfirm(plazaT('confirm.deleteDiscussion'), async () => {
     const deletingCurrent = curDisc === discId;
     if (deletingCurrent) teardownSSE();
     const result = await api(`${API}/plaza/${curPlaza}/discussions/${discId}`, { method: 'DELETE' });
-    if (!result) { toast('删除失败'); return; }
+    if (!result) { toast(plazaT('error.delete')); return; }
     if (deletingCurrent) {
       curDisc = null; curDiscData = null; curVerificationState = null;
       clearSpeechPlayback();
-      $('msg-log').innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">创建讨论开始议事</div>';
-      $('plan-panel').style.display = 'none'; $('btn-start').disabled = true; $('btn-start').textContent = '开始'; $('status-text').textContent = '';
+      $('msg-log').innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px;font-family:var(--font-mono)">${plazaT('discussion.beginHint')}</div>`;
+      $('plan-panel').style.display = 'none'; $('btn-start').disabled = true; $('btn-start').textContent = plazaT('action.start'); $('status-text').textContent = '';
     }
     const plaza = await api(`${API}/plaza/${curPlaza}`);
     if (plaza) {
       renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0));
       renderArena3D(plaza.participants || []);
     }
-    toast('讨论已删除');
+    toast(plazaT('notice.discussionDeleted'));
   });
 };
 
@@ -1472,10 +1509,10 @@ window.selectDisc = async function(discId, opts) {
       curConsensusState = null;
       curEscalationState = null;
       $('btn-start').disabled = true;
-      $('btn-start').textContent = '开始';
+      $('btn-start').textContent = plazaT('action.start');
       $('status-text').textContent = '';
       $('plan-panel').style.display = 'none';
-      toast('目标讨论不存在，请重新选择讨论');
+      toast(plazaT('error.discNotFound'));
     }
     return false;
   }
@@ -1490,8 +1527,8 @@ window.selectDisc = async function(discId, opts) {
   if (plaza) { renderDiscList(await listApi(`${API}/plaza/${curPlaza}/discussions`, 200, 0)); renderArena3D(plaza.participants || []); }
   renderMessages(disc.messages || []);
   $('btn-start').disabled = !['open', 'closed'].includes(disc.status);
-  $('btn-start').textContent = disc.status === 'open' ? '开始' : disc.status === 'closed' ? '重新讨论' : disc.status === 'in_progress' ? '进行中' : '总结中';
-  $('status-text').textContent = disc.goal ? `目标: ${disc.goal}` : '';
+  $('btn-start').textContent = disc.status === 'open' ? plazaT('action.start') : disc.status === 'closed' ? plazaT('action.reopen') : disc.status === 'in_progress' ? plazaT('status.inProgress') : plazaT('status.summarizingBtn');
+  $('status-text').textContent = disc.goal ? plazaT('discussion.goal', { goal: disc.goal }) : '';
   curVerificationState = null;
   clearDiscussionSignals();
   if (disc.status === 'closed' && disc.summary) {
@@ -1516,13 +1553,13 @@ var _msgRenderLimit = 50;
 function renderMessages(msgs) {
   const log = $('msg-log');
   _seenMsgKeys.clear();
-  if (!msgs.length) { log.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px">点击「开始」启动讨论</div>'; _msgRenderLimit = 50; return; }
+  if (!msgs.length) { log.innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--dim);font-size:10px">${plazaT('discussion.startHint')}</div>`; _msgRenderLimit = 50; return; }
   var h = '', lr = -1;
   // 只渲染最近 _msgRenderLimit 条
   var start = Math.max(0, msgs.length - _msgRenderLimit);
   if (start > 0) {
     h += '<div id="load-earlier-bar" style="text-align:center;padding:6px;margin-bottom:8px">' +
-      '<button class="btn btn-sm" onclick="expandMessages()" style="font-size:10px">📜 加载更早 (' + start + ' 条隐藏)</button></div>';
+      '<button class="btn btn-sm" onclick="expandMessages()" style="font-size:10px">' + plazaT('msg.loadEarlier', { count: start }) + '</button></div>';
   }
   for (var i = start; i < msgs.length; i++) {
     var m = msgs[i];
@@ -1531,7 +1568,7 @@ function renderMessages(msgs) {
     var isMod = m.niche_role === 'moderator';
     var isUser = m.niche_role === 'human';
     var cls = isMod ? 'mod' : (isUser ? 'user' : '');
-    var label = isMod ? ' · 议事长' : (isUser ? ' · 你' : '');
+    var label = isMod ? ` · ${plazaT('chat.chairperson')}` : (isUser ? ` · ${plazaT('chat.you')}` : '');
     h += '<div class="msg-entry ' + cls + '"><div class="me-name">' + esc(m.agent_name) + label + '</div><div class="me-text">' + mdLite(m.content) + '</div></div>';
   }
   log.innerHTML = h; log.scrollTop = log.scrollHeight;
@@ -1547,14 +1584,9 @@ function mdLite(s) {
 }
 
 function verificationStatusLabel(status) {
-  return {
-    verify_pending: '待验证',
-    dispatched: '待重做',
-    failed: '失败',
-    closed: '已关闭',
-    verified: '已验证',
-    in_progress: '进行中',
-  }[status] || status || '未知';
+  const key = `verification.status.${status}`;
+  const translated = plazaT(key);
+  return translated === key ? status || plazaT('common.unknown') : translated;
 }
 
 function verificationStatusColor(status) {
@@ -1570,18 +1602,16 @@ function verificationStatusColor(status) {
 
 function verificationAlertLabel(alert) {
   if (!alert) return '';
-  if (alert.alert_level === 'critical') return '需要人工介入';
-  if (alert.next_action?.startsWith('run_verify_test:')) return '等待验证';
-  if (alert.next_action === 'redispatch_build') return '等待重做';
-  return alert.escalation_label || '需关注';
+  if (alert.alert_level === 'critical') return plazaT('alert.critical');
+  if (alert.next_action?.startsWith('run_verify_test:')) return plazaT('alert.waitVerify');
+  if (alert.next_action === 'redispatch_build') return plazaT('alert.waitRedo');
+  return alert.escalation_label || plazaT('alert.attention');
 }
 
 function consensusTrendLabel(trend) {
-  return {
-    rising: '收敛提升',
-    stable: '基本稳定',
-    falling: '分歧加深',
-  }[trend] || trend || '未知';
+  const key = `consensus.trend.${trend}`;
+  const translated = plazaT(key);
+  return translated === key ? trend || plazaT('common.unknown') : translated;
 }
 
 function consensusTrendColor(trend) {
@@ -1593,10 +1623,9 @@ function consensusTrendColor(trend) {
 }
 
 function escalationStatusLabel(status) {
-  return {
-    pending: '待处理',
-    resolved: '已解决',
-  }[status] || status || '未知';
+  const key = `escalation.status.${status}`;
+  const translated = plazaT(key);
+  return translated === key ? status || plazaT('common.unknown') : translated;
 }
 
 function latestDiscussionRound() {
@@ -1671,8 +1700,8 @@ function renderVerificationState() {
 
   const counts = state.status_counts || {};
   const chips = [
-    `<span class="verify-chip">队列 ${state.queue_count || 0}</span>`,
-    `<span class="verify-chip">告警 ${state.alert_count || 0}</span>`,
+    `<span class="verify-chip">${plazaT('verification.queue', { count: state.queue_count || 0 })}</span>`,
+    `<span class="verify-chip">${plazaT('verification.alerts', { count: state.alert_count || 0 })}</span>`,
     ...Object.entries(counts).map(([status, count]) => `<span class="verify-chip">${esc(verificationStatusLabel(status))} ${count}</span>`),
   ].join('');
 
@@ -1685,7 +1714,7 @@ function renderVerificationState() {
     return `<div class="verify-item">
       <div class="row">
         <div>
-          <div class="title">${esc(item.title || item.id || '未命名演进项')}</div>
+          <div class="title">${esc(item.title || item.id || plazaT('entity.unnamedEvolution'))}</div>
           <div class="meta">${esc(item.id || '')}${item.verify_test_name ? ` · ${esc(item.verify_test_name)}` : ''}${item.retry_count ? ` · retry ${item.retry_count}/${item.max_retries || 0}` : ''}</div>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${badge}${escalation}</div>
@@ -1698,10 +1727,10 @@ function renderVerificationState() {
   const html = `<div class="plan-subsection verification-state">
     <div class="plan-subtitle">VERIFICATION</div>
     <div class="verify-summary">${chips}</div>
-    <div class="verify-list">${listHtml || `<div class="verify-empty">当前没有待展示的验证项。</div>`}</div>
+    <div class="verify-list">${listHtml || `<div class="verify-empty">${plazaT('verification.empty')}</div>`}</div>
     <div class="verify-actions">
-      <button class="plan-btn" onclick="refreshVerificationState()">刷新验证状态</button>
-      <button class="plan-btn accent" onclick="runVerificationQueue()">运行验证队列</button>
+      <button class="plan-btn" onclick="refreshVerificationState()">${plazaT('verification.refresh')}</button>
+      <button class="plan-btn accent" onclick="runVerificationQueue()">${plazaT('verification.run')}</button>
     </div>
   </div>`;
 
@@ -1728,15 +1757,15 @@ function renderConsensusState() {
   const scorePercent = Math.max(0, Math.min(100, Math.round((state.score || 0) * 100)));
   const trendColor = consensusTrendColor(state.convergence_trend);
   const summaryChips = [
-    `<span class="verify-chip">轮次 ${esc(state.round_number || '全部')}</span>`,
-    `<span class="verify-chip">同意 ${state.agreement_count}</span>`,
-    `<span class="verify-chip">分歧 ${state.disagreement_count}</span>`,
-    `<span class="verify-chip">中立 ${state.neutral_count}</span>`,
+    `<span class="verify-chip">${plazaT('consensus.round', { round: esc(state.round_number || plazaT('common.all')) })}</span>`,
+    `<span class="verify-chip">${plazaT('consensus.agree', { count: state.agreement_count })}</span>`,
+    `<span class="verify-chip">${plazaT('consensus.dissent', { count: state.disagreement_count })}</span>`,
+    `<span class="verify-chip">${plazaT('consensus.neutral', { count: state.neutral_count })}</span>`,
   ].join('');
   const dissentHtml = (state.dissenting_messages || []).slice(0, 4).map(item => `
     <div class="dissent-item">
       <div class="row">
-        <div class="title">${esc(item.agent_name || item.agent_id || '未命名智能体')}</div>
+        <div class="title">${esc(item.agent_name || item.agent_id || plazaT('entity.unnamedAgent'))}</div>
         <div class="meta">R${esc(item.round_number || 0)}</div>
       </div>
       <div class="detail">${esc(item.content_preview || '')}</div>
@@ -1747,7 +1776,7 @@ function renderConsensusState() {
     <div class="consensus-hero">
       <div>
         <div class="consensus-score">${scorePercent}<span>%</span></div>
-        <div class="consensus-meta">${state.can_early_exit ? '已满足提前收敛条件' : '仍建议继续讨论或人工判断'}</div>
+        <div class="consensus-meta">${plazaT(state.can_early_exit ? 'consensus.early' : 'consensus.continue')}</div>
       </div>
       <div class="consensus-trend" style="color:${trendColor};border-color:${trendColor}40;background:${trendColor}12">${esc(consensusTrendLabel(state.convergence_trend))}</div>
     </div>
@@ -1765,10 +1794,10 @@ function renderConsensusState() {
     </div>
     <div class="consensus-dissent">
       <div class="plan-subtitle" style="margin-bottom:4px">DISSENT NOTES</div>
-      <div class="verify-list">${dissentHtml || `<div class="verify-empty">当前没有明显反方意见。</div>`}</div>
+      <div class="verify-list">${dissentHtml || `<div class="verify-empty">${plazaT('consensus.empty')}</div>`}</div>
     </div>
     <div class="verify-actions">
-      <button class="plan-btn" onclick="refreshConsensusState()">刷新共识</button>
+      <button class="plan-btn" onclick="refreshConsensusState()">${plazaT('consensus.refresh')}</button>
     </div>
   </div>`;
 
@@ -1797,12 +1826,12 @@ function renderEscalationState() {
     return `<div class="escalation-item">
       <div class="row">
         <div>
-          <div class="title">${esc(item.agent_name || item.agent_id || '未命名智能体')}</div>
+          <div class="title">${esc(item.agent_name || item.agent_id || plazaT('entity.unnamedAgent'))}</div>
           <div class="meta">${item.round_number ? `R${esc(item.round_number)}` : 'R?'}${item.error ? ` · ${esc(item.error)}` : ''}</div>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
           <span class="verify-badge" style="color:${color};border-color:${color}40;background:${color}12">${esc(escalationStatusLabel(item.status))}</span>
-          ${item.status === 'pending' ? `<button class="plan-btn danger" onclick="resolveEscalation(${Number(item.index)})">标记已处理</button>` : ''}
+          ${item.status === 'pending' ? `<button class="plan-btn danger" onclick="resolveEscalation(${Number(item.index)})">${plazaT('escalation.resolve')}</button>` : ''}
         </div>
       </div>
       ${item.prompt_preview ? `<div class="detail">${esc(item.prompt_preview)}</div>` : ''}
@@ -1813,12 +1842,12 @@ function renderEscalationState() {
   const html = `<div class="plan-subsection escalation-state">
     <div class="plan-subtitle">ESCALATIONS</div>
     <div class="verify-summary">
-      <span class="verify-chip">总计 ${state.total}</span>
-      <span class="verify-chip">待处理 ${state.pending_count}</span>
+      <span class="verify-chip">${plazaT('escalation.total', { count: state.total })}</span>
+      <span class="verify-chip">${plazaT('escalation.pending', { count: state.pending_count })}</span>
     </div>
-    <div class="verify-list">${listHtml || `<div class="verify-empty">当前讨论没有升级项。</div>`}</div>
+    <div class="verify-list">${listHtml || `<div class="verify-empty">${plazaT('escalation.empty')}</div>`}</div>
     <div class="verify-actions">
-      <button class="plan-btn" onclick="refreshEscalationState()">刷新升级项</button>
+      <button class="plan-btn" onclick="refreshEscalationState()">${plazaT('escalation.refresh')}</button>
     </div>
   </div>`;
 
@@ -1877,7 +1906,8 @@ function renderPlanCard(planContent, revised = false) {
   // 如果计划内容没变，跳过全量重建（避免滚动位置丢失 + 闪烁）
   const existingText = p.querySelector('.plan-text')?.textContent || '';
   const existingRevised = !!p.querySelector('.plan-card h4 span');
-  if (existingText === planContent && existingRevised === revised && p.querySelector('.plan-card')) {
+  const currentLanguage = getPlazaLanguage();
+  if (existingText === planContent && existingRevised === revised && p.dataset.lang === currentLanguage && p.querySelector('.plan-card')) {
     // 计划没变，只刷新子面板（它们有自己的滚动保存）
     if (!_planPanelBusy) { renderConsensusState(); renderEscalationState(); renderVerificationState(); }
     return;
@@ -1904,23 +1934,24 @@ function renderPlanCard(planContent, revised = false) {
   }).join('');
   // 保存滚动位置 — innerHTML 重建会丢失 scrollTop
   const savedScroll = p.scrollTop;
-  p.innerHTML = `<div class="plan-card"><h4>执行计划${revised ? ' <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">已修订</span>' : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
+  p.dataset.lang = currentLanguage;
+  p.innerHTML = `<div class="plan-card"><h4>${plazaT('plan.title')}${revised ? ` <span style="font-size:9px;color:var(--slit-glow);margin-left:6px">${plazaT('plan.revised')}</span>` : ''}</h4><div class="plan-text">${mdLite(planContent)}</div>
     <div class="assign-row" style="flex-wrap:wrap;align-items:flex-start">
-      <span style="font-size:9px;color:var(--dim);font-family:var(--font-mono);margin-top:4px">ASSIGN TEAMS（可多选）:</span>
-      <div id="assign-teams" style="flex:1;min-width:180px">${teamChecks || '<span style="color:var(--dim);font-size:11px">无团队</span>'}</div>
-      <button class="plan-btn" onclick="assignPlan()">派发</button>
-      <button class="plan-btn" onclick="selectAllDispatchTeams(true)" title="全选">全选</button>
-      <button class="plan-btn" onclick="selectAllDispatchTeams(false)" title="清空">清空</button>
-      <button class="plan-btn accent" onclick="selectTopTwoTeams()" title="勾选列表前两队，快速开对抗">⚡ 前两队对抗</button>
+      <span style="font-size:9px;color:var(--dim);font-family:var(--font-mono);margin-top:4px">${plazaT('plan.assignTeams')}</span>
+      <div id="assign-teams" style="flex:1;min-width:180px">${teamChecks || `<span style="color:var(--dim);font-size:11px">${plazaT('common.noTeams')}</span>`}</div>
+      <button class="plan-btn" onclick="assignPlan()">${plazaT('plan.dispatch')}</button>
+      <button class="plan-btn" onclick="selectAllDispatchTeams(true)" title="${plazaT('plan.selectAll')}">${plazaT('plan.selectAll')}</button>
+      <button class="plan-btn" onclick="selectAllDispatchTeams(false)" title="${plazaT('plan.clear')}">${plazaT('plan.clear')}</button>
+      <button class="plan-btn accent" onclick="selectTopTwoTeams()">⚡ ${plazaT('plan.duel')}</button>
     </div>
-    <p style="font-size:10px;color:var(--dim);margin:4px 0 0">多队=同一执行计划并行赛道；勾选 ≥2 队后「智能拆解 / 派发并送入物竞」可直接多队对抗</p>
+    <p style="font-size:10px;color:var(--dim);margin:4px 0 0">${plazaT('plan.parallelHint')}</p>
     <div class="plan-actions">
-      <button class="plan-btn primary" onclick="dispatchTasks()">智能拆解</button>
-      <button class="plan-btn primary" onclick="dispatchAndExecute()">拆解并执行</button>
-      <button class="plan-btn accent" onclick="enterEvolution()">进入演化</button>
-      <button class="plan-btn accent" onclick="enterCostGov()" title="将讨论结论作为成本治理输入">💰 成本治理</button>
-      <button class="plan-btn" onclick="loadExecutionPlan()" title="结构化执行计划：逐步骤审查/批准/驳回/追问">📋 结构化审查</button>
-      <button class="plan-btn" onclick="refreshPlan()">↓ 刷新计划</button>
+      <button class="plan-btn primary" onclick="dispatchTasks()">${plazaT('plan.decompose')}</button>
+      <button class="plan-btn primary" onclick="dispatchAndExecute()">${plazaT('plan.decomposeExecute')}</button>
+      <button class="plan-btn accent" onclick="enterEvolution()">${plazaT('plan.evolution')}</button>
+      <button class="plan-btn accent" onclick="enterCostGov()">💰 ${plazaT('plan.cost')}</button>
+      <button class="plan-btn" onclick="loadExecutionPlan()">📋 ${plazaT('plan.structured')}</button>
+      <button class="plan-btn" onclick="refreshPlan()">↓ ${plazaT('plan.refresh')}</button>
     </div>
     <div id="exec-plan-body" style="margin-top:8px"></div></div>`;
   // legacy id for callers still reading assign-team: mirror first selection
@@ -1984,7 +2015,7 @@ window.selectTopTwoTeams = function () {
   boxes.forEach((b, i) => { b.checked = i < 2; });
   persistDispatchTeams();
   const v = getSelectedDispatchTeams();
-  toast(v.length >= 2 ? `已选对抗：${v.slice(0, 2).join(' vs ')}` : '团队不足 2 个');
+  toast(v.length >= 2 ? plazaT('team.duelSelected', { names: v.slice(0, 2).join(' vs ') }) : plazaT('team.notEnough'));
 };
 
 function _dispatchBody() {
@@ -1999,30 +2030,35 @@ function _dispatchBody() {
 window.assignPlan = async function() {
   if (!curPlaza || !curDisc) return;
   const body = _dispatchBody();
-  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  if (!body.team_ids.length) { toast(plazaT('team.selectOne')); return; }
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/assign`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (r) {
+  if (r && r.status === 'assigned' && (r.task_count || (r.task_ids || []).length)) {
     toast(
       r.multi_team
-        ? `计划已派发到 ${r.team_ids?.length || 0} 个团队`
-        : `计划已派发: ${r.status}`
+        ? plazaT('dispatch.multi', { count: r.team_ids?.length || 0 })
+        : plazaT('dispatch.single', { status: r.status })
     );
+  } else if (r && r.error) {
+    toast(plazaT('dispatch.failed', { detail: '：' + r.error }));
+  } else if (r) {
+    const detail = window.api?._lastError?.message || '';
+    toast(plazaT('dispatch.failed', { detail: detail ? '：' + detail : '' }));
   } else {
     const detail = window.api?._lastError?.message || '';
-    toast('派发失败' + (detail ? '：' + detail : ''));
+    toast(plazaT('dispatch.failed', { detail: detail ? '：' + detail : '' }));
   }
 };
 
 window.dispatchTasks = async function() {
   if (!curPlaza || !curDisc) return;
   const body = _dispatchBody();
-  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  if (!body.team_ids.length) { toast(plazaT('team.selectOne')); return; }
   toast(body.team_ids.length > 1
-    ? `正在拆解并并行派发到 ${body.team_ids.length} 个团队…`
-    : '正在智能拆解任务…');
+    ? plazaT('dispatch.decomposingMulti', { count: body.team_ids.length })
+    : plazaT('dispatch.decomposing'));
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -2030,27 +2066,27 @@ window.dispatchTasks = async function() {
   if (r && r.task_count) {
     toast(
       r.multi_team
-        ? `已拆解 ${r.task_count} 个任务 → ${r.team_ids.length} 队并行（group ${String(r.dispatch_group_id || '').slice(0, 10)}）`
-        : `已拆解 ${r.task_count} 个任务并派发到团队`
+        ? plazaT('dispatch.doneMulti', { count: r.task_count, teams: r.team_ids.length, group: String(r.dispatch_group_id || '').slice(0, 10) })
+        : plazaT('dispatch.doneSingle', { count: r.task_count })
     );
     renderDispatchedTasks(r.tasks, r.dispatches);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
     window.__LAST_DISPATCH__ = r;
   } else if (r) {
-    toast('未拆解出任务：执行计划中没有可识别的任务条目');
+    toast(plazaT('dispatch.noTasks'));
   } else {
     const detail = window.api?._lastError?.message || '';
-    toast('拆解失败' + (detail ? '：' + detail : ''));
+    toast(plazaT('dispatch.decomposeFailed', { detail: detail ? '：' + detail : '' }));
   }
 };
 
 window.dispatchAndExecute = async function() {
   if (!curPlaza || !curDisc) return;
   const body = _dispatchBody();
-  if (!body.team_ids.length) { toast('请至少勾选一个团队'); return; }
+  if (!body.team_ids.length) { toast(plazaT('team.selectOne')); return; }
   toast(body.team_ids.length > 1
-    ? `正在拆解并在 ${body.team_ids.length} 队立即执行…`
-    : '正在拆解并立即执行…');
+    ? plazaT('dispatch.executingMulti', { count: body.team_ids.length })
+    : plazaT('dispatch.executing'));
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/dispatch-and-execute`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -2058,24 +2094,24 @@ window.dispatchAndExecute = async function() {
   if (r && r.task_count) {
     toast(
       r.multi_team
-        ? `已拆解 ${r.task_count} 个任务，${r.team_ids.length} 队执行中`
-        : `已拆解 ${r.task_count} 个任务，正在执行中`
+        ? plazaT('dispatch.executingDoneMulti', { count: r.task_count, teams: r.team_ids.length })
+        : plazaT('dispatch.executingDone', { count: r.task_count })
     );
     renderDispatchedTasks(r.tasks, r.dispatches);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
     window.__LAST_DISPATCH__ = r;
   } else if (r) {
-    toast('未拆解出任务：执行计划中没有可识别的任务条目');
+    toast(plazaT('dispatch.noTasks'));
   } else {
     const detail = window.api?._lastError?.message || '';
-    toast('拆解执行失败' + (detail ? '：' + detail : ''));
+    toast(plazaT('dispatch.execFailed', { detail: detail ? '：' + detail : '' }));
   }
 };
 
 window.enterEvolution = async function() {
   if (!curPlaza || !curDisc) return;
   const teamId = $('assign-team')?.value;
-  toast('正在进入系统演化...');
+  toast(plazaT('evolution.starting'));
   // 直接 fetch 以便拿到后端真实原因（尚无执行计划 / 演化引擎未初始化 等），不再笼统报"失败"
   let r = null, detail = '';
   try {
@@ -2086,15 +2122,15 @@ window.enterEvolution = async function() {
     const d = await resp.json().catch(() => ({}));
     if (resp.ok) { r = d; }
     else { detail = String(d?.detail || d?.message || `HTTP ${resp.status}`); }
-  } catch (e) { detail = e.message || '网络错误'; }
+  } catch (e) { detail = e.message || plazaT('error.network', { message: e.message }); }
   if (r && r.status === 'evolving') {
-    toast(`演化已启动: ${r.evolution_items || 0} 项演进需求`);
+    toast(plazaT('evolution.started', { count: r.evolution_items || 0 }));
     if (r.tasks) renderDispatchedTasks(r.tasks);
     renderStructuredOutput(r.output || (r.outputs || [])[0]);
     await refreshVerificationState();
   } else {
     // 常见原因：尚无执行计划（先点"刷新计划"生成计划表）/ 演化引擎未初始化（重启后端）
-    toast('演化启动失败' + (detail ? '：' + detail : '（请先生成执行计划）'));
+    toast(plazaT('evolution.failed', { detail: detail ? '：' + detail : plazaT('evolution.hint') }));
   }
 };
 
@@ -2111,7 +2147,7 @@ window.enterCostGov = async function() {
       body: JSON.stringify({ type: 'cost_governance', team_id: teamId || '', summary: planText.slice(0,500) })
     });
   } catch(e) { /* non-critical */ }
-  toast('正在跳转成本治理…');
+  toast(plazaT('cost.redirecting'));
   const targetUrl = new URL('/cost-dashboard.html', window.location.origin);
   targetUrl.searchParams.set('source', 'plaza');
   targetUrl.searchParams.set('plaza_id', curPlaza);
@@ -2134,7 +2170,7 @@ window.refreshVerificationState = async function(silent = false) {
   });
   renderVerificationState();
   if (!silent && (curVerificationState.queue_count || curVerificationState.alert_count)) {
-    toast(`验证队列 ${curVerificationState.queue_count} 项 · 告警 ${curVerificationState.alert_count} 项`);
+    toast(plazaT('verification.queueAlerts', { queue: curVerificationState.queue_count, alerts: curVerificationState.alert_count }));
   }
 };
 
@@ -2146,7 +2182,7 @@ window.refreshConsensusState = async function(silent = false) {
   if (!payload) return;
   curConsensusState = normalizeConsensusState(payload);
   renderConsensusState();
-  if (!silent) toast(`共识 ${Math.round((curConsensusState.score || 0) * 100)}% · ${consensusTrendLabel(curConsensusState.convergence_trend)}`);
+  if (!silent) toast(plazaT('consensus.summary', { percent: Math.round((curConsensusState.score || 0) * 100), trend: consensusTrendLabel(curConsensusState.convergence_trend) }));
 };
 
 window.refreshEscalationState = async function(silent = false) {
@@ -2184,19 +2220,19 @@ window.refreshEscalationState = async function(silent = false) {
         // no-op
       }
       // Some legacy discussions can miss escalation context on backend; stop retry storm for this context.
-      if (resp.status === 404 && /广场不存在|讨论不存在/.test(msg)) {
+      if (resp.status === 404 && /广场不存在|讨论不存在|plaza not found|discussion not found/i.test(msg)) {
         escalationFetchBlocked.add(ctxKey);
-        if (!silent) toast('升级项上下文不可用，已暂停该讨论的升级项拉取');
+        if (!silent) toast(plazaT('escalation.unavailable'));
         return;
       }
-      if (!silent) toast(`升级项拉取失败 (HTTP ${resp.status})`);
+      if (!silent) toast(plazaT('escalation.fetchFailed', { status: resp.status }));
       return;
     }
     const payload = await resp.json();
     curEscalationState = normalizeEscalationState(payload);
     renderEscalationState();
     if (!silent && curEscalationState.total) {
-      toast(`升级项 ${curEscalationState.total} 条 · 待处理 ${curEscalationState.pending_count}`);
+      toast(plazaT('escalation.count', { total: curEscalationState.total, pending: curEscalationState.pending_count }));
     }
   } finally {
     escalationFetchInFlight.delete(ctxKey);
@@ -2207,25 +2243,25 @@ window.resolveEscalation = async function(index) {
   if (!Number.isFinite(Number(index))) return;
   const result = await api(`${API}/plaza/escalations/${Number(index)}/resolve`, { method: 'POST' });
   if (!result) {
-    toast('升级项处理失败');
+    toast(plazaT('escalation.resolveFailed'));
     return;
   }
-  toast(`升级项 #${Number(index)} 已标记处理`);
+  toast(plazaT('escalation.resolved', { index: Number(index) }));
   await refreshEscalationState(true);
 };
 
 window.runVerificationQueue = async function() {
   if (!curPlaza || !curDisc) return;
-  toast('正在运行验证队列...');
+  toast(plazaT('verification.running'));
   const r = await api(`${API}/plaza/${curPlaza}/discussions/${curDisc}/verification-queue/run`, {
     method: 'POST'
   });
-  if (!r) { toast('验证队列运行失败'); return; }
+  if (!r) { toast(plazaT('verification.runFailed')); return; }
   curVerificationState = normalizeVerificationState(r);
   renderVerificationState();
   const verified = r.verify?.count || 0;
   const closed = Array.isArray(r.closed) ? r.closed.length : 0;
-  toast(`验证完成 ${verified} 项 · 关闭 ${closed} 项`);
+  toast(plazaT('verification.done', { verified, closed }));
 };
 
 function renderDispatchedTasks(tasks, dispatches) {
@@ -2235,12 +2271,12 @@ function renderDispatchedTasks(tasks, dispatches) {
   let lanesHtml = '';
   if (Array.isArray(dispatches) && dispatches.length > 1) {
     lanesHtml = `<div style="margin-bottom:8px;font-size:10px;color:var(--dim)">
-      多队并行 · ${dispatches.length} 赛道
+      ${plazaT('verification.lanes', { count: dispatches.length })}
       ${dispatches
         .map(
           (d) =>
             `<div style="margin-top:4px"><b style="color:var(--text)">${esc(d.team_id)}</b>
-              · ${d.task_count || (d.task_ids || []).length || 0} 任务
+              · ${plazaT('verification.laneTasks', { count: d.task_count || (d.task_ids || []).length || 0 })}
               · lane ${esc(d.lane || '')}</div>`
         )
         .join('')}
@@ -2269,20 +2305,14 @@ function renderStructuredOutput(output) {
   const existing = card.querySelector('.structured-output');
   const source = output.source || {};
   const targets = Array.isArray(output.target_ids) ? output.target_ids : [];
-  const typeLabel = {
-    task: '任务',
-    task_execution: '任务执行',
-    evolution_item: '演进项',
-    skill_candidate: '技能候选',
-    cost_governance: '成本治理项',
-  }[output.type] || output.type || '输出';
+  const typeLabel = plazaT(`output.type.${output.type}`) === `output.type.${output.type}` ? output.type || plazaT('output.type.fallback') : plazaT(`output.type.${output.type}`);
   const html = `<div class="structured-output" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
     <h4 style="font-size:10px;color:var(--dim);margin-bottom:6px;letter-spacing:1px">STRUCTURED OUTPUT</h4>
     <div style="display:grid;grid-template-columns:80px 1fr;gap:4px 8px;font-size:11px;color:var(--dim);line-height:1.6">
-      <span>类型</span><strong style="color:var(--text)">${esc(typeLabel)}</strong>
-      <span>团队</span><strong style="color:var(--text)">${esc(output.team_id || '-')}</strong>
-      <span>目标</span><span style="font-family:var(--font-mono);color:var(--text);word-break:break-all">${esc(targets.join(', ') || '-')}</span>
-      <span>来源</span><span style="color:var(--text)">${esc(source.topic || source.discussion_id || '-')}</span>
+      <span>${plazaT('output.label.type')}</span><strong style="color:var(--text)">${esc(typeLabel)}</strong>
+      <span>${plazaT('output.label.team')}</span><strong style="color:var(--text)">${esc(output.team_id || '-')}</strong>
+      <span>${plazaT('output.label.target')}</span><span style="font-family:var(--font-mono);color:var(--text);word-break:break-all">${esc(targets.join(', ') || '-')}</span>
+      <span>${plazaT('output.label.source')}</span><span style="color:var(--text)">${esc(source.topic || source.discussion_id || '-')}</span>
     </div>
   </div>`;
   if (existing) existing.outerHTML = html;
@@ -2290,7 +2320,7 @@ function renderStructuredOutput(output) {
 }
 
 window.openCreateDisc = async function() {
-  if (!curPlaza) { toast('请先选择广场'); return; }
+  if (!curPlaza) { toast(plazaT('error.selectPlaza')); return; }
   const plaza = await api(`${API}/plaza/${curPlaza}`);
   if (plaza?.participants) {
     const chair = plaza.participants.find(p => p.niche_role === 'moderator');
@@ -2301,19 +2331,19 @@ window.openCreateDisc = async function() {
 
 window.doCreateDisc = async function() {
   const topic = $('inp-dt').value.trim();
-  if (!topic) { toast('请输入话题'); return; }
+  if (!topic) { toast(plazaT('error.enterTopic')); return; }
   const desc = $('inp-dd').value.trim();
-  if (desc.length > 2000) { toast('背景内容过长，请缩减到2000字以内'); return; }
+  if (desc.length > 2000) { toast(plazaT('error.contextTooLong')); return; }
   const body = { topic, goal: $('inp-dg').value.trim(), description: desc, moderator_agent_id: $('inp-dm').value, max_rounds: parseInt($('inp-dr').value) };
   try {
     const r = await api(`${API}/plaza/${curPlaza}/discussions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r) {
-      const detail = window.api?._lastError?.message || '创建失败，请检查输入';
-      toast(Array.isArray(detail) ? detail[0]?.msg || '创建失败，请检查输入' : detail);
+      const detail = window.api?._lastError?.message || plazaT('error.create');
+      toast(Array.isArray(detail) ? detail[0]?.msg || plazaT('error.create') : detail);
       return;
     }
-    closeM('m-disc'); $('inp-dt').value=''; $('inp-dg').value=''; $('inp-dd').value=''; toast('讨论已创建'); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300);
-  } catch(e) { toast('网络错误: ' + e.message); }
+    closeM('m-disc'); $('inp-dt').value=''; $('inp-dg').value=''; $('inp-dd').value=''; toast(plazaT('notice.discussionCreated')); selectPlaza(curPlaza); setTimeout(() => selectDisc(r.id), 300);
+  } catch(e) { toast(plazaT('error.network', { message: e.message })); }
 };
 
 window.startDiscussion = async function() {
@@ -2361,7 +2391,7 @@ window.sendInterject = async function() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: msg })
   });
-  btn.disabled = false; btn.textContent = '发送';
+  btn.disabled = false; btn.textContent = plazaT('action.send');
   if (r) {
     // If no SSE, manually show moderator reply (user msg already shown above)
     if (!evtSrc) {
@@ -2381,7 +2411,7 @@ window.sendInterject = async function() {
       setTimeout(() => selectDisc(r.new_discussion.id), 200);
     }
   } else {
-    toast('发送失败');
+    toast(plazaT('error.send'));
   }
 };
 
@@ -2391,7 +2421,7 @@ function appendMsg(m) {
   const isMod = m.niche_role === 'moderator';
   const isUser = m.niche_role === 'human';
   const cls = isMod ? 'mod' : (isUser ? 'user' : '');
-  const label = isMod ? ` · 议事长` : (isUser ? ' · 你' : '');
+  const label = isMod ? ` · ${plazaT('chat.chairperson')}` : (isUser ? ` · ${plazaT('chat.you')}` : '');
   const modAction = isMod ? `<div style="margin-top:6px;text-align:right"><button class="plan-btn" onclick="refreshPlan()" style="font-size:11px;padding:2px 10px">↻ 修订执行计划</button></div>` : '';
   log.insertAdjacentHTML('beforeend', `<div class="msg-entry ${cls}"><div class="me-name">${esc(m.agent_name)}${label}</div><div class="me-text">${mdLite(m.content)}</div>${modAction}</div>`);
   log.scrollTop = log.scrollHeight;
@@ -2953,6 +2983,7 @@ function connectSSE(discId) {
 /* ═══════════ INIT ═══════════ */
 async function init() {
   try {
+    renderPlazaLanguage();
     allTeams = await api(`${API}/teams`) || [];
     const plazas = await loadPlazas(); renderArena3D([]);
     const savedPlaza = localStorage.getItem('plaza_curPlaza');

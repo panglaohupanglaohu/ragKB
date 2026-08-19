@@ -1080,6 +1080,8 @@ async def assign_plan_to_team(
             )
             task_ids.append(submitted.task_id)
             per_team.append({"team_id": tid, "task_id": submitted.task_id})
+        if not task_ids:
+            raise RuntimeError("所有团队的任务创建均未成功（task_ids 为空）")
         if not disc.plan:
             disc.plan = {
                 "revision": _get_plan_revision(disc),
@@ -1104,13 +1106,17 @@ async def assign_plan_to_team(
             "team_ids": team_ids,
             "task_id": task_ids[0] if task_ids else "",
             "task_ids": task_ids,
+            "task_count": len(task_ids),
             "dispatch_group_id": group_id,
             "multi_team": len(team_ids) > 1,
             "per_team": per_team,
         }
     except Exception as e:
-        logger.warning("创建任务失败: %s", e)
-        return {"status": "assigned_no_task", "team_id": team_ids[0], "team_ids": team_ids, "error": str(e)}
+        logger.exception("[assign] 创建任务失败 plaza=%s disc=%s teams=%s", plaza_id, disc_id, team_ids)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"派发失败：任务创建异常 — {e}",
+        ) from e
 
 
 # ── 讨论输出对象记录 ──────────────────────────────────────

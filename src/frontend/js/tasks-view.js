@@ -453,15 +453,16 @@ document.querySelectorAll('.modal-overlay').forEach(o=>{o.addEventListener('mous
 // Export to global scope for HTML onclick access
 window.loadTasks = loadTasks;
 window.cancelAllTasks = async function(){
-  const choice=prompt('选择要清理的任务类型:\n  r = 仅运行中\n  p = 仅待执行\n  a = 全部(运行中+待执行)\n  f = 仅失败\n  输入后确认:');
+  const choice=prompt('选择要清理的任务类型:\n  r = 仅运行中\n  p = 仅待执行\n  a = 全部(含失败/已完成/已取消)\n  f = 仅失败\n  d = 仅已完成\n  输入后确认:');
   if(!choice) return;
   const ch=choice.trim().toLowerCase();
   const targets=[];
   if(ch==='r') targets.push('running');
   else if(ch==='p') targets.push('pending');
-  else if(ch==='a') targets.push('running','pending');
+  else if(ch==='a') targets.push('running','pending','failed','completed','cancelled');
   else if(ch==='f') targets.push('failed');
-  else {toast('无效选择，请输入 r/p/a/f');return}
+  else if(ch==='d') targets.push('completed');
+  else {toast('无效选择，请输入 r/p/a/f/d');return}
 
   const tasks=await listTasks();
   if(!tasks||!tasks.length){toast('暂无任务');return}

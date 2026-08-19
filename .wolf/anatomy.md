@@ -5,6 +5,12 @@
 
 ## ./
 
+- `src/frontend/plaza.html` — 议事广场页面；接入共享 i18n 脚本与顶部语言切换按钮
+- `src/frontend/js/plaza.js` — 议事广场交互、3D 场景和页面专用中英词条；动态翻译观察器避免自触发循环
+- `tests/test_workflow_pipeline_mode.py` — 团队流水线模式与多智能体分工验证用例（AgentTeam + TeamStore + _generate_workflow 角色匹配）
+- `docs/任务页面Build与AWS运维流程优化plan.md` — Build System/AWS 运维任务页面流程审计与分阶段优化计划
+- `docs/任务页面Build与AWS运维流程优化todos.md` — Build System/AWS 运维任务页面可执行任务与验收清单
+
 - `.dockerignore` — Docker ignore rules (~48 tok)
 - `.DS_Store` (~2729 tok)
 - `.gitignore` — Git ignore rules (~103 tok)

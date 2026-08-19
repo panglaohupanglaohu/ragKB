@@ -1288,6 +1288,7 @@
   /* ── Main apply function ── */
   function applyAll() {
     const lang = getLang();
+    const manualPage = document.documentElement.hasAttribute('data-px-i18n-manual');
     _sortedZh = null;
     _sortedEn = null;
 
@@ -1309,16 +1310,16 @@
     });
 
     // 2. DOM text walker — translate all visible text
-    if (document.body) walkAndTranslate(document.body, lang);
+    if (document.body && !manualPage) walkAndTranslate(document.body, lang);
 
     // 3. Translate attributes
-    if (document.body) translateAttrs(document.body, lang);
+    if (document.body && !manualPage) translateAttrs(document.body, lang);
 
     // 4. Translate <option> elements
-    if (document.body) translateOptions(document.body, lang);
+    if (document.body && !manualPage) translateOptions(document.body, lang);
 
     // 5. Update <title>
-    if (document.title) document.title = translateText(document.title, lang);
+    if (document.title && !manualPage) document.title = translateText(document.title, lang);
 
     // 6. Update html lang
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
